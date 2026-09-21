@@ -882,12 +882,20 @@ git commit -m "ci: typecheck web, vet and test router"
 - [ ] **Step 1: Confirm the old service is fully retired**
 
 ```bash
-pm2 list | grep -c fudrouter || true
-echo "hosts MITM entries: $(grep -cE 'cloudcode-pa|githubcopilot|kiro\.dev|cursor\.sh' /etc/hosts || true)"
+pm2 jlist 2>/dev/null | python3 -c "import sys,json;print('old PM2 fudrouter present:', sum(1 for a in json.load(sys.stdin) if a.get('name')=='fudrouter'))" 2>/dev/null || echo "old PM2 fudrouter present: 0"
+echo "hosts MITM entries: $(grep -cE 'cloudcode-pa|githubcopilot|kiro\.dev|cursor\.sh|amazonaws\.com' /etc/hosts || true)"
 echo "8011/8012/443: $(ss -ltn 2>/dev/null | grep -cE ':(8011|8012|443)\b')"
 getcap /home/dwizzy/fudrouter-app/bin/fudrouter 2>/dev/null || echo "no capability"
 ```
-Expected: `0` PM2 matches, `0` hosts entries, `0` listening on the old ports, `no capability`.
+Expected: `old PM2 fudrouter present: 0`, `hosts MITM entries: 0`, `0` listening on the old ports, `no capability`.
+
+Two deliberate refinements over a naive check:
+- The PM2 check matches the **exact** name `fudrouter`, not a substring. `grep -c fudrouter`
+  would also match `fudrouter-web` and `fudrouter-router` — the new product's processes —
+  and report a false failure once they exist.
+- The hosts pattern includes `amazonaws\.com`, without which the two AWS hijacks
+  (`q.us-east-1.amazonaws.com`, `codewhisperer.us-east-1.amazonaws.com`) are invisible to
+  this gate — the same blind spot Task 3 corrected.
 
 - [ ] **Step 2: Confirm the tunnel is alive and still serves Zura**
 

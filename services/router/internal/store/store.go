@@ -4,6 +4,8 @@ package store
 import (
 	"context"
 	"errors"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/gofrs/uuid/v5"
@@ -13,14 +15,35 @@ import (
 
 var ErrNotFound = errors.New("not found")
 
-type Store struct{ pool *pgxpool.Pool }
+// Store is the data plane's only database access.
+//
+// allowDevProviders gates rows with `provider.status = 'dev'`. The S0 spec (§1)
+// forbids shipping a personal-OAuth provider layer, so a non-commercial
+// provider is onboarded as `dev` and is invisible unless
+// ROUTER_ALLOW_DEV_PROVIDERS is explicitly set. Enforcement lives here, in SQL,
+// rather than in a comment asking a future release engineer to remember to
+// delete a row — comments do not ship, predicates do.
+type Store struct {
+	pool              *pgxpool.Pool
+	allowDevProviders bool
+}
 
 func New(ctx context.Context, dsn string) (*Store, error) {
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
 		return nil, err
 	}
-	return &Store{pool: pool}, nil
+	return &Store{pool: pool, allowDevProviders: envBool("ROUTER_ALLOW_DEV_PROVIDERS")}, nil
+}
+
+// envBool accepts only explicit truthy values, so a typo or an empty string
+// fails closed (dev providers stay hidden) instead of open.
+func envBool(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
 }
 
 func (s *Store) Close() { s.pool.Close() }
@@ -60,7 +83,8 @@ func (s *Store) ModelWithProvider(ctx context.Context, slug string) (*ModelRow, 
 		select m.id, m.provider_id, m.slug, m.input_price, m.output_price, m.currency,
 		       p.base_url, p.credentials_enc
 		from model m join provider p on p.id = m.provider_id
-		where m.slug = $1 and m.status = 'active' and p.status = 'active'`, slug,
+		where m.slug = $1 and m.status = 'active'
+		  and (p.status = 'active' or (p.status = 'dev' and $2))`, slug, s.allowDevProviders,
 	).Scan(&row.ModelID, &row.ProviderID, &row.Slug, &row.InputPrice, &row.OutputPrice,
 		&row.Currency, &row.BaseURL, &row.CredEnc)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -106,7 +130,12 @@ type RequestLog struct {
 type ModelInfo struct{ Slug, Name string }
 
 func (s *Store) ActiveModels(ctx context.Context) ([]ModelInfo, error) {
-	rows, err := s.pool.Query(ctx, `select slug, name from model where status = 'active' order by slug`)
+	rows, err := s.pool.Query(ctx, `
+		select m.slug, m.name
+		from model m join provider p on p.id = m.provider_id
+		where m.status = 'active'
+		  and (p.status = 'active' or (p.status = 'dev' and $1))
+		order by m.slug`, s.allowDevProviders)
 	if err != nil {
 		return nil, err
 	}

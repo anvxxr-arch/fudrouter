@@ -22,6 +22,20 @@ Two decisions frame everything below:
    `opencode-zen` accounts + MITM hijack of Copilot/Kiro/Cursor/Antigravity), so
    its provider layer is unusable for this product and must not ship.
 
+   > **Enforcement (implemented).** `provider.status` is a three-state gate:
+   > `active` is served, `inactive` is not, and **`dev` is served only when
+   > `ROUTER_ALLOW_DEV_PROVIDERS` is truthy** (checked in the data plane's SQL,
+   > failing closed on any unrecognised value). A non-commercial provider is
+   > therefore onboarded as `dev`: present for development, invisible in
+   > production without an explicit opt-in. This exists so the rule is a
+   > predicate the code enforces rather than a comment a release engineer has to
+   > remember — and so a development provider cannot leak into production by
+   > being forgotten. Pinned by `internal/store/store_test.go`.
+   >
+   > The `xai-grok` provider (farmed accounts) is onboarded as `dev` under this
+   > rule. Promoting any farmed-account provider to `active` is a deliberate
+   > business decision that contradicts this section as written.
+
 2. **Architecture B — split control plane and data plane.**
    - **Control plane:** SvelteKit + TypeScript. UI, auth, billing, admin.
    - **Data plane:** Go. The `/v1/chat/completions` hot path.

@@ -25,6 +25,13 @@ const AUTH_DIR = process.env.GROK_FARM_AUTH_DIR || '/home/dwizzy/grok-register/c
 const CLI_VERSION = process.env.XAI_CLI_VERSION || '0.1.202';
 const PRIORITY = Number(process.env.XAI_PRIORITY || 10);
 
+// Spec §1 forbids shipping a personal-OAuth provider layer, and this provider is
+// built from farmed accounts — so it defaults to 'dev'. The Go data plane hides
+// dev providers unless ROUTER_ALLOW_DEV_PROVIDERS is set, which makes the
+// exclusion mechanical instead of a comment someone has to remember to act on.
+// Only override this for a provider whose economics are legitimate resale.
+const STATUS = process.env.XAI_PROVIDER_STATUS || 'dev';
+
 // Published list prices, micro-USD per 1M tokens (1 USD = 1e6 micro-USD).
 // Source: https://docs.x.ai/developers/models — grok-4.6 is $2.00 in / $6.00 out.
 // grok-4.7 is served by the upstream but is NOT in the published table, so it
@@ -92,11 +99,11 @@ const sql = postgres(DSN);
 try {
 	const rows = await sql`
 		insert into provider (id, name, base_url, credentials_enc, status, priority)
-		values (${crypto.randomUUID()}, ${PROVIDER_NAME}, ${BASE_URL}, ${encrypt(creds)}, 'active', ${PRIORITY})
+		values (${crypto.randomUUID()}, ${PROVIDER_NAME}, ${BASE_URL}, ${encrypt(creds)}, ${STATUS}, ${PRIORITY})
 		on conflict (name) do update
 		  set base_url = excluded.base_url,
 		      credentials_enc = excluded.credentials_enc,
-		      status = 'active',
+		      status = excluded.status,
 		      priority = excluded.priority
 		returning id`;
 	const pid = rows[0].id;

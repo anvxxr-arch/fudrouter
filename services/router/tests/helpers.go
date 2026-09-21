@@ -54,12 +54,24 @@ func secretHash(s string) string {
 // SeedEnv inserts a throwaway user + key + provider + model pointing at upstreamBaseURL.
 func SeedEnv(t *testing.T, dsn, upstreamBaseURL string) *Env {
 	t.Helper()
-	return SeedEnvWithHeaders(t, dsn, upstreamBaseURL, nil)
+	return SeedEnvFull(t, dsn, upstreamBaseURL, "active", nil)
 }
 
 // SeedEnvWithHeaders is SeedEnv plus extra `default_headers` inside the
 // encrypted credential blob (upstream requirements that are not auth).
 func SeedEnvWithHeaders(t *testing.T, dsn, upstreamBaseURL string, extraHeaders map[string]string) *Env {
+	t.Helper()
+	return SeedEnvFull(t, dsn, upstreamBaseURL, "active", extraHeaders)
+}
+
+// SeedEnvWithStatus controls provider.status — e.g. 'dev', which the data plane
+// must hide unless ROUTER_ALLOW_DEV_PROVIDERS is set (spec §1).
+func SeedEnvWithStatus(t *testing.T, dsn, upstreamBaseURL, status string, extraHeaders map[string]string) *Env {
+	t.Helper()
+	return SeedEnvFull(t, dsn, upstreamBaseURL, status, extraHeaders)
+}
+
+func SeedEnvFull(t *testing.T, dsn, upstreamBaseURL, status string, extraHeaders map[string]string) *Env {
 	t.Helper()
 	ctx := context.Background()
 	conn, err := pgx.Connect(ctx, dsn)
@@ -105,8 +117,8 @@ func SeedEnvWithHeaders(t *testing.T, dsn, upstreamBaseURL string, extraHeaders 
 	mid := uuid.Must(uuid.NewV7()).String()
 	_, err = conn.Exec(ctx, `
 		insert into provider (id, name, base_url, credentials_enc, status, priority, created_at)
-		values ($1, $2, $3, $4, 'active', 100, now())`,
-		pid, "test-provider-"+slug, upstreamBaseURL, enc)
+		values ($1, $2, $3, $4, $5, 100, now())`,
+		pid, "test-provider-"+slug, upstreamBaseURL, enc, status)
 	if err != nil {
 		t.Fatalf("seed provider: %v", err)
 	}

@@ -28,7 +28,9 @@ try {
 	check('provider row exists', rows.length === 1);
 	if (rows.length !== 1) throw new Error('no provider row');
 	const p = rows[0];
-	check('status active', p.status === 'active');
+	// 'dev' is the expected status for a farmed-account provider (spec §1);
+	// 'active' would mean it is served in production.
+	check('status is active or dev', p.status === 'active' || p.status === 'dev', p.status);
 	check('base_url ends with /v1', p.base_url.endsWith('/v1'), p.base_url);
 
 	// 2. the stored blob decrypts with the TS module

@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "provider_name_idx" ON "provider" USING btree ("name");

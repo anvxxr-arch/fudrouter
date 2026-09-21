@@ -18,6 +18,9 @@
 		"db:generate": "drizzle-kit generate",
 		"db:migrate": "drizzle-kit migrate",
 		"db:studio": "drizzle-kit studio",
+		"seed": "node --env-file=.env scripts/seed.mjs",
+		"onboard:xai": "node --env-file=.env scripts/onboard-xai-grok.mjs",
+		"verify:xai": "node --experimental-strip-types --env-file=.env scripts/verify-xai.mjs",
 		"auth:schema": "auth generate --config src/lib/server/auth.ts --output src/lib/server/db/auth.schema.ts --yes"
 	},
 	"devDependencies": {

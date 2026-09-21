@@ -47,18 +47,28 @@ export const apiKey = pgTable(
 );
 
 // provider — credentialsEnc = base64(iv[12]||ct||tag[16]), AES-256-GCM
-export const provider = pgTable('provider', {
-	id: text('id').primaryKey(),
-	name: text('name').notNull(),
-	baseUrl: text('base_url').notNull(),
-	credentialsEnc: text('credentials_enc').notNull(),
-	status: text('status').notNull().default('active'),
-	priority: integer('priority').notNull().default(100),
-	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
-});
+// `name` is unique so the seed/onboarding scripts can upsert by name.
+export const provider = pgTable(
+	'provider',
+	{
+		id: text('id').primaryKey(),
+		name: text('name').notNull(),
+		baseUrl: text('base_url').notNull(),
+		credentialsEnc: text('credentials_enc').notNull(),
+		status: text('status').notNull().default('active'),
+		priority: integer('priority').notNull().default(100),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [uniqueIndex('provider_name_idx').on(t.name)]
+);
 
-// model — prices are MINOR UNITS PER 1M TOKENS, numeric(12,6).
+// model — prices are MINOR UNITS PER 1M TOKENS, numeric(18,6).
 // e.g. USD $0.15 per 1M input tokens -> inputPrice '150000.000000' (micro-USD).
+//
+// Precision is 18, NOT the 12 the spec drafted: micro-USD needs 6 decimals AND
+// 6 integer digits just to reach $1.00 per 1M tokens, so numeric(12,6) caps out
+// at $0.999999/1M — real upstreams are $2-$75/1M and Postgres rejects them with
+// "must round to an absolute value less than 10^6". 18,6 holds up to $999,999/1M.
 export const model = pgTable(
 	'model',
 	{
@@ -69,8 +79,8 @@ export const model = pgTable(
 		name: text('name').notNull(),
 		slug: text('slug').notNull(),
 		context: integer('context'),
-		inputPrice: numeric('input_price', { precision: 12, scale: 6 }).notNull(),
-		outputPrice: numeric('output_price', { precision: 12, scale: 6 }).notNull(),
+		inputPrice: numeric('input_price', { precision: 18, scale: 6 }).notNull(),
+		outputPrice: numeric('output_price', { precision: 18, scale: 6 }).notNull(),
 		currency: char('currency', { length: 3 }).notNull().default('USD'),
 		status: text('status').notNull().default('active'),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()

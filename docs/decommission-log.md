@@ -43,10 +43,16 @@
 - **Step 4: zura is routed but its origin is down.** `zura.dwirijal.my.id` returns 502
   because nothing is listening on `127.0.0.1:8084` — pre-existing and unrelated to this
   teardown. Routing itself is intact, which is what this step changed.
-- **Stale credential copy shredded.** `~/.pm2/dump.pm2.bak` (PM2's own backup of the
-  pre-delete dump) still held the retired `fudrouter` entry with 8 secret env keys
-  (`HINDSIGHT_LLM_API_KEY`, `HERMES_CUSTOM_API_*_API_KEY`, `HERMES_SESSION_KEY`,
-  `TERMINAL_DOCKER_SHARED_CONTAINER_KEY`). No PM2 code path reads that file; removed with
-  `shred -u`. Flagged by the Task 2 review, cleaned as part of the retired-service remnant
-  sweep.
+- **Stale credential copy shredded — KEYS REQUIRE ROTATION.** `~/.pm2/dump.pm2.bak` (PM2's
+  own backup of the pre-delete dump) still held the retired `fudrouter` entry with 8 secret
+  env keys (`HINDSIGHT_LLM_API_KEY`, `HERMES_CUSTOM_API_TYPESAFE_AI_API_KEY`,
+  `HERMES_CUSTOM_API_CLINE_BOT_API_KEY`, `HERMES_CUSTOM_LOCALHOST_20129_API_KEY`,
+  `HERMES_CUSTOM_LOCALHOST_20128_API_KEY`, `HERMES_SESSION_KEY`,
+  `TERMINAL_DOCKER_SHARED_CONTAINER_KEY`, `HERMES_CUSTOM_API_SEKAIGATEWAY_XYZ_API_KEY`),
+  at mode 664 (world-readable). No PM2 code path reads that file; removed with `shred -u`.
+  Flagged by the Task 2 review, cleaned as part of the retired-service remnant sweep.
+
+  **Shredding is not remediation.** `shred` is best-effort on ext4-over-LVM — journal replay
+  or an LVM/root snapshot can retain the blocks. Every key listed above should be treated as
+  exposed and **rotated**. Until then the exposure stands.
 - Full `/etc/hosts` diff against the backup: exactly 10 deletions, 0 additions.

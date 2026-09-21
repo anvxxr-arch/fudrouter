@@ -311,14 +311,18 @@ git commit -m "docs(decommission): record tunnel ingress removal"
 
 ---
 
-## Task 5: Remove `cap_net_bind_service` from the retired binary
+## Task 5: Retired-service remnant sweep
 
 **Files:**
 - Modify: `docs/decommission-log.md`
 
 **Interfaces:**
 - Consumes: Task 2
-- Produces: no stray capability on a binary that no longer runs
+- Produces: no stray capability on a binary that no longer runs; no stale credential copies left behind by the retired service
+
+Two remnants, both from the retired service: the low-port capability on its binary, and
+PM2's own backup of the pre-delete dump — which still carries the retired process's
+inherited environment, including live API keys.
 
 - [ ] **Step 1: Show the current capability**
 
@@ -340,13 +344,30 @@ getcap /home/dwizzy/fudrouter-app/bin/fudrouter || echo "NO CAPABILITY — clean
 ```
 Expected: `NO CAPABILITY — clean`.
 
-- [ ] **Step 4: Log it**
+- [ ] **Step 4: Shred PM2's stale dump backup**
+
+```bash
+ls -la /home/dwizzy/.pm2/dump.pm2.bak && shred -u -v /home/dwizzy/.pm2/dump.pm2.bak
+ls -la /home/dwizzy/.pm2/dump.pm2.bak 2>/dev/null || echo "GONE — clean"
+cat /home/dwizzy/.pm2/dump.pm2   # must still be []
+```
+`dump.pm2.bak` is PM2's own backup of the pre-delete dump. It is not read by any PM2 code
+path (the authoritative dump is `dump.pm2`), so it is a pure stale copy — but it holds the
+retired `fudrouter` entry's full inherited env, including API keys, at mode 664.
+
+**This does not close the exposure.** `shred` is best-effort on ext4-over-LVM: journal
+replay or an LVM/root snapshot can retain the blocks. **Any credential that appeared in that
+file must be rotated**, not merely deleted. Record the affected key names in the log and
+surface them for rotation — the log must not imply that shredding made them safe.
+
+- [ ] **Step 5: Log it**
 
 ```bash
 cd /home/dwizzy/fudrouter
 printf '| 5. setcap removed | done | binary no longer carries cap_net_bind_service |\n' >> docs/decommission-log.md
+printf '| 5b. Stale credentials | done | dump.pm2.bak shredded (keys REQUIRE ROTATION) |\n' >> docs/decommission-log.md
 git add docs/decommission-log.md
-git commit -m "docs(decommission): record capability removal"
+git commit -m "docs(decommission): record capability removal and remnant sweep"
 ```
 
 ---

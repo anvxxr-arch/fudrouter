@@ -8,3 +8,4 @@ Hosts backup: /etc/hosts.pre-decommission
 |---|---|---|
 | 1. Backup | done | archive + hosts copy verified |
 | 2. PM2 stop/delete | done | ports 8011/8012/443 free |
+| 3. /etc/hosts cleaned | done | 10 MITM entries removed, 0 remaining |

@@ -5,16 +5,11 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 
 	"github.com/anvxxr-arch/fudrouter/services/router/tests"
 )
-
-// The test seeds a real api_key + provider + model row in the dev database when
-// DATABASE_URL is set (on-box); in CI (no env) the DB-backed cases skip.
-func dbURL() string { return os.Getenv("DATABASE_URL") }
 
 func newUpstream(t *testing.T, chunks []string, gotAuth *string, gotBody *string) *httptest.Server {
 	t.Helper()
@@ -35,10 +30,7 @@ func newUpstream(t *testing.T, chunks []string, gotAuth *string, gotBody *string
 }
 
 func TestCompletionsStreamsAndLogs(t *testing.T) {
-	dsn := dbURL()
-	if dsn == "" {
-		t.Skip("DATABASE_URL not set — DB-backed proxy test skipped (CI)")
-	}
+	dsn := tests.RequireDB(t)
 	var gotAuth, gotBody string
 	up := newUpstream(t, []string{
 		`{"id":"c1","object":"chat.completion.chunk","choices":[{"delta":{"content":"Hel"}}]}`,
@@ -88,10 +80,7 @@ func TestCompletionsStreamsAndLogs(t *testing.T) {
 }
 
 func TestRevokedKeyRejected(t *testing.T) {
-	dsn := dbURL()
-	if dsn == "" {
-		t.Skip("DATABASE_URL not set")
-	}
+	dsn := tests.RequireDB(t)
 	var a, b string
 	up := newUpstream(t, []string{`{}`}, &a, &b)
 	defer up.Close()
@@ -111,10 +100,7 @@ func TestRevokedKeyRejected(t *testing.T) {
 }
 
 func TestBadKeyRejectedWithoutDBHit(t *testing.T) {
-	dsn := dbURL()
-	if dsn == "" {
-		t.Skip("DATABASE_URL not set")
-	}
+	dsn := tests.RequireDB(t)
 	var a, b string
 	up := newUpstream(t, []string{`{}`}, &a, &b)
 	defer up.Close()
@@ -138,10 +124,7 @@ func TestBadKeyRejectedWithoutDBHit(t *testing.T) {
 // forwarded upstream — the xAI Grok CLI proxy rejects completions without
 // `x-grok-client-version`, and no amount of valid auth changes that.
 func TestDefaultHeadersForwarded(t *testing.T) {
-	dsn := dbURL()
-	if dsn == "" {
-		t.Skip("DATABASE_URL not set")
-	}
+	dsn := tests.RequireDB(t)
 	var gotVersion string
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotVersion = r.Header.Get("x-grok-client-version")
@@ -171,10 +154,7 @@ func TestDefaultHeadersForwarded(t *testing.T) {
 
 // A model that does not exist must 404 without ever reaching an upstream.
 func TestUnknownModel404(t *testing.T) {
-	dsn := dbURL()
-	if dsn == "" {
-		t.Skip("DATABASE_URL not set")
-	}
+	dsn := tests.RequireDB(t)
 	var a, b string
 	up := newUpstream(t, []string{`{}`}, &a, &b)
 	defer up.Close()

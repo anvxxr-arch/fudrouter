@@ -1,5 +1,7 @@
 // Package tests provides DB-backed test helpers for the data plane.
-// Requires DATABASE_URL pointing at the dev Postgres; tests that use it skip in CI.
+// Requires DATABASE_URL pointing at the dev Postgres; without it the DB-backed
+// tests skip locally, but FAIL in CI so a green pipeline always means the data
+// plane was actually exercised.
 package tests
 
 import (
@@ -21,6 +23,22 @@ import (
 	"github.com/gofrs/uuid/v5"
 	"github.com/jackc/pgx/v5"
 )
+
+// RequireDB returns the DSN for DB-backed tests. It skips when the database is
+// not configured locally, but FAILS when CI is set: a silent skip lets the
+// pipeline go green while the data plane was never exercised at all, which is
+// exactly the failure mode this guard exists to prevent.
+func RequireDB(t *testing.T) string {
+	t.Helper()
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		if os.Getenv("CI") != "" {
+			t.Fatal("DATABASE_URL is not set in CI — DB-backed tests must run, not skip")
+		}
+		t.Skip("DATABASE_URL not set — DB-backed test skipped")
+	}
+	return dsn
+}
 
 type Env struct {
 	Key         string // full sk-ar-... key

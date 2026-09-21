@@ -2,7 +2,6 @@ package store_test
 
 import (
 	"context"
-	"os"
 	"testing"
 
 	"github.com/anvxxr-arch/fudrouter/services/router/internal/store"
@@ -13,10 +12,7 @@ import (
 // providers are onboarded with status='dev'. This pins the enforcement: the
 // exclusion must be a predicate in the data plane, not a promise in a comment.
 func TestDevProvidersAreHiddenUnlessOptedIn(t *testing.T) {
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		t.Skip("DATABASE_URL not set")
-	}
+	dsn := tests.RequireDB(t)
 	env := tests.SeedEnvWithStatus(t, dsn, "http://127.0.0.1:1", "dev", nil)
 	ctx := context.Background()
 
@@ -67,10 +63,7 @@ func TestDevProvidersAreHiddenUnlessOptedIn(t *testing.T) {
 // An active provider must keep working with no opt-in at all — the gate must
 // not have quietly broken the commercial path.
 func TestActiveProvidersAlwaysServed(t *testing.T) {
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		t.Skip("DATABASE_URL not set")
-	}
+	dsn := tests.RequireDB(t)
 	env := tests.SeedEnv(t, dsn, "http://127.0.0.1:1")
 	t.Setenv("ROUTER_ALLOW_DEV_PROVIDERS", "")
 

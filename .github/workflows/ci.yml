@@ -5,9 +5,31 @@ on:
     branches: [main, master]
   pull_request:
 
+# Every job runs against a real Postgres. The data plane's tests SKIP when
+# DATABASE_URL is absent, so a CI without a database would report green while
+# never exercising the code that actually serves traffic.
 jobs:
   web:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: fudrouter
+          POSTGRES_PASSWORD: fudrouter
+          POSTGRES_DB: fudrouter
+        ports:
+          - 5434:5432
+        options: >-
+          --health-cmd "pg_isready -U fudrouter"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://fudrouter:fudrouter@127.0.0.1:5434/fudrouter
+      ORIGIN: http://127.0.0.1:3000
+      BETTER_AUTH_SECRET: ci-only-not-a-real-secret
+      CREDENTIALS_MASTER_KEY: ZnVkcm91dGVyLWNpLXRlc3QtbWFzdGVyLWtleS0zMmI=
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -16,11 +38,31 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
+      - run: npm run db:migrate --workspace apps/web
+      - run: npm run db:check --workspace apps/web
       - run: npm run check --workspace apps/web
       - run: npm run test --workspace apps/web
+      - run: npm run build --workspace apps/web
 
   router:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: fudrouter
+          POSTGRES_PASSWORD: fudrouter
+          POSTGRES_DB: fudrouter
+        ports:
+          - 5434:5432
+        options: >-
+          --health-cmd "pg_isready -U fudrouter"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://fudrouter:fudrouter@127.0.0.1:5434/fudrouter
+      CREDENTIALS_MASTER_KEY: ZnVkcm91dGVyLWNpLXRlc3QtbWFzdGVyLWtleS0zMmI=
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -29,5 +71,9 @@ jobs:
           cache-dependency-path: services/router/go.sum
       - run: go vet ./...
         working-directory: services/router
-      - run: go test ./... -race
+      - run: go build ./...
+        working-directory: services/router
+      # -v so that any remaining t.Skip is visible in the log rather than
+      # indistinguishable from a pass.
+      - run: go test ./... -race -v
         working-directory: services/router

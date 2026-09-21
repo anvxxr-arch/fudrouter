@@ -1,5 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { decryptCredentials, encryptCredentials } from './credentials';
+
+// Hermetic setup. The module reads CREDENTIALS_MASTER_KEY from process.env at
+// call time, so a test that relies on the ambient shell having sourced .env
+// passes locally and fails in CI. Pin it explicitly instead.
+const TEST_KEY = Buffer.from(Array.from({ length: 32 }, (_, i) => i + 1)).toString('base64');
+
+beforeAll(() => {
+	process.env.CREDENTIALS_MASTER_KEY = TEST_KEY;
+});
 
 describe('AES-256-GCM credentials', () => {
 	it('round-trips', () => {
@@ -38,5 +47,21 @@ describe('AES-256-GCM credentials', () => {
 			accounts: [{ email: 'a@example.test', access_token: 'tok-1' }]
 		};
 		expect(decryptCredentials(encryptCredentials(plain))).toEqual(plain);
+	});
+
+	// A key of the wrong size is a configuration error, and silently accepting
+	// it would produce ciphertext the Go data plane cannot decrypt.
+	it('refuses a master key that is not 32 bytes', () => {
+		const saved = process.env.CREDENTIALS_MASTER_KEY;
+		process.env.CREDENTIALS_MASTER_KEY = Buffer.alloc(16, 1).toString('base64');
+		expect(() => encryptCredentials({ api_key: 'x' })).toThrow(/32 bytes/);
+		process.env.CREDENTIALS_MASTER_KEY = saved;
+	});
+
+	it('refuses to run with no master key at all', () => {
+		const saved = process.env.CREDENTIALS_MASTER_KEY;
+		delete process.env.CREDENTIALS_MASTER_KEY;
+		expect(() => encryptCredentials({ api_key: 'x' })).toThrow(/not set/);
+		process.env.CREDENTIALS_MASTER_KEY = saved;
 	});
 });

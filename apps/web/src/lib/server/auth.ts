@@ -5,11 +5,12 @@ import { sveltekitCookies } from 'better-auth/svelte-kit';
 import { admin } from 'better-auth/plugins';
 import { getRequestEvent } from '$app/server';
 import { db } from '$lib/server/db';
+import * as authSchema from '$lib/server/db/auth.schema';
 
 export const auth = betterAuth({
 	baseURL: env.ORIGIN,
 	secret: env.BETTER_AUTH_SECRET,
-	database: drizzleAdapter(db, { provider: 'pg' }),
+	database: drizzleAdapter(db, { provider: 'pg', schema: authSchema }),
 	emailAndPassword: { enabled: true },
 	plugins: [
 		admin({

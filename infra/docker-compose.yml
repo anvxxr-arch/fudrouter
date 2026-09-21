@@ -1,24 +1,11 @@
 name: fudrouter
 
+# The fudrouter database does NOT live here. It runs on the consolidated
+# hardened Postgres (project `infra-pg`, 127.0.0.1:5432, database `fudrouter`,
+# role `fudrouter`) — see /home/dwizzy/infra-pg/docker-compose.yml, which
+# explicitly replaces the old per-app `fudrouter-db` container on :5434.
+# Only the cache is still owned by this stack.
 services:
-  db:
-    image: postgres:17
-    container_name: fudrouter-db
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: fudrouter
-      POSTGRES_PASSWORD: fudrouter
-      POSTGRES_DB: fudrouter
-    ports:
-      - "127.0.0.1:5434:5432"
-    volumes:
-      - fudrouter-pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U fudrouter -d fudrouter"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-
   cache:
     image: valkey/valkey:8
     container_name: fudrouter-cache

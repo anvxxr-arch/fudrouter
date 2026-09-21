@@ -22,3 +22,9 @@ Hosts backup: /etc/hosts.pre-decommission
 - Full /etc/hosts diff against the backup: exactly 10 deletions, 0 additions.
 | 4. Tunnel ingress | done | ai.karepmuwes removed; tunnel + zura intact |
 | 5. setcap removed | done | binary no longer carries cap_net_bind_service |
+- **Stale credential copy shredded.** `~/.pm2/dump.pm2.bak` (PM2's own backup of the
+  pre-delete dump) still held the retired `fudrouter` entry with 8 secret env keys
+  (`HINDSIGHT_LLM_API_KEY`, `HERMES_CUSTOM_API_*_API_KEY`, `HERMES_SESSION_KEY`,
+  `TERMINAL_DOCKER_SHARED_CONTAINER_KEY`). No PM2 code path reads that file; removed
+  with `shred -u`. Flagged by the Task 2 review, cleaned here as part of the retired-
+  service remnant sweep.

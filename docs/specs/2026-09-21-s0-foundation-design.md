@@ -169,6 +169,10 @@ fudrouter/
   docs/specs/               # this document
 ```
 
+> **Note on `svelte.config.js`.** SvelteKit 2.63+ (via `sv@0.17.1`) no longer
+> generates a standalone `svelte.config.js`; adapter config lives inline in
+> `apps/web/vite.config.ts`. The app directory will not contain this file.
+
 Home: `/home/dwizzy/fudrouter`.
 
 ---

@@ -1,0 +1,35 @@
+name: fudrouter
+
+services:
+  db:
+    image: postgres:17
+    container_name: fudrouter-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: fudrouter
+      POSTGRES_PASSWORD: fudrouter
+      POSTGRES_DB: fudrouter
+    ports:
+      - "127.0.0.1:5434:5432"
+    volumes:
+      - fudrouter-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fudrouter -d fudrouter"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  cache:
+    image: valkey/valkey:8
+    container_name: fudrouter-cache
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  fudrouter-pgdata:

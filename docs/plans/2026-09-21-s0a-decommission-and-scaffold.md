@@ -494,6 +494,13 @@ test ! -f /home/dwizzy/fudrouter/svelte.config.js && echo "NO LEAK TO ROOT"
 ```
 Expected: `APP OK` then `NO LEAK TO ROOT`.
 
+> **Note on Step 2's expected output.** The `sv create` CLI (v0.17.1, SvelteKit
+> 2.63) no longer generates `apps/web/svelte.config.js`; adapter config lives
+> inline in `apps/web/vite.config.ts` via `sveltekit({ adapter: adapter(), ... })`.
+> The expected output still holds because `svelte.config.js` does not exist at
+> workspace root. The `test ! -f ...` check is the correct validation for the
+> current CLI version.
+
 - [ ] **Step 3: Add the add-ons**
 
 ```bash

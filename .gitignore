@@ -1,0 +1,47 @@
+# ── build artifacts ──
+/bin/
+/fudrouter
+*.exe
+*.new
+*.prev
+
+# ── node ──
+node_modules/
+.next-cli-build/
+.next/
+.tmp/
+dashboard/.tmp/
+dashboard/node_modules/
+npm-debug.log*
+
+# ── runtime / data ──
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+data/
+
+# ── secrets ──
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+machine-id
+jwt-secret
+
+# ── logs ──
+*.log
+logs/
+
+# ── editors / os ──
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ── scratch ──
+*.bak
+*.stale-*

@@ -1,0 +1,31 @@
+version: "3.8"
+
+services:
+  fudrouter:
+    build: .
+    ports:
+      - "8011:8011"
+      - "8012:8012"
+      - "8443:8443"
+    volumes:
+      - fudrouter-data:/data
+    environment:
+      - FUDROUTER_API_ADDR=0.0.0.0:8011
+      - FUDROUTER_WEB_ADDR=0.0.0.0:8012
+      - FUDROUTER_MITM_ADDR=:8443
+      - FUDROUTER_MITM=1
+      - FUDROUTER_ENV=production
+      - API_KEY_SECRET=${API_KEY_SECRET:?set API_KEY_SECRET in .env}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:8012}
+      - RATE_LIMIT_RATE=${RATE_LIMIT_RATE:-10}
+      - RATE_LIMIT_CAPACITY=${RATE_LIMIT_CAPACITY:-50}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8011/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  fudrouter-data:

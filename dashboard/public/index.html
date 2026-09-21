@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fudrouter — One API for every provider</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;500;700;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter','system-ui'], mono: ['JetBrains Mono','monospace'] },
+          colors: {
+            ink: '#0a0e17', surface: '#0f131a', card: '#131820', border: '#1a2230',
+            accent: '#8b7cf6', glow: '#a78bfa', mint: '#6ee7b7', coral: '#f472b6',
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { background: #0a0e17; color: #e8e8f0; font-family: 'Inter',system-ui,sans-serif; }
+    ::selection { background: rgba(139,140,246,0.25); }
+    * { scrollbar-width: thin; scrollbar-color: #1a2230 #0a0e17; }
+    *::-webkit-scrollbar { width: 6px; height: 6px; }
+    *::-webkit-scrollbar-track { background: #0a0e17; }
+    *::-webkit-scrollbar-thumb { background: #1a2230; border-radius: 3px; }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "svelte": "https://cdn.jsdelivr.net/npm/svelte@5.0.0/src/index.js",
+      "svelte/internal": "https://cdn.jsdelivr.net/npm/svelte@5.0.0/src/internal/index.js",
+      "svelte/internal/client": "https://cdn.jsdelivr.net/npm/svelte@5.0.0/src/internal/client/index.js",
+      "svelte/internal/disclose-version": "https://cdn.jsdelivr.net/npm/svelte@5.0.0/src/internal/disclose-version.js",
+      "svelte/internal/flags/legacy": "https://cdn.jsdelivr.net/npm/svelte@5.0.0/src/internal/flags/legacy.js",
+      "svelte/store": "https://cdn.jsdelivr.net/npm/svelte@5.0.0/src/store/index.js",
+      "svelte/compiler": "https://cdn.jsdelivr.net/npm/svelte@5.0.0/src/compiler/index.js"
+    }
+  }
+  </script>
+</head>
+<body class="min-h-screen antialiased">
+  <div id="app"></div>
+  <script type="module">
+    import { mount } from 'svelte';
+    import App from './assets/entry.js';
+    const app = mount(App, { target: document.getElementById('app') });
+  </script>
+</body>
+</html>

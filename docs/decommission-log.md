@@ -57,6 +57,7 @@
   or an LVM/root snapshot can retain the blocks. Every key listed above should be treated as
   exposed and **rotated**. Until then the exposure stands.
 - Full `/etc/hosts` diff against the backup: exactly 10 deletions, 0 additions.
+- **NODE_ENV=production is exported in the homeserver shell.** `npm` treats it as `omit=dev`; every `apps/web` dependency is a devDependency. Always prefix `npm install`/`ci` with `NODE_ENV=development` or `node_modules` silently empties while exiting 0.
 
 ## S0-A verification
 

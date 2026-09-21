@@ -543,6 +543,9 @@ DATABASE_URL=postgres://fudrouter:fudrouter@127.0.0.1:5434/fudrouter
 BETTER_AUTH_SECRET=replace-me-with-openssl-rand-base64-32
 BETTER_AUTH_URL=http://localhost:3000
 
+# SvelteKit origin (read by src/lib/server/auth.ts via env.ORIGIN)
+ORIGIN=http://localhost:3000
+
 # Go data plane
 ROUTER_BASE_URL=http://127.0.0.1:8100
 ```

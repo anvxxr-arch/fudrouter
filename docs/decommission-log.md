@@ -20,3 +20,4 @@ Hosts backup: /etc/hosts.pre-decommission
 - **Step 3 edit was performed by the controller, not a subagent.** The write needs a
   harness approval that a subagent cannot obtain. All 10 removals were user-approved.
 - Full /etc/hosts diff against the backup: exactly 10 deletions, 0 additions.
+| 4. Tunnel ingress | done | ai.karepmuwes removed; tunnel + zura intact |

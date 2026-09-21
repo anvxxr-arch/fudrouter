@@ -102,11 +102,12 @@ the machine broken in a way that looks like a network problem.
 
 ### 4.1 Hazard
 
-`/etc/hosts` currently contains 8 entries pointing IDE domains at `127.0.0.1`:
+`/etc/hosts` currently contains 10 entries pointing IDE domains at `127.0.0.1`:
 
 ```
 daily-cloudcode-pa.googleapis.com      cloudcode-pa.googleapis.com
 api.individual.githubcopilot.com       runtime.us-east-1.kiro.dev
+q.us-east-1.amazonaws.com              codewhisperer.us-east-1.amazonaws.com
 api2.cursor.sh                         api3.cursor.sh
 agent.api5.cursor.sh                   agentn.api5.cursor.sh
 ```
@@ -132,7 +133,7 @@ a deliberate, accepted trade-off.
 **Phase B — service teardown** (personal IDE routing goes dark here)
 
 3. Stop and delete the PM2 process `fudrouter`.
-4. Remove the 8 MITM entries from `/etc/hosts`.
+4. Remove the 10 MITM entries from `/etc/hosts`.
 5. Confirm ports `8011`, `8012`, `443` are free.
 6. Remove **only** the `ai.karepmuwes.my.id` ingress rule from
    `~/.cloudflared/config.yml`. **Do not delete the tunnel** — `39bdfeef-…` is

@@ -28,7 +28,7 @@
 
 Failure modes this plan's tasks must not leave open — each is pinned by a test in the task that owns it:
 
-1. **Teardown ordering.** Stopping the MITM before removing `/etc/hosts` entries leaves 8 domains resolving to `127.0.0.1` with nothing listening — Copilot, Kiro, Cursor and Antigravity hang on connect. (Task 2 → 3)
+1. **Teardown ordering.** Stopping the MITM before removing `/etc/hosts` entries leaves 10 domains resolving to `127.0.0.1` with nothing listening — Copilot, Kiro, Cursor and Antigravity hang on connect. (Task 2 → 3)
 2. **Tunnel over-deletion.** Removing the whole tunnel instead of one ingress rule strands `zura.dwirijal.my.id` with no route back. (Task 4)
 3. **Stale ingress.** Editing `~/.cloudflared/config.yml` without restarting cloudflared leaves the old ingress live, so the removal appears to have worked when it has not. (Task 4)
 4. **Lingering port holder.** `pm2 delete` can leave the MITM's `:443`/`:8011`/`:8012` held by an orphaned process, so the new service fails to bind later with a confusing error. (Task 2)
@@ -167,7 +167,7 @@ git commit -m "docs(decommission): record PM2 teardown"
 
 ---
 
-## Task 3: Remove the 8 MITM entries from `/etc/hosts`
+## Task 3: Remove the 10 MITM entries from `/etc/hosts`
 
 **Files:**
 - Modify: `/etc/hosts`
@@ -187,26 +187,30 @@ Expected: `safe to clean hosts`. If the MITM is still up, return to Task 2.
 - [ ] **Step 2: Count the entries that will be removed**
 
 ```bash
-grep -cE 'daily-cloudcode-pa\.googleapis\.com|cloudcode-pa\.googleapis\.com|api\.individual\.githubcopilot\.com|runtime\.us-east-1\.kiro\.dev|api2\.cursor\.sh|api3\.cursor\.sh|agent\.api5\.cursor\.sh|agentn\.api5\.cursor\.sh' /etc/hosts
+grep -cE 'daily-cloudcode-pa\.googleapis\.com|cloudcode-pa\.googleapis\.com|api\.individual\.githubcopilot\.com|runtime\.us-east-1\.kiro\.dev|q\.us-east-1\.amazonaws\.com|codewhisperer\.us-east-1\.amazonaws\.com|api2\.cursor\.sh|api3\.cursor\.sh|agent\.api5\.cursor\.sh|agentn\.api5\.cursor\.sh' /etc/hosts
 ```
-Expected: `8`.
+Expected: `10`.
 
 - [ ] **Step 3: Remove exactly those lines**
 
 ```bash
-sudo sed -i -E '/^[[:space:]]*127\.0\.0\.1[[:space:]]+(daily-cloudcode-pa\.googleapis\.com|cloudcode-pa\.googleapis\.com|api\.individual\.githubcopilot\.com|runtime\.us-east-1\.kiro\.dev|api2\.cursor\.sh|api3\.cursor\.sh|agent\.api5\.cursor\.sh|agentn\.api5\.cursor\.sh)[[:space:]]*$/d' /etc/hosts
+sudo sed -i -E '/^[[:space:]]*127\.0\.0\.1[[:space:]]+(daily-cloudcode-pa\.googleapis\.com|cloudcode-pa\.googleapis\.com|api\.individual\.githubcopilot\.com|runtime\.us-east-1\.kiro\.dev|q\.us-east-1\.amazonaws\.com|codewhisperer\.us-east-1\.amazonaws\.com|api2\.cursor\.sh|api3\.cursor\.sh|agent\.api5\.cursor\.sh|agentn\.api5\.cursor\.sh)[[:space:]]*$/d' /etc/hosts
 ```
 
 - [ ] **Step 4: Verify they are gone and nothing else was touched**
 
 ```bash
-echo "remaining MITM entries: $(grep -cE 'cloudcode-pa|githubcopilot|kiro\.dev|cursor\.sh' /etc/hosts)"
-# Everything except the 8 MITM lines must be byte-identical to the backup.
-diff <(sudo grep -vE 'cloudcode-pa|githubcopilot|kiro\.dev|cursor\.sh' /etc/hosts.pre-decommission) \
-     <(sudo grep -vE 'cloudcode-pa|githubcopilot|kiro\.dev|cursor\.sh' /etc/hosts) \
+echo "remaining MITM entries: $(grep -cE 'cloudcode-pa|githubcopilot|kiro\.dev|cursor\.sh|amazonaws\.com' /etc/hosts)"
+# Everything except the 10 MITM lines must be byte-identical to the backup.
+diff <(sudo grep -vE 'cloudcode-pa|githubcopilot|kiro\.dev|cursor\.sh|amazonaws\.com' /etc/hosts.pre-decommission) \
+     <(sudo grep -vE 'cloudcode-pa|githubcopilot|kiro\.dev|cursor\.sh|amazonaws\.com' /etc/hosts) \
   && echo "NO COLLATERAL CHANGES"
 ```
 Expected: `remaining MITM entries: 0` and `NO COLLATERAL CHANGES`.
+
+Note: the `amazonaws\.com` term is what catches `q.us-east-1.amazonaws.com` and
+`codewhisperer.us-east-1.amazonaws.com`. Without it this check reports `0 remaining`
+while two hijacks stay live — a false green.
 
 - [ ] **Step 5: Verify DNS now resolves publicly again**
 
@@ -219,7 +223,7 @@ Expected: the resolved address is **not** `127.0.0.1`. A missing record is accep
 
 ```bash
 cd /home/dwizzy/fudrouter
-printf '| 3. /etc/hosts cleaned | done | 8 MITM entries removed, 0 remaining |\n' >> docs/decommission-log.md
+printf '| 3. /etc/hosts cleaned | done | 10 MITM entries removed, 0 remaining |\n' >> docs/decommission-log.md
 git add docs/decommission-log.md
 git commit -m "docs(decommission): record hosts cleanup"
 ```

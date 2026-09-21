@@ -18,6 +18,7 @@
 | 4. Tunnel ingress | done | `ai.karepmuwes` rule removed; tunnel + zura routing intact |
 | 5. setcap removed | done | binary no longer carries `cap_net_bind_service` |
 | 5b. Stale credentials | done | `~/.pm2/dump.pm2.bak` shredded (held 8 secret env keys) |
+| 7. SvelteKit scaffold | done | apps/web builds on adapter-node |
 
 ## Rollback
 

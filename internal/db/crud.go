@@ -34,7 +34,7 @@ func (d *DB) ensureExtraSchemaUnlocked() error {
 func (d *DB) EnsureReady() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if err := d.Migrate(); err != nil {
+	if err := d.migrateLocked(); err != nil {
 		return err
 	}
 	return d.ensureExtraSchemaUnlocked()

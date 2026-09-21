@@ -89,11 +89,15 @@ var migrations = []Migration{
 	},
 }
 
-// Migrate runs all pending migrations.
+// Migrate runs all pending migrations (acquires the DB lock).
 func (d *DB) Migrate() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	return d.migrateLocked()
+}
 
+// migrateLocked runs all pending migrations. The caller MUST already hold d.mu.
+func (d *DB) migrateLocked() error {
 	// Create migrations table if not exists
 	_, err := d.sql.Exec(`
 		CREATE TABLE IF NOT EXISTS migrations (

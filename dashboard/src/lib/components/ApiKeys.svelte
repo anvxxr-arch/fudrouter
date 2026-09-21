@@ -23,8 +23,15 @@
     }
   }
 
-  function copyKey(key: string) {
-    navigator.clipboard.writeText(key);
+  let showKey = false;
+
+  function maskKey(k: string) {
+    if (k.length <= 12) return '••••••••';
+    return k.slice(0, 8) + '••••••' + k.slice(-4);
+  }
+
+  function copyKey(k: string) {
+    navigator.clipboard.writeText(k);
   }
 </script>
 
@@ -34,6 +41,9 @@
       <h3 class="text-xl font-semibold text-white">API Keys</h3>
       <p class="text-sm text-gray-400 mt-1">Manage access keys for the Go API</p>
     </div>
+    <button on:click={() => showKey = !showKey} class="text-sm text-gray-300 hover:text-white transition-colors">
+      {showKey ? 'Mask' : 'Show'}
+    </button>
   </div>
 
   <div class="bg-card border border-border rounded-xl p-4">
@@ -66,7 +76,7 @@
       <div class="bg-card border border-border rounded-xl p-4 flex items-center justify-between">
         <div>
           <h4 class="font-medium text-white">{key.name}</h4>
-          <p class="text-xs text-gray-400 font-mono">{key.key}</p>
+          <p class="text-xs text-gray-400 font-mono">{showKey ? key.key : maskKey(key.key)}</p>
           {#if key.machineId}
             <p class="text-xs text-gray-500">Machine: {key.machineId}</p>
           {/if}

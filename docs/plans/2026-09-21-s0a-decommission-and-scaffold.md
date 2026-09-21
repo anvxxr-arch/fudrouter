@@ -381,7 +381,7 @@ git commit -m "docs(decommission): record capability removal and remnant sweep"
 
 **Interfaces:**
 - Consumes: nothing
-- Produces: npm workspace root; `apps/*`, `services/*`, `packages/*` globs that Task 7/8 rely on
+- Produces: npm workspace root; `apps/*` and `packages/*` workspace globs that Task 7 relies on. `services/*` is deliberately NOT a workspace (see the note below) — the Go module is not a Node package.
 
 - [ ] **Step 1: Write the workspace root manifest**
 

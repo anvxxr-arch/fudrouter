@@ -1,0 +1,11 @@
+node_modules/
+.svelte-kit/
+build/
+dist/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+infra/data/
+*.tar.gz

@@ -57,3 +57,9 @@
   or an LVM/root snapshot can retain the blocks. Every key listed above should be treated as
   exposed and **rotated**. Until then the exposure stands.
 - Full `/etc/hosts` diff against the backup: exactly 10 deletions, 0 additions.
+
+## S0-A verification
+
+All acceptance checks passed: old service retired (PM2, hosts, ports,
+capability), tunnel intact with Zura ingress, dev stack healthy,
+web + router build and test green, backups verified restorable.

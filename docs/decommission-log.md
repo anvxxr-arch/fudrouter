@@ -16,7 +16,7 @@ Hosts backup: /etc/hosts.pre-decommission
   real `# fudrouter mitm` block has 10. `q.us-east-1.amazonaws.com` and
   `codewhisperer.us-east-1.amazonaws.com` were missed by the original discovery grep,
   which also left the plan's verification step blind to them. Corrected at source in
-  commit `1239d93`; the end-to-end gate (Task 11) was corrected in `e1b2c4d`.
+  commit `1239d93`; the end-to-end gate (Task 11) was corrected in `e3b6244`.
 - **Step 3 edit was performed by the controller, not a subagent.** The write needs a
   harness approval that a subagent cannot obtain. All 10 removals were user-approved.
 - Full /etc/hosts diff against the backup: exactly 10 deletions, 0 additions.

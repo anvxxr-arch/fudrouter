@@ -123,25 +123,35 @@ a deliberate, accepted trade-off.
 
 ### 4.3 Steps (in order)
 
-1. **Backup first** — archive `fudrouter-app` (incl. `.git`) and
-   `~/.fudrouter/db/data.sqlite` to a timestamped tarball; copy `/etc/hosts` to
-   `/etc/hosts.pre-decommission`.
-2. Stop and delete the PM2 process `fudrouter`.
-3. Remove the 8 MITM entries from `/etc/hosts`.
-4. Confirm ports `8011`, `8012`, `443` are free.
-5. Remove **only** the `ai.karepmuwes.my.id` ingress rule from
+**Phase A — backup (the reversible point)**
+
+1. Archive `fudrouter-app` (including `.git`) and `~/.fudrouter/db/data.sqlite`
+   to a timestamped tarball outside the repo.
+2. Copy `/etc/hosts` to `/etc/hosts.pre-decommission`.
+
+**Phase B — service teardown** (personal IDE routing goes dark here)
+
+3. Stop and delete the PM2 process `fudrouter`.
+4. Remove the 8 MITM entries from `/etc/hosts`.
+5. Confirm ports `8011`, `8012`, `443` are free.
+6. Remove **only** the `ai.karepmuwes.my.id` ingress rule from
    `~/.cloudflared/config.yml`. **Do not delete the tunnel** — `39bdfeef-…` is
    shared, and its `zura.dwirijal.my.id` → `:8084` rule serves the Zura storage
    pool. Deleting the tunnel takes Zura down with it.
-6. Remove `cap_net_bind_service` from the retired binary.
-7. Leave `fudrouter-app` on disk (archived, not deleted) until the new product
-   serves traffic, then remove.
+7. Remove `cap_net_bind_service` from the retired binary.
+
+**Phase C — lift, then delete**
+
+8. Lift the ~2,343 LOC core into `services/router/` and verify the new service
+   runs against it.
+9. **Only then** delete `fudrouter-app`. Deleting it earlier destroys the source
+   being migrated. The Phase A tarball remains the recovery path.
 
 ### 4.4 Rollback
 
-Restore `/etc/hosts.pre-decommission`, re-add the PM2 process from
-`ecosystem.fudrouter-go.config.cjs`, re-apply `setcap`. The backup tarball
-restores the database. Decommission is reversible until step 7.
+- **Before step 9:** restore `/etc/hosts.pre-decommission`, re-add the PM2
+  process from `ecosystem.fudrouter-go.config.cjs`, re-apply `setcap`.
+- **After step 9:** restore from the Phase A tarball.
 
 ---
 
@@ -335,7 +345,9 @@ S0 is done when all hold:
       `tokensOut`, `cost`
 - [ ] the usage page renders that row from Postgres
 - [ ] a revoked key returns `401`
-- [ ] `fudrouter-app` decommissioned per §4, with backups present
+- [ ] `fudrouter-app` decommissioned per §4 — service stopped, `/etc/hosts`
+      cleaned, ports free, `ai.karepmuwes.my.id` ingress removed, repo deleted
+      **after** the lift is verified, backup tarball retained
 
 ---
 

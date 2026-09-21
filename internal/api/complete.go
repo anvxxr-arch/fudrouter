@@ -84,7 +84,9 @@ func (s *Server) registerCompleteRoutes() {
 	s.mux.HandleFunc("GET /api/locale", s.localeGet)
 	s.mux.HandleFunc("POST /api/locale", s.localePost)
 	s.mux.HandleFunc("GET /api/tags", s.tags)
-	s.mux.HandleFunc("GET /api/cli-tools/all-statuses", s.cliStatuses)
+
+	// CLI tools (ported from the retired Next.js all-statuses route)
+	s.registerCLIToolRoutes()
 }
 
 func randID() string {
@@ -651,9 +653,6 @@ func (s *Server) localePost(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) tags(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"tags": []string{}})
-}
-func (s *Server) cliStatuses(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{"tools": map[string]any{}, "runtime": "go"})
 }
 
 func str(v any) string {

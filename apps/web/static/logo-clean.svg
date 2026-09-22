@@ -1,0 +1,38 @@
+<svg version="1.1" xmlns="http://www.w3.org/2000/svg" width="1254" height="1254" viewBox="0 0 1254 1254">
+<defs>
+<linearGradient id="furGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+<stop offset="0%" style="stop-color:#FF9D00;stop-opacity:1"/>
+<stop offset="50%" style="stop-color:#FF6C11;stop-opacity:1"/>
+<stop offset="100%" style="stop-color:#CC3300;stop-opacity:1"/>
+</linearGradient>
+<linearGradient id="routeGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+<stop offset="0%" style="stop-color:#FFD700;stop-opacity:1"/>
+<stop offset="40%" style="stop-color:#FF8C00;stop-opacity:1"/>
+<stop offset="100%" style="stop-color:#1A1A2E;stop-opacity:1"/>
+</linearGradient>
+</defs>
+<g transform="translate(200,200)">
+<!-- Routing trail -->
+<path d="M 100 550 Q 300 650 550 350 Q 750 100 800 50" stroke="url(#routeGrad)" stroke-width="40" stroke-linecap="round" fill="none" opacity="0.85"/>
+<!-- Trail nodes -->
+<circle cx="350" cy="600" r="22" fill="#FF6C11"/>
+<circle cx="780" cy="60" r="14" fill="none" stroke="#FF6C11" stroke-width="3"/>
+<!-- Spark star -->
+<path d="M 800 30 L 812 50 L 835 55 L 812 60 L 800 80 L 788 60 L 765 55 L 788 50 Z" fill="#FFD700"/>
+<!-- Fox head -->
+<!-- Left ear -->
+<path d="M 150 150 L 250 30 L 320 200 Z" fill="url(#furGrad)"/>
+<!-- Right ear -->
+<path d="M 350 120 L 520 20 L 480 220 Z" fill="url(#furGrad)"/>
+<!-- Inner ear -->
+<path d="M 170 140 L 240 50 L 290 190 Z" fill="#FFF8E1" opacity="0.85"/>
+<!-- Head base -->
+<path d="M 120 250 Q 100 100 280 80 Q 460 60 520 250 Q 540 420 380 480 Q 220 520 140 420 Q 100 350 120 250 Z" fill="url(#furGrad)"/>
+<!-- Cheek / muzzle -->
+<path d="M 220 280 Q 300 220 480 260 Q 540 320 500 400 Q 400 460 260 440 Q 160 400 220 280 Z" fill="#FFF8E1"/>
+<!-- Eye patch -->
+<path d="M 420 300 Q 490 300 500 350 Q 490 400 440 390 Q 390 380 420 300 Z" fill="#1A1A1A"/>
+<!-- Nose -->
+<path d="M 470 340 L 500 340 L 490 365 Z" fill="#FFFFFF" opacity="0.7"/>
+</g>
+</svg>

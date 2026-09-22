@@ -14,7 +14,7 @@
 </script>
 
 <section class="hero">
-	<h1 class="display">One key. Every model.</h1>
+	<h1 class="display">One API. Every model.</h1>
 	<p class="lede">
 		fudrouter is a commercial AI router. Buy access once, spend it across every provider — with
 		per-request metering, rate limits, and usage you can audit to the token.

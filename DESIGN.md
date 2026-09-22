@@ -3,42 +3,48 @@ version: alpha
 name: Fudrouter
 description: A dark-first developer console — precise, calm, and legible under long working sessions.
 colors:
-  bg: "#0B0D10"
-  surface: "#14171C"
-  surfaceRaised: "#1B1F26"
-  border: "#2A2F37"
-  borderStrong: "#3A424E"
-  text: "#E6E8EB"
-  textMuted: "#9BA3AF"
-  primary: "#818CF8"
-  primaryHover: "#A5B4FC"
-  onPrimary: "#0B0D10"
+  bg: "#090B0F"
+  surface: "#151922"
+  surfaceRaised: "#1E2430"
+  border: "#2A3040"
+  borderStrong: "#3D4660"
+  text: "#F5F6F8"
+  textMuted: "#8B94A3"
+  primary: "#FF6C11"
+  primaryHover: "#FF8A3D"
+  onPrimary: "#090B0F"
+  orange: "#FF6C11"
+  orangeHover: "#FF8A3D"
+  amber: "#FFAA2B"
+  cream: "#FFE2AE"
   success: "#10B981"
-  warning: "#F59E0B"
+  warning: "#FFAA2B"
   danger: "#F87171"
   info: "#38BDF8"
+  focus: "2px solid #FF6C11"
+  bpTablet: "820px"
 typography:
   display-xl:
     fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif"
-    fontSize: 3rem
+    fontSize: 3.5rem
     fontWeight: 700
     lineHeight: 1.1
     letterSpacing: "-0.03em"
   display:
     fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif"
-    fontSize: 2.5rem
+    fontSize: 3.5rem
     fontWeight: 700
     lineHeight: 1.15
     letterSpacing: "-0.02em"
   h1:
     fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif"
-    fontSize: 2.25rem
+    fontSize: 2.75rem
     fontWeight: 700
     lineHeight: 1.2
     letterSpacing: "-0.01em"
   h2:
     fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif"
-    fontSize: 2rem
+    fontSize: 2.25rem
     fontWeight: 600
     lineHeight: 1.3
   h3:
@@ -83,7 +89,7 @@ typography:
     lineHeight: 1.4
     letterSpacing: "0.04em"
   mono:
-    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace"
+    fontFamily: "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace"
     fontSize: 0.8125rem
     fontWeight: 400
     lineHeight: 1.5
@@ -207,15 +213,21 @@ color, type, and spacing never fork.
 
 ## Colors
 
-- **Primary (#818CF8):** Indigo. The *only* driver for interactive emphasis —
+- **Primary (#FF6C11):** FUD Orange. The *only* driver for interactive emphasis —
   primary buttons, active nav, focus rings. It is deliberately distinct from
   success, so "the thing to click" never reads as "the thing that worked".
   Chosen light enough that dark `onPrimary` text clears WCAG AA on it.
 - **Success (#10B981):** Emerald. Confirming states only (`success` request
   status, healthy connections, saved confirmations).
-- **Warning (#F59E0B):** Amber. Non-blocking cautions and `dev`-status providers.
+- **Warning (#FFAA2B):** Amber. Non-blocking cautions and `dev`-status providers.
 - **Danger (#F87171):** Red. Destructive actions and failed states only.
 - **Info (#38BDF8):** Sky. Links and neutral notices.
+
+**FUD Orange** (`#FF6C11`) anchors the brand. It lives in `--fr-orange`,
+`--fr-primary`, and `--fr-warning` reuses `--fr-amber` (`#FFAA2B`) — warm
+hues that stay distinct from the cool green/red semantic pair. A gradient
+from orange to amber is used for hero glow and routing animation only; the
+logo and interactive elements stay flat.
 - **Surface ramp (`bg` → `surface` → `surfaceRaised`):** Three near-black
   steps create depth without shadows, keeping the dark theme flat and calm.
 - **Text (`text` / `textMuted`):** Two steps only — full-contrast for content,
@@ -256,10 +268,10 @@ drift apart.
 
 | Token | Floor | Fluid expression | Ceiling |
 | --- | --- | --- | --- |
-| `display-xl` | 3rem | `clamp(3rem, 2.37rem + 2.8vw, 4.75rem)` | 4.75rem |
-| `display` | 2.5rem | `clamp(2.5rem, 2.05rem + 2vw, 3.75rem)` | 3.75rem |
-| `h1` | 2.25rem | `clamp(2.25rem, 1.98rem + 1.2vw, 3rem)` | 3rem |
-| `h2` | 2rem | `clamp(2rem, 1.82rem + 0.8vw, 2.5rem)` | 2.5rem |
+| `display-xl` | 3.5rem | `clamp(3.5rem, 3.05rem + 2vw, 4.75rem)` | 4.75rem |
+| `display` | 3.5rem | `clamp(3.5rem, 3.05rem + 2vw, 4.75rem)` | 4.75rem |
+| `h1` | 2.75rem | `clamp(2.75rem, 2.48rem + 1.2vw, 3.5rem)` | 3.5rem |
+| `h2` | 2.25rem | `clamp(2.25rem, 2.07rem + 0.8vw, 2.75rem)` | 2.75rem |
 | `h3` | 1.75rem | `clamp(1.75rem, 1.66rem + 0.4vw, 2rem)` | 2rem |
 | `h4` | 1.5rem | `clamp(1.5rem, 1.48rem + 0.1vw, 1.5625rem)` | 1.5625rem |
 

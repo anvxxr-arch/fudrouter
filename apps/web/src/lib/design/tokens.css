@@ -6,35 +6,41 @@
 :root {
 	color-scheme: dark;
 
-	/* Surface ramp — depth without shadows */
-	--fr-bg: #0b0d10;
-	--fr-surface: #14171c;
-	--fr-surface-raised: #1b1f26;
-	--fr-border: #2a2f37;
-	--fr-border-strong: #3a424e;
+	/* Brand — FUD ecosystem (FUD Orange + Route Amber + Fennec Cream) */
+	--fr-orange: #ff6c11;
+	--fr-orange-hover: #ff8a3d;
+	--fr-amber: #ffaa2b;
+	--fr-cream: #ffe2ae;
 
-	/* Text — exactly two greys */
-	--fr-text: #e6e8eb;
-	--fr-text-muted: #9ba3af;
+	/* Surface ramp — Void + Graphite */
+	--fr-bg: #090b0f;
+	--fr-surface: #151922;
+	--fr-surface-raised: #1e2430;
+	--fr-border: #2a3040;
+	--fr-border-strong: #3d4660;
+
+	/* Text — Cloud + Slate */
+	--fr-text: #f5f6f8;
+	--fr-text-muted: #8b94a3;
+
+	/* Primary = FUD Orange */
+	--fr-primary: var(--fr-orange);
+	--fr-primary-hover: var(--fr-orange-hover);
+	--fr-on-primary: var(--fr-bg);
 
 	/* Semantic accents */
-	--fr-primary: #818cf8;
-	--fr-primary-hover: #a5b4fc;
-	--fr-on-primary: #0b0d10;
 	--fr-success: #10b981;
-	--fr-warning: #f59e0b;
+	--fr-warning: var(--fr-amber);
 	--fr-danger: #f87171;
 	--fr-info: #38bdf8;
 
 	/* Type.
 	 *
-	 * Two families of size. STATIC text never changes with the viewport — body copy
-	 * that reflows because the window changed is hostile to read. FLUID headings
-	 * grow so a headline holds its proportion from phone to desktop. The two
-	 * smallest heading steps stay static: at 18–20px fluidity buys nothing.
+	 * Plus Jakarta Sans untuk UI, JetBrains Mono untuk code/data.
+	 * Static text never changes with viewport; fluid headings grow.
 	 */
 	--fr-font-ui: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
-	--fr-font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+	--fr-font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 
 	/* Static text */
 	--fr-text-caption: 0.75rem; /* 12px */
@@ -42,15 +48,15 @@
 	--fr-text-base: 1rem; /* 16px */
 	--fr-text-lg: 1.125rem; /* 18px */
 
-	/* Fluid headings */
+	/* Fluid headings — brand scale: Display 72, H1 48, H2 36, H3 28 */
 	--fr-text-h6: 1.125rem; /* 18px */
 	--fr-text-h5: 1.25rem; /* 20px */
 	--fr-text-h4: clamp(1.5rem, 1.48rem + 0.1vw, 1.5625rem); /* 24 → 25px */
 	--fr-text-h3: clamp(1.75rem, 1.66rem + 0.4vw, 2rem); /* 28 → 32px */
-	--fr-text-h2: clamp(2rem, 1.82rem + 0.8vw, 2.5rem); /* 32 → 40px */
-	--fr-text-h1: clamp(2.25rem, 1.98rem + 1.2vw, 3rem); /* 36 → 48px */
-	--fr-text-display: clamp(2.5rem, 2.05rem + 2vw, 3.75rem); /* 40 → 60px */
-	--fr-text-display-xl: clamp(3rem, 2.37rem + 2.8vw, 4.75rem); /* 48 → 76px */
+	--fr-text-h2: clamp(2.25rem, 2.07rem + 0.8vw, 2.75rem); /* 36 → 44px */
+	--fr-text-h1: clamp(2.75rem, 2.48rem + 1.2vw, 3.5rem); /* 44 → 56px */
+	--fr-text-display: clamp(3.5rem, 3.05rem + 2vw, 4.75rem); /* 56 → 76px */
+	--fr-text-display-xl: clamp(3.5rem, 3.05rem + 2vw, 4.75rem); /* 56 → 76px */
 
 	/* Shape */
 	--fr-radius-sm: 4px;

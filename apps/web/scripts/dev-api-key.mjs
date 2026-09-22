@@ -3,8 +3,14 @@
 // S0 has no auth UI yet (Task 2), so this mints a dev user + API key directly
 // against the same schema the control plane will write. Prints the full key
 // exactly once — only the prefix and sha256(secret) are stored, same as prod.
+//
+// DEV_KEY_OUT=/path writes the key to that file (mode 600) instead of relying on
+// stdout. Needed because tooling redacts key-shaped strings from captured
+// output, which makes `$(node ... | grep sk-ar-)` silently produce an empty
+// variable.
 import postgres from 'postgres';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { writeFileSync } from 'node:fs';
 
 const ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 function randChars(n) {
@@ -35,7 +41,14 @@ try {
 		insert into api_key (id, user_id, name, prefix, key_hash, limits, created_at)
 		values (${randomUUID()}, ${u.id}, ${label}, ${prefix}, ${keyHash}, '{}'::jsonb, now())`;
 
-	console.log(`sk-ar-${prefix}_${secret}`);
+	const full = `sk-ar-${prefix}_${secret}`;
+	const out = process.env.DEV_KEY_OUT;
+	if (out) {
+		writeFileSync(out, full, { mode: 0o600 });
+		console.log(`key written to ${out} (mode 600)`);
+	} else {
+		console.log(full);
+	}
 } finally {
 	await sql.end();
 }

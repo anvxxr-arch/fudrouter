@@ -56,6 +56,7 @@ func main() {
 	mux.Handle("GET /health", newHealthHandler())
 	mux.Handle("GET /v1/models", http.HandlerFunc(p.ServeModels))
 	mux.Handle("POST /v1/chat/completions", http.HandlerFunc(p.ServeCompletions))
+	mux.Handle("/v1/", http.HandlerFunc(p.ServeGeneric))
 
 	log.Printf("[%s] listening on %s", serviceName, addr)
 	if err := http.ListenAndServe(addr, mux); err != nil {

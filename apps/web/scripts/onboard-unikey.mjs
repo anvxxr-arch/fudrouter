@@ -102,6 +102,10 @@ try {
     { slug: 'MiniMax-M2.7', name: 'MiniMax M2.7', input: 0.27, output: 1.00, context: 128000 },
     { slug: 'MiniMax-M3', name: 'MiniMax M3 (alt)', input: 0.27, output: 1.00, context: 128000 },
     { slug: 'minimax-m3', name: 'MiniMax M3 (alt)', input: 0.27, output: 1.00, context: 128000 },
+    // Image generation
+    { slug: 'google/gemini-3.1-flash-image', name: 'Gemini 3.1 Flash Image', input: 0.10, output: 0.40, context: 1000000 },
+    // Embeddings
+    { slug: 'BAAI/bge-m3', name: 'BGE-M3 Embeddings', input: 0.00, output: 0.00, context: 8192 },
   ];
 
   for (const m of models) {

@@ -322,6 +322,109 @@ func (h *Handler) logRequest(ctx context.Context, keyRow *store.APIKeyRow, m *st
 }
 
 // ServeModels emits the [OI] /v1/models list shape.
+func (h *Handler) ServeGeneric(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+
+	keyRow, err := h.authenticate(r)
+	if err != nil {
+		h.writeErr(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, 10<<20))
+	if err != nil {
+		h.writeErr(w, http.StatusBadRequest, "cannot read body")
+		return
+	}
+	var req map[string]any
+	if err := json.Unmarshal(body, &req); err != nil {
+		h.writeErr(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	slug, _ := req["model"].(string)
+	if slug == "" {
+		h.writeErr(w, http.StatusBadRequest, "missing model")
+		return
+	}
+
+	m, err := h.store.ModelWithProvider(r.Context(), slug)
+	if err != nil {
+		h.writeErr(w, http.StatusNotFound, "unknown model: "+slug)
+		return
+	}
+
+	credJSON, err := h.crypt.Decrypt(m.CredEnc)
+	if err != nil {
+		log.Printf("[proxy] credential decrypt failed for provider %s", m.ProviderID)
+		h.writeErr(w, http.StatusInternalServerError, "provider credentials unavailable")
+		return
+	}
+	var cred credentials
+	if err := json.Unmarshal([]byte(credJSON), &cred); err != nil {
+		h.writeErr(w, http.StatusInternalServerError, "provider credentials malformed")
+		return
+	}
+	if cred.APIKey == "" && len(cred.Accounts) == 0 {
+		h.writeErr(w, http.StatusInternalServerError, "provider credentials malformed")
+		return
+	}
+
+	pool := h.poolFor(m, cred)
+
+	var picked Picked
+	var lastErr error
+	for i := 0; i < 3; i++ {
+		p, err := pool.Pick(r.Context())
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		picked = p
+		break
+	}
+	if picked.Token == "" {
+		log.Printf("[proxy] no usable credential for provider %s: %v", m.ProviderID, lastErr)
+		h.logRequest(r.Context(), keyRow, m, 0, 0, start, "error", "no usable credential")
+		h.writeErr(w, http.StatusBadGateway, "no usable upstream credential")
+		return
+	}
+
+	upURL := strings.TrimRight(m.BaseURL, "/") + strings.TrimPrefix(r.URL.Path, "/v1")
+	upReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost, upURL, bytes.NewReader(body))
+	if err != nil {
+		h.writeErr(w, http.StatusInternalServerError, "upstream request build failed")
+		return
+	}
+	upReq.Header.Set("Content-Type", "application/json")
+	upReq.Header.Set("Authorization", "Bearer "+picked.Token)
+	for k, v := range cred.DefaultHeaders {
+		if reservedHeaders[strings.ToLower(k)] {
+			continue
+		}
+		upReq.Header.Set(k, v)
+	}
+
+	resp, err := h.client.Do(upReq)
+	if err != nil {
+		h.logRequest(r.Context(), keyRow, m, 0, 0, start, "error", err.Error())
+		h.writeErr(w, http.StatusBadGateway, "upstream request failed")
+		return
+	}
+	defer resp.Body.Close()
+
+	log.Printf("[proxy] provider=%s path=%s account=%s status=%d",
+		m.ProviderID, r.URL.Path, picked.Email, resp.StatusCode)
+
+	// Copy upstream headers
+	for k, v := range resp.Header {
+		for _, vv := range v {
+			w.Header().Add(k, vv)
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, resp.Body)
+}
+
 func (h *Handler) ServeModels(w http.ResponseWriter, r *http.Request) {
 	models, err := h.store.ActiveModels(r.Context())
 	if err != nil {

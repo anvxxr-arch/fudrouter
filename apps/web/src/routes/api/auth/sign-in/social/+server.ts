@@ -1,17 +1,14 @@
 import { auth } from '$lib/server/auth';
+import { env } from '$env/dynamic/private';
 
-export async function POST(event: { request: Request; url: URL; locals: any }) {
-	const url = new URL(event.url.pathname, 'http://localhost');
-	if (url.pathname.startsWith('/api/auth/')) {
-		return auth.handler(event.request);
+export async function POST({ request, url }: { request: Request; url: URL }) {
+	const origin = request.headers.get('Origin');
+	if (origin !== 'https://ai.karepmuwes.my.id' && origin !== 'http://localhost:3000' && origin !== 'http://127.0.0.1:3000') {
+		return new Response(JSON.stringify({ error: 'forbidden_origin' }), { status: 403 });
 	}
-	return new Response('Not Found', { status: 404 });
+	return auth.handler(request);
 }
 
-export async function GET(event: { request: Request; url: URL }) {
-	const url = new URL(event.url.pathname, 'http://localhost');
-	if (url.pathname.startsWith('/api/auth/')) {
-		return auth.handler(event.request);
-	}
-	return new Response('Not Found', { status: 404 });
+export async function GET({ request }: { request: Request }) {
+	return auth.handler(request);
 }

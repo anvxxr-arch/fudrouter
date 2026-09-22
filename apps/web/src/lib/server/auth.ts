@@ -22,6 +22,7 @@ export const auth = betterAuth({
 			clientId: env.FLEXYROUTE_CLIENT_ID,
 			clientSecret: env.FLEXYROUTE_CLIENT_SECRET,
 			redirectURI: `${env.ORIGIN}/api/auth/callback/discord`,
+			prompt: 'consent',
 			scope: ['identify', 'email']
 		}
 	},

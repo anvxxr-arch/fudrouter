@@ -26,7 +26,9 @@
 		"e2e:smoke": "node scripts/e2e-smoke.mjs",
 		"auth:schema": "auth generate --config src/lib/server/auth.ts --output src/lib/server/db/auth.schema.ts --yes",
 		"onboard:freebuff": "node --experimental-strip-types --env-file=.env scripts/onboard-freebuff.mjs",
-		"verify:freebuff": "node --experimental-strip-types --env-file=.env scripts/verify-freebuff.mjs"
+		"verify:freebuff": "node --experimental-strip-types --env-file=.env scripts/verify-freebuff.mjs",
+		"onboard:inferhub": "node --experimental-strip-types --env-file=.env scripts/onboard-inferhub.mjs",
+		"verify:inferhub": "node --experimental-strip-types --env-file=.env scripts/verify-inferhub.mjs"
 	},
 	"dependencies": {
 		"better-auth": "^1.6.23",

@@ -1,0 +1,337 @@
+package proxy
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"net/url"
+	"os"
+	"strings"
+	"sync"
+	"time"
+)
+
+// refreshLead is how far before expiry a token is proactively exchanged. xAI
+// access tokens live 6h; refreshing a few minutes early avoids racing expiry
+// mid-request.
+const refreshLead = 5 * time.Minute
+
+// failCooldown is how long an account is skipped after a failed refresh, so one
+// revoked account is not retried on every single request.
+const failCooldown = 5 * time.Minute
+
+// account is one upstream identity inside a provider's credential blob.
+type account struct {
+	Email        string `json:"email"`
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	IDToken      string `json:"id_token"`
+	Expired      string `json:"expired"`
+}
+
+// credentials is the decrypted provider credential blob.
+//
+// `default_headers` carries upstream requirements that are not auth — e.g. the
+// xAI Grok CLI proxy rejects every chat completion without
+// `x-grok-client-version`.
+//
+// `accounts` is the OAuth pool. `api_key` is retained for providers that are a
+// single static key, and for a blob written before the pool existed.
+type credentials struct {
+	APIKey         string            `json:"api_key"`
+	AuthKind       string            `json:"auth_kind"`
+	DefaultHeaders map[string]string `json:"default_headers"`
+	Accounts       []account         `json:"accounts"`
+}
+
+// TokenRefresher exchanges a refresh token for a fresh access token.
+//
+// xAI rotates the refresh token on every exchange, so the returned refresh
+// value MUST be persisted: dropping it kills the account at the next expiry.
+type TokenRefresher interface {
+	Refresh(ctx context.Context, refreshToken string) (accessToken, nextRefreshToken string, expiresIn int, err error)
+}
+
+// poolAccount is one account plus its refresh state.
+type poolAccount struct {
+	mu        sync.Mutex
+	data      account
+	expiresAt time.Time
+	deadUntil time.Time
+}
+
+// Pool round-robins a provider's accounts and keeps their tokens fresh.
+//
+// Before this existed the data plane used `api_key` — a single access token —
+// so a provider built from a farm of accounts silently behaved like a
+// one-account provider, and died outright when that token expired (xAI tokens
+// last 6h and nothing refreshed them).
+type Pool struct {
+	mu             sync.Mutex
+	accounts       []*poolAccount
+	next           int
+	fallbackAPIKey string
+	defaultHeaders map[string]string
+	refresher      TokenRefresher
+	encrypt        func(plaintext string) (string, error)
+	persist        func(ctx context.Context, blob string) error
+}
+
+// newPool builds a rotation pool from a decrypted blob.
+func newPool(
+	cred credentials,
+	refresher TokenRefresher,
+	encrypt func(plaintext string) (string, error),
+	persist func(ctx context.Context, blob string) error,
+) *Pool {
+	p := &Pool{
+		fallbackAPIKey: cred.APIKey,
+		defaultHeaders: cred.DefaultHeaders,
+		refresher:      refresher,
+		encrypt:        encrypt,
+		persist:        persist,
+	}
+	for _, a := range cred.Accounts {
+		p.accounts = append(p.accounts, &poolAccount{data: a, expiresAt: parseExpiry(a.Expired)})
+	}
+	return p
+}
+
+// parseExpiry reads the blob's `expired` field. A missing or unparseable value
+// is treated as already expired, which forces a refresh — the safe direction.
+func parseExpiry(s string) time.Time {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return time.Time{}
+	}
+	for _, layout := range []string{
+		time.RFC3339Nano, time.RFC3339,
+		"2006-01-02T15:04:05Z", "2006-01-02T15:04:05.000Z",
+	} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t
+		}
+	}
+	return time.Time{}
+}
+
+// Pick returns a usable access token, refreshing it when needed. Accounts are
+// tried round-robin so load spreads across the pool; an account that cannot be
+// refreshed is skipped until its cooldown expires.
+func (p *Pool) Pick(ctx context.Context) (string, error) {
+	p.mu.Lock()
+	n := len(p.accounts)
+	if n == 0 {
+		key := p.fallbackAPIKey
+		p.mu.Unlock()
+		if key == "" {
+			return "", errors.New("provider has no credentials")
+		}
+		return key, nil
+	}
+	start := p.next
+	p.next = (p.next + 1) % n
+	p.mu.Unlock()
+
+	var lastErr error
+	for i := 0; i < n; i++ {
+		a := p.accounts[(start+i)%n]
+		tok, rotated, err := a.token(ctx, p.refresher)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if rotated {
+			if err := p.save(ctx); err != nil {
+				// The request still succeeds; only durability is at risk.
+				log.Printf("[proxy] persisting rotated credentials failed: %v", err)
+			}
+		}
+		return tok, nil
+	}
+	if lastErr == nil {
+		lastErr = errors.New("no usable account")
+	}
+	return "", fmt.Errorf("all %d account(s) unusable: %w", n, lastErr)
+}
+
+// token returns a valid access token, refreshing it when it is near expiry. The
+// second result reports whether the stored refresh token changed, so the caller
+// knows the blob must be written back.
+func (a *poolAccount) token(ctx context.Context, r TokenRefresher) (string, bool, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if time.Now().Before(a.deadUntil) {
+		return "", false, fmt.Errorf("%s: cooling down after a failed refresh", a.data.Email)
+	}
+	// Valid well past the lead window: no exchange needed.
+	if a.data.AccessToken != "" && time.Now().Add(refreshLead).Before(a.expiresAt) {
+		return a.data.AccessToken, false, nil
+	}
+	if a.data.RefreshToken == "" {
+		if a.data.AccessToken != "" && time.Now().Before(a.expiresAt) {
+			return a.data.AccessToken, false, nil
+		}
+		return "", false, fmt.Errorf("%s: access token expired and no refresh token", a.data.Email)
+	}
+	if r == nil {
+		return "", false, fmt.Errorf("%s: token expired and no refresher configured", a.data.Email)
+	}
+
+	access, refresh, expiresIn, err := r.Refresh(ctx, a.data.RefreshToken)
+	if err != nil {
+		a.deadUntil = time.Now().Add(failCooldown)
+		return "", false, fmt.Errorf("%s: refresh failed: %w", a.data.Email, err)
+	}
+	if access == "" {
+		a.deadUntil = time.Now().Add(failCooldown)
+		return "", false, fmt.Errorf("%s: refresh returned no access token", a.data.Email)
+	}
+
+	a.data.AccessToken = access
+	rotated := false
+	if refresh != "" && refresh != a.data.RefreshToken {
+		a.data.RefreshToken = refresh
+		rotated = true
+	}
+	if expiresIn <= 0 {
+		expiresIn = 21600
+	}
+	a.expiresAt = time.Now().Add(time.Duration(expiresIn) * time.Second)
+	a.data.Expired = a.expiresAt.UTC().Format("2006-01-02T15:04:05Z")
+	a.deadUntil = time.Time{}
+	return access, rotated, nil
+}
+
+// save re-encrypts the whole blob and hands it to the store.
+func (p *Pool) save(ctx context.Context) error {
+	if p.persist == nil || p.encrypt == nil {
+		return nil
+	}
+	p.mu.Lock()
+	snap := make([]account, 0, len(p.accounts))
+	for _, a := range p.accounts {
+		a.mu.Lock()
+		snap = append(snap, a.data)
+		a.mu.Unlock()
+	}
+	p.mu.Unlock()
+
+	plain, err := json.Marshal(credentials{
+		APIKey:         p.fallbackAPIKey,
+		AuthKind:       "oauth",
+		DefaultHeaders: p.defaultHeaders,
+		Accounts:       snap,
+	})
+	if err != nil {
+		return err
+	}
+	blob, err := p.encrypt(string(plain))
+	if err != nil {
+		return err
+	}
+	return p.persist(ctx, blob)
+}
+
+// MarkFailed parks the account holding this access token. Called when the
+// upstream rejects a credential (401/403), so the next request tries a
+// different account instead of repeating the failure.
+func (p *Pool) MarkFailed(accessToken string) {
+	if accessToken == "" {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, a := range p.accounts {
+		a.mu.Lock()
+		if a.data.AccessToken == accessToken {
+			a.deadUntil = time.Now().Add(failCooldown)
+		}
+		a.mu.Unlock()
+	}
+}
+
+// Accounts returns a snapshot, for diagnostics and tests.
+func (p *Pool) Accounts() []account {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]account, 0, len(p.accounts))
+	for _, a := range p.accounts {
+		a.mu.Lock()
+		out = append(out, a.data)
+		a.mu.Unlock()
+	}
+	return out
+}
+
+// XAIRefresher performs the RFC 6749 refresh_token grant against xAI.
+//
+// The client_id is the public Grok CLI client — the same one the token's own
+// `aud` claim carries, and the same one the farm used. It is not a secret.
+type XAIRefresher struct {
+	Client   *http.Client
+	Endpoint string
+	ClientID string
+}
+
+func NewXAIRefresher() *XAIRefresher {
+	return &XAIRefresher{
+		Client:   &http.Client{Timeout: 30 * time.Second},
+		Endpoint: envOr("XAI_TOKEN_ENDPOINT", "https://auth.x.ai/oauth2/token"),
+		ClientID: envOr("XAI_OAUTH_CLIENT_ID", "b1a00492-073a-47ea-816f-4c329264a828"),
+	}
+}
+
+func envOr(name, def string) string {
+	if v := strings.TrimSpace(os.Getenv(name)); v != "" {
+		return v
+	}
+	return def
+}
+
+func (x *XAIRefresher) Refresh(ctx context.Context, refreshToken string) (string, string, int, error) {
+	form := url.Values{}
+	form.Set("grant_type", "refresh_token")
+	form.Set("refresh_token", refreshToken)
+	form.Set("client_id", x.ClientID)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, x.Endpoint, strings.NewReader(form.Encode()))
+	if err != nil {
+		return "", "", 0, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := x.Client.Do(req)
+	if err != nil {
+		return "", "", 0, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+
+	if resp.StatusCode != http.StatusOK {
+		return "", "", 0, fmt.Errorf("token endpoint %d: %s", resp.StatusCode, truncate(string(body), 200))
+	}
+	var out struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		ExpiresIn    int    `json:"expires_in"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		return "", "", 0, fmt.Errorf("token endpoint returned an unparseable body: %w", err)
+	}
+	return out.AccessToken, out.RefreshToken, out.ExpiresIn, nil
+}
+
+func truncate(s string, n int) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
+}

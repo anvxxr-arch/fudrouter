@@ -12,6 +12,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/anvxxr-arch/fudrouter/services/router/internal/cost"
@@ -21,24 +22,39 @@ import (
 )
 
 type Handler struct {
-	store  *store.Store
-	crypt  *crypt.Crypt
-	client *http.Client
+	store     *store.Store
+	crypt     *crypt.Crypt
+	client    *http.Client
+	refresher TokenRefresher
+
+	// pools caches one rotation Pool per provider. The pool is the in-memory
+	// source of truth for account state once built, because it is also the
+	// writer of the persisted blob.
+	pools sync.Map // providerID -> *Pool
 }
 
-func New(st *store.Store, cr *crypt.Crypt, client *http.Client) *Handler {
+// New builds the hot-path handler. A nil refresher disables token refresh,
+// which is only correct for providers using a static api_key.
+func New(st *store.Store, cr *crypt.Crypt, client *http.Client, refresher TokenRefresher) *Handler {
 	if client == nil {
 		client = &http.Client{Timeout: 120 * time.Second}
 	}
-	return &Handler{store: st, crypt: cr, client: client}
+	return &Handler{store: st, crypt: cr, client: client, refresher: refresher}
 }
 
-// credentials is the decrypted provider credential blob. `default_headers`
-// carries upstream requirements that are not auth — e.g. the xAI Grok CLI
-// proxy rejects every chat completion without `x-grok-client-version`.
-type credentials struct {
-	APIKey         string            `json:"api_key"`
-	DefaultHeaders map[string]string `json:"default_headers"`
+// poolFor returns the rotation pool for a provider, building it on first use.
+func (h *Handler) poolFor(m *store.ModelRow, cred credentials) *Pool {
+	if v, ok := h.pools.Load(m.ProviderID); ok {
+		return v.(*Pool)
+	}
+	p := newPool(cred, h.refresher,
+		h.crypt.Encrypt,
+		func(ctx context.Context, blob string) error {
+			return h.store.UpdateProviderCredentials(ctx, m.ProviderID, blob)
+		},
+	)
+	actual, _ := h.pools.LoadOrStore(m.ProviderID, p)
+	return actual.(*Pool)
 }
 
 // headers a stored default_header may never override.
@@ -117,7 +133,11 @@ func (h *Handler) ServeCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var cred credentials
-	if err := json.Unmarshal([]byte(credJSON), &cred); err != nil || cred.APIKey == "" {
+	if err := json.Unmarshal([]byte(credJSON), &cred); err != nil {
+		h.writeErr(w, http.StatusInternalServerError, "provider credentials malformed")
+		return
+	}
+	if cred.APIKey == "" && len(cred.Accounts) == 0 {
 		h.writeErr(w, http.StatusInternalServerError, "provider credentials malformed")
 		return
 	}
@@ -127,25 +147,66 @@ func (h *Handler) ServeCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 	upBody, _ := json.Marshal(req)
 
-	upReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
-		strings.TrimRight(m.BaseURL, "/")+"/chat/completions", bytes.NewReader(upBody))
-	if err != nil {
-		h.writeErr(w, http.StatusInternalServerError, "upstream request build failed")
-		return
+	// One attempt per account, so a rejected credential fails over instead of
+	// failing the request. A single static-key provider simply gets one try.
+	attempts := 1
+	if n := len(cred.Accounts); n > 1 {
+		attempts = n
+		if attempts > 3 {
+			attempts = 3
+		}
 	}
-	upReq.Header.Set("Content-Type", "application/json")
-	upReq.Header.Set("Authorization", "Bearer "+cred.APIKey)
-	for k, v := range cred.DefaultHeaders {
-		if reservedHeaders[strings.ToLower(k)] {
+	pool := h.poolFor(m, cred)
+
+	var resp *http.Response
+	var lastStatus int
+	for attempt := 0; attempt < attempts; attempt++ {
+		token, err := pool.Pick(r.Context())
+		if err != nil {
+			log.Printf("[proxy] no usable credential for provider %s: %v", m.ProviderID, err)
+			h.logRequest(r.Context(), keyRow, m, 0, 0, start, "error", "no usable credential")
+			h.writeErr(w, http.StatusBadGateway, "no usable upstream credential")
+			return
+		}
+
+		upReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
+			strings.TrimRight(m.BaseURL, "/")+"/chat/completions", bytes.NewReader(upBody))
+		if err != nil {
+			h.writeErr(w, http.StatusInternalServerError, "upstream request build failed")
+			return
+		}
+		upReq.Header.Set("Content-Type", "application/json")
+		upReq.Header.Set("Authorization", "Bearer "+token)
+		for k, v := range cred.DefaultHeaders {
+			if reservedHeaders[strings.ToLower(k)] {
+				continue
+			}
+			upReq.Header.Set(k, v)
+		}
+
+		resp, err = h.client.Do(upReq)
+		if err != nil {
+			h.logRequest(r.Context(), keyRow, m, 0, 0, start, "error", err.Error())
+			h.writeErr(w, http.StatusBadGateway, "upstream request failed")
+			return
+		}
+		lastStatus = resp.StatusCode
+
+		// The credential was rejected: drop that account and try another.
+		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
+			_ = resp.Body.Close()
+			resp = nil
+			pool.MarkFailed(token)
 			continue
 		}
-		upReq.Header.Set(k, v)
+		break
 	}
 
-	resp, err := h.client.Do(upReq)
-	if err != nil {
-		h.logRequest(r.Context(), keyRow, m, 0, 0, start, "error", err.Error())
-		h.writeErr(w, http.StatusBadGateway, "upstream request failed")
+	if resp == nil {
+		h.logRequest(r.Context(), keyRow, m, 0, 0, start, "upstream_error",
+			fmt.Sprintf("upstream %d on every account", lastStatus))
+		h.writeErr(w, http.StatusBadGateway, "upstream rejected every pooled credential")
 		return
 	}
 	defer resp.Body.Close()

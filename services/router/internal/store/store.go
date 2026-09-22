@@ -98,6 +98,20 @@ func (s *Store) TouchAPIKey(ctx context.Context, id string) error {
 	return err
 }
 
+// UpdateProviderCredentials rewrites a provider's encrypted credential blob.
+//
+// This exists because xAI rotates the refresh_token on every exchange: if the
+// rotated value is not written back, the stored one is dead the moment the
+// access token expires (which it did — three accounts were lost this way before
+// the refresh path persisted anything).
+func (s *Store) UpdateProviderCredentials(ctx context.Context, providerID, enc string) error {
+	// NOTE: `provider` has no updated_at column — do not add one here without a
+	// migration, or every refresh silently fails to persist.
+	_, err := s.pool.Exec(ctx,
+		`update provider set credentials_enc = $1 where id = $2`, enc, providerID)
+	return err
+}
+
 func (s *Store) InsertRequestLog(ctx context.Context, r *RequestLog) error {
 	if r.ID == "" {
 		r.ID = uuid.Must(uuid.NewV7()).String()

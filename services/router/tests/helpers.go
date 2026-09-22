@@ -180,6 +180,14 @@ func testMasterKey(t *testing.T) string {
 
 func NewProxy(t *testing.T, dsn, _ string) *proxy.Handler {
 	t.Helper()
+	return NewProxyWithRefresher(t, dsn, nil)
+}
+
+// NewProxyWithRefresher builds the hot-path handler with an explicit token
+// refresher. A nil refresher is correct for static-api_key providers; pass a
+// fake one to exercise the OAuth account pool without touching the network.
+func NewProxyWithRefresher(t *testing.T, dsn string, refresher proxy.TokenRefresher) *proxy.Handler {
+	t.Helper()
 	ctx := context.Background()
 	st, err := store.New(ctx, dsn)
 	if err != nil {
@@ -190,7 +198,7 @@ func NewProxy(t *testing.T, dsn, _ string) *proxy.Handler {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return proxy.New(st, cr, &http.Client{Timeout: 30 * time.Second})
+	return proxy.New(st, cr, &http.Client{Timeout: 30 * time.Second}, refresher)
 }
 
 func RevokeKey(t *testing.T, dsn, keyID string) {

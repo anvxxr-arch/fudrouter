@@ -77,3 +77,32 @@ func TestActiveProvidersAlwaysServed(t *testing.T) {
 		t.Errorf("active provider not served without opt-in: %v", err)
 	}
 }
+
+// The refresh path rewrites credentials_enc. That write is the only thing
+// keeping a rotated refresh token alive, so it is pinned here — an earlier
+// version referenced a non-existent `updated_at` column and would have failed
+// on every refresh while still answering requests.
+func TestUpdateProviderCredentialsPersists(t *testing.T) {
+	dsn := tests.RequireDB(t)
+	env := tests.SeedEnv(t, dsn, "http://127.0.0.1:1")
+	ctx := context.Background()
+
+	st, err := store.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	const replacement = "rotated-blob-ciphertext"
+	if err := st.UpdateProviderCredentials(ctx, env.ProviderID, replacement); err != nil {
+		t.Fatalf("UpdateProviderCredentials: %v", err)
+	}
+
+	row, err := st.ModelWithProvider(ctx, env.Slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.CredEnc != replacement {
+		t.Fatalf("credentials_enc = %q, want %q", row.CredEnc, replacement)
+	}
+}

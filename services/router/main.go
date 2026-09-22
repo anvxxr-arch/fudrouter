@@ -49,7 +49,8 @@ func main() {
 		log.Fatalf("[%s] crypt init: %v", serviceName, err)
 	}
 
-	p := proxy.New(st, cr, nil)
+	// The OAuth pool needs a refresher; a static-key provider never calls it.
+	p := proxy.New(st, cr, nil, proxy.NewXAIRefresher())
 
 	mux := http.NewServeMux()
 	mux.Handle("GET /health", newHealthHandler())

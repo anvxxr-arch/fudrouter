@@ -1,0 +1,203 @@
+[
+  {
+    "id": "z-ai/glm-5.3-flash",
+    "agent": "base2-free",
+    "premium": false,
+    "multimodal": true,
+    "available": true,
+    "efforts": ["low", "high", "max"],
+    "fallback": null,
+    "availability": "always"
+  },
+  {
+    "id": "google/gemini-3.1-flash-lite",
+    "agent": "file-picker",
+    "premium": false,
+    "multimodal": true,
+    "available": true,
+    "efforts": ["low", "medium", "high", "xhigh", "max"],
+    "fallback": null,
+    "availability": "always"
+  },
+  {
+    "id": "google/gemini-3.5-flash-lite",
+    "agent": "base2-free",
+    "premium": false,
+    "multimodal": true,
+    "available": true,
+    "efforts": ["low", "medium", "high", "xhigh", "max"],
+    "fallback": null,
+    "availability": "always"
+  },
+  {
+    "id": "deepseek/deepseek-v4-flash",
+    "agent": "base2-free",
+    "premium": false,
+    "multimodal": false,
+    "available": true,
+    "efforts": ["low", "high", "max"],
+    "fallback": "openai/gpt-5.6-luna",
+    "availability": "always"
+  },
+  {
+    "id": "deepseek/deepseek-v4-flash-max",
+    "agent": "base2-free",
+    "premium": true,
+    "multimodal": false,
+    "available": true,
+    "efforts": ["low", "high", "max"],
+    "fallback": null,
+    "availability": "always"
+  },
+  {
+    "id": "deepseek/deepseek-v4-pro-max",
+    "agent": "base2-free",
+    "premium": true,
+    "multimodal": false,
+    "available": true,
+    "efforts": ["low", "high", "max"],
+    "fallback": null,
+    "availability": "always"
+  },
+  {
+    "id": "openai/gpt-5.6-luna",
+    "agent": "base2-free",
+    "premium": true,
+    "multimodal": true,
+    "available": true,
+    "efforts": ["low", "medium", "high", "xhigh", "max"],
+    "fallback": null,
+    "availability": "always"
+  },
+  {
+    "id": "openai/gpt-5.6-luna-es",
+    "agent": "base2-free",
+    "premium": true,
+    "multimodal": false,
+    "available": true,
+    "efforts": ["low", "medium", "high", "xhigh", "max"],
+    "fallback": null,
+    "availability": "always"
+  },
+  {
+    "id": "openai/gpt-5.6-luna-max",
+    "agent": "base2-free",
+    "premium": true,
+    "multimodal": false,
+    "available": true,
+    "efforts": ["low", "medium", "high", "xhigh", "max"],
+    "fallback": null,
+    "availability": "always"
+  },
+  {
+    "id": "upstage/solar-pro4",
+    "agent": "base2-free",
+    "premium": true,
+    "multimodal": false,
+    "available": true,
+    "efforts": null,
+    "fallback": null,
+    "availability": "always"
+  },
+  {
+    "id": "meta/muse-spark-1.2-contributor",
+    "agent": "base2-free",
+    "premium": true,
+    "multimodal": false,
+    "available": true,
+    "efforts": ["minimal", "low", "medium", "high", "xhigh"],
+    "fallback": "deepseek/deepseek-v4-flash",
+    "availability": "always"
+  },
+  {
+    "id": "crof/kimi-k3-eco",
+    "agent": "base2-free",
+    "premium": true,
+    "multimodal": false,
+    "available": true,
+    "efforts": null,
+    "fallback": null,
+    "availability": "always"
+  },
+  {
+    "id": "mimo/mimo-v2.5",
+    "agent": "base2-free",
+    "premium": false,
+    "multimodal": true,
+    "available": true,
+    "efforts": null,
+    "fallback": null,
+    "availability": "always"
+  },
+  {
+    "id": "anthropic/",
+    "agent": "base2-free",
+    "premium": true,
+    "multimodal": true,
+    "available": true,
+    "namespace": true,
+    "efforts": ["low", "medium", "high", "xhigh", "max"],
+    "fallback": null,
+    "availability": "always"
+  },
+  {
+    "id": "google/gemini-3.8-flash",
+    "agent": "researcher-web",
+    "premium": true,
+    "multimodal": true,
+    "available": false,
+    "efforts": ["low", "medium", "high", "xhigh", "max"],
+    "fallback": "google/gemini-3.1-flash-lite",
+    "availability": "always"
+  },
+  {
+    "id": "deepseek/deepseek-v4-pro",
+    "agent": "base2-free",
+    "premium": true,
+    "multimodal": false,
+    "available": false,
+    "efforts": ["low", "high", "max"],
+    "fallback": "z-ai/glm-5.3-flash",
+    "availability": "always"
+  },
+  {
+    "id": "minimax/minimax-m3",
+    "agent": "base2-free",
+    "premium": true,
+    "multimodal": true,
+    "available": false,
+    "efforts": null,
+    "fallback": "z-ai/glm-5.3-flash",
+    "availability": "always"
+  },
+  {
+    "id": "meta/muse-spark-1.3-contributor",
+    "agent": "base2-free",
+    "premium": true,
+    "multimodal": false,
+    "available": false,
+    "efforts": ["minimal", "low", "medium", "high", "xhigh"],
+    "fallback": "deepseek/deepseek-v4-flash",
+    "availability": "always"
+  },
+  {
+    "id": "stealth/ox-alpha",
+    "agent": "base2-free",
+    "premium": false,
+    "multimodal": true,
+    "available": false,
+    "efforts": ["low", "high", "max"],
+    "fallback": "z-ai/glm-5.3-flash",
+    "availability": "always"
+  },
+  {
+    "id": "z-ai/glm-5.2",
+    "agent": "base2-free",
+    "premium": true,
+    "multimodal": false,
+    "available": false,
+    "efforts": null,
+    "fallback": "z-ai/glm-5.3-flash",
+    "availability": "always"
+  }
+]

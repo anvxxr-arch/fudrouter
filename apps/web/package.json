@@ -24,7 +24,9 @@
 		"verify:xai": "node --experimental-strip-types --env-file=.env scripts/verify-xai.mjs",
 		"dev:key": "node --env-file=.env scripts/dev-api-key.mjs",
 		"e2e:smoke": "node scripts/e2e-smoke.mjs",
-		"auth:schema": "auth generate --config src/lib/server/auth.ts --output src/lib/server/db/auth.schema.ts --yes"
+		"auth:schema": "auth generate --config src/lib/server/auth.ts --output src/lib/server/db/auth.schema.ts --yes",
+		"onboard:freebuff": "node --experimental-strip-types --env-file=.env scripts/onboard-freebuff.mjs",
+		"verify:freebuff": "node --experimental-strip-types --env-file=.env scripts/verify-freebuff.mjs"
 	},
 	"dependencies": {
 		"better-auth": "^1.6.23",

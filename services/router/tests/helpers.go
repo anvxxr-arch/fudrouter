@@ -91,6 +91,52 @@ func SeedEnvWithStatus(t *testing.T, dsn, upstreamBaseURL, status string, extraH
 
 func SeedEnvFull(t *testing.T, dsn, upstreamBaseURL, status string, extraHeaders map[string]string) *Env {
 	t.Helper()
+	extra := map[string]any{}
+	if len(extraHeaders) > 0 {
+		extra["default_headers"] = extraHeaders
+	}
+	return seedEnvCred(t, dsn, upstreamBaseURL, status, extra)
+}
+
+// SeedEnvFreebuff seeds a provider whose credential blob declares the native
+// Codebuff/Freebuff protocol, so the data plane must run the session/run/
+// metadata handshake instead of an [OI] passthrough.
+func SeedEnvFreebuff(t *testing.T, dsn, upstreamBaseURL string) *Env {
+	t.Helper()
+	return SeedEnvFreebuffAccounts(t, dsn, upstreamBaseURL, nil)
+}
+
+// SeedEnvFreebuffAccounts is SeedEnvFreebuff with an explicit account pool, so a
+// test can exercise per-account failover. Nil tokens → a single static api_key.
+func SeedEnvFreebuffAccounts(t *testing.T, dsn, upstreamBaseURL string, tokens []string) *Env {
+	t.Helper()
+	cred := map[string]any{
+		"api_key":   UpstreamKeyPlain,
+		"protocol":  "freebuff",
+		"auth_kind": "apikey",
+	}
+	if len(tokens) > 0 {
+		accts := make([]map[string]any, 0, len(tokens))
+		for i, tok := range tokens {
+			accts = append(accts, map[string]any{
+				"email":         "acct-" + randChars(4) + "@codebuff.com",
+				"api_key":       tok,
+				"access_token":  tok,
+				"refresh_token": nil,
+				"expired":       "2099-01-01T00:00:00Z",
+			})
+			_ = i
+		}
+		cred["accounts"] = accts
+		cred["api_key"] = tokens[0]
+	}
+	return seedEnvCred(t, dsn, upstreamBaseURL, "active", cred)
+}
+
+// seedEnvCred is the shared seeder. extraCred is merged into the encrypted
+// credential blob so a test can declare protocol/auth_kind/etc.
+func seedEnvCred(t *testing.T, dsn, upstreamBaseURL, status string, extraCred map[string]any) *Env {
+	t.Helper()
 	ctx := context.Background()
 	conn, err := pgx.Connect(ctx, dsn)
 	if err != nil {
@@ -121,8 +167,8 @@ func SeedEnvFull(t *testing.T, dsn, upstreamBaseURL, status string, extraHeaders
 		t.Fatal(err)
 	}
 	cred := map[string]any{"api_key": UpstreamKeyPlain}
-	if len(extraHeaders) > 0 {
-		cred["default_headers"] = extraHeaders
+	for k, v := range extraCred {
+		cred[k] = v
 	}
 	credJSON, _ := json.Marshal(cred)
 	enc, err := cr.Encrypt(string(credJSON))

@@ -11,12 +11,15 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/anvxxr-arch/fudrouter/services/router/internal/cost"
 	"github.com/anvxxr-arch/fudrouter/services/router/internal/crypt"
+	"github.com/anvxxr-arch/fudrouter/services/router/internal/freebuff"
 	"github.com/anvxxr-arch/fudrouter/services/router/internal/keys"
 	"github.com/anvxxr-arch/fudrouter/services/router/internal/store"
 )
@@ -26,6 +29,10 @@ type Handler struct {
 	crypt     *crypt.Crypt
 	client    *http.Client
 	refresher TokenRefresher
+
+	// freebuff drives the native Codebuff/Freebuff protocol for providers whose
+	// credential blob declares protocol="freebuff".
+	freebuff *freebuff.Manager
 
 	// pools caches one rotation Pool per provider. The pool is the in-memory
 	// source of truth for account state once built, because it is also the
@@ -39,7 +46,26 @@ func New(st *store.Store, cr *crypt.Crypt, client *http.Client, refresher TokenR
 	if client == nil {
 		client = &http.Client{Timeout: 120 * time.Second}
 	}
-	return &Handler{store: st, crypt: cr, client: client, refresher: refresher}
+	return &Handler{
+		store:     st,
+		crypt:     cr,
+		client:    client,
+		refresher: refresher,
+		freebuff:  freebuff.New(os.Getenv("FREEBUFF_BASE_URL")),
+	}
+}
+
+// statusForKind maps a freebuff protocol failure to the HTTP status reported
+// when the router cannot fail over to another account.
+func statusForKind(k freebuff.ErrorKind) int {
+	switch k {
+	case freebuff.KindAuthExpired:
+		return http.StatusUnauthorized
+	case freebuff.KindModelUnavailable:
+		return http.StatusNotFound
+	default:
+		return http.StatusBadGateway
+	}
 }
 
 // poolFor returns the rotation pool for a provider, building it on first use.
@@ -171,26 +197,58 @@ func (h *Handler) ServeCompletions(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		upReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
-			strings.TrimRight(m.BaseURL, "/")+"/chat/completions", bytes.NewReader(upBody))
-		if err != nil {
-			h.writeErr(w, http.StatusInternalServerError, "upstream request build failed")
-			return
-		}
-		upReq.Header.Set("Content-Type", "application/json")
-		upReq.Header.Set("Authorization", "Bearer "+picked.Token)
-		for k, v := range cred.DefaultHeaders {
-			if reservedHeaders[strings.ToLower(k)] {
-				continue
+		if cred.Protocol == ProtocolFreebuff {
+			// Native Codebuff/Freebuff protocol. The upstream is NOT [OI]: a chat
+			// needs a live session, a root agent run, and codebuff_metadata
+			// injection, so the plain passthrough below cannot be used.
+			resp, err = h.freebuff.Chat(r.Context(), m.BaseURL, picked.Token, m.Slug, upBody)
+			if err != nil {
+				var pe *freebuff.Error
+				if errors.As(err, &pe) {
+					switch pe.Kind {
+					case freebuff.KindAuthExpired, freebuff.KindModelUnavailable:
+						// Bad credential or bad model: fail over to another
+						// account within the same request.
+						pool.MarkFailed(picked.Token)
+						lastStatus = statusForKind(pe.Kind)
+						continue
+					case freebuff.KindWaitingRoom, freebuff.KindRateLimit:
+						// Upstream queue/limit: surface a Retry-After instead of
+						// hammering it.
+						if pe.RetryAfter > 0 {
+							w.Header().Set("Retry-After", strconv.Itoa(pe.RetryAfter))
+						}
+						h.logRequest(r.Context(), keyRow, m, 0, 0, start, "upstream_error", pe.Msg)
+						h.writeErr(w, http.StatusServiceUnavailable, pe.Msg)
+						return
+					}
+				}
+				h.logRequest(r.Context(), keyRow, m, 0, 0, start, "error", err.Error())
+				h.writeErr(w, http.StatusBadGateway, err.Error())
+				return
 			}
-			upReq.Header.Set(k, v)
-		}
+		} else {
+			upReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
+				strings.TrimRight(m.BaseURL, "/")+"/chat/completions", bytes.NewReader(upBody))
+			if err != nil {
+				h.writeErr(w, http.StatusInternalServerError, "upstream request build failed")
+				return
+			}
+			upReq.Header.Set("Content-Type", "application/json")
+			upReq.Header.Set("Authorization", "Bearer "+picked.Token)
+			for k, v := range cred.DefaultHeaders {
+				if reservedHeaders[strings.ToLower(k)] {
+					continue
+				}
+				upReq.Header.Set(k, v)
+			}
 
-		resp, err = h.client.Do(upReq)
-		if err != nil {
-			h.logRequest(r.Context(), keyRow, m, 0, 0, start, "error", err.Error())
-			h.writeErr(w, http.StatusBadGateway, "upstream request failed")
-			return
+			resp, err = h.client.Do(upReq)
+			if err != nil {
+				h.logRequest(r.Context(), keyRow, m, 0, 0, start, "error", err.Error())
+				h.writeErr(w, http.StatusBadGateway, "upstream request failed")
+				return
+			}
 		}
 		lastStatus = resp.StatusCode
 

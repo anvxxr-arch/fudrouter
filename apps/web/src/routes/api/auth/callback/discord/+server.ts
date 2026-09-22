@@ -1,16 +1,16 @@
 import { auth } from '$lib/server/auth';
-import { env } from '$env/dynamic/private';
+import { isAllowedOrigin } from '$lib/server/origins';
 
-const ALLOWED_ORIGINS = [
-	'https://ai.karepmuwes.my.id',
-	'http://localhost:3000',
-	'http://127.0.0.1:3000'
-];
-
+// Discord's redirect back here is a top-level browser navigation, which sends no
+// Origin header — so a missing Origin is allowed. A *present* but untrusted
+// Origin is still rejected.
 export async function GET({ request }: { request: Request }) {
 	const origin = request.headers.get('Origin');
-	if (origin && !ALLOWED_ORIGINS.includes(origin)) {
-		return new Response(JSON.stringify({ error: 'forbidden_origin' }), { status: 403 });
+	if (origin !== null && !isAllowedOrigin(origin)) {
+		return new Response(JSON.stringify({ error: 'forbidden_origin' }), {
+			status: 403,
+			headers: { 'Content-Type': 'application/json' }
+		});
 	}
 	return auth.handler(request);
 }

@@ -11,6 +11,7 @@
  * needs the type of a prop (`ButtonVariant`) or the tone list for a `{#each}`
  * should not have to know it lives under `$lib/design`.
  */
+export { default as DiscordButton } from './DiscordButton.svelte';
 export { default as Alert } from './Alert.svelte';
 export { default as Badge } from './Badge.svelte';
 export { default as Button } from './Button.svelte';
@@ -24,6 +25,10 @@ export { default as PageHeader } from './PageHeader.svelte';
 export { default as Select } from './Select.svelte';
 export { default as StatCard } from './StatCard.svelte';
 export { default as Textarea } from './Textarea.svelte';
+export { default as Section } from './Section.svelte';
+export { default as Facts } from './Facts.svelte';
+export { default as CodeBlock } from './CodeBlock.svelte';
+export { default as Guide } from './Guide.svelte';
 
 export {
 	ALERT_TONES,

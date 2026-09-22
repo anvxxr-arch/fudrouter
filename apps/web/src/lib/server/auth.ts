@@ -3,7 +3,6 @@ import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { sveltekitCookies } from 'better-auth/svelte-kit';
 import { admin } from 'better-auth/plugins';
-import { discord } from 'better-auth/social-providers';
 import { getRequestEvent } from '$app/server';
 import { db } from '$lib/server/db';
 import * as authSchema from '$lib/server/db/auth.schema';
@@ -22,8 +21,9 @@ export const auth = betterAuth({
 			clientId: env.FLEXYROUTE_CLIENT_ID,
 			clientSecret: env.FLEXYROUTE_CLIENT_SECRET,
 			redirectURI: `${env.ORIGIN}/api/auth/callback/discord`,
-			prompt: 'consent',
-			scope: ['identify', 'email']
+			// `identify` + `email` are better-auth's defaults for Discord; no
+			// explicit scope here or the list is emitted twice in the URL.
+			prompt: 'consent'
 		}
 	},
 	plugins: [

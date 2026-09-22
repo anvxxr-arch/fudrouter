@@ -1,10 +1,12 @@
 import { auth } from '$lib/server/auth';
-import { env } from '$env/dynamic/private';
+import { isAllowedOrigin } from '$lib/server/origins';
 
-export async function POST({ request, url }: { request: Request; url: URL }) {
-	const origin = request.headers.get('Origin');
-	if (origin !== 'https://ai.karepmuwes.my.id' && origin !== 'http://localhost:3000' && origin !== 'http://127.0.0.1:3000') {
-		return new Response(JSON.stringify({ error: 'forbidden_origin' }), { status: 403 });
+export async function POST({ request }: { request: Request }) {
+	if (!isAllowedOrigin(request.headers.get('Origin'))) {
+		return new Response(JSON.stringify({ error: 'forbidden_origin' }), {
+			status: 403,
+			headers: { 'Content-Type': 'application/json' }
+		});
 	}
 	return auth.handler(request);
 }

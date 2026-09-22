@@ -2,7 +2,6 @@ import type { Handle } from '@sveltejs/kit';
 import { building } from '$app/environment';
 import { redirect } from '@sveltejs/kit';
 import { auth } from '$lib/server/auth';
-import { svelteKitHandler } from 'better-auth/svelte-kit';
 import { hasCap, requiredCap } from '$lib/server/roles';
 
 const handleBetterAuth: Handle = async ({ event, resolve }) => {
@@ -22,7 +21,7 @@ const handleBetterAuth: Handle = async ({ event, resolve }) => {
 		}
 	}
 
-	return svelteKitHandler({ event, resolve, auth, building });
+	return resolve(event);
 };
 
 export const handle: Handle = handleBetterAuth;

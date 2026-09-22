@@ -1,8 +1,9 @@
 import { env } from '$env/dynamic/private';
-import { betterAuth } from 'better-auth/minimal';
+import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { sveltekitCookies } from 'better-auth/svelte-kit';
 import { admin } from 'better-auth/plugins';
+import { discord } from 'better-auth/social-providers';
 import { getRequestEvent } from '$app/server';
 import { db } from '$lib/server/db';
 import * as authSchema from '$lib/server/db/auth.schema';
@@ -16,6 +17,14 @@ export const auth = betterAuth({
 	// while the same build serves the tunnel.
 	trustedOrigins: ['http://localhost:3000', 'http://127.0.0.1:3000'],
 	emailAndPassword: { enabled: true },
+	socialProviders: {
+		discord: {
+			clientId: env.FLEXYROUTE_CLIENT_ID,
+			clientSecret: env.FLEXYROUTE_CLIENT_SECRET,
+			redirectURI: `${env.ORIGIN}/api/auth/callback/discord`,
+			scope: ['identify', 'email']
+		}
+	},
 	plugins: [
 		admin({
 			defaultRole: 'user'

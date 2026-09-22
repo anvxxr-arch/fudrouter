@@ -97,13 +97,48 @@ func TestPickRoundRobinsAccounts(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Pick: %v", err)
 		}
-		got = append(got, tok)
+		got = append(got, tok.Token)
 	}
 	want := []string{"tok-a", "tok-b", "tok-a", "tok-b"}
 	for i := range want {
 		if got[i] != want[i] {
 			t.Fatalf("round-robin order = %v, want %v", got, want)
 		}
+	}
+}
+
+// Pick must attribute the credential to its account: without the email there is
+// no way to tell a pool that spreads from one that collapsed onto a single
+// account, because request_log has no account column.
+func TestPickReportsServingAccount(t *testing.T) {
+	pb := &persistedBlob{}
+	p := testPool([]account{
+		{Email: "a@x", AccessToken: "tok-a", RefreshToken: "rt-a", Expired: future()},
+		{Email: "b@x", AccessToken: "tok-b", RefreshToken: "rt-b", Expired: future()},
+	}, newFakeRefresher(), pb)
+
+	first, err := p.Pick(context.Background())
+	if err != nil {
+		t.Fatalf("Pick: %v", err)
+	}
+	if first.Email != "a@x" {
+		t.Fatalf("first Pick email = %q, want a@x", first.Email)
+	}
+	second, err := p.Pick(context.Background())
+	if err != nil {
+		t.Fatalf("Pick: %v", err)
+	}
+	if second.Email != "b@x" {
+		t.Fatalf("second Pick email = %q, want b@x", second.Email)
+	}
+	// The static-key fallback must still be attributable.
+	sp := testPool(nil, newFakeRefresher(), pb)
+	fb, err := sp.Pick(context.Background())
+	if err != nil {
+		t.Fatalf("static Pick: %v", err)
+	}
+	if fb.Email == "" {
+		t.Fatal("static api_key pick has no account label")
 	}
 }
 
@@ -121,7 +156,7 @@ func TestPickRefreshesExpiredTokenAndPersistsRotation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Pick: %v", err)
 	}
-	if tok == "stale" || tok == "" {
+	if tok.Token == "stale" || tok.Token == "" {
 		t.Fatalf("Pick returned %q, want a freshly exchanged token", tok)
 	}
 	if n := fr.count("rt-old"); n != 1 {
@@ -138,7 +173,7 @@ func TestPickRefreshesExpiredTokenAndPersistsRotation(t *testing.T) {
 	if c.Accounts[0].RefreshToken == "rt-old" {
 		t.Fatal("persisted blob still holds the pre-rotation refresh token")
 	}
-	if c.Accounts[0].AccessToken != tok {
+	if c.Accounts[0].AccessToken != tok.Token {
 		t.Fatalf("persisted access token %q != served token %q", c.Accounts[0].AccessToken, tok)
 	}
 	if c.APIKey != "static-key" {
@@ -160,7 +195,7 @@ func TestPickDoesNotRefreshValidToken(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Pick: %v", err)
 		}
-		if tok != "good" {
+		if tok.Token != "good" {
 			t.Fatalf("Pick = %q, want the stored valid token", tok)
 		}
 	}
@@ -187,7 +222,7 @@ func TestPickSkipsAccountThatCannotRefresh(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Pick %d: %v", i, err)
 		}
-		if tok != "live-tok" {
+		if tok.Token != "live-tok" {
 			t.Fatalf("Pick %d = %q, want the healthy account", i, tok)
 		}
 	}
@@ -207,7 +242,7 @@ func TestPickFallsBackToStaticAPIKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Pick: %v", err)
 	}
-	if tok != "static-key" {
+	if tok.Token != "static-key" {
 		t.Fatalf("Pick = %q, want the static api_key", tok)
 	}
 }
@@ -256,14 +291,14 @@ func TestMarkFailedParksAccount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Pick: %v", err)
 	}
-	p.MarkFailed(first)
+	p.MarkFailed(first.Token)
 
 	for i := 0; i < 3; i++ {
 		tok, err := p.Pick(context.Background())
 		if err != nil {
 			t.Fatalf("Pick after MarkFailed: %v", err)
 		}
-		if tok == first {
+		if tok.Token == first.Token {
 			t.Fatalf("Pick returned the parked credential %q", tok)
 		}
 	}

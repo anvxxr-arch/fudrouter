@@ -119,19 +119,25 @@ func parseExpiry(s string) time.Time {
 	return time.Time{}
 }
 
-// Pick returns a usable access token, refreshing it when needed. Accounts are
+// Picked is one credential selection.
+type Picked struct {
+	Token string
+	Email string
+}
+
+// Pick returns a usable credential, refreshing it when needed. Accounts are
 // tried round-robin so load spreads across the pool; an account that cannot be
 // refreshed is skipped until its cooldown expires.
-func (p *Pool) Pick(ctx context.Context) (string, error) {
+func (p *Pool) Pick(ctx context.Context) (Picked, error) {
 	p.mu.Lock()
 	n := len(p.accounts)
 	if n == 0 {
 		key := p.fallbackAPIKey
 		p.mu.Unlock()
 		if key == "" {
-			return "", errors.New("provider has no credentials")
+			return Picked{}, errors.New("provider has no credentials")
 		}
-		return key, nil
+		return Picked{Token: key, Email: "(static api_key)"}, nil
 	}
 	start := p.next
 	p.next = (p.next + 1) % n
@@ -151,12 +157,12 @@ func (p *Pool) Pick(ctx context.Context) (string, error) {
 				log.Printf("[proxy] persisting rotated credentials failed: %v", err)
 			}
 		}
-		return tok, nil
+		return Picked{Token: tok, Email: a.data.Email}, nil
 	}
 	if lastErr == nil {
 		lastErr = errors.New("no usable account")
 	}
-	return "", fmt.Errorf("all %d account(s) unusable: %w", n, lastErr)
+	return Picked{}, fmt.Errorf("all %d account(s) unusable: %w", n, lastErr)
 }
 
 // token returns a valid access token, refreshing it when it is near expiry. The

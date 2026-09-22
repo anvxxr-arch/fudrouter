@@ -160,8 +160,10 @@ func (h *Handler) ServeCompletions(w http.ResponseWriter, r *http.Request) {
 
 	var resp *http.Response
 	var lastStatus int
+	var servedBy string
+	usedAttempts := 0
 	for attempt := 0; attempt < attempts; attempt++ {
-		token, err := pool.Pick(r.Context())
+		picked, err := pool.Pick(r.Context())
 		if err != nil {
 			log.Printf("[proxy] no usable credential for provider %s: %v", m.ProviderID, err)
 			h.logRequest(r.Context(), keyRow, m, 0, 0, start, "error", "no usable credential")
@@ -176,7 +178,7 @@ func (h *Handler) ServeCompletions(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		upReq.Header.Set("Content-Type", "application/json")
-		upReq.Header.Set("Authorization", "Bearer "+token)
+		upReq.Header.Set("Authorization", "Bearer "+picked.Token)
 		for k, v := range cred.DefaultHeaders {
 			if reservedHeaders[strings.ToLower(k)] {
 				continue
@@ -197,9 +199,11 @@ func (h *Handler) ServeCompletions(w http.ResponseWriter, r *http.Request) {
 			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
 			_ = resp.Body.Close()
 			resp = nil
-			pool.MarkFailed(token)
+			pool.MarkFailed(picked.Token)
 			continue
 		}
+		servedBy = picked.Email
+		usedAttempts = attempt + 1
 		break
 	}
 
@@ -210,6 +214,12 @@ func (h *Handler) ServeCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer resp.Body.Close()
+
+	// Which account served a request is not otherwise observable: the pool is
+	// in-memory and request_log has no account column. Without this line a pool
+	// that silently collapses onto one account looks identical to a healthy one.
+	log.Printf("[proxy] provider=%s model=%s account=%s attempt=%d status=%d",
+		m.ProviderID, m.Slug, servedBy, usedAttempts, resp.StatusCode)
 
 	if resp.StatusCode != http.StatusOK {
 		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))

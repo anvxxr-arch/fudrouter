@@ -1,82 +1,83 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { Alert, Badge, Button, Card, EmptyState, Field, Input, PageHeader } from '$lib/ui';
+	import { withPending } from '$lib/forms';
+
 	let { data, form } = $props();
+	// One flag for the page: any in-flight action disables every submit, which also
+	// stops a double-click from firing two creates.
+	let pending = $state(false);
+	const track = withPending((v) => (pending = v));
 </script>
 
-<h1>API Keys</h1>
+<PageHeader
+	title="API Keys"
+	lede="Keys authenticate your calls to the router. The secret is shown once, at creation."
+/>
 
 {#if form?.created}
-	<div class="created">
-		<strong>Key created — copy it now, it is shown once.</strong>
-		<code>{form.created}</code>
-		<p>Use it as <code>Authorization: Bearer &lt;key&gt;</code> against the router.</p>
+	<div class="fr-feedback">
+		<Alert tone="success">
+			<strong>Key created — copy it now, it is shown once.</strong>
+			<code class="secret">{form.created}</code>
+			<span>Use it as <code>Authorization: Bearer &lt;key&gt;</code> against the router.</span>
+		</Alert>
 	</div>
 {/if}
-{#if form?.error}<p class="error">{form.error}</p>{/if}
+{#if form?.error}<div class="fr-feedback"><Alert tone="danger">{form.error}</Alert></div>{/if}
 
-<form method="POST" action="?/create" use:enhance>
-	<input name="name" placeholder="key name" required />
-	<button type="submit">Create key</button>
-</form>
+<Card>
+	<form method="POST" action="?/create" use:enhance={track} class="create">
+		<Field label="Key name" hint="Something you will recognise later, e.g. prod-backend.">
+			<Input name="name" placeholder="key name" required />
+		</Field>
+		<Button type="submit" variant="primary" {pending}>Create key</Button>
+	</form>
+</Card>
 
-<table>
-	<thead>
-		<tr><th>Name</th><th>Prefix</th><th>Created</th><th>Status</th><th></th></tr>
-	</thead>
-	<tbody>
-		{#each data.keys as k (k.id)}
-			<tr>
-				<td>{k.name}</td>
-				<td><code>sk-ar-{k.prefix}…</code></td>
-				<td>{k.createdAt.toISOString().slice(0, 10)}</td>
-				<td>{k.revokedAt ? 'revoked' : 'active'}</td>
-				<td>
-					{#if !k.revokedAt}
-						<form method="POST" action="?/revoke" use:enhance>
-							<input type="hidden" name="id" value={k.id} />
-							<button type="submit">Revoke</button>
-						</form>
-					{/if}
-				</td>
-			</tr>
-		{:else}
-			<tr><td colspan="5">No keys yet.</td></tr>
-		{/each}
-	</tbody>
-</table>
+<div class="table-wrap">
+<table class="fr">
+	
+		<thead>
+			<tr><th>Name</th><th>Prefix</th><th>Created</th><th>Status</th><th>Actions</th></tr>
+		</thead>
+		<tbody>
+			{#each data.keys as k (k.id)}
+				<tr>
+					<td>{k.name}</td>
+					<td><code>sk-ar-{k.prefix}…</code></td>
+					<td class="num">{k.createdAt.toISOString().slice(0, 10)}</td>
+					<td>
+						<Badge tone={k.revokedAt ? 'danger' : 'success'}>
+							{k.revokedAt ? 'revoked' : 'active'}
+						</Badge>
+					</td>
+					<td class="fr-actions">
+						{#if !k.revokedAt}
+							<form method="POST" action="?/revoke" use:enhance={track}>
+								<input type="hidden" name="id" value={k.id} />
+								<Button type="submit" variant="danger" {pending} aria-label="Revoke key {k.name}">
+									Revoke
+								</Button>
+							</form>
+						{/if}
+					</td>
+				</tr>
+			{:else}
+				<tr><td colspan="5"><EmptyState title="No keys yet" hint="Create one above." /></td></tr>
+			{/each}
+		</tbody>
+	</table></div>
 
 <style>
-	.created {
-		display: grid;
-		gap: 0.5rem;
-		padding: 1rem;
-		border: 1px solid #2a7;
-		border-radius: 6px;
-		margin-bottom: 1rem;
-	}
-	.created code {
+	
+	.secret {
+		display: block;
+		margin: var(--fr-space-sm) 0;
 		word-break: break-all;
 	}
-	table {
-		border-collapse: collapse;
-		width: 100%;
-		margin-top: 1rem;
-	}
-	th,
-	td {
-		text-align: left;
-		padding: 0.4rem 0.6rem;
-		border-bottom: 1px solid #333;
-	}
-	form {
-		display: flex;
-		gap: 0.5rem;
-		align-items: center;
-	}
-	td form {
-		display: inline;
-	}
-	.error {
-		color: #e66;
-	}
-</style>
+	.create {
+		display: grid;
+		gap: var(--fr-space-md);
+		max-width: 28rem;
+	}</style>

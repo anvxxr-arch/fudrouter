@@ -40,10 +40,7 @@ export const apiKey = pgTable(
 		revokedAt: timestamp('revoked_at', { withTimezone: true }),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
 	},
-	(t) => [
-		uniqueIndex('api_key_prefix_idx').on(t.prefix),
-		index('api_key_user_idx').on(t.userId)
-	]
+	(t) => [uniqueIndex('api_key_prefix_idx').on(t.prefix), index('api_key_user_idx').on(t.userId)]
 );
 
 // provider — credentialsEnc = base64(iv[12]||ct||tag[16]), AES-256-GCM
@@ -107,7 +104,9 @@ export const requestLog = pgTable(
 			.references(() => provider.id),
 		tokensIn: integer('tokens_in').notNull().default(0),
 		tokensOut: integer('tokens_out').notNull().default(0),
-		cost: bigint('cost', { mode: 'bigint' }).notNull().default(sql`0`),
+		cost: bigint('cost', { mode: 'bigint' })
+			.notNull()
+			.default(sql`0`),
 		currency: char('currency', { length: 3 }).notNull().default('USD'),
 		latencyMs: integer('latency_ms').notNull().default(0),
 		status: text('status').notNull(),

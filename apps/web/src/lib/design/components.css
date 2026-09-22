@@ -1,0 +1,251 @@
+/*
+ * Shared atom styles — the design system's *components* layer.
+ *
+ * tokens.css holds values (colour, type, spacing, shape). This file holds the
+ * things built out of those values that more than one component needs.
+ *
+ * WHY GLOBAL, AND WHY HERE: these rules are deliberately not inside a component's
+ * `<style>` block. A Svelte `<style>` is scoped to its own file, so anything two
+ * components share has to be either copy-pasted or declared once in a global
+ * sheet. It was copy-pasted, and it had already drifted:
+ *
+ *   - `Button` and `ButtonLink` each defined `.primary` / `.secondary` / `.ghost`
+ *     verbatim. `Button` grew a `danger` variant that `ButtonLink` never got, and
+ *     `ButtonLink.ghost:hover` did not exist while `Button.ghost:hover` did.
+ *     Adding a variant meant editing two files and hoping.
+ *   - `Input`, `Select` and `Textarea` each re-declared the same control shell.
+ *   - The small uppercase "label" treatment was written out four times: `Field`,
+ *     `StatCard`, `table.fr th`, and DESIGN.md's `caption` typography token.
+ *
+ * The class prefix is `fr-`, matching the `--fr-` token prefix, so nothing here
+ * can collide with a Tailwind utility.
+ *
+ * Atoms are thin wrappers over these classes. Adding a variant or a size is now
+ * one edit in one file, and `variants.test.ts` fails the build if a member
+ * declared in `variants.ts` has no rule here.
+ */
+
+/* ── Label ───────────────────────────────────────────────────────────────────
+ * Small, uppercase, wide-tracked. The only all-caps treatment in the system.
+ * Used for form labels, stat labels and table headers.
+ *
+ * `table.fr th` is in this selector list on purpose: the table header's label
+ * treatment was a fourth copy of these five declarations. The table keeps its own
+ * geometry (padding, border, alignment) in tokens.css. */
+.fr-label,
+table.fr th {
+	color: var(--fr-text-muted);
+	font-size: var(--fr-text-caption);
+	font-weight: 600;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+}
+
+/* ── Button ──────────────────────────────────────────────────────────────────
+ * One shell, variants that only swap custom properties.
+ *
+ * Every `--_*` used below is DEFINED ON THE BASE with a sane default. That is not
+ * decoration: a `background: var(--_bg-hover)` whose property is unset is invalid
+ * at computed-value time and falls back to transparent, so a variant that forgot
+ * to declare its hover would flash transparent on hover instead of failing
+ * visibly. Defaults that equal the resting state make an omission a no-op.
+ *
+ * `.fr-btn` is applied to <button> and <a> alike, which is what keeps a CTA and a
+ * submit control on the same baseline — they are literally the same rule. */
+.fr-btn {
+	--_bg: transparent;
+	--_fg: var(--fr-text);
+	--_bd: transparent;
+	--_bg-hover: var(--_bg);
+	--_bd-hover: var(--_bd);
+
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: var(--fr-space-xs);
+	min-height: var(--fr-control-h-md);
+	padding: 0 var(--fr-space-md);
+	border: 1px solid var(--_bd);
+	border-radius: var(--fr-radius-md);
+	background: var(--_bg);
+	color: var(--_fg);
+	font-family: inherit;
+	font-size: var(--fr-text-sm);
+	font-weight: 600;
+	line-height: 1;
+	cursor: pointer;
+	text-decoration: none;
+	transition:
+		background-color 120ms ease,
+		border-color 120ms ease;
+}
+
+.fr-btn:hover:not(:disabled):not([aria-disabled='true']) {
+	background: var(--_bg-hover);
+	border-color: var(--_bd-hover);
+}
+
+.fr-btn:disabled,
+.fr-btn[aria-disabled='true'] {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+/* A pending control is not "not allowed" — it is working. */
+.fr-btn[aria-busy='true'] {
+	cursor: progress;
+}
+
+.fr-btn--primary {
+	--_bg: var(--fr-primary);
+	--_fg: var(--fr-on-primary);
+	--_bg-hover: var(--fr-primary-hover);
+}
+
+.fr-btn--secondary {
+	--_bg: var(--fr-surface-raised);
+	--_bd: var(--fr-border-strong);
+	--_bd-hover: var(--fr-primary);
+}
+
+.fr-btn--danger {
+	--_bg: var(--fr-surface-raised);
+	--_fg: var(--fr-danger);
+	--_bd: color-mix(in srgb, var(--fr-danger) 45%, var(--fr-border-strong));
+	--_bg-hover: color-mix(in srgb, var(--fr-danger) 14%, var(--fr-surface-raised));
+}
+
+.fr-btn--ghost {
+	--_fg: var(--fr-info);
+	--_bg-hover: var(--fr-surface);
+}
+
+/* Sizes. Only the metrics that actually differ — everything else is inherited. */
+.fr-btn--sm {
+	min-height: var(--fr-control-h-sm);
+	padding: 0 var(--fr-space-sm);
+	font-size: var(--fr-text-caption);
+}
+
+.fr-btn--md {
+	min-height: var(--fr-control-h-md);
+}
+
+.fr-btn--lg {
+	min-height: var(--fr-control-h-lg);
+	padding: 0 var(--fr-space-lg);
+	font-size: var(--fr-text-base);
+}
+
+/* ── Control (input / select / textarea) ─────────────────────────────────────
+ * The same shell for all three, so a row of mixed controls lines up. */
+.fr-control {
+	width: 100%;
+	min-height: var(--fr-control-h-md);
+	padding: 0 var(--fr-space-sm);
+	background: var(--fr-surface);
+	border: 1px solid var(--fr-border-strong);
+	border-radius: var(--fr-radius-md);
+	color: var(--fr-text);
+	font-family: inherit;
+	font-size: var(--fr-text-sm);
+}
+
+.fr-control::placeholder {
+	color: var(--fr-text-muted);
+}
+
+.fr-control:hover:not(:disabled):not([aria-invalid='true']) {
+	border-color: var(--fr-primary);
+}
+
+.fr-control:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+/* Validation failure is a border AND the word, never colour alone — the message
+ * is the caller's, this only marks the field. */
+.fr-control[aria-invalid='true'] {
+	border-color: var(--fr-danger);
+}
+
+/* Multi-line controls size by content, not by a fixed control height. */
+.fr-control--multiline {
+	min-height: 0;
+	padding: var(--fr-space-sm);
+	font-family: var(--fr-font-mono);
+	resize: vertical;
+}
+
+/* `md` is the base shell's height, but it is declared explicitly so that every
+ * member of CONTROL_SIZES has a rule — and so a future change to the base cannot
+ * silently move the default size. */
+.fr-control--sm {
+	min-height: var(--fr-control-h-sm);
+	padding: 0 var(--fr-space-xs);
+	font-size: var(--fr-text-caption);
+}
+
+.fr-control--md {
+	min-height: var(--fr-control-h-md);
+}
+
+.fr-control--lg {
+	min-height: var(--fr-control-h-lg);
+	padding: 0 var(--fr-space-md);
+	font-size: var(--fr-text-base);
+}
+
+/* ── Feedback ───────────────────────────────────────────────────────────────
+ * A wrapper for Alert that adds bottom margin. 16 occurrences across 9 pages
+ * used to each define `.feedback { margin-bottom: var(--fr-space-md) }`. */
+.fr-feedback {
+	margin-bottom: var(--fr-space-md);
+}
+
+/* ── Layout utilities ───────────────────────────────────────────────────────
+ * Repeated layout patterns that were copy-pasted across pages. */
+.fr-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+	gap: var(--fr-space-md);
+}
+
+.fr-stats {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--fr-space-md);
+	margin-bottom: var(--fr-space-md);
+}
+
+.fr-actions {
+	display: flex;
+	gap: var(--fr-space-sm);
+	justify-content: flex-end;
+}
+
+.fr-inline {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--fr-space-xs);
+}
+ * The semantic-colour mapping, defined once. Every atom that carries a tone
+ * (badge, alert, and anything added later) reads `--_tone` and never re-derives
+ * the colour — `Badge` and `Alert` each used to carry their own copy of this
+ * table, which is two places to update when a colour moves. */
+.fr-tone-neutral {
+	--_tone: var(--fr-text-muted);
+}
+.fr-tone-info {
+	--_tone: var(--fr-info);
+}
+.fr-tone-success {
+	--_tone: var(--fr-success);
+}
+.fr-tone-warning {
+	--_tone: var(--fr-warning);
+}
+.fr-tone-danger {
+	--_tone: var(--fr-danger);
+}

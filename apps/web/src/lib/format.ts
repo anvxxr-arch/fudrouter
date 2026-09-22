@@ -14,3 +14,10 @@ export function formatCost(micro: bigint, currency = 'USD'): string {
 export function formatTokens(n: number): string {
 	return new Intl.NumberFormat('en-US').format(n);
 }
+
+/** Format a Date as "YYYY-MM-DD HH:MM:SS" for display in tables. */
+export const formatDateTime = (date: Date) =>
+	date.toISOString().replace('T', ' ').slice(0, 19);
+
+/** Format a Date as "YYYY-MM-DD" for display. */
+export const formatDate = (date: Date) => date.toISOString().slice(0, 10);

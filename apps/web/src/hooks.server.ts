@@ -3,9 +3,7 @@ import { building } from '$app/environment';
 import { redirect } from '@sveltejs/kit';
 import { auth } from '$lib/server/auth';
 import { svelteKitHandler } from 'better-auth/svelte-kit';
-
-const PROTECTED = ['/keys', '/usage', '/admin'];
-const ADMIN_ONLY = ['/admin'];
+import { hasCap, requiredCap } from '$lib/server/roles';
 
 const handleBetterAuth: Handle = async ({ event, resolve }) => {
 	const session = await auth.api.getSession({ headers: event.request.headers });
@@ -13,15 +11,14 @@ const handleBetterAuth: Handle = async ({ event, resolve }) => {
 	event.locals.session = session?.session ?? null;
 	event.locals.user = session?.user ?? null;
 
-	const path = event.url.pathname;
-	if (!building && PROTECTED.some((p) => path.startsWith(p)) && !event.locals.user) {
-		redirect(303, '/login');
-	}
-	if (!building && ADMIN_ONLY.some((p) => path.startsWith(p))) {
-		const role = (event.locals.user as { role?: string } | null)?.role;
-		if (role !== 'admin') {
-			// Not a security boundary — the Go data plane re-enforces roles.
-			redirect(303, '/login');
+	if (!building) {
+		const cap = requiredCap(event.url.pathname);
+		if (cap) {
+			// Anonymous → login. Signed in but lacking the cap → their own home,
+			// so they are never bounced to a login form they already cleared.
+			if (!event.locals.user) redirect(303, '/login');
+			const role = (event.locals.user as { role?: string | null }).role;
+			if (!hasCap(role, cap)) redirect(303, '/');
 		}
 	}
 

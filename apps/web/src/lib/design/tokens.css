@@ -1,0 +1,327 @@
+/*
+ * Design tokens — the CSS implementation of /DESIGN.md (the normative spec).
+ * Values here MUST match DESIGN.md; change the spec first, then this file.
+ * Every surface (public / member / admin) consumes these; nothing hardcodes a hex.
+ */
+:root {
+	color-scheme: dark;
+
+	/* Surface ramp — depth without shadows */
+	--fr-bg: #0b0d10;
+	--fr-surface: #14171c;
+	--fr-surface-raised: #1b1f26;
+	--fr-border: #2a2f37;
+	--fr-border-strong: #3a424e;
+
+	/* Text — exactly two greys */
+	--fr-text: #e6e8eb;
+	--fr-text-muted: #9ba3af;
+
+	/* Semantic accents */
+	--fr-primary: #818cf8;
+	--fr-primary-hover: #a5b4fc;
+	--fr-on-primary: #0b0d10;
+	--fr-success: #10b981;
+	--fr-warning: #f59e0b;
+	--fr-danger: #f87171;
+	--fr-info: #38bdf8;
+
+	/* Type.
+	 *
+	 * Two families of size. STATIC text never changes with the viewport — body copy
+	 * that reflows because the window changed is hostile to read. FLUID headings
+	 * grow so a headline holds its proportion from phone to desktop. The two
+	 * smallest heading steps stay static: at 18–20px fluidity buys nothing.
+	 */
+	--fr-font-ui: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+	--fr-font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+	/* Static text */
+	--fr-text-caption: 0.75rem; /* 12px */
+	--fr-text-sm: 0.875rem; /* 14px */
+	--fr-text-base: 1rem; /* 16px */
+	--fr-text-lg: 1.125rem; /* 18px */
+
+	/* Fluid headings */
+	--fr-text-h6: 1.125rem; /* 18px */
+	--fr-text-h5: 1.25rem; /* 20px */
+	--fr-text-h4: clamp(1.5rem, 1.48rem + 0.1vw, 1.5625rem); /* 24 → 25px */
+	--fr-text-h3: clamp(1.75rem, 1.66rem + 0.4vw, 2rem); /* 28 → 32px */
+	--fr-text-h2: clamp(2rem, 1.82rem + 0.8vw, 2.5rem); /* 32 → 40px */
+	--fr-text-h1: clamp(2.25rem, 1.98rem + 1.2vw, 3rem); /* 36 → 48px */
+	--fr-text-display: clamp(2.5rem, 2.05rem + 2vw, 3.75rem); /* 40 → 60px */
+	--fr-text-display-xl: clamp(3rem, 2.37rem + 2.8vw, 4.75rem); /* 48 → 76px */
+
+	/* Shape */
+	--fr-radius-sm: 4px;
+	--fr-radius-md: 8px;
+	--fr-radius-lg: 12px;
+	--fr-radius-pill: 999px;
+
+	/* Responsive — one breakpoint, below it the sidebar collapses to a
+	   horizontal pill row. Matches DESIGN.md §Responsive. */
+	--fr-bp-tablet: 820px;
+
+	/* 4px rhythm */
+	--fr-space-xs: 4px;
+	--fr-space-sm: 8px;
+	--fr-space-md: 16px;
+	--fr-space-lg: 24px;
+	--fr-space-xl: 32px;
+	--fr-space-2xl: 48px;
+
+	/* Interaction */
+	/* Control heights are a scale, not a single value — a compact button inside a
+	 * table row and a large hero CTA are both legitimate, and without a scale the
+	 * only option was to hardcode a height at the call site. */
+	--fr-control-h-sm: 32px;
+	--fr-control-h-md: 40px; /* Fitts's law: a comfortable pointer target */
+	--fr-control-h-lg: 48px;
+	--fr-focus: 2px solid var(--fr-primary);
+	--fr-shadow-overlay: 0 12px 32px rgb(0 0 0 / 0.5);
+}
+
+/* ---------- base ---------- */
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+body {
+	margin: 0;
+	background: var(--fr-bg);
+	color: var(--fr-text);
+	font-family: var(--fr-font-ui);
+	font-size: var(--fr-text-base);
+	line-height: 1.55;
+	-webkit-font-smoothing: antialiased;
+}
+
+/*
+ * Heading levels map onto the LOWER half of the ladder.
+ *
+ * This is a dense console: its page title and section headings sit at the h4/h5
+ * steps so a 48px headline never lands on a table of API keys. The h1–h3 and
+ * display steps are the content/marketing end — the landing hero uses `display`,
+ * and `display-xl` is held back for a full-bleed hero.
+ *
+ * `h3`–`h6` are defensive defaults: no page uses them today, but a content page
+ * that does must not fall back to browser sizing.
+ */
+h1 {
+	margin: 0 0 var(--fr-space-md);
+	font-size: var(--fr-text-h4);
+	font-weight: 700;
+	letter-spacing: -0.01em;
+	line-height: 1.2;
+}
+
+h2 {
+	margin: var(--fr-space-lg) 0 var(--fr-space-sm);
+	font-size: var(--fr-text-h5);
+	font-weight: 600;
+	line-height: 1.3;
+}
+
+h3 {
+	margin: var(--fr-space-lg) 0 var(--fr-space-sm);
+	font-size: var(--fr-text-h6);
+	font-weight: 600;
+	line-height: 1.3;
+}
+
+h4,
+h5,
+h6 {
+	margin: var(--fr-space-md) 0 var(--fr-space-sm);
+	font-weight: 600;
+	line-height: 1.4;
+}
+h4 {
+	font-size: var(--fr-text-lg);
+}
+h5 {
+	font-size: var(--fr-text-base);
+}
+h6 {
+	font-size: var(--fr-text-sm);
+}
+
+a {
+	color: var(--fr-info);
+	text-decoration: none;
+}
+a:hover {
+	text-decoration: underline;
+}
+
+/*
+ * A link inside running text must be distinguishable without relying on colour
+ * (WCAG 1.4.1). Nav, buttons, cards and badges are not text blocks, so they stay
+ * clean; body copy gets an underline. axe flags this as `link-in-text-block`.
+ */
+p a,
+li a,
+dd a,
+dt a,
+td a,
+.lede a {
+	text-decoration: underline;
+	text-decoration-thickness: 1px;
+	text-underline-offset: 2px;
+}
+
+/* Visually hidden, still announced: skip links and live regions. */
+.sr-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+	border: 0;
+}
+
+/* Skip link: off-screen until focused, then a real target for keyboard users. */
+.skip-link {
+	position: absolute;
+	left: var(--fr-space-md);
+	top: -4rem;
+	z-index: 200;
+	padding: var(--fr-space-sm) var(--fr-space-md);
+	background: var(--fr-primary);
+	color: var(--fr-on-primary);
+	border-radius: var(--fr-radius-md);
+	font-size: var(--fr-text-sm);
+	font-weight: 600;
+}
+.skip-link:focus {
+	top: var(--fr-space-md);
+}
+
+code,
+pre {
+	font-family: var(--fr-font-mono);
+	font-variant-numeric: tabular-nums;
+}
+
+/* Code blocks: one treatment everywhere (docs, error bodies, snippets). */
+pre {
+	margin: 0;
+	padding: var(--fr-space-md);
+	background: var(--fr-surface);
+	border: 1px solid var(--fr-border);
+	border-radius: var(--fr-radius-md);
+	overflow-x: auto;
+	font-size: var(--fr-text-sm);
+	line-height: 1.6;
+}
+
+/* Visible focus everywhere — keyboard users are first-class.
+ *
+ * This uses `outline`, deliberately NOT `box-shadow`. Components already spend
+ * box-shadow on decoration — `aside a.active` and `.admin-nav a.active` draw their
+ * active bar with it — and those selectors (0,1,2) outrank a bare `:focus-visible`
+ * (0,1,0) no matter which file loads last. A box-shadow ring is therefore silently
+ * erased on the active nav link, i.e. exactly the element a keyboard user is most
+ * likely to tab to. Nothing in the app sets `outline`, so it cannot be clobbered.
+ */
+:focus-visible {
+	outline: var(--fr-focus);
+	outline-offset: 2px;
+}
+
+/* ---------- shared primitives ---------- */
+
+/* Tables: uppercase muted headers so labels recede behind their data. */
+table.fr {
+	width: 100%;
+	border-collapse: collapse;
+}
+/*
+ * The header's *label* treatment (muted, caption, 600, wide tracking, uppercase)
+ * is shared with `.fr-label` and lives in components.css so the two cannot drift.
+ * Only the table-specific geometry stays here.
+ */
+table.fr th {
+	padding: var(--fr-space-sm);
+	border-bottom: 1px solid var(--fr-border-strong);
+	text-align: left;
+}
+table.fr td {
+	padding: var(--fr-space-sm);
+	border-bottom: 1px solid var(--fr-border);
+	text-align: left;
+	/* Centred, not top-aligned: a badge, a 40px button and a one-line value then
+	   share one baseline instead of drifting apart inside the row. */
+	vertical-align: middle;
+}
+table.fr tbody tr:hover {
+	background: var(--fr-surface);
+}
+
+/* Every figure — money, tokens, latency — is tabular so columns never jitter. */
+.num {
+	font-family: var(--fr-font-mono);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+.muted {
+	color: var(--fr-text-muted);
+}
+
+.row {
+	display: flex;
+	align-items: center;
+	gap: var(--fr-space-sm);
+}
+
+.stack {
+	display: grid;
+	gap: var(--fr-space-md);
+}
+
+/*
+ * A grid item defaults to `min-width: auto`, so it refuses to shrink below its
+ * widest child. A <pre> with a long curl line therefore stretched the column to
+ * its max-content width (~460px) and dragged the page sideways on a phone,
+ * instead of scrolling inside its own `overflow-x: auto` box. Let the items
+ * shrink and the code block does the scrolling.
+ */
+.stack > * {
+	min-width: 0;
+}
+
+/* ---------- responsive ---------- */
+
+/*
+ * A wide table scrolls inside its own box instead of stretching the page. The
+ * WRAPPER scrolls; the table stays a table so it keeps its natural column widths.
+ * Putting `overflow-x: auto` + `display: block` on the <table> itself is the
+ * tempting one-liner but it makes the browser shrink-to-fit — columns get crushed
+ * and timestamps wrap onto three lines instead of the table scrolling sideways.
+ */
+.table-wrap {
+	overflow-x: auto;
+	-webkit-overflow-scrolling: touch;
+}
+
+/*
+ * Respect the OS "reduce motion" preference (WCAG 2.3.3). Every transition here
+ * is decorative — 120ms of background fade — so collapsing them costs nothing and
+ * spares motion-sensitive users the animation.
+ */
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+		scroll-behavior: auto !important;
+	}
+}

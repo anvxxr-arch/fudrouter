@@ -1,0 +1,38 @@
+/*
+ * Plus Jakarta Sans — self-hosted, one variable file per subset.
+ *
+ * Self-hosted rather than loaded from a font CDN: no third-party request from the
+ * visitor's browser, no extra DNS/TLS handshake on first paint, and it keeps
+ * working when the tunnel or the CDN is unreachable. Files live in
+ * `static/fonts/` and are served from `/fonts/`.
+ *
+ * `font-weight: 200 800` declares the variable axis, so one file covers every
+ * weight the type scale uses (400 body, 600 semibold, 700 bold) instead of three
+ * static cuts. `unicode-range` is kept from the upstream definition so the
+ * latin-ext file is only fetched when a character outside latin actually appears.
+ *
+ * `font-display: swap` paints fallback text immediately and swaps when the file
+ * arrives — the alternative (`block`) leaves the page blank on a cold cache.
+ */
+@font-face {
+	font-family: 'Plus Jakarta Sans';
+	font-style: normal;
+	font-weight: 200 800;
+	font-display: swap;
+	src: url('/fonts/plus-jakarta-sans-latin.woff2') format('woff2');
+	unicode-range:
+		U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+		U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+	font-family: 'Plus Jakarta Sans';
+	font-style: normal;
+	font-weight: 200 800;
+	font-display: swap;
+	src: url('/fonts/plus-jakarta-sans-latin-ext.woff2') format('woff2');
+	unicode-range:
+		U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+		U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
+		U+A720-A7FF;
+}

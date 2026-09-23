@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Badge, Guide, PageHeader, TableWrap } from '$lib/ui';
+	import { Guide, PageHeader, TableWrap } from '$lib/ui';
 	import { formatDateTime } from '$lib/format';
 
 	let { data } = $props();
@@ -38,17 +38,14 @@
 		<tbody>
 			<tr>
 				<td><code>GET /health</code></td>
-				<td>
-					<!-- The same word the indicator uses: one vocabulary for one state. -->
-					<Badge tone={data.up ? 'success' : 'danger'}>
-						{data.up ? 'Operational' : 'Unreachable'}
-					</Badge>
-				</td>
+				<!-- Plain text with the shared tone class in BOTH rows: the column holds
+				     a state in one row and a count in the next, so a uniform container is
+				     the honest one — a pill on one row only reads as a missing badge, and
+				     every Badge carries a status dot a count has nothing to mean. -->
+				<td><span class={data.up ? 'fr-tone-success' : 'fr-tone-danger'}>{data.up ? 'Operational' : 'Unreachable'}</span></td>
 			</tr>
 			<tr>
 				<td><code>GET /v1/models</code></td>
-				<!-- Plain text, not a Badge: a count is not a state, and every Badge
-				     carries a status dot that would read as a warning here. -->
 				<td>
 					<span class="num">{data.up ? `${data.models.toLocaleString()} models` : '—'}</span>
 				</td>

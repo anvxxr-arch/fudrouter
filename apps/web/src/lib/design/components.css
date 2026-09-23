@@ -357,3 +357,14 @@ table.fr th {
 .fr-tone-danger {
 	--_tone: var(--fr-danger);
 }
+
+/* A tone carrier PAINTS its text, so a plain element can carry a tone without a
+ * private rule. Without this the five classes only exported a variable and the
+ * documented "any future tone carrier" was not actually usable. */
+.fr-tone-neutral,
+.fr-tone-info,
+.fr-tone-success,
+.fr-tone-warning,
+.fr-tone-danger {
+	color: var(--_tone);
+}

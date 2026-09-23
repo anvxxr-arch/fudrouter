@@ -92,6 +92,11 @@
 	--fr-space-xs: 4px;
 	--fr-space-sm: 8px;
 	--fr-space-md: 16px;
+	/* A card's inner padding is its own step, so it can be tuned without moving a
+	 * rhythm gap. Every card atom reads this token — when it was referenced but
+	 * never declared, `padding: var(--fr-space-card)` was invalid at
+	 * computed-value time and every card silently rendered with padding 0. */
+	--fr-space-card: 20px;
 	--fr-space-lg: 24px;
 	--fr-space-xl: 32px;
 	--fr-space-2xl: 48px;

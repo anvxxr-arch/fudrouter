@@ -105,6 +105,7 @@ spacing:
   xs: 4px
   sm: 8px
   md: 16px
+  card: 20px
   lg: 24px
   xl: 32px
   2xl: 48px
@@ -158,7 +159,7 @@ components:
     backgroundColor: "{colors.surface}"
     textColor: "{colors.text}"
     rounded: "{rounded.lg}"
-    padding: 16px
+    padding: 20px
   table-header:
     backgroundColor: "{colors.surface}"
     textColor: "{colors.textMuted}"
@@ -285,6 +286,8 @@ Heading *elements* map onto the **lower half** of the ladder: this is a dense co
 ## Layout
 
 A 4px base rhythm (`xs`–`2xl`). Content is capped at 1100px and centered. Admin and member surfaces use a 12rem sidebar; the public surface is a single column.
+
+`card` is the one step that is not a gap: it is the inner padding of a card, so card padding is tunable without moving a rhythm step. Every card atom (`Card`, `StatCard`, `Metric`, and the model/price cards) reads `--fr-space-card` — none of them hardcodes a padding.
 
 ### Section rhythm (Apple HIG)
 

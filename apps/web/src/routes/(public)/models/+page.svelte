@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Alert, Badge, EmptyState, Guide, PageHeader } from '$lib/ui';
+	import { Alert, Badge, EmptyState, Guide, PageHeader, Section } from '$lib/ui';
 	import { BASE_URL, API_SURFACES, API_SURFACE_ORDER, modelsOn, tierTone } from '$lib/catalog';
 
 	let { data } = $props();
@@ -7,76 +7,113 @@
 
 <PageHeader
 	title="Models"
-	lede="Every model this deployment serves through the [OI]-compatible API, and which surface serves it."
+	lede="Every model this deployment serves through the [OI]-compatible API."
 />
 
 <div class="fr-feedback">
 	<Alert tone="warning">Preview build — the free and premium badges below are placeholder data, not billing.</Alert>
 </div>
 
-<Guide id="models" />
+<Section title="Surfaces" lede="A surface is the path prefix your client points at.">
+	<div class="surface-grid">
+		{#each API_SURFACE_ORDER as surface (surface)}
+			{@const meta = API_SURFACES[surface]}
+			<article class="surface-card">
+				<header>
+					<h3>{meta.label}</h3>
+					<code class="endpoint">{BASE_URL}{meta.path}</code>
+				</header>
+				<p class="muted">{meta.lede}</p>
+			</article>
+		{/each}
+	</div>
+</Section>
 
-<!-- Grouped by surface, not by tier: the surface is what a client points at, so it
-     is the thing a reader is actually looking for. -->
 {#each API_SURFACE_ORDER as surface (surface)}
 	{@const meta = API_SURFACES[surface]}
 	{@const rows = modelsOn(data.catalog, surface)}
-	<section class="surface">
-		<header class="surface-head">
-			<h2>{meta.label}</h2>
-			<code class="endpoint">{BASE_URL}{meta.path}</code>
-		</header>
-		<p class="muted">{meta.lede}</p>
-
-		<div class="table-wrap">
-<table class="fr">
-			
-				<thead>
-					<tr><th>Model</th><th>Slug</th><th>Context</th><th>Tier</th></tr>
-				</thead>
-				<tbody>
-					{#each rows as row (row.model.slug)}
-						<tr>
-							<td>{row.model.name}</td>
-							<td><code>{row.model.slug}</code></td>
-							<td class="num">{row.model.context ? row.model.context.toLocaleString() : '—'}</td>
-							<td><Badge tone={tierTone(row.tier)}>{row.tier}</Badge></td>
-						</tr>
-					{:else}
-						<tr>
-							<td colspan="4"><EmptyState title="No models on this surface yet" /></td>
-						</tr>
-					{/each}
-				</tbody>
-			</table></div>
-	</section>
+	<Section title={meta.label} lede="{modelsOn(data.catalog, surface).length} models on this surface.">
+		{#if rows.length === 0}
+			<EmptyState title="No models on this surface yet" />
+		{:else}
+			<div class="model-grid">
+				{#each rows as row (row.model.slug)}
+					<article class="model-card">
+						<header>
+							<h4>{row.model.name}</h4>
+							<Badge tone={tierTone(row.tier)}>{row.tier}</Badge>
+						</header>
+						<code class="slug">{row.model.slug}</code>
+						{#if row.model.context}
+							<span class="context num">{(row.model.context / 1000).toFixed(0)}k context</span>
+						{/if}
+					</article>
+				{/each}
+			</div>
+		{/if}
+	</Section>
 {/each}
 
+<Guide id="models" />
+
 <style>
-	.surface {
-		margin-top: var(--fr-space-xl);
+	.surface-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+		gap: var(--fr-space-md);
 	}
-	.surface-head {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: baseline;
+	.surface-card {
+		display: grid;
 		gap: var(--fr-space-sm);
+		padding: var(--fr-space-md);
+		background: var(--fr-surface);
+		border: 1px solid var(--fr-border);
+		border-radius: var(--fr-radius-lg);
 	}
-	/* h2 carries a global top margin; inside a section header the flex gap sets it. */
-	.surface-head h2 {
+	.surface-card header {
+		display: grid;
+		gap: var(--fr-space-xs);
+	}
+	.surface-card h3 {
 		margin: 0;
+		font-size: var(--fr-text-h5);
+		font-weight: 600;
 	}
 	.endpoint {
-		/* A URL has no spaces to break on, and a flex item defaults to
-		   `min-width: auto` — so at 320px this pushed the whole page 16px wider than
-		   the viewport. Let it shrink, and break inside the word if it must. */
-		min-width: 0;
-		overflow-wrap: anywhere;
+		color: var(--fr-text-muted);
+		font-size: var(--fr-text-sm);
+		word-break: break-all;
+	}
+	.model-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+		gap: var(--fr-space-md);
+	}
+	.model-card {
+		display: grid;
+		gap: var(--fr-space-sm);
+		padding: var(--fr-space-md);
+		background: var(--fr-surface);
+		border: 1px solid var(--fr-border);
+		border-radius: var(--fr-radius-lg);
+	}
+	.model-card header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--fr-space-sm);
+	}
+	.model-card h4 {
+		margin: 0;
+		font-size: var(--fr-text-base);
+		font-weight: 600;
+	}
+	.slug {
 		color: var(--fr-text-muted);
 		font-size: var(--fr-text-sm);
 	}
-	.surface > p {
-		margin: var(--fr-space-xs) 0 var(--fr-space-sm);
+	.context {
 		font-size: var(--fr-text-sm);
+		color: var(--fr-text-muted);
 	}
 </style>

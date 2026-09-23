@@ -30,6 +30,7 @@ export { default as Section } from './Section.svelte';
 export { default as Facts } from './Facts.svelte';
 export { default as CodeBlock } from './CodeBlock.svelte';
 export { default as Guide } from './Guide.svelte';
+export { default as TableWrap } from './TableWrap.svelte';
 export { default as VisualDivider } from './VisualDivider.svelte';
 export { default as UsageChart } from './UsageChart.svelte';
 

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { Alert, Badge, Button, Card, EmptyState, Field, Guide, Input, PageHeader } from '$lib/ui';
+	import { Alert, Badge, Button, Card, EmptyState, Field, Guide, Input, PageHeader, TableWrap } from '$lib/ui';
 	import { withPending } from '$lib/forms';
 
 	let { data, form } = $props();
@@ -26,18 +26,25 @@
 {/if}
 {#if form?.error}<div class="fr-feedback"><Alert tone="danger">{form.error}</Alert></div>{/if}
 
-<Card>
-	<form method="POST" action="?/create" use:enhance={track} class="create">
-		<Field label="Key name" hint="Something you will recognise later, e.g. prod-backend.">
-			<Input name="name" placeholder="key name" required />
-		</Field>
-		<Button type="submit" variant="primary" {pending}>Create key</Button>
-	</form>
-</Card>
+<!-- Wrapper, not `<Card class="narrow">`: a class passed to a child component lands
+     in the child's scope, so the page's own `<style>` rule would not match it. -->
+<div class="narrow">
+	<Card>
+		<form method="POST" action="?/create" use:enhance={track} class="create">
+			<Field label="Key name" hint="Something you will recognise later, e.g. prod-backend.">
+				<Input name="name" placeholder="prod-backend" required />
+			</Field>
+			<Button type="submit" variant="primary" {pending}>Create key</Button>
+		</form>
+	</Card>
+</div>
 
 <Guide id="keys" />
 
-<div class="table-wrap">
+<!-- Named: without a heading the table's header row sat directly under the guide's
+     last row and the two read as one table. -->
+<h2>Your keys</h2>
+<TableWrap label="Your keys">
 <table class="fr">
 	
 		<thead>
@@ -69,7 +76,7 @@
 				<tr><td colspan="5"><EmptyState title="No keys yet" hint="Create one above." /></td></tr>
 			{/each}
 		</tbody>
-	</table></div>
+	</table></TableWrap>
 
 <style>
 	
@@ -82,4 +89,10 @@
 		display: grid;
 		gap: var(--fr-space-md);
 		max-width: 28rem;
-	}</style>
+	}
+	/* The form is 28rem; an unconstrained card left ~320px of dead panel beside it.
+	   Constrain the card instead of stretching the field. */
+	.narrow {
+		max-width: 32rem;
+	}
+</style>

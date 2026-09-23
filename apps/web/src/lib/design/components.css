@@ -261,15 +261,18 @@ table.fr th {
  * `minmax(0, 1fr)` so a long unbreakable value shrinks instead of widening the page. */
 .fr-dl {
 	display: grid;
+	gap: var(--fr-space-md);
 	margin: 0;
 }
+/* Rows are separated by SPACING, never a rule. A full-width hairline here is
+ * byte-identical to `table.fr td`'s separator (both measured `1px solid #2A3040`),
+ * so a Guide stacked above a table read as one continuous table — the two blocks
+ * had no way to say they were different things. */
 .fr-dl > div {
 	display: grid;
 	grid-template-columns: minmax(8rem, 14rem) minmax(0, 1fr);
-	gap: var(--fr-space-sm) var(--fr-space-md);
+	gap: var(--fr-space-xs) var(--fr-space-md);
 	align-items: baseline;
-	padding: var(--fr-space-sm) 0;
-	border-bottom: 1px solid var(--fr-border);
 }
 .fr-dl dd {
 	margin: 0;

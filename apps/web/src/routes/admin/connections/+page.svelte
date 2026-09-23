@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { Alert, Badge, Button, EmptyState, Guide, PageHeader } from '$lib/ui';
+	import { Alert, Badge, Button, EmptyState, Guide, PageHeader, TableWrap } from '$lib/ui';
 	import { withPending } from '$lib/forms';
 
 	let { data, form } = $props();
@@ -31,7 +31,7 @@
 
 <Guide id="admin-connections" />
 
-<div class="table-wrap">
+<TableWrap label="Connections">
 <table class="fr">
 	
 		<thead>
@@ -69,7 +69,7 @@
 				<tr><td colspan="9"><EmptyState title="No providers configured" /></td></tr>
 			{/each}
 		</tbody>
-	</table></div>
+	</table></TableWrap>
 
 <style>
 	

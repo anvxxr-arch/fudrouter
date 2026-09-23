@@ -232,7 +232,7 @@ export const GUIDES = {
 					{ term: 'Later', detail: 'The table shows the name and the prefix. That is enough to recognise a key, not enough to call with it.' },
 					{ term: 'Stored', detail: 'A hash. Staff cannot look the secret up for you.' },
 					{ term: 'Revoke', detail: 'Sets the revoked time. Later calls with that key are rejected. Old log rows stay.' },
-					{ term: 'Header', detail: 'Authorization: Bearer, then the full key, against the base URL in Docs.' }
+					{ term: 'Header', detail: 'Authorization: Bearer, then the full key, against https://ai.karepmuwes.my.id/v1.' }
 				]
 			}
 		]

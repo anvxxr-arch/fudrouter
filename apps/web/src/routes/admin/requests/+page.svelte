@@ -1,6 +1,6 @@
 <script lang="ts">
 	import {formatCost, formatTokens, formatDateTime} from '$lib/format';
-	import { Badge, Button, EmptyState, Field, Guide, PageHeader, Select } from '$lib/ui';
+	import { Badge, Button, EmptyState, Field, Guide, PageHeader, Select, TableWrap } from '$lib/ui';
 
 	let { data } = $props();
 </script>
@@ -27,7 +27,7 @@
 
 <Guide id="admin-requests" />
 
-<div class="table-wrap">
+<TableWrap label="Call history">
 <table class="fr">
 	
 		<thead>
@@ -58,7 +58,7 @@
 				<tr><td colspan="10"><EmptyState title="No calls recorded" /></td></tr>
 			{/each}
 		</tbody>
-	</table></div>
+	</table></TableWrap>
 
 <style>
 	.filters {

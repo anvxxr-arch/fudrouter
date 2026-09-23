@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { formatCost } from '$lib/format';
-	import { Alert, Badge, Button, EmptyState, Guide, PageHeader, Select } from '$lib/ui';
+	import { Alert, Badge, Button, EmptyState, Guide, PageHeader, Select, TableWrap } from '$lib/ui';
 	import { withPending } from '$lib/forms';
 
 	let { data, form } = $props();
@@ -15,7 +15,7 @@
 
 <Guide id="admin-users" />
 
-<div class="table-wrap">
+<TableWrap label="Users">
 <table class="fr">
 	
 		<thead>
@@ -66,7 +66,7 @@
 				<tr><td colspan="7"><EmptyState title="No users" /></td></tr>
 			{/each}
 		</tbody>
-	</table></div>
+	</table></TableWrap>
 
 <style>
 	</style>

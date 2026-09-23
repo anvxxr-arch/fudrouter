@@ -1,17 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import {
-		Alert,
-		Badge,
-		Button,
-		Card,
-		EmptyState,
-		Field,
-		Input,
-		PageHeader,
-		Guide,
-		Select,
-	} from '$lib/ui';
+	import { Alert, Badge, Button, Card, EmptyState, Field, Input, PageHeader, Guide, Select, TableWrap } from '$lib/ui';
 	import { withPending } from '$lib/forms';
 
 	let { data, form } = $props();
@@ -72,7 +61,7 @@
 
 <Guide id="admin-models" />
 
-<div class="table-wrap">
+<TableWrap label="Catalog">
 <table class="fr">
 	
 		<thead>
@@ -142,7 +131,8 @@
 				<tr><td colspan="8"><EmptyState title="No models" /></td></tr>
 			{/each}
 		</tbody>
-	</table></div>
+	</table>
+</TableWrap>
 
 <style>
 	

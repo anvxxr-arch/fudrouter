@@ -10,6 +10,7 @@ import Badge from './Badge.svelte';
 import Button from './Button.svelte';
 import ButtonLink from './ButtonLink.svelte';
 import Input from './Input.svelte';
+import Facts from './Facts.svelte';
 import Metric from './Metric.svelte';
 import Select from './Select.svelte';
 import Textarea from './Textarea.svelte';
@@ -175,5 +176,29 @@ describe('the metric strip', () => {
 		expect(node.getAttribute('aria-hidden')).toBe('true');
 		expect(style(node).backgroundImage, 'the shared divider rule must apply').toContain('gradient');
 		expect(px(node, 'height')).toBe(1);
+	});
+});
+
+describe('a guide is not a table', () => {
+	it('separates fact rows with spacing, not a rule that mimics a table row', () => {
+		// Regression: `.fr-dl > div` carried the same `border-bottom: 1px solid
+		// var(--fr-border)` as `table.fr td`, so a Guide stacked directly above a
+		// table read as one continuous table — the two blocks had no way to say
+		// they were different things.
+		const { container } = render(Facts, {
+			items: [
+				{ term: 'First', detail: 'one' },
+				{ term: 'Second', detail: 'two' }
+			]
+		});
+		const rows = container.querySelectorAll('.fr-dl > div');
+		expect(rows.length).toBe(2);
+		for (const row of rows) {
+			// Width, not style: Chrome reports `border-bottom-style: solid` even at
+			// 0px, so asserting on style alone is a check that cannot fail.
+			expect(px(row as HTMLElement, 'borderBottomWidth'), 'a fact row drew a rule').toBe(0);
+		}
+		// The grouping is carried by the gap, so it must actually exist.
+		expect(px(container.querySelector('.fr-dl') as HTMLElement, 'rowGap')).toBeGreaterThan(0);
 	});
 });

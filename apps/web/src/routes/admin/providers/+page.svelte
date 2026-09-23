@@ -1,18 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import {
-		Alert,
-		Badge,
-		Button,
-		Card,
-		EmptyState,
-		Field,
-		Input,
-		PageHeader,
-		Guide,
-		Select,
-		Textarea
-	} from '$lib/ui';
+	import { Alert, Badge, Button, Card, EmptyState, Field, Input, PageHeader, Guide, Select, Textarea, TableWrap } from '$lib/ui';
 	import { withPending } from '$lib/forms';
 
 	let { data, form } = $props();
@@ -66,7 +54,7 @@
 
 <Guide id="admin-providers" />
 
-<div class="table-wrap">
+<TableWrap label="Providers">
 <table class="fr">
 	
 		<thead>
@@ -147,7 +135,8 @@
 				<tr><td colspan="6"><EmptyState title="No providers yet" /></td></tr>
 			{/each}
 		</tbody>
-	</table></div>
+	</table>
+</TableWrap>
 
 <style>
 	

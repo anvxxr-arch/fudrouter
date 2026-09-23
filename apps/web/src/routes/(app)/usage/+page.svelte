@@ -1,6 +1,6 @@
 <script lang="ts">
 	import {formatCost, formatTokens, formatDateTime} from '$lib/format';
-	import { Badge, EmptyState, Guide, PageHeader, StatCard } from '$lib/ui';
+	import { Badge, EmptyState, Guide, PageHeader, StatCard, TableWrap } from '$lib/ui';
 
 	let { data } = $props();
 </script>
@@ -16,7 +16,8 @@
 
 <Guide id="usage" />
 
-<div class="table-wrap">
+<h2>All requests</h2>
+<TableWrap label="All requests">
 <table class="fr">
 	
 		<thead>
@@ -45,4 +46,4 @@
 				<tr><td colspan="7"><EmptyState title="No requests yet" /></td></tr>
 			{/each}
 		</tbody>
-	</table></div>
+	</table></TableWrap>

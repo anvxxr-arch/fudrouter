@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { formatCost, formatTokens, formatDateTime } from '$lib/format';
-	import { Badge, EmptyState, Guide, PageHeader, StatCard } from '$lib/ui';
+	import { Badge, EmptyState, Guide, PageHeader, StatCard, TableWrap } from '$lib/ui';
 
 	let { data } = $props();
 </script>
@@ -20,7 +20,7 @@
 <Guide id="admin" />
 
 <h2>Top resource consumers (by cost)</h2>
-<div class="table-wrap">
+<TableWrap label="Top resource consumers">
 <table class="fr">
 	
 		<thead>
@@ -39,10 +39,10 @@
 				<tr><td colspan="5"><EmptyState title="No traffic yet" /></td></tr>
 			{/each}
 		</tbody>
-	</table></div>
+	</table></TableWrap>
 
 <h2>Recent requests</h2>
-<div class="table-wrap">
+<TableWrap label="Recent requests">
 <table class="fr">
 	
 		<thead>
@@ -62,4 +62,4 @@
 				<tr><td colspan="6"><EmptyState title="No requests yet" /></td></tr>
 			{/each}
 		</tbody>
-	</table></div>
+	</table></TableWrap>

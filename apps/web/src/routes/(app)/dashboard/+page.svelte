@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import {formatCost, formatTokens, formatDateTime} from '$lib/format';
-	import { Badge, EmptyState, Guide, PageHeader, StatCard, UsageChart } from '$lib/ui';
+	import { Badge, EmptyState, Guide, PageHeader, StatCard, UsageChart, TableWrap } from '$lib/ui';
 
 	let { data } = $props();
 </script>
@@ -33,7 +33,7 @@
 </p>
 
 <h2>Recent requests</h2>
-<div class="table-wrap">
+<TableWrap label="Recent requests">
 <table class="fr">
 	
 		<thead>
@@ -57,4 +57,4 @@
 				>
 			{/each}
 		</tbody>
-</table></div>
+</table></TableWrap>

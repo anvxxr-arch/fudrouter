@@ -314,6 +314,9 @@ Shared pieces live in `lib/design/components.css`:
 | `.fr-control` + `.fr-control--{size}` + `.fr-control--multiline` | `Input`, `Select`, `Textarea` |
 | `.fr-label` | `Field`, `StatCard`, `table.fr th` |
 | `.fr-tone-{tone}` | `Badge`, `Alert`, and any future tone carrier |
+| `.fr-dl` | `Facts`, and the `Guide` that composes it |
+
+**A Guide's fact rows are separated by spacing, never a rule.** A full-width hairline there is byte-identical to `table.fr td`'s separator, so a Guide stacked above a table read as one continuous table — the two blocks had no way to say they were different things. Tables are the only thing in the system that draws row rules. Give a table a heading when it follows a Guide.
 
 ### Atom library
 
@@ -340,6 +343,7 @@ The design system defines these atoms in `$lib/ui/`:
 | `Metric` | Large scannable number with label, used in metric strips |
 | `VisualDivider` | Decorative scene edge (gradient hairline) |
 | `UsageChart` | Activity bars on a canvas — rules in §Charts |
+| `TableWrap` | Scroll container for a wide table: focusable region — rules in §Tables |
 | `Guide` | Page explanation, composed from `Section` + `Facts`; copy lives in `$lib/guides` |
 | `DiscordButton` | OAuth sign-in button |
 
@@ -397,17 +401,20 @@ Render rules:
 
 ## Tables
 
-Tables use a CSS pattern, not a component:
+A table is a `TableWrap` around a plain `table.fr`:
 
-```html
-<!-- Every table in the app -->
-<div class="table-wrap">
+```svelte
+<TableWrap label="Recent requests">
   <table class="fr">
     <thead>…</thead>
     <tbody>…</tbody>
   </table>
-</div>
+</TableWrap>
 ```
+
+`TableWrap` exists for one reason: `.table-wrap` scrolls horizontally, so it must be keyboard focusable — otherwise a keyboard user cannot reach the columns that scrolled off (axe: `scrollable-region-focusable`, serious). It sets `tabindex="0"` and `role="region"` and names the region from the `label` you pass. The wrapper scrolls; the table keeps its natural width.
+
+A `{@render}` slot **can** carry a `<table>` — the earlier claim here that it cannot was wrong, and it is why this shipped as raw markup with the a11y gap for so long. Svelte's `a11y_no_noninteractive_tabindex` warning on the wrapper is a false positive (it cannot see that the element scrolls); it is suppressed in the component with a comment.
 
 ## Do's and Don'ts
 

@@ -40,13 +40,22 @@
 				{#each rows as row (row.model.slug)}
 					<article class="model-card">
 						<header>
-							<h4>{row.model.name}</h4>
+							<h3>{row.model.name}</h3>
 							<Badge tone={tierTone(row.tier)}>{row.tier}</Badge>
 						</header>
-						<code class="slug">{row.model.slug}</code>
-						{#if row.model.context}
-							<span class="context num">{(row.model.context / 1000).toFixed(0)}k context</span>
-						{/if}
+						<!-- The metadata block is pinned to the card's bottom, so it lines up
+						     across a row whatever the title wraps to. -->
+						<div class="meta">
+							<!-- The slug is printed only when it is NOT the title. It is the
+							     same string as the name on 238 of 243 models, so printing both
+							     duplicated every card and doubled the title's wrap cost. -->
+							{#if row.model.slug !== row.model.name}
+								<code class="slug">{row.model.slug}</code>
+							{/if}
+							{#if row.model.context}
+								<span class="context num">{(row.model.context / 1000).toFixed(0)}k context</span>
+							{/if}
+						</div>
 					</article>
 				{/each}
 			</div>
@@ -60,12 +69,12 @@
 	.surface-grid {
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
-		gap: var(--fr-space-md);
+		gap: var(--fr-space-lg);
 	}
 	.surface-card {
 		display: grid;
 		gap: var(--fr-space-sm);
-		padding: var(--fr-space-md);
+		padding: var(--fr-space-card);
 		background: var(--fr-surface);
 		border: 1px solid var(--fr-border);
 		border-radius: var(--fr-radius-lg);
@@ -87,30 +96,48 @@
 	.model-grid {
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
-		gap: var(--fr-space-md);
+		gap: var(--fr-space-lg);
 	}
 	.model-card {
-		display: grid;
+		/* Flex column, not grid: the trailing block needs `margin-top: auto` to sit
+		   on the card's bottom edge. In a row of stretched cards, a title that wraps
+		   one line more would otherwise push everything after it down. */
+		display: flex;
+		flex-direction: column;
 		gap: var(--fr-space-sm);
-		padding: var(--fr-space-md);
+		padding: var(--fr-space-card);
 		background: var(--fr-surface);
 		border: 1px solid var(--fr-border);
 		border-radius: var(--fr-radius-lg);
 	}
 	.model-card header {
 		display: flex;
-		align-items: center;
+		/* Top-aligned, not centred: the badge must sit at the same offset from the
+		   card's top edge in every card. Centring it against the title made it
+		   drift down by a line whenever a long slug wrapped one line further. */
+		align-items: flex-start;
 		justify-content: space-between;
 		gap: var(--fr-space-sm);
+		/* long model names must wrap, not push the badge past the card
+		   (WCAG 1.4.10 at 320px) */
+		min-width: 0;
 	}
-	.model-card h4 {
+	.model-card h3 {
 		margin: 0;
 		font-size: var(--fr-text-base);
 		font-weight: 600;
+		overflow-wrap: anywhere;
+	}
+	.meta {
+		display: grid;
+		gap: var(--fr-space-xs);
+		justify-items: start;
+		margin-top: auto;
 	}
 	.slug {
 		color: var(--fr-text-muted);
 		font-size: var(--fr-text-sm);
+		overflow-wrap: anywhere;
 	}
 	.context {
 		font-size: var(--fr-text-sm);

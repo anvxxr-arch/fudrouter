@@ -87,7 +87,7 @@ export const GUIDES = {
 				title: 'How to read the catalog',
 				lede: 'Grouped by surface, because the surface is the URL your client uses. The tier is a property of the row, not the group.',
 				facts: [
-					{ term: 'Slug', detail: 'The string you send as model. The display name is for humans.' },
+					{ term: 'Slug', detail: 'The string you send as model. When it is the same as the display name — which it is on almost every model — the card prints it once.' },
 					{ term: 'Context', detail: 'Window size in tokens, when the row has one. A dash means we have not recorded it.' },
 					{ term: 'Tier', detail: 'free or premium, colour and word. Placeholder until the database owns the assignment.' },
 					{ term: 'Same model, two surfaces', detail: 'A slug can be free on one prefix and premium on the other. Read the row, not the name alone.' },

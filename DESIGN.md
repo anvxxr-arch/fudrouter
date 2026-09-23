@@ -354,6 +354,17 @@ The design system defines these atoms in `$lib/ui/`:
 
 `import { Button, Card } from '$lib/ui'` — not `'$lib/ui/Button.svelte'`.
 
+## Cards
+
+A grid of cards whose content varies in length needs two rules, or the grid reads as ragged even when every card is exactly the same size:
+
+- **The badge is top-aligned** (`align-items: flex-start`). Centring it against the title makes it drift down a line whenever a long slug wraps one line further, so the badges stop forming a row.
+- **The trailing block is pinned to the card's bottom** (`margin-top: auto` on a flex column). Cards in a grid row stretch to one height, so a title that wraps one line more otherwise pushes every row after it down — the price rows stop lining up across the row.
+
+A card may also render a **uniform set of rows**: if a row is optional in the data, render it with a dash rather than omitting it, or half the cards are one row shorter and nothing after the title aligns. `Pricing` does this with `Context`.
+
+**Never print the same string twice.** Where a row's display name and its identifier are equal — as `model.name` and `model.slug` are on 238 of 243 models — render one line, not two.
+
 ## Charts
 
 One chart, `UsageChart`, exported from `$lib/ui`. It draws with Chart.js on the client only — the server emits the heading and the empty state, so a cold load never shows a blank canvas.

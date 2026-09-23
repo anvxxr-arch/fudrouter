@@ -3,10 +3,6 @@
 
 	// Atom: a single metric. The value is tabular so a row of stats stays
 	// aligned as numbers change (no reflow, no jitter).
-	//
-	// `tone` replaced the old ad-hoc `'default' | 'success' | 'danger'` union — a
-	// third spelling of the same idea that no other atom shared — and now lives in
-	// `variants.ts` alongside every other enumerated prop.
 	let {
 		label,
 		value,
@@ -24,17 +20,17 @@
 <style>
 	.stat {
 		display: grid;
-		gap: var(--fr-space-xs);
+		gap: var(--fr-space-sm);
 		min-width: 8rem;
-		padding: var(--fr-space-md);
+		padding: var(--fr-space-card);
 		background: var(--fr-surface);
 		border: 1px solid var(--fr-border);
 		border-radius: var(--fr-radius-lg);
 	}
 	.value {
-		font-size: var(--fr-text-h4);
+		font-size: var(--fr-text-h3);
+		line-height: var(--fr-display-lh);
 	}
-	/* Only good/bad recolour the number; `neutral` inherits the body colour. */
 	.success {
 		color: var(--fr-success);
 	}

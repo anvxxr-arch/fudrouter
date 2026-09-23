@@ -9,7 +9,7 @@
 	const track = withPending((v) => (pending = v));
 </script>
 
-<div class="auth">
+<div class="auth-centered">
 	<h1>Create your account</h1>
 	<Card>
 		{#if form?.error}
@@ -30,20 +30,24 @@
 			<Button type="submit" variant="primary" {pending}>Create account</Button>
 		</form>
 	</Card>
-	<p class="muted">Already have an account? <a href={resolve('/login')}>Log in</a></p>
-	<Guide id="signup" />
+	<p class="swap muted">Already have an account? <a href={resolve('/login')}>Log in</a></p>
 </div>
 
+<Guide id="signup" />
+
 <style>
-	.auth {
-		max-width: 40rem;
-		margin: var(--fr-space-2xl) auto;
-	}
 	form {
 		display: grid;
 		gap: var(--fr-space-md);
 	}
-	p {
+	.auth-centered {
+		max-width: 24rem;
+		margin: var(--fr-space-2xl) auto;
+	}
+	.auth-centered h1 {
+		text-align: center;
+	}
+	.swap {
 		margin-top: var(--fr-space-md);
 		text-align: center;
 		font-size: var(--fr-text-sm);

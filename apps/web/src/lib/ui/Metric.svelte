@@ -12,17 +12,17 @@
 <style>
 	.metric {
 		display: grid;
-		gap: var(--fr-space-xs);
+		gap: var(--fr-space-sm);
 		min-width: 6rem;
-		padding: var(--fr-space-md);
+		padding: var(--fr-space-card);
 		background: var(--fr-surface);
 		border: 1px solid var(--fr-border);
 		border-radius: var(--fr-radius-lg);
 	}
 	.metric-value {
-		font-size: var(--fr-text-h3);
+		font-size: var(--fr-text-h2);
 		font-weight: 700;
-		line-height: 1.1;
+		line-height: var(--fr-display-lh);
 	}
 	.success {
 		color: var(--fr-success);

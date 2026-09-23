@@ -119,4 +119,10 @@
 		display: flex;
 		gap: var(--fr-space-md);
 	}
+	/* WCAG 2.5.8: standalone footer links must be >= 24px tall. */
+	.legal a {
+		min-height: 24px;
+		display: inline-flex;
+		align-items: center;
+	}
 </style>

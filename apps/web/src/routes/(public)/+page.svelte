@@ -1,12 +1,23 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { formatTokens } from '$lib/format';
-	import { ButtonLink, Guide, Metric, VisualDivider, TableWrap } from '$lib/ui';
+	import { ButtonLink, Guide, Metric, VisualDivider } from '$lib/ui';
+
+	// Structured data for rich snippets — states only what the page states.
+	const jsonLd = JSON.stringify({
+		'@context': 'https://schema.org',
+		'@type': 'SoftwareApplication',
+		name: 'fudrouter',
+		applicationCategory: 'DeveloperApplication',
+		operatingSystem: 'Web',
+		description:
+			'One API key, every model. A commercial AI router with per-request metering, rate limits, and auditable usage.',
+		url: 'https://ai.karepmuwes.my.id/',
+		offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD', description: 'Pay per token' }
+	});
 
 	let { data } = $props();
 
-	// The strip may only carry facts the server read from the database — a dash
-	// is honest, an invented number is not.
 	const metrics = $derived([
 		{
 			label: 'Models published',
@@ -23,26 +34,21 @@
 	]);
 
 	const features = [
-		{
-			title: 'One endpoint',
-			body: 'Point any [OI]-compatible client at one base URL. The router holds the provider connections, so your code does not.'
-		},
-		{
-			title: 'Metered per call',
-			body: 'Tokens in, tokens out, cost and latency are recorded for every accepted call.'
-		},
-		{
-			title: 'Audit to the token',
-			body: 'Usage is your own log. Prompts and completions are never written to it.'
-		}
+		{ title: 'One endpoint', body: 'Point any [OI]-compatible client at one base URL.' },
+		{ title: 'Metered per call', body: 'Tokens in, tokens out, cost and latency recorded.' },
+		{ title: 'Audit to the token', body: 'Usage is your own log. Prompts are never stored.' }
 	];
 
 	const endpoints = [
-		{ method: 'POST', path: '/v1/chat/completions', note: '[OI]-compatible chat, streaming or not' },
-		{ method: 'GET', path: '/v1/models', note: 'models this deployment exposes' },
-		{ method: 'GET', path: '/health', note: 'data-plane liveness' }
-	];
+		{ method: 'POST', path: '/v1/chat/completions', note: 'Chat, streaming or not' },
+		{ method: 'GET', path: '/v1/models', note: 'Models this deployment exposes' },
+		{ method: 'GET', path: '/health', note: 'Data-plane liveness' }
+];
 </script>
+
+<svelte:head>
+	{@html `<script type="application/ld+json">${jsonLd}</script>`}
+</svelte:head>
 
 <section class="hero">
 	<p class="fr-label">Commercial AI router</p>
@@ -80,23 +86,20 @@
 
 <section class="endpoints">
 	<h2>Endpoints</h2>
-	<TableWrap label="Endpoints">
-		<table class="fr">
-			<tbody>
-				{#each endpoints as e (e.path)}
-					<tr><td class="method">{e.method}</td><td><code>{e.path}</code></td><td class="muted">{e.note}</td></tr>
-				{/each}
-			</tbody>
-		</table>
-	</TableWrap>
-	<p class="muted">Authenticate with <code>Authorization: Bearer sk-ar-…</code>. Mint a key from your dashboard.</p>
+	<div class="endpoint-grid">
+		{#each endpoints as e (e.path)}
+			<article class="endpoint-card">
+				<span class="method fr-label">{e.method}</span>
+				<code>{e.path}</code>
+				<span class="muted">{e.note}</span>
+			</article>
+		{/each}
+	</div>
+	<p class="muted auth-note">Authenticate with <code>Authorization: Bearer sk-ar-…</code>. Mint a key from your dashboard.</p>
 </section>
 
 <VisualDivider />
 
-<!-- The closing CTA: DESIGN.md §Information Architecture gives the landing a
-     feature grid *and* a CTA. Without it a reader who scrolls to the end gets a
-     footer as their only prompt. -->
 <section class="closing">
 	<h2>Start with one key.</h2>
 	<p class="muted">Sign up, mint a key, and point a client at the API.</p>
@@ -109,8 +112,6 @@
 		isolation: isolate;
 		padding: var(--fr-space-2xl) 0 0;
 	}
-	/* The one gradient on a page (DESIGN.md §Colors): a soft brand glow behind
-	   the headline. It never carries meaning and is not interactive. */
 	.hero::before {
 		content: '';
 		position: absolute;
@@ -139,22 +140,16 @@
 		gap: var(--fr-space-sm);
 		justify-content: flex-start;
 	}
-	/* The hairline above the strip is the VisualDivider, so the strip adds no
-	   border of its own. */
 	.metrics-strip {
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
-		gap: var(--fr-space-md);
+		gap: var(--fr-space-lg);
 		padding: 0 0 var(--fr-space-2xl);
 	}
-	/* Marketing grid. No card chrome: DESIGN.md keeps cards for forms and metrics,
-	   so a feature is a rule + heading + line of copy. No border-top either — a
-	   solid rule at a scene boundary is exactly what VisualDivider exists to avoid.
-	   Bottom padding only, so the space above (from the metric strip) matches. */
 	.features {
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
-		gap: var(--fr-space-xl);
+		gap: var(--fr-space-2xl);
 		padding: 0 0 var(--fr-space-2xl);
 	}
 	.features h2 {
@@ -163,6 +158,36 @@
 	}
 	.features p {
 		margin: 0;
+		font-size: var(--fr-text-sm);
+	}
+	.endpoint-grid {
+		display: grid;
+		gap: var(--fr-space-md);
+		margin-top: var(--fr-space-md);
+		/* A grid item defaults to min-width:auto — it will not shrink below
+		   its widest child, so a long endpoint path drags the page wide
+		   (WCAG 1.4.10 reflow failure at 320px). */
+		grid-template-columns: minmax(0, 1fr);
+	}
+	.endpoint-card {
+		display: grid;
+		grid-template-columns: 4rem minmax(0, 1fr);
+		align-items: center;
+		gap: var(--fr-space-md);
+		padding: var(--fr-space-sm) var(--fr-space-md);
+		background: var(--fr-surface);
+		border: 1px solid var(--fr-border);
+		border-radius: var(--fr-radius-md);
+	}
+	.endpoint-card > .muted {
+		grid-column: 2;
+	}
+	.endpoint-card code {
+		font-size: var(--fr-text-sm);
+		overflow-wrap: anywhere;
+	}
+	.auth-note {
+		margin-top: var(--fr-space-md);
 		font-size: var(--fr-text-sm);
 	}
 	.closing {

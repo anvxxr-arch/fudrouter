@@ -142,7 +142,7 @@ table.fr th {
 .fr-control {
 	width: 100%;
 	min-height: var(--fr-control-h-md);
-	padding: 0 var(--fr-space-sm);
+	padding: 0 var(--fr-space-md);
 	background: var(--fr-surface);
 	border: 1px solid var(--fr-border-strong);
 	border-radius: var(--fr-radius-md);

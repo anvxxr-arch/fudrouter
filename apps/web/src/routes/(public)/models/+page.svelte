@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Badge, EmptyState, PageHeader } from '$lib/ui';
+	import { Alert, Badge, EmptyState, Guide, PageHeader } from '$lib/ui';
 	import { BASE_URL, API_SURFACES, API_SURFACE_ORDER, modelsOn, tierTone } from '$lib/catalog';
 
 	let { data } = $props();
@@ -10,7 +10,11 @@
 	lede="Every model this deployment serves through the [OI]-compatible API, and which surface serves it."
 />
 
-<p class="muted preview">Preview build — the free/premium tiers below are placeholder data.</p>
+<div class="fr-feedback">
+	<Alert tone="warning">Preview build — the free and premium badges below are placeholder data, not billing.</Alert>
+</div>
+
+<Guide id="models" />
 
 <!-- Grouped by surface, not by tier: the surface is what a client points at, so it
      is the thing a reader is actually looking for. -->
@@ -49,10 +53,6 @@
 {/each}
 
 <style>
-	.preview {
-		margin: 0 0 var(--fr-space-sm);
-		font-size: var(--fr-text-sm);
-	}
 	.surface {
 		margin-top: var(--fr-space-xl);
 	}

@@ -300,3 +300,52 @@ describe('type scale', () => {
 		);
 	});
 });
+
+describe('optical sizing', () => {
+	// The frontmatter records line-height and tracking per scale; the CSS carries
+	// them as tokens. Without this guard the page renders different leading than
+	// the spec declares — the exact drift the design system exists to prevent.
+	const yamlType = (() => {
+		const out: Record<string, { lineHeight?: string; letterSpacing?: string }> = {};
+		let scale: string | null = null;
+		for (const line of spec.slice(0, spec.indexOf('\n---', 3)).split('\n')) {
+			const key = /^ {2}([a-z0-9-]+):\s*$/.exec(line);
+			if (key) {
+				scale = key[1];
+				out[scale] = {};
+				continue;
+			}
+			const prop = /^ {4}(lineHeight|letterSpacing):\s*(.+)$/.exec(line);
+			if (prop && scale) {
+				const entry = (out[scale] ??= {});
+				entry[prop[1] as 'lineHeight' | 'letterSpacing'] = prop[2]
+					.trim()
+					.replace(/^['"]|['"]$/g, '');
+			}
+		}
+		return out;
+	})();
+
+	const token = (name: string) => css.match(new RegExp(`--fr-${name}:\\s*([^;]+);`))?.[1]?.trim();
+
+	it('implements the display and body leading DESIGN.md declares', () => {
+		expect(token('display-xl-lh'), '--fr-display-xl-lh').toBe(yamlType['display-xl'].lineHeight);
+		expect(token('display-lh'), '--fr-display-lh').toBe(yamlType['display'].lineHeight);
+		expect(token('body-lh'), '--fr-body-lh').toBe(yamlType['base'].lineHeight);
+		expect(token('display-tracking'), '--fr-display-tracking').toBe(
+			yamlType['display-xl'].letterSpacing
+		);
+		expect(token('body-tracking'), '--fr-body-tracking').toBe(yamlType['base'].letterSpacing);
+	});
+
+	it('gives lg and base the same body leading — one body size, one rhythm', () => {
+		expect(yamlType['lg'].lineHeight).toBe(yamlType['base'].lineHeight);
+		expect(yamlType['lg'].letterSpacing).toBe(yamlType['base'].letterSpacing);
+	});
+
+	it('applies the body leading to the document, not just the token', () => {
+		const bodyRule = /body\s*\{[^}]*\}/.exec(css)?.[0] ?? '';
+		expect(bodyRule).toContain('line-height: var(--fr-body-lh)');
+		expect(bodyRule).toContain('letter-spacing: var(--fr-body-tracking)');
+	});
+});

@@ -31,7 +31,9 @@
 		"verify:inferhub": "node --experimental-strip-types --env-file=.env scripts/verify-inferhub.mjs"
 	},
 	"dependencies": {
+		"@rolldown/binding-linux-x64-gnu": "^1.2.9",
 		"better-auth": "^1.6.23",
+		"chart.js": "^4.5.1",
 		"drizzle-orm": "^0.45.2",
 		"postgres": "^3.4.9",
 		"uuidv7": "^1.2.1"

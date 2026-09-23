@@ -34,6 +34,15 @@
 	--fr-danger: #f87171;
 	--fr-info: #38bdf8;
 
+	/* Hero glow — one of the two gradients in the system (DESIGN.md §Colors).
+	 * The alpha is mixed from the brand hues, so the ramp cannot drift from the
+	 * palette. Both blobs finish their falloff before the box edges: a gradient
+	 * that is still visible where the box clips paints a straight seam.
+	 * It never carries meaning and is not interactive. */
+	--fr-glow:
+		radial-gradient(55% 60% at 30% 0%, color-mix(in srgb, var(--fr-orange) 18%, transparent), transparent 60%),
+		radial-gradient(55% 60% at 70% 0%, color-mix(in srgb, var(--fr-amber) 13%, transparent), transparent 60%);
+
 	/* Type.
 	 *
 	 * Plus Jakarta Sans untuk UI, JetBrains Mono untuk code/data.
@@ -48,7 +57,9 @@
 	--fr-text-base: 1rem; /* 16px */
 	--fr-text-lg: 1.125rem; /* 18px */
 
-	/* Fluid headings — brand scale: Display 72, H1 48, H2 36, H3 28 */
+	/* Fluid headings — brand scale: Display 72, H1 48, H2 36, H3 28.
+	 * Optical sizing (Apple HIG): display sizes run tight (1.07-1.14 line-height,
+	 * negative tracking) for billboard impact. Body sizes run 1.47 for reading. */
 	--fr-text-h6: 1.125rem; /* 18px */
 	--fr-text-h5: 1.25rem; /* 20px */
 	--fr-text-h4: clamp(1.5rem, 1.48rem + 0.1vw, 1.5625rem); /* 24 → 25px */
@@ -57,6 +68,15 @@
 	--fr-text-h1: clamp(2.75rem, 2.48rem + 1.2vw, 3.5rem); /* 44 → 56px */
 	--fr-text-display: clamp(3.5rem, 3.05rem + 2vw, 4.75rem); /* 56 → 76px */
 	--fr-text-display-xl: clamp(3.5rem, 3.05rem + 2vw, 4.75rem); /* 56 → 76px */
+
+	/* Optical sizing (Apple HIG). Display sizes run tight — 1.07–1.14 line-height
+	 * with negative tracking — for billboard impact; body copy runs at 1.47.
+	 * tokens.test.ts holds these to the same numbers DESIGN.md declares. */
+	--fr-display-lh: 1.1;
+	--fr-display-xl-lh: 1.07;
+	--fr-display-tracking: -0.028em;
+	--fr-body-lh: 1.47;
+	--fr-body-tracking: -0.00374em;
 
 	/* Shape */
 	--fr-radius-sm: 4px;
@@ -100,7 +120,8 @@ body {
 	color: var(--fr-text);
 	font-family: var(--fr-font-ui);
 	font-size: var(--fr-text-base);
-	line-height: 1.55;
+	line-height: var(--fr-body-lh);
+	letter-spacing: var(--fr-body-tracking);
 	-webkit-font-smoothing: antialiased;
 }
 

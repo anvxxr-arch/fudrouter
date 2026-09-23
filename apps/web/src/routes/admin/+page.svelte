@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { formatCost, formatTokens, formatDateTime } from '$lib/format';
-	import { Badge, EmptyState, PageHeader, StatCard } from '$lib/ui';
+	import { Badge, EmptyState, Guide, PageHeader, StatCard } from '$lib/ui';
 
 	let { data } = $props();
 </script>
@@ -16,6 +16,8 @@
 	<StatCard label="Tokens" value={formatTokens(data.totals.tokensIn + data.totals.tokensOut)} />
 	<StatCard label="Total cost" value={formatCost(BigInt(data.totals.cost))} />
 </section>
+
+<Guide id="admin" />
 
 <h2>Top resource consumers (by cost)</h2>
 <div class="table-wrap">
@@ -61,5 +63,3 @@
 			{/each}
 		</tbody>
 	</table></div>
-
-<style></style>

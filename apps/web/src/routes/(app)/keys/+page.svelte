@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { Alert, Badge, Button, Card, EmptyState, Field, Input, PageHeader } from '$lib/ui';
+	import { Alert, Badge, Button, Card, EmptyState, Field, Guide, Input, PageHeader } from '$lib/ui';
 	import { withPending } from '$lib/forms';
 
 	let { data, form } = $props();
@@ -34,6 +34,8 @@
 		<Button type="submit" variant="primary" {pending}>Create key</Button>
 	</form>
 </Card>
+
+<Guide id="keys" />
 
 <div class="table-wrap">
 <table class="fr">

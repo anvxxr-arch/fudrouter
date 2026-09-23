@@ -25,10 +25,13 @@ export { default as PageHeader } from './PageHeader.svelte';
 export { default as Select } from './Select.svelte';
 export { default as StatCard } from './StatCard.svelte';
 export { default as Textarea } from './Textarea.svelte';
+export { default as Metric } from './Metric.svelte';
 export { default as Section } from './Section.svelte';
 export { default as Facts } from './Facts.svelte';
 export { default as CodeBlock } from './CodeBlock.svelte';
 export { default as Guide } from './Guide.svelte';
+export { default as VisualDivider } from './VisualDivider.svelte';
+export { default as UsageChart } from './UsageChart.svelte';
 
 export {
 	ALERT_TONES,

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import {formatCost, formatTokens, formatDateTime} from '$lib/format';
-	import { Badge, Button, EmptyState, Field, PageHeader, Select } from '$lib/ui';
+	import { Badge, Button, EmptyState, Field, Guide, PageHeader, Select } from '$lib/ui';
 
 	let { data } = $props();
 </script>
@@ -24,6 +24,8 @@
 </form>
 
 <p class="muted">Showing the latest {data.rows.length} calls (max 200).</p>
+
+<Guide id="admin-requests" />
 
 <div class="table-wrap">
 <table class="fr">

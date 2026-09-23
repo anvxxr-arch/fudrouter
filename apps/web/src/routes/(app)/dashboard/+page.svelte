@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import {formatCost, formatTokens, formatDateTime} from '$lib/format';
-	import { Badge, EmptyState, PageHeader, StatCard } from '$lib/ui';
+	import { Badge, EmptyState, Guide, PageHeader, StatCard, UsageChart } from '$lib/ui';
 
 	let { data } = $props();
 </script>
@@ -17,6 +17,15 @@
 	<StatCard label="Tokens" value={formatTokens(data.totals.tokensIn + data.totals.tokensOut)} />
 	<StatCard label="Spend" value={formatCost(BigInt(data.totals.cost))} />
 </section>
+
+<h2>Activity — last 14 days</h2>
+{#if data.series.some((d) => d.requests > 0)}
+	<UsageChart days={data.series} />
+{:else}
+	<EmptyState title="No calls yet" hint="The chart fills in from your first API call." />
+{/if}
+
+<Guide id="dashboard" />
 
 <p class="muted">
 	Manage keys under <a href={resolve('/keys')}>API Keys</a>. Balance and top-ups arrive with
@@ -48,6 +57,4 @@
 				>
 			{/each}
 		</tbody>
-	</table></div>
-
-<style></style>
+</table></div>

@@ -10,7 +10,8 @@
 		Field,
 		Input,
 		PageHeader,
-		Select
+		Guide,
+		Select,
 	} from '$lib/ui';
 	import { withPending } from '$lib/forms';
 
@@ -26,7 +27,7 @@
 
 <PageHeader
 	title="Client API keys"
-	lede="Mint and limit keys on behalf of a client. Limits are stored per key; the data plane reads them."
+	lede="Mint and limit keys on behalf of a client. Limits are stored per key; the data plane does not enforce them yet."
 />
 
 {#if form?.error}<div class="fr-feedback"><Alert tone="danger">{form.error}</Alert></div>{/if}
@@ -61,6 +62,8 @@
 		<div class="submit"><Button type="submit" {pending} variant="primary">Create key</Button></div>
 	</form>
 </Card>
+
+<Guide id="admin-keys" />
 
 <div class="table-wrap">
 <table class="fr">

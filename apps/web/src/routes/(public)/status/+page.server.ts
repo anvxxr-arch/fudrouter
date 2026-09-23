@@ -10,15 +10,23 @@ export const load = async () => {
 		const timer = setTimeout(() => ctrl.abort(), 4000);
 		const health = await fetch(`${base}/health`, { signal: ctrl.signal });
 		clearTimeout(timer);
-		if (!health.ok) return { up: false, service: '', models: 0, latencyMs: Date.now() - started };
+		if (!health.ok) {
+			return {
+				up: false,
+				service: '',
+				models: 0,
+				latencyMs: Date.now() - started,
+				checkedAt: new Date().toISOString()
+			};
+		}
 
 		const service = (await health.json()).service ?? '';
 		let models = 0;
 		const list = await fetch(`${base}/v1/models`);
 		if (list.ok) models = ((await list.json()).data ?? []).length;
 
-		return { up: true, service, models, latencyMs: Date.now() - started };
+		return { up: true, service, models, latencyMs: Date.now() - started, checkedAt: new Date().toISOString() };
 	} catch {
-		return { up: false, service: '', models: 0, latencyMs: Date.now() - started };
+		return { up: false, service: '', models: 0, latencyMs: Date.now() - started, checkedAt: new Date().toISOString() };
 	}
 };

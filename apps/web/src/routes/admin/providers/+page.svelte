@@ -9,6 +9,7 @@
 		Field,
 		Input,
 		PageHeader,
+		Guide,
 		Select,
 		Textarea
 	} from '$lib/ui';
@@ -62,6 +63,8 @@
 		</div>
 	</form>
 </Card>
+
+<Guide id="admin-providers" />
 
 <div class="table-wrap">
 <table class="fr">

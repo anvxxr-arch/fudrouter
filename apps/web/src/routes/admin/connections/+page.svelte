@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { Alert, Badge, Button, EmptyState, PageHeader } from '$lib/ui';
+	import { Alert, Badge, Button, EmptyState, Guide, PageHeader } from '$lib/ui';
 	import { withPending } from '$lib/forms';
 
 	let { data, form } = $props();
@@ -28,6 +28,8 @@
 		</Alert>
 	</div>
 {/if}
+
+<Guide id="admin-connections" />
 
 <div class="table-wrap">
 <table class="fr">

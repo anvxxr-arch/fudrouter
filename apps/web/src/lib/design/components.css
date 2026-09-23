@@ -230,6 +230,111 @@ table.fr th {
 	align-items: center;
 	gap: var(--fr-space-xs);
 }
+
+
+.fr-section {
+	display: grid;
+	gap: var(--fr-space-sm);
+	margin-top: var(--fr-space-xl);
+}
+.fr-section > header h2 {
+	margin: 0;
+}
+.fr-lede {
+	margin: 0;
+	max-width: 46rem;
+	color: var(--fr-text-muted);
+}
+.fr-prose {
+	display: grid;
+	gap: var(--fr-space-sm);
+	max-width: 46rem;
+}
+.fr-prose p {
+	margin: 0;
+}
+.fr-guide > .fr-section:first-child {
+	margin-top: var(--fr-space-md);
+}
+
+/* Term/detail. The label is `.fr-label` (uppercase caption); the value is not.
+ * `minmax(0, 1fr)` so a long unbreakable value shrinks instead of widening the page. */
+.fr-dl {
+	display: grid;
+	margin: 0;
+}
+.fr-dl > div {
+	display: grid;
+	grid-template-columns: minmax(8rem, 14rem) minmax(0, 1fr);
+	gap: var(--fr-space-sm) var(--fr-space-md);
+	align-items: baseline;
+	padding: var(--fr-space-sm) 0;
+	border-bottom: 1px solid var(--fr-border);
+}
+.fr-dl dd {
+	margin: 0;
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+/* Labeled sample. `pre` geometry stays in tokens.css; this only stacks the caption. */
+.fr-code {
+	display: grid;
+	gap: var(--fr-space-xs);
+	margin: 0;
+	min-width: 0;
+}
+
+/* The "or" rule on auth forms. It lived twice, identically, and would have drifted. */
+.fr-divider {
+	display: flex;
+	align-items: center;
+	gap: var(--fr-space-md);
+	margin: var(--fr-space-lg) 0;
+	color: var(--fr-text-muted);
+	font-size: var(--fr-text-sm);
+}
+.fr-divider::before,
+.fr-divider::after {
+	content: '';
+	flex: 1;
+	height: 1px;
+	background: var(--fr-border);
+}
+
+/* One accent mark under a marketing headline. Flat primary, not a gradient. */
+.fr-rule {
+	width: 2.5rem;
+	height: 2px;
+	margin: 0 0 var(--fr-space-md);
+	border: 0;
+	background: var(--fr-primary);
+}
+
+/* The scene edge — a hairline that fades out at both ends, drawn where two
+ * scenes share one background. A solid `border` there reads as a table rule. */
+.fr-visual-divider {
+	height: 1px;
+	margin: var(--fr-space-2xl) 0;
+	border: 0;
+	background: linear-gradient(
+		90deg,
+		transparent,
+		color-mix(in srgb, var(--fr-orange) 55%, transparent) 18%,
+		color-mix(in srgb, var(--fr-amber) 55%, transparent) 82%,
+		transparent
+	);
+}
+
+/* Matches --fr-bp-tablet. A two-column fact row cannot hold a long value at 320px. */
+@media (max-width: 820px) {
+	.fr-dl > div {
+		grid-template-columns: minmax(0, 1fr);
+		gap: var(--fr-space-xs);
+	}
+}
+
+/* ── Tone ────────────────────────────────────────────────────────────────────
  * The semantic-colour mapping, defined once. Every atom that carries a tone
  * (badge, alert, and anything added later) reads `--_tone` and never re-derives
  * the colour — `Badge` and `Alert` each used to carry their own copy of this

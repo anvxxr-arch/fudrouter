@@ -10,8 +10,10 @@ import Badge from './Badge.svelte';
 import Button from './Button.svelte';
 import ButtonLink from './ButtonLink.svelte';
 import Input from './Input.svelte';
+import Metric from './Metric.svelte';
 import Select from './Select.svelte';
 import Textarea from './Textarea.svelte';
+import VisualDivider from './VisualDivider.svelte';
 import { ALERT_TONES, BUTTON_VARIANTS, CONTROL_SIZES, TONES } from '$lib/design/variants';
 
 /** The element a component rendered, as a real DOM node we can measure. */
@@ -149,5 +151,29 @@ describe('the shared tone table', () => {
 			const { container } = render(Alert, { tone });
 			expect(el(container).getAttribute('role'), `${tone} should be polite`).toBe('status');
 		}
+	});
+});
+
+describe('the metric strip', () => {
+	it('renders the value in the tabular numeric treatment with its tone', () => {
+		const { container } = render(Metric, {
+			label: 'Models published',
+			value: '243',
+			tone: 'success'
+		});
+		const node = el(container);
+		expect(node.textContent).toContain('Models published');
+		expect(node.textContent).toContain('243');
+		const value = node.querySelector('.metric-value') as HTMLElement;
+		expect(value.className, 'the value must be tabular').toContain('num');
+		expect(value.className).toContain('success');
+	});
+
+	it('draws the scene edge as a gradient hairline, hidden from assistive tech', () => {
+		const { container } = render(VisualDivider, {});
+		const node = el(container);
+		expect(node.getAttribute('aria-hidden')).toBe('true');
+		expect(style(node).backgroundImage, 'the shared divider rule must apply').toContain('gradient');
+		expect(px(node, 'height')).toBe(1);
 	});
 });

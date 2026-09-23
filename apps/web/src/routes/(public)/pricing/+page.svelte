@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import { Badge, ButtonLink, EmptyState, PageHeader } from '$lib/ui';
+	import { Badge, ButtonLink, EmptyState, Guide, PageHeader } from '$lib/ui';
 	import { modelsOn, tierTone } from '$lib/catalog';
 	import { formatCost } from '$lib/format';
 
@@ -16,6 +16,8 @@
 	title="Pricing"
 	lede="Pay per token — no seat fees. One API key, every model. Prices are per 1M tokens."
 />
+
+<Guide id="pricing" />
 
 <div class="table-wrap">
 <table class="fr">
@@ -47,7 +49,7 @@
 
 <div class="cta">
 	<ButtonLink variant="primary" href={resolve('/signup')}>Get started</ButtonLink>
-	<span class="muted">Free credit on signup.</span>
+	<span class="muted">Then mint a key and point a client at the API.</span>
 </div>
 
 <style>

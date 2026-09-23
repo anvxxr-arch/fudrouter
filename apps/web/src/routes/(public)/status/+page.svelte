@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { Badge, PageHeader } from '$lib/ui';
+	import { Badge, Facts, Guide, PageHeader } from '$lib/ui';
+	import { formatDateTime } from '$lib/format';
 
 	let { data } = $props();
 </script>
@@ -14,6 +15,18 @@
 	{#if data.service}<span class="muted">{data.service}</span>{/if}
 	<span class="muted num">{data.latencyMs} ms</span>
 </div>
+
+<Facts
+	items={[
+		{ term: 'Data plane', detail: data.up ? 'Operational' : 'Unreachable' },
+		{ term: 'Service', detail: data.service || '—' },
+		{ term: 'Probe', detail: `${data.latencyMs.toLocaleString()} ms` },
+		{ term: 'Models published', detail: data.up ? data.models.toLocaleString() : '—' },
+		{ term: 'Checked', detail: formatDateTime(new Date(data.checkedAt)) }
+	]}
+/>
+
+<Guide id="status" />
 
 <div class="table-wrap">
 <table class="fr">

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { resolve } from '$app/paths';
-	import { Alert, Button, Card, Field, Input } from '$lib/ui';
+	import { Alert, Button, Card, DiscordButton, Field, Guide, Input } from '$lib/ui';
 	import { withPending } from '$lib/forms';
 
 	let { form } = $props();
@@ -15,6 +15,8 @@
 		{#if form?.error}
 			<div class="fr-feedback"><Alert tone="danger">{form.error}</Alert></div>
 		{/if}
+		<DiscordButton label="Sign up with Discord" />
+		<div class="fr-divider"><span>or</span></div>
 		<form method="POST" use:enhance={track}>
 			<Field label="Name">
 				<Input name="name" autocomplete="name" required />
@@ -29,18 +31,18 @@
 		</form>
 	</Card>
 	<p class="muted">Already have an account? <a href={resolve('/login')}>Log in</a></p>
+	<Guide id="signup" />
 </div>
 
 <style>
 	.auth {
-		max-width: 24rem;
+		max-width: 40rem;
 		margin: var(--fr-space-2xl) auto;
 	}
 	form {
 		display: grid;
 		gap: var(--fr-space-md);
 	}
-	
 	p {
 		margin-top: var(--fr-space-md);
 		text-align: center;

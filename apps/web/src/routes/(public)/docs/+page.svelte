@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { PageHeader } from '$lib/ui';
+	import { CodeBlock, Guide, PageHeader } from '$lib/ui';
 
 	// Code samples live in JS strings so their `{` / `}` are never parsed as
 	// Svelte expressions.
@@ -24,10 +24,12 @@
 	lede="[OI]-compatible. Authenticate with Authorization: Bearer sk-ar-…"
 />
 
+<Guide id="docs" />
+
 <section class="stack">
 	<div>
 		<h2>POST /v1/chat/completions</h2>
-		<pre>{chatCurl}</pre>
+		<CodeBlock label="curl" code={chatCurl} />
 		<p class="muted">
 			Set <code>"stream": true</code> for SSE. The final chunk carries a <code>usage</code> object.
 		</p>
@@ -35,12 +37,12 @@
 
 	<div>
 		<h2>GET /v1/models</h2>
-		<pre>{modelsCurl}</pre>
+		<CodeBlock label="curl" code={modelsCurl} />
 	</div>
 
 	<div>
 		<h2>GET /health</h2>
-		<pre>{healthCurl}</pre>
+		<CodeBlock label="curl" code={healthCurl} />
 	</div>
 
 	<div>

@@ -9,7 +9,8 @@
 		Field,
 		Input,
 		PageHeader,
-		Select
+		Guide,
+		Select,
 	} from '$lib/ui';
 	import { withPending } from '$lib/forms';
 
@@ -68,6 +69,8 @@
 		</div>
 	</form>
 </Card>
+
+<Guide id="admin-models" />
 
 <div class="table-wrap">
 <table class="fr">

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { Alert, Button, Card, Field, Input, PageHeader } from '$lib/ui';
+	import { Alert, Button, Card, Facts, Field, Guide, Input, PageHeader } from '$lib/ui';
+	import { formatDate } from '$lib/format';
 	import { withPending } from '$lib/forms';
 
 	let { data, form } = $props();
@@ -27,21 +28,22 @@
 	</form>
 </Card>
 
-<dl>
-	<dt>Email</dt>
-	<dd>{data.account?.email}</dd>
-	<dt>Role</dt>
-	<dd>{data.account?.role ?? 'user'}</dd>
-	<dt>Member since</dt>
-	<dd class="num">{data.account?.createdAt.toISOString().slice(0, 10)}</dd>
-</dl>
+<Facts
+	items={[
+		{ term: 'Email', detail: data.account?.email ?? '—' },
+		{ term: 'Role', detail: data.account?.role ?? 'user' },
+		{
+			term: 'Member since',
+			detail: data.account ? formatDate(data.account.createdAt) : '—'
+		}
+	]}
+/>
+
+<Guide id="account" />
 
 <style>
 	form {
 		display: grid;
 		gap: var(--fr-space-md);
-	}
-	dd {
-		margin-bottom: var(--fr-space-sm);
 	}
 </style>

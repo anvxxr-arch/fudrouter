@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { formatCost } from '$lib/format';
-	import { Alert, Badge, Button, EmptyState, PageHeader, Select } from '$lib/ui';
+	import { Alert, Badge, Button, EmptyState, Guide, PageHeader, Select } from '$lib/ui';
 	import { withPending } from '$lib/forms';
 
 	let { data, form } = $props();
@@ -12,6 +12,8 @@
 <PageHeader title="Users" lede="Roles decide which admin surfaces a user can reach." />
 
 {#if form?.error}<div class="fr-feedback"><Alert tone="danger">{form.error}</Alert></div>{/if}
+
+<Guide id="admin-users" />
 
 <div class="table-wrap">
 <table class="fr">

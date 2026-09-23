@@ -153,6 +153,24 @@ describe('the shared tone table', () => {
 			expect(el(container).getAttribute('role'), `${tone} should be polite`).toBe('status');
 		}
 	});
+
+	it('gives every alert tone its own border colour', () => {
+		// Regression: `.alert`'s scoped `--_tone: var(--fr-info)` default compiled to
+		// (0,2,0) and beat `.fr-tone-warning` (0,1,0), so EVERY alert rendered the
+		// info colour. Asserting the role alone never caught it — the colour has to
+		// be measured, and against a different tone.
+		const borders = new Map<string, string>();
+		for (const tone of ALERT_TONES) {
+			const { container } = render(Alert, { tone });
+			borders.set(tone, style(el(container)).borderLeftColor);
+		}
+		expect(new Set(borders.values()).size, `alert tones collide: ${[...borders]}`).toBe(
+			ALERT_TONES.length
+		);
+		expect(borders.get('warning'), 'warning must not fall back to info').not.toBe(
+			borders.get('info')
+		);
+	});
 });
 
 describe('the metric strip', () => {

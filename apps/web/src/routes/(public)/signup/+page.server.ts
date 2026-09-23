@@ -23,6 +23,6 @@ export const actions: Actions = {
 			return fail(400, { error: `Signup failed: ${message}` });
 		}
 
-		redirect(303, '/keys');
+		redirect(303, '/dashboard/keys');
 	}
 };

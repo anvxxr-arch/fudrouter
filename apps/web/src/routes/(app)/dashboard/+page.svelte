@@ -28,7 +28,7 @@
 <Guide id="dashboard" />
 
 <p class="muted">
-	Manage keys under <a href={resolve('/keys')}>API Keys</a>. Balance and top-ups arrive with
+	Manage keys under <a href={resolve('/dashboard/keys')}>API Keys</a>. Balance and top-ups arrive with
 	billing.
 </p>
 

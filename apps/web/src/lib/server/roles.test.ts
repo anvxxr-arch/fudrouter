@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { capsFor, hasCap, landingFor, requiredCap, ALL_CAPS } from './roles';
+import { capsFor, hasCap, landingFor, requiredCap, requireCap, ALL_CAPS } from './roles';
 
 describe('capsFor', () => {
 	it('gives an unknown or absent role member only (fail-closed)', () => {
@@ -56,11 +56,14 @@ describe('requiredCap', () => {
 		expect(requiredCap('/admin/unknown')).toBe('admin.view');
 	});
 
-	it('gates member routes', () => {
-		expect(requiredCap('/keys')).toBe('member');
-		expect(requiredCap('/usage')).toBe('member');
+	it('gates the member surface, nested pages included', () => {
 		expect(requiredCap('/dashboard')).toBe('member');
-		expect(requiredCap('/account')).toBe('member');
+		expect(requiredCap('/dashboard/keys')).toBe('member');
+		expect(requiredCap('/dashboard/usage')).toBe('member');
+		expect(requiredCap('/dashboard/account')).toBe('member');
+		// Anything nested under the member root inherits `member` through the
+		// longest-prefix rule, so a new page can never ship accidentally public.
+		expect(requiredCap('/dashboard/something-new')).toBe('member');
 	});
 
 	it('leaves public routes open', () => {
@@ -69,5 +72,37 @@ describe('requiredCap', () => {
 		expect(requiredCap('/models')).toBeNull();
 		expect(requiredCap('/docs')).toBeNull();
 		expect(requiredCap('/login')).toBeNull();
+	});
+});
+
+describe('requireCap', () => {
+	// The second gate, the hook being the first. Every role in the table carries
+	// `member`, so for `member` this can only fire on a missing session — it exists
+	// so a future role without `member` is refused instead of served.
+	const statusOf = (fn: () => void): number | null => {
+		try {
+			fn();
+			return null;
+		} catch (err) {
+			return (err as { status?: number }).status ?? null;
+		}
+	};
+
+	it('refuses a request with no session', () => {
+		expect(statusOf(() => requireCap({ user: null } as unknown as App.Locals, 'member'))).toBe(
+			401
+		);
+	});
+
+	it('refuses a signed-in member reaching for an admin capability', () => {
+		const locals = { user: { id: 'u1', role: 'user' } } as unknown as App.Locals;
+		expect(statusOf(() => requireCap(locals, 'admin.models'))).toBe(403);
+	});
+
+	it('lets a member through the member gate and staff through theirs', () => {
+		const member = { user: { id: 'u1', role: 'user' } } as unknown as App.Locals;
+		const ops = { user: { id: 'u2', role: 'ops_admin' } } as unknown as App.Locals;
+		expect(statusOf(() => requireCap(member, 'member'))).toBeNull();
+		expect(statusOf(() => requireCap(ops, 'admin.providers'))).toBeNull();
 	});
 });

@@ -89,9 +89,9 @@ export const ROUTE_CAPS: [string, Capability][] = [
 	['/admin/settings', 'admin.settings'],
 	['/admin', 'admin.view'],
 	['/dashboard', 'member'],
-	['/keys', 'member'],
-	['/usage', 'member'],
-	['/account', 'member'],
+	['/dashboard/keys', 'member'],
+	['/dashboard/usage', 'member'],
+	['/dashboard/account', 'member'],
 	['/billing', 'member']
 ];
 

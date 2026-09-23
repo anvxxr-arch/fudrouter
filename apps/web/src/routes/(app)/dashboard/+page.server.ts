@@ -2,8 +2,10 @@ import { and, desc, eq, gte, isNull, sql } from 'drizzle-orm';
 import type { PageServerLoad } from './$types';
 import { db } from '$lib/server/db';
 import { apiKey, model, requestLog } from '$lib/server/db/schema';
+import { requireCap } from '$lib/server/roles';
 
 export const load: PageServerLoad = async ({ locals }) => {
+	requireCap(locals, 'member');
 	const userId = locals.user!.id;
 
 	const [totals] = await db

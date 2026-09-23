@@ -8,6 +8,10 @@ export default defineConfig({
 	plugins: [
 		tailwindcss(),
 		sveltekit({
+			// Absolute hrefs from resolve(): the member pages sit two segments deep
+			// (/dashboard/keys). Relative links are computed per route, and one wrong
+			// guess ships a broken nav, so pin them absolute.
+			paths: { relative: false },
 			compilerOptions: {
 				// Force runes mode for the project, except for libraries. Can be removed in svelte 6.
 				runes: ({ filename }) =>

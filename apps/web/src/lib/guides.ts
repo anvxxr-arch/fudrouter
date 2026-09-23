@@ -546,6 +546,37 @@ export const GUIDES = {
 							"Default headers sent upstream, one Name: value per line. They are not the caller's headers."
 					}
 				]
+			},
+			{
+				title: 'The provider detail page',
+				lede: 'One upstream per page: usage, quota, rate limit, routing, credentials, its catalog, and a playground.',
+				facts: [
+					{
+						term: 'Fetch models',
+						detail:
+							'Reads GET <baseUrl>/models with one stored credential and marks each row: already in catalog, hidden, or not seeded. Filter by free / paid / no price, then enable or disable exactly what is shown.'
+					},
+					{
+						term: 'Upstream id vs slug',
+						detail:
+							'An upstream id is not always the routable slug — Google lists models/gemini-3.6-flash while the catalog stores gemini-3.6-flash. Matching ignores a leading models/ prefix; a newly enabled model keeps the id the upstream reported.'
+					},
+					{
+						term: 'Test credential',
+						detail:
+							'A real GET /models per credential, so it proves the key works rather than that it exists. The response headers that start x-ratelimit are shown as the observed rate limit.'
+					},
+					{
+						term: 'Playground',
+						detail:
+							'A real chat straight to the upstream with the stored credential. No system prompt, no tools, nothing written to the request log — and the model does not have to be published to be tested.'
+					},
+					{
+						term: 'Empty reply',
+						detail:
+							'A reasoning model can spend the whole token budget before it answers; the trace is shown instead of a blank box. Treat that as a slow model, not a dead one.'
+					}
+				]
 			}
 		]
 	},

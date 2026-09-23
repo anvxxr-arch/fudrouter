@@ -1,6 +1,19 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { Alert, Badge, Button, Card, EmptyState, Field, Input, PageHeader, Guide, Select, Textarea, TableWrap } from '$lib/ui';
+	import {
+		Alert,
+		Badge,
+		Button,
+		Card,
+		EmptyState,
+		Field,
+		Input,
+		PageHeader,
+		Guide,
+		Select,
+		Textarea,
+		TableWrap
+	} from '$lib/ui';
 	import { withPending } from '$lib/forms';
 
 	let { data, form } = $props();
@@ -55,8 +68,7 @@
 <Guide id="admin-providers" />
 
 <TableWrap label="Providers">
-<table class="fr">
-	
+	<table class="fr">
 		<thead>
 			<tr
 				><th>Name</th><th>Base URL</th><th>Status</th><th>Priority</th><th>Models</th><th
@@ -67,7 +79,7 @@
 		<tbody>
 			{#each data.providers as p (p.id)}
 				<tr>
-					<td>{p.name}</td>
+					<td><a href="/admin/providers/{p.id}">{p.name}</a></td>
 					<td><code>{p.baseUrl}</code></td>
 					<td><Badge tone={p.status === 'active' ? 'success' : 'warning'}>{p.status}</Badge></td>
 					<td class="num">{p.priority}</td>
@@ -139,11 +151,11 @@
 </TableWrap>
 
 <style>
-	
 	h2.first {
 		margin-top: 0;
 	}
 	form {
 		display: grid;
 		gap: var(--fr-space-md);
-	}</style>
+	}
+</style>

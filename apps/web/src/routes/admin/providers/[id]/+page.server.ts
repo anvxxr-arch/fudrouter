@@ -15,6 +15,20 @@ import {
 	type UpstreamModel
 } from '$lib/provider-catalog';
 import { reachability } from '$lib/publish';
+import {
+	MAX_BATCH_MODELS,
+	MAX_CHAT_CHARS,
+	MAX_PRIORITY,
+	MIN_PRIORITY,
+	cleanSlug,
+	cleanText,
+	parseIndex,
+	parseModelPayloads,
+	parsePriority,
+	parseSlugList,
+	parseTier,
+	safeUpstreamUrl
+} from '$lib/admin-limits';
 
 /** How long any single upstream call may take. */
 const UPSTREAM_TIMEOUT_MS = 15_000;
@@ -94,7 +108,9 @@ async function fetchUpstreamCatalog(
 	url: string;
 	rateLimit: Record<string, string>;
 }> {
-	const url = `${baseUrl.replace(/\/$/, '')}/models`;
+	const base = safeUpstreamUrl(baseUrl);
+	if (!base) throw new Error('provider base URL is not a usable http(s) URL');
+	const url = `${base}/models`;
 	const headers = headersFor(cred, tokenAt(cred, index));
 	const ctrl = new AbortController();
 	const timer = setTimeout(() => ctrl.abort(), UPSTREAM_TIMEOUT_MS);
@@ -251,7 +267,7 @@ export const actions: Actions = {
 	fetchCatalog: async ({ locals, request, params }) => {
 		requireCap(locals, 'admin.providers');
 		const form = await request.formData();
-		const tier = String(form.get('tier') ?? 'all');
+		const tier = parseTier(form.get('tier'));
 
 		const p = await getProvider(params.id);
 		if (!p) return fail(404, { error: 'Provider not found' });
@@ -315,22 +331,17 @@ export const actions: Actions = {
 			).map((m) => [matchKey(m.slug), m])
 		);
 
+		const batch = parseModelPayloads(form.getAll('payload').map(String));
+
 		let added = 0;
 		let published = 0;
 		const skipped: string[] = [];
 
-		for (const raw of form.getAll('payload').map(String)) {
-			let parsed: UpstreamModel;
-			try {
-				parsed = JSON.parse(raw) as UpstreamModel;
-			} catch {
-				continue;
-			}
-			const slug = String(parsed.slug ?? '').trim();
-			if (!slug) continue;
-
-			const input = usdToMicro(String(parsed.inputUsd ?? 0)) ?? '0';
-			const output = usdToMicro(String(parsed.outputUsd ?? 0)) ?? '0';
+		for (const row of batch.rows) {
+			const slug = row.slug;
+			// Costs are USD per 1M tokens in the payload and micro-units in the column.
+			const input = usdToMicro(String(row.inputUsd)) ?? '0';
+			const output = usdToMicro(String(row.outputUsd)) ?? '0';
 
 			const existing = known.get(matchKey(slug));
 
@@ -339,9 +350,9 @@ export const actions: Actions = {
 					await db.insert(model).values({
 						id: uuidv7(),
 						providerId: p.id,
-						name: String(parsed.name ?? slug),
+						name: row.name,
 						slug,
-						context: parsed.context ?? null,
+						context: row.context,
 						inputPrice: input,
 						outputPrice: output,
 						status: 'active'
@@ -366,6 +377,10 @@ export const actions: Actions = {
 		const parts = [`${added} added`, `${published} published`];
 		if (skipped.length)
 			parts.push(`${skipped.length} skipped (owned elsewhere): ${skipped.slice(0, 5).join(', ')}`);
+		if (batch.rejected) parts.push(`${batch.rejected} rejected as invalid`);
+		if (batch.duplicates) parts.push(`${batch.duplicates} duplicate(s) collapsed`);
+		if (batch.overCap)
+			parts.push(`${batch.overCap} beyond the ${MAX_BATCH_MODELS} per-request limit`);
 		return { message: `Enable: ${parts.join(', ')}.` };
 	},
 
@@ -373,7 +388,7 @@ export const actions: Actions = {
 	disable: async ({ locals, request, params }) => {
 		requireCap(locals, 'admin.providers');
 		const form = await request.formData();
-		const slugs = [...new Set(form.getAll('slug').map(String).filter(Boolean))];
+		const { slugs, overCap } = parseSlugList(form.getAll('slug').map(String));
 		if (slugs.length === 0) return fail(400, { error: 'Select at least one model' });
 
 		// Match either form: the gallery shows upstream ids, the catalog stores the
@@ -388,14 +403,14 @@ export const actions: Actions = {
 			.where(and(eq(model.providerId, params.id), or(...forms.map((s) => eq(model.slug, s)))))
 			.returning({ id: model.id });
 
-		return { message: `Disabled ${updated.length} model(s).` };
+		const note = overCap ? ` (${overCap} beyond the ${MAX_BATCH_MODELS} per-request limit)` : '';
+		return { message: `Disabled ${updated.length} model(s)${note}.` };
 	},
 
 	/** Probe one credential against `<baseUrl>/models`. */
 	testCredential: async ({ locals, request, params }) => {
 		requireCap(locals, 'admin.providers');
 		const form = await request.formData();
-		const index = Number(form.get('index') ?? 0);
 
 		const p = await getProvider(params.id);
 		if (!p) return fail(404, { error: 'Provider not found' });
@@ -407,7 +422,13 @@ export const actions: Actions = {
 			return fail(400, { error: 'Cannot decrypt credentials' });
 		}
 
-		const label = credentialLabels(cred).find((c) => c.index === index)?.label ?? `#${index}`;
+		const labels = credentialLabels(cred);
+		// An index that addresses nothing would probe with an empty token and report
+		// a 401 that has nothing to do with the credential.
+		const index = parseIndex(form.get('index'), labels.length);
+		if (index === null) return fail(400, { error: 'Pick a credential that exists' });
+
+		const label = labels.find((c) => c.index === index)?.label ?? `#${index}`;
 		const started = Date.now();
 		try {
 			const { status, models, rateLimit } = await fetchUpstreamCatalog(p.baseUrl, cred, index);
@@ -499,8 +520,8 @@ export const actions: Actions = {
 	testModel: async ({ locals, request, params }) => {
 		requireCap(locals, 'admin.providers');
 		const form = await request.formData();
-		const slug = String(form.get('slug') ?? '').trim();
-		if (!slug) return fail(400, { error: 'Missing model slug' });
+		const slug = cleanSlug(form.get('slug'));
+		if (!slug) return fail(400, { error: 'Missing or malformed model slug' });
 
 		const out = await sandboxChat(params.id, slug, 'Say OK');
 		if ('fatal' in out)
@@ -512,10 +533,11 @@ export const actions: Actions = {
 	chat: async ({ locals, request, params }) => {
 		requireCap(locals, 'admin.providers');
 		const form = await request.formData();
-		const slug = String(form.get('slug') ?? '').trim();
-		const message = String(form.get('message') ?? '').trim();
+		const slug = cleanSlug(form.get('slug'));
+		const message = cleanText(form.get('message'));
 		if (!slug) return fail(400, { error: 'Pick a model' });
-		if (!message) return fail(400, { error: 'Type a message' });
+		if (!message)
+			return fail(400, { error: `Type a message (up to ${MAX_CHAT_CHARS} characters)` });
 
 		const out = await sandboxChat(params.id, slug, message);
 		if ('fatal' in out)
@@ -527,8 +549,11 @@ export const actions: Actions = {
 	strategy: async ({ locals, request, params }) => {
 		requireCap(locals, 'admin.providers');
 		const form = await request.formData();
-		const priority = Number(form.get('priority') ?? 100);
-		if (!Number.isFinite(priority)) return fail(400, { error: 'Priority must be a number' });
+		const priority = parsePriority(form.get('priority'));
+		if (priority === null)
+			return fail(400, {
+				error: `Priority must be a whole number between ${MIN_PRIORITY} and ${MAX_PRIORITY}`
+			});
 
 		const updated = await db
 			.update(provider)
@@ -571,7 +596,9 @@ async function sandboxChat(
 		};
 	}
 
-	const url = `${p.baseUrl.replace(/\/$/, '')}/chat/completions`;
+	const base = safeUpstreamUrl(p.baseUrl);
+	if (!base) return { fatal: 'provider base URL is not a usable http(s) URL' };
+	const url = `${base}/chat/completions`;
 	const headers = { ...headersFor(cred, tokenAt(cred, 0)), 'content-type': 'application/json' };
 	const body = JSON.stringify({
 		model: slug,

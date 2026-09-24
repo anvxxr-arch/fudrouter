@@ -72,7 +72,7 @@ export function landingFor(role?: string | null): string {
 
 /**
  * Route → required capability. Longest matching prefix wins, so `/admin/billing`
- * (admin.billing) beats `/billing` (member). A path with no entry is public.
+ * (admin.billing) beats `/admin` (admin.view). A path with no entry is public.
  */
 export const ROUTE_CAPS: [string, Capability][] = [
 	['/admin/providers', 'admin.providers'],
@@ -92,7 +92,7 @@ export const ROUTE_CAPS: [string, Capability][] = [
 	['/dashboard/keys', 'member'],
 	['/dashboard/usage', 'member'],
 	['/dashboard/account', 'member'],
-	['/billing', 'member']
+	['/dashboard/billing', 'member']
 ];
 
 export function requiredCap(pathname: string): Capability | null {

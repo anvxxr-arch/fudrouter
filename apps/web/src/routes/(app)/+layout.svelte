@@ -9,7 +9,8 @@
 		{ href: '/dashboard', label: 'Dashboard' },
 		{ href: '/dashboard/keys', label: 'API Keys' },
 		{ href: '/dashboard/usage', label: 'Usage' },
-		{ href: '/dashboard/account', label: 'Account' }
+		{ href: '/dashboard/account', label: 'Account' },
+		{ href: '/dashboard/billing', label: 'Billing' }
 	] as const;
 	const isAdmin = $derived((data.caps ?? []).includes('admin.view'));
 </script>

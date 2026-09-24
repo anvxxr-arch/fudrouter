@@ -46,9 +46,9 @@ describe('requiredCap', () => {
 		expect(requiredCap('/admin/connections')).toBe('admin.ops');
 	});
 
-	it('picks the longest prefix (/admin/billing beats /billing)', () => {
+	it('picks the longest prefix (/admin/billing beats /admin)', () => {
 		expect(requiredCap('/admin/billing')).toBe('admin.billing');
-		expect(requiredCap('/billing')).toBe('member');
+		expect(requiredCap('/admin')).toBe('admin.view');
 	});
 
 	it('falls back to admin.view for the admin root and unknown admin paths', () => {
@@ -61,6 +61,7 @@ describe('requiredCap', () => {
 		expect(requiredCap('/dashboard/keys')).toBe('member');
 		expect(requiredCap('/dashboard/usage')).toBe('member');
 		expect(requiredCap('/dashboard/account')).toBe('member');
+		expect(requiredCap('/dashboard/billing')).toBe('member');
 		// Anything nested under the member root inherits `member` through the
 		// longest-prefix rule, so a new page can never ship accidentally public.
 		expect(requiredCap('/dashboard/something-new')).toBe('member');
@@ -89,9 +90,7 @@ describe('requireCap', () => {
 	};
 
 	it('refuses a request with no session', () => {
-		expect(statusOf(() => requireCap({ user: null } as unknown as App.Locals, 'member'))).toBe(
-			401
-		);
+		expect(statusOf(() => requireCap({ user: null } as unknown as App.Locals, 'member'))).toBe(401);
 	});
 
 	it('refuses a signed-in member reaching for an admin capability', () => {

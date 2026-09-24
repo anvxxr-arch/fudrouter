@@ -18,6 +18,7 @@ const TITLES: Record<string, string> = {
 	'/dashboard/keys': 'API Keys',
 	'/dashboard/usage': 'Usage',
 	'/dashboard/account': 'Account',
+	'/dashboard/billing': 'Billing',
 	'/admin': 'Admin overview',
 	'/admin/providers': 'Providers',
 	'/admin/models': 'Models',

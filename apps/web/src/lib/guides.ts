@@ -693,7 +693,7 @@ export const GUIDES = {
 					{
 						term: 'finance_admin',
 						detail:
-							'Member, plus admin overview, users, and the billing capability. Billing pages are not shipped yet.'
+							'Member, plus admin overview, users, and the billing capability. The admin billing page is not shipped yet; member metering lives at /dashboard/billing.'
 					},
 					{
 						term: 'ops_admin',
@@ -771,6 +771,47 @@ export const GUIDES = {
 						detail:
 							'Logged failures attributed to that provider. A green probe does not clear history.'
 					}
+				]
+			}
+		]
+	},
+	billing: {
+		audience: 'member',
+		sections: [
+			{
+				title: 'What is metered',
+				lede: 'One stored row per logged call, priced in micro-units of the row currency.',
+				facts: [
+					{
+						term: 'Spend to date',
+						detail:
+							'Sum of every logged row for this account. It is a spend total, not a wallet balance and not a credit.'
+					},
+					{
+						term: 'This month',
+						detail:
+							'Rows from the first of the month, UTC. The window rolls over at UTC midnight, not at your local midnight.'
+					},
+					{
+						term: 'Cost',
+						detail:
+							'Stored per row in micro-units (1e-6) and shown as USD by dividing by one million. A provider that reports no price stores zero rather than an estimate.'
+					},
+					{
+						term: 'Usage by model',
+						detail:
+							'Grouped by the model slug the router routed to, the same slug Usage and the admin catalog show.'
+					},
+					{
+						term: 'Recent charges',
+						detail: 'The newest rows, capped. Usage holds the complete record including failures.'
+					}
+				]
+			},
+			{
+				title: 'What is not billed',
+				paragraphs: [
+					'No payment method is on file, no invoice is generated, and there is no balance to top up — this page does not invent one. Metering is a property of the log, so a call rejected before it reached a model has no row and no cost.'
 				]
 			}
 		]

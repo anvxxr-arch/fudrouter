@@ -28,8 +28,8 @@
 <Guide id="dashboard" />
 
 <p class="muted">
-	Manage keys under <a href={resolve('/dashboard/keys')}>API Keys</a>. Balance and top-ups arrive with
-	billing.
+	Manage keys under <a href={resolve('/dashboard/keys')}>API Keys</a>. Metered cost, per model, is on
+	<a href={resolve('/dashboard/billing')}>Billing</a>.
 </p>
 
 <h2>Recent requests</h2>
@@ -58,3 +58,5 @@
 			{/each}
 		</tbody>
 </table></TableWrap>
+
+

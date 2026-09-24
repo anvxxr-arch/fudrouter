@@ -5,9 +5,11 @@ import type { Actions, PageServerLoad } from './$types';
 import { db } from '$lib/server/db';
 import { apiKey } from '$lib/server/db/schema';
 import { generateApiKey } from '$lib/server/keys';
+import { requireCap } from '$lib/server/roles';
 
 export const load: PageServerLoad = async ({ locals }) => {
-	// hooks.server.ts guarantees a user on PROTECTED routes.
+	// The hook gates this route; this is the second layer, as on /admin.
+	requireCap(locals, 'member');
 	const userId = locals.user!.id;
 
 	const keys = await db
@@ -28,6 +30,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 
 export const actions: Actions = {
 	create: async ({ locals, request }) => {
+		requireCap(locals, 'member');
 		const userId = locals.user!.id;
 		const form = await request.formData();
 		const name = String(form.get('name') ?? '').trim() || 'default';
@@ -48,6 +51,7 @@ export const actions: Actions = {
 	},
 
 	revoke: async ({ locals, request }) => {
+		requireCap(locals, 'member');
 		const userId = locals.user!.id;
 		const form = await request.formData();
 		const id = String(form.get('id') ?? '').trim();

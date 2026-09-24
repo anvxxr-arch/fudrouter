@@ -2,8 +2,10 @@ import { desc, eq, sql } from 'drizzle-orm';
 import type { PageServerLoad } from './$types';
 import { db } from '$lib/server/db';
 import { model, requestLog } from '$lib/server/db/schema';
+import { requireCap } from '$lib/server/roles';
 
 export const load: PageServerLoad = async ({ locals }) => {
+	requireCap(locals, 'member');
 	const userId = locals.user!.id;
 
 	// Aggregated in SQL, not in JS: request_log is the highest-volume table and

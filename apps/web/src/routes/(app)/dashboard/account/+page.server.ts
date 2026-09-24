@@ -3,8 +3,10 @@ import { eq } from 'drizzle-orm';
 import type { Actions, PageServerLoad } from './$types';
 import { db } from '$lib/server/db';
 import { profile, user } from '$lib/server/db/schema';
+import { requireCap } from '$lib/server/roles';
 
 export const load: PageServerLoad = async ({ locals }) => {
+	requireCap(locals, 'member');
 	const userId = locals.user!.id;
 	const [account] = await db
 		.select({
@@ -27,6 +29,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 
 export const actions: Actions = {
 	save: async ({ locals, request }) => {
+		requireCap(locals, 'member');
 		const userId = locals.user!.id;
 		const form = await request.formData();
 		const name = String(form.get('name') ?? '').trim();

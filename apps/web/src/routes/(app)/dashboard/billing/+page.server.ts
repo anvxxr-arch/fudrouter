@@ -69,5 +69,12 @@ export const load: PageServerLoad = async ({ locals }) => {
 		.orderBy(desc(requestLog.createdAt))
 		.limit(20);
 
-	return { allTime, month, byModel, recent };
+	// How many models this account has actually used, so the capped table below can
+	// say what it left out instead of implying it is the whole picture.
+	const [distinctModels] = await db
+		.select({ n: sql<number>`count(distinct ${requestLog.modelId})::int` })
+		.from(requestLog)
+		.where(eq(requestLog.userId, userId));
+
+	return { allTime, month, byModel, modelCount: distinctModels.n, recent };
 };

@@ -5,7 +5,7 @@
 	let { data } = $props();
 </script>
 
-<PageHeader title="Usage" lede="Every request routed for your account, newest first." />
+<PageHeader title="Usage" lede="Requests routed for your account, newest first." />
 
 <section class="fr-stats">
 	<StatCard label="Requests" value={formatTokens(data.totals.requests)} />
@@ -16,8 +16,8 @@
 
 <Guide id="usage" />
 
-<h2>All requests</h2>
-<TableWrap label="All requests">
+<h2>Requests</h2>
+<TableWrap label="Requests">
 <table class="fr">
 	
 		<thead>
@@ -47,3 +47,10 @@
 			{/each}
 		</tbody>
 	</table></TableWrap>
+
+{#if data.totals.requests > data.recent.length}
+	<p class="muted">
+		Showing the {data.recent.length} newest of {formatTokens(data.totals.requests)} — this table is
+		capped, the totals above are not.
+	</p>
+{/if}

@@ -43,6 +43,12 @@
 			</tbody>
 		</table>
 	</TableWrap>
+	{#if data.modelCount > data.byModel.length}
+		<p class="muted">
+			Showing the {data.byModel.length} highest-cost of {formatTokens(data.modelCount)} models you have
+			used.
+		</p>
+	{/if}
 {/if}
 
 <h2>Recent charges</h2>
@@ -76,8 +82,7 @@
 </TableWrap>
 
 <p class="muted">
-	The twenty newest rows. The complete log, with latency and the error string, is
-	<a href={resolve('/dashboard/usage')}>Usage</a>.
+	The twenty newest rows. Usage lists the newest fifty, with latency and the error string.
 </p>
 
 <Guide id="billing" />

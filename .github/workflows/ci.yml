@@ -37,6 +37,21 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci
+      # svelte-kit sync types $env/dynamic/private from the .env files it can find,
+      # and a fresh checkout has none — so the Discord credentials resolve to
+      # `string | undefined` and svelte-check fails on auth.ts, the module every
+      # authenticated request goes through. Same CI-only placeholders as the env
+      # block above; nothing written here is a secret.
+      - name: Write the .env svelte-kit sync types from
+        run: |
+          cat > apps/web/.env <<'EOF'
+          DATABASE_URL=postgres://fudrouter:fudrouter@127.0.0.1:5434/fudrouter
+          ORIGIN=http://127.0.0.1:3000
+          BETTER_AUTH_SECRET=ci-only-not-a-real-secret
+          CREDENTIALS_MASTER_KEY=ZnVkcm91dGVyLWNpLXRlc3QtbWFzdGVyLWtleS0zMmI=
+          FLEXYROUTE_CLIENT_ID=ci-placeholder-client-id
+          FLEXYROUTE_CLIENT_SECRET=ci-placeholder-client-secret
+          EOF
       - run: npx playwright install --with-deps chromium
       - run: npm run db:migrate --workspace apps/web
       - run: npm run db:check --workspace apps/web
@@ -69,6 +84,20 @@ jobs:
         with:
           go-version: "1.23"
           cache-dependency-path: services/router/go.sum
+      # The data-plane tests are DB-backed on purpose, and they seed users, models
+      # and providers. Without the schema every one of them dies on
+      # `relation "user" does not exist` and the log reads like a code failure
+      # rather than a job that never migrated. Same DDL the web job applies, no
+      # node toolchain needed to get it.
+      - name: Apply the schema
+        run: |
+          command -v psql >/dev/null 2>&1 || {
+            sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          }
+          for file in infra/migrations/*.sql; do
+            echo "applying $file"
+            psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$file"
+          done
       - run: go vet ./...
         working-directory: services/router
       - run: go build ./...

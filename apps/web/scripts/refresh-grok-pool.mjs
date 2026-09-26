@@ -141,6 +141,17 @@ function parseExpiry(s) {
 	return Number.isNaN(t) ? null : t;
 }
 
+// Same rule as mergeAccounts in the Go pool: the copy whose access token expires
+// later is the one that rotated more recently, so it wins.
+function expiryAtLeast(a, b) {
+	if (!b) return true;
+	if (!a) return false;
+	const ta = parseExpiry(a),
+		tb = parseExpiry(b);
+	if (ta !== null && tb !== null) return ta >= tb;
+	return a >= b;
+}
+
 // ---- run --------------------------------------------------------------------
 const sql = postgres(DSN, { max: 1, idle_timeout: 20 });
 // Resolve by id OR name: provider ids have been re-seeded (xai-grok is now a
@@ -207,19 +218,38 @@ for (const a of accounts) {
 	if (dropSet.has(a.email)) continue;
 	next.push(refreshed.get(a.email) || a);
 }
-if (accounts.length > 0 && next.length === 0) {
-	console.error('refusing to persist an empty pool — every account was refused in one run');
-	await sql.end();
-	process.exit(1);
-}
-
 let written = 0;
 let created = 0;
-if (!dryRun) {
-	if (refreshed.size > 0 || dropped.length > 0) {
-		const payload = { ...cred, accounts: next };
-		await sql`update provider set credentials_enc = ${encrypt(JSON.stringify(payload))} where id = ${provider}`;
+// Another writer (the router) persists rotations for the same accounts while
+// this job runs. Merge into the blob as it is NOW instead of overwriting it with
+// the snapshot read before the refreshes: the freshest chain per email survives,
+// and accounts neither side has seen are kept.
+let final = next;
+if (!dryRun && (refreshed.size > 0 || dropped.length > 0)) {
+	const [fresh] = await sql`select credentials_enc from provider where id = ${row.id}`;
+	const prior = JSON.parse(decrypt(fresh.credentials_enc)).accounts || [];
+	const ours = new Map(next.map((a) => [a.email, a]));
+	final = [];
+	for (const a of prior) {
+		if (dropSet.has(a.email)) continue;
+		const mine = ours.get(a.email);
+		if (!mine) {
+			final.push(a);
+			continue;
+		}
+		final.push(expiryAtLeast(mine.expired, a.expired) ? mine : a);
+		ours.delete(a.email);
 	}
+	for (const a of ours.values()) final.push(a);
+	if (accounts.length > 0 && final.length === 0) {
+		console.error('refusing to persist an empty pool — every account was refused in one run');
+		await sql.end();
+		process.exit(1);
+	}
+	const payload = { ...cred, accounts: final };
+	await sql`update provider set credentials_enc = ${encrypt(JSON.stringify(payload))} where id = ${provider}`;
+}
+if (!dryRun) {
 	if (syncDir) {
 		for (const a of refreshed.values()) {
 			const f = join(syncDir, `xai-${a.email}.json`);
@@ -243,7 +273,7 @@ if (!dryRun) {
 const summary = {
 	provider,
 	at: new Date().toISOString(),
-	pool: next.length,
+	pool: final.length,
 	checked: targets.length,
 	refreshed: refreshed.size,
 	dropped: dropped.length,
@@ -255,7 +285,7 @@ if (quiet) {
 	console.log(JSON.stringify(summary));
 } else {
 	console.log(
-		`provider ${provider}: pool=${next.length} checked=${targets.length} refreshed=${refreshed.size} dropped=${dropped.length} kept=${kept.length}${dryRun ? ' (dry-run)' : ''}`
+		`provider ${provider}: pool=${final.length} checked=${targets.length} refreshed=${refreshed.size} dropped=${dropped.length} kept=${kept.length}${dryRun ? ' (dry-run)' : ''}`
 	);
 	if (syncDir) console.log(`  files: ${written} written (${created} created) in ${syncDir}`);
 	for (const d of dropped.slice(0, 10)) console.log(`  dropped ${d.email}: ${d.error}`);

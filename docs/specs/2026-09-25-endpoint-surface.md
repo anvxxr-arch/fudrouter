@@ -38,12 +38,40 @@ it would take to close the gap.
 
 | Method | Path | Handler | Quality |
 |---|---|---|---|
-| `GET` | `/health` | `newHealthHandler` | Liveness only — does **not** check the DB (see audit H5) |
-| `GET` | `/v1/models` | `ServeModels` | **Native.** Public by design, no auth. Returns the published catalog. |
+| `GET` | `/health` | `newHealthHandler` | Pings the DB and returns `503` when it is unreachable (audit H5, fixed 2026-09-26). |
+| `GET` | `/v1/models` | `ServeModels` | **Native, unauthenticated.** Confirmed 2026-09-26 to be a deliberate status quo: the same catalog is already public at `GET /models` and `GET /pricing`. |
 | `POST` | `/v1/chat/completions` | `ServeCompletions` | **Native and complete.** Auth, limits, `stream_options.include_usage` injection, ≤3-account failover, SSE, billing on every outcome. |
 | any | `/v1/*` | `ServeGeneric` | **Generic passthrough.** Authenticates, enforces limits, fails over, bills — but forwards the request incorrectly (see §4). |
 
 That is the whole surface. Everything else is the catch-all.
+
+### 2.1 Why `/v1/models` stays unauthenticated
+
+Authenticating it was proposed on 2026-09-26 and **rejected on evidence**. The
+catalog is not merely reachable without a key here; the web app already publishes
+the identical set:
+
+```
+GET /models   -> 200, anonymous   270/270 published slugs rendered
+GET /pricing  -> 200, anonymous
+```
+
+Measured by diffing the rendered HTML against the database: the 270 slugs that pass
+the web page's own publish gate (`reachability()` in `apps/web/src/lib/publish.ts`)
+are **all** present in the anonymous response, whether as a `<code class="slug">`
+or as the card title. Requiring a key on `/v1/models` would therefore hide nothing
+while breaking every client whose only capability is the catalogue — the SDK and
+UI model-picker probes that run at startup.
+
+Note the two gates are the same rule implemented twice (`m.status='active' and
+(p.status='active' or (p.status='dev' and $1))` in
+`services/router/internal/store/store.go:194`, mirrored in `publish.ts`), so the
+two views cannot drift.
+
+One consequence to keep in mind: the slug prefix is a provider label (`ag/`,
+`crypto/`, `openai/`), so the public catalogue discloses which upstreams are
+carried. That is a disclosure decision, and it is a product one — see the audit's
+open findings — not a defect in the endpoint.
 
 ---
 
@@ -57,7 +85,7 @@ whether the endpoint requires a JSON body carrying `model`.
 | 1 | POST | `/v1/responses` | ⚠️ **forwarded, conditional** | `200` → upstream saw `POST /responses` | Works, but only because the client happens to send `model`. No `stream_options` injection → a streamed `/v1/responses` is likely **unbilled**. |
 | 2 | POST | `/v1/chat/completions` | ✅ **native** | full hot path | Reference implementation. |
 | 3 | POST | `/v1/completions` | ⚠️ **forwarded, conditional** | `200` → upstream saw `POST /completions` | Same `model` dependency. |
-| 4 | GET | `/v1/models` | ✅ **native** | `200 {"data":[…]}` | Public, unauthenticated by design. |
+| 4 | GET | `/v1/models` | ✅ **native** | `200 {"data":[…]}` | Unauthenticated. See §2.1. |
 | 5 | GET | `/v1/models/{model}` | ❌ **broken** | `400 invalid JSON body` | GET is parsed as a JSON body. |
 | 6 | POST | `/v1/embeddings` | ⚠️ **forwarded, conditional** | `200` → upstream saw `POST /embeddings` | Works today; billed (verified: a `request_log` row is written). |
 | 7 | POST | `/v1/moderations` | ⚠️ **forwarded, conditional** | `200` → upstream saw `POST /moderations` | Same as embeddings. |

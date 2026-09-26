@@ -166,7 +166,16 @@ func (p *Pool) Pick(ctx context.Context) (Picked, error) {
 			continue
 		}
 		if rotated {
-			if err := p.save(ctx); err != nil {
+			// Detach from the request context: xAI rotates the refresh token on
+			// every exchange, so a failed write here kills the account at its
+			// next expiry. With the request context, a client that disconnects
+			// mid-request cancels the write and the rotated token is lost
+			// silently — the request itself still succeeded, so nothing
+			// surfaces the loss. Bounded so a wedged DB cannot block the pool.
+			saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			err := p.save(saveCtx)
+			cancel()
+			if err != nil {
 				// The request still succeeds; only durability is at risk.
 				log.Printf("[proxy] persisting rotated credentials failed: %v", err)
 			}

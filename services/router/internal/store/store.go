@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -48,22 +49,65 @@ func envBool(name string) bool {
 
 func (s *Store) Close() { s.pool.Close() }
 
+// Ping reports whether the database is actually reachable. The health handler
+// uses it so readiness reflects the dependency the service cannot work without:
+// before this, /health returned {"ok":true} while the DB was down, so an
+// uptime monitor saw a healthy router that could not serve a single request.
+func (s *Store) Ping(ctx context.Context) error {
+	return s.pool.Ping(ctx)
+}
+
 type APIKeyRow struct {
 	ID        string
 	UserID    string
 	KeyHash   string
 	RevokedAt *time.Time
+	// Limits come from the api_key.limits jsonb written by the admin console:
+	// { rpm: number|null, monthly_cost_micro: string|null }. A nil pointer means
+	// "no limit set". Until now the data plane stored these but never read them,
+	// so every key spent unbounded.
+	RPM              *int
+	MonthlyCostMicro *int64
 }
 
 func (s *Store) LookupAPIKey(ctx context.Context, prefix string) (*APIKeyRow, error) {
 	row := &APIKeyRow{}
+	var rpmRaw, monthlyRaw *string
 	err := s.pool.QueryRow(ctx,
-		`select id, user_id, key_hash, revoked_at from api_key where prefix = $1`, prefix,
-	).Scan(&row.ID, &row.UserID, &row.KeyHash, &row.RevokedAt)
+		`select id, user_id, key_hash, revoked_at,
+		        limits->>'rpm'                as rpm,
+		        limits->>'monthly_cost_micro' as monthly_cost_micro
+		 from api_key where prefix = $1`, prefix,
+	).Scan(&row.ID, &row.UserID, &row.KeyHash, &row.RevokedAt, &rpmRaw, &monthlyRaw)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
-	return row, err
+	if err != nil {
+		return nil, err
+	}
+	if rpmRaw != nil {
+		if n, e := strconv.Atoi(strings.TrimSpace(*rpmRaw)); e == nil && n > 0 {
+			row.RPM = &n
+		}
+	}
+	if monthlyRaw != nil {
+		if n, e := strconv.ParseInt(strings.TrimSpace(*monthlyRaw), 10, 64); e == nil && n > 0 {
+			row.MonthlyCostMicro = &n
+		}
+	}
+	return row, nil
+}
+
+// MonthlyCostMicro sums this key's cost for the current (UTC) month, the counter
+// the per-key `monthly_cost_micro` cap is checked against.
+func (s *Store) MonthlyCostMicro(ctx context.Context, apiKeyID string) (int64, error) {
+	var v int64
+	err := s.pool.QueryRow(ctx,
+		`select coalesce(sum(cost), 0)::bigint from request_log
+		 where api_key_id = $1 and created_at >= date_trunc('month', now())`,
+		apiKeyID,
+	).Scan(&v)
+	return v, err
 }
 
 type ModelRow struct {

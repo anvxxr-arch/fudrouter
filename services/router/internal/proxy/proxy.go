@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -34,6 +35,10 @@ type Handler struct {
 	// credential blob declares protocol="freebuff".
 	freebuff *freebuff.Manager
 
+	// limits enforces api_key.limits (rpm + monthly cost cap), which the admin
+	// console has always written but the data plane never read.
+	limits *limiter
+
 	// pools caches one rotation Pool per provider. The pool is the in-memory
 	// source of truth for account state once built, because it is also the
 	// writer of the persisted blob.
@@ -44,7 +49,7 @@ type Handler struct {
 // which is only correct for providers using a static api_key.
 func New(st *store.Store, cr *crypt.Crypt, client *http.Client, refresher TokenRefresher) *Handler {
 	if client == nil {
-		client = &http.Client{Timeout: 120 * time.Second}
+		client = newUpstreamClient()
 	}
 	return &Handler{
 		store:     st,
@@ -52,8 +57,64 @@ func New(st *store.Store, cr *crypt.Crypt, client *http.Client, refresher TokenR
 		client:    client,
 		refresher: refresher,
 		freebuff:  freebuff.New(os.Getenv("FREEBUFF_BASE_URL")),
+		limits:    newLimiter(),
 	}
 }
+
+// newUpstreamClient builds the client used for plain [OI] passthrough.
+//
+// It deliberately carries NO overall Timeout: http.Client.Timeout bounds the
+// whole exchange INCLUDING the response body, so a 120s value cut any streaming
+// completion longer than two minutes mid-answer (the freebuff client uses 15
+// minutes for the same reason). Liveness is bounded per phase instead
+// (dial/TLS/response-header) and per request by the caller's context.
+func newUpstreamClient() *http.Client {
+	// The dial guard is what makes base_url safe to trust: it rejects any
+	// target that resolves into loopback/RFC1918/link-local/CGNAT — including a
+	// redirect hop, because every redirect dials through this same transport.
+	dialer := &net.Dialer{
+		Timeout:   15 * time.Second,
+		KeepAlive: 30 * time.Second,
+		Control:   dialControl(allowPrivateUpstreams()),
+	}
+	return &http.Client{
+		CheckRedirect: guardedRedirectPolicy,
+		Transport: &http.Transport{
+			Proxy:                 http.ProxyFromEnvironment,
+			DialContext:           dialer.DialContext,
+			ForceAttemptHTTP2:     true,
+			MaxIdleConns:          100,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   15 * time.Second,
+			ResponseHeaderTimeout: 120 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		},
+	}
+}
+
+// maxTokensPerRequest bounds the token counts the router will bill from an
+// upstream's reported usage. The router does not count tokens itself — it
+// trusts the upstream's `usage` block — so a hostile or buggy upstream can
+// report a negative count, which makes cost negative and *lowers* the month's
+// accumulated spend, letting a key walk past its monthly_cost_micro cap. The
+// ceiling is a sanity bound (a real single request never approaches it) that
+// also keeps the cost multiply well inside big.Int's comfort zone.
+const maxTokensPerRequest = 100_000_000
+
+// clampTokens forces a reported token count into [0, maxTokensPerRequest].
+func clampTokens(n int64) int64 {
+	if n < 0 {
+		return 0
+	}
+	if n > maxTokensPerRequest {
+		return maxTokensPerRequest
+	}
+	return n
+}
+
+// nonStreamTimeout bounds a non-streaming completion end to end. A stream has no
+// such bound: it is governed by the client's own connection.
+const nonStreamTimeout = 120 * time.Second
 
 // statusForKind maps a freebuff protocol failure to the HTTP status reported
 // when the router cannot fail over to another account.
@@ -88,6 +149,31 @@ var reservedHeaders = map[string]bool{
 	"authorization": true,
 	"content-type":  true,
 	"host":          true,
+}
+
+// responseHeadersForwarded is an ALLOWLIST of upstream response headers copied to
+// the client. A blacklist leaks every new header an upstream or its CDN invents;
+// the generic passthrough used to forward all of them, so clients received the
+// upstream's Set-Cookie (__cf_bm, Domain=openrouter.ai), Via, Server, Cf-Ray,
+// X-Unikey-* and its Access-Control-Allow-Origin: *. Content-Length is omitted so
+// Go recomputes it from the body actually written.
+var responseHeadersForwarded = map[string]bool{
+	"content-type":  true,
+	"retry-after":   true,
+	"cache-control": true,
+}
+
+// copyUpstreamHeaders relays only the allowlisted headers, so hop-by-hop and
+// upstream-identity headers never reach the client.
+func copyUpstreamHeaders(w http.ResponseWriter, src http.Header) {
+	for k, vv := range src {
+		if !responseHeadersForwarded[strings.ToLower(k)] {
+			continue
+		}
+		for _, v := range vv {
+			w.Header().Add(k, v)
+		}
+	}
 }
 
 func (h *Handler) writeErr(w http.ResponseWriter, status int, msg string) {
@@ -125,6 +211,11 @@ func (h *Handler) ServeCompletions(w http.ResponseWriter, r *http.Request) {
 	keyRow, err := h.authenticate(r)
 	if err != nil {
 		h.writeErr(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	if status, msg := h.checkLimits(r.Context(), keyRow); status != 0 {
+		log.Printf("[proxy] key=%s rejected by limits: %d %s", keyRow.ID, status, msg)
+		h.writeErr(w, status, msg)
 		return
 	}
 
@@ -184,6 +275,16 @@ func (h *Handler) ServeCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 	pool := h.poolFor(m, cred)
 
+	// A non-streaming completion is bounded end to end; a stream is not, because
+	// http.Client.Timeout would sever it mid-answer (the old 120s client did
+	// exactly that). A stream lives until the client disconnects (r.Context()).
+	upCtx := r.Context()
+	if !stream {
+		var cancel context.CancelFunc
+		upCtx, cancel = context.WithTimeout(r.Context(), nonStreamTimeout)
+		defer cancel()
+	}
+
 	var resp *http.Response
 	var lastStatus int
 	var servedBy string
@@ -228,7 +329,7 @@ func (h *Handler) ServeCompletions(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		} else {
-			upReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
+			upReq, err := http.NewRequestWithContext(upCtx, http.MethodPost,
 				strings.TrimRight(m.BaseURL, "/")+"/chat/completions", bytes.NewReader(upBody))
 			if err != nil {
 				h.writeErr(w, http.StatusInternalServerError, "upstream request build failed")
@@ -361,6 +462,20 @@ func (h *Handler) streamSSE(w http.ResponseWriter, body io.Reader, keyRow *store
 }
 
 func (h *Handler) logRequest(ctx context.Context, keyRow *store.APIKeyRow, m *store.ModelRow, tin, tout int64, start time.Time, status, errText string) {
+	// Detach from the request context before writing the usage row. A client that
+	// disconnects mid-response cancels r.Context(), and the non-stream path
+	// passed exactly that context here — so a disconnect silently lost the row
+	// (seen live: "request_log insert failed: context canceled"). The ledger must
+	// survive the client. Bounded so a wedged DB cannot leak a goroutine.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+
+	// Clamp at the single funnel every path bills through, rather than at each
+	// parse site: the token counts come from the upstream's own `usage` block,
+	// which is untrusted. A negative count would make cost negative and lower
+	// the month's total, walking a key past its monthly_cost_micro cap.
+	tin, tout = clampTokens(tin), clampTokens(tout)
+
 	c := cost.Compute(tin, tout, cost.Price(m.InputPrice), cost.Price(m.OutputPrice))
 	if err := h.store.InsertRequestLog(ctx, &store.RequestLog{
 		UserID:     keyRow.UserID,
@@ -379,13 +494,21 @@ func (h *Handler) logRequest(ctx context.Context, keyRow *store.APIKeyRow, m *st
 	}
 }
 
-// ServeModels emits the [OI] /v1/models list shape.
+// ServeGeneric proxies every other /v1/* endpoint (embeddings, rerank, …) to the
+// upstream. Unlike the old passthrough it enforces key limits, fails over across
+// pooled accounts on 401/403, relays only allowlisted response headers, and
+// writes a request_log row — so the call is billed and visible to usage/limits.
 func (h *Handler) ServeGeneric(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 
 	keyRow, err := h.authenticate(r)
 	if err != nil {
 		h.writeErr(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	if status, msg := h.checkLimits(r.Context(), keyRow); status != 0 {
+		log.Printf("[proxy] key=%s rejected by limits: %d %s", keyRow.ID, status, msg)
+		h.writeErr(w, status, msg)
 		return
 	}
 
@@ -428,59 +551,137 @@ func (h *Handler) ServeGeneric(w http.ResponseWriter, r *http.Request) {
 	}
 
 	pool := h.poolFor(m, cred)
+	upURL := strings.TrimRight(m.BaseURL, "/") + strings.TrimPrefix(r.URL.Path, "/v1")
 
-	var picked Picked
-	var lastErr error
-	for i := 0; i < 3; i++ {
-		p, err := pool.Pick(r.Context())
+	// Fail over across pooled accounts on a rejected credential, exactly as the
+	// chat path does. The old single-Pick version handed a dead token straight to
+	// the client even when healthy accounts remained.
+	attempts := 1
+	if n := len(cred.Accounts); n > 1 {
+		attempts = n
+		if attempts > 3 {
+			attempts = 3
+		}
+	}
+
+	var resp *http.Response
+	var lastStatus int
+	var servedBy string
+	usedAttempts := 0
+	for attempt := 0; attempt < attempts; attempt++ {
+		picked, err := pool.Pick(r.Context())
 		if err != nil {
-			lastErr = err
+			log.Printf("[proxy] no usable credential for provider %s: %v", m.ProviderID, err)
+			h.logRequest(r.Context(), keyRow, m, 0, 0, start, "error", "no usable credential")
+			h.writeErr(w, http.StatusBadGateway, "no usable upstream credential")
+			return
+		}
+
+		upReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost, upURL, bytes.NewReader(body))
+		if err != nil {
+			h.writeErr(w, http.StatusInternalServerError, "upstream request build failed")
+			return
+		}
+		upReq.Header.Set("Content-Type", "application/json")
+		upReq.Header.Set("Authorization", "Bearer "+picked.Token)
+		for k, v := range cred.DefaultHeaders {
+			if reservedHeaders[strings.ToLower(k)] {
+				continue
+			}
+			upReq.Header.Set(k, v)
+		}
+
+		resp, err = h.client.Do(upReq)
+		if err != nil {
+			h.logRequest(r.Context(), keyRow, m, 0, 0, start, "error", err.Error())
+			h.writeErr(w, http.StatusBadGateway, "upstream request failed")
+			return
+		}
+		lastStatus = resp.StatusCode
+
+		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
+			_ = resp.Body.Close()
+			resp = nil
+			pool.MarkFailed(picked.Token)
 			continue
 		}
-		picked = p
+		servedBy = picked.Email
+		usedAttempts = attempt + 1
 		break
 	}
-	if picked.Token == "" {
-		log.Printf("[proxy] no usable credential for provider %s: %v", m.ProviderID, lastErr)
-		h.logRequest(r.Context(), keyRow, m, 0, 0, start, "error", "no usable credential")
-		h.writeErr(w, http.StatusBadGateway, "no usable upstream credential")
-		return
-	}
 
-	upURL := strings.TrimRight(m.BaseURL, "/") + strings.TrimPrefix(r.URL.Path, "/v1")
-	upReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost, upURL, bytes.NewReader(body))
-	if err != nil {
-		h.writeErr(w, http.StatusInternalServerError, "upstream request build failed")
-		return
-	}
-	upReq.Header.Set("Content-Type", "application/json")
-	upReq.Header.Set("Authorization", "Bearer "+picked.Token)
-	for k, v := range cred.DefaultHeaders {
-		if reservedHeaders[strings.ToLower(k)] {
-			continue
-		}
-		upReq.Header.Set(k, v)
-	}
-
-	resp, err := h.client.Do(upReq)
-	if err != nil {
-		h.logRequest(r.Context(), keyRow, m, 0, 0, start, "error", err.Error())
-		h.writeErr(w, http.StatusBadGateway, "upstream request failed")
+	if resp == nil {
+		h.logRequest(r.Context(), keyRow, m, 0, 0, start, "upstream_error",
+			fmt.Sprintf("upstream %d on every account", lastStatus))
+		h.writeErr(w, http.StatusBadGateway, "upstream rejected every pooled credential")
 		return
 	}
 	defer resp.Body.Close()
 
-	log.Printf("[proxy] provider=%s path=%s account=%s status=%d",
-		m.ProviderID, r.URL.Path, picked.Email, resp.StatusCode)
+	log.Printf("[proxy] provider=%s path=%s account=%s attempt=%d status=%d",
+		m.ProviderID, r.URL.Path, servedBy, usedAttempts, resp.StatusCode)
 
-	// Copy upstream headers
-	for k, v := range resp.Header {
-		for _, vv := range v {
-			w.Header().Add(k, vv)
-		}
+	if resp.StatusCode != http.StatusOK {
+		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+		h.logRequest(r.Context(), keyRow, m, 0, 0, start, "upstream_error",
+			fmt.Sprintf("upstream %d", resp.StatusCode))
+		copyUpstreamHeaders(w, resp.Header)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(resp.StatusCode)
+		_, _ = w.Write(errBody)
+		return
 	}
-	w.WriteHeader(resp.StatusCode)
-	_, _ = io.Copy(w, resp.Body)
+
+	// Streaming upstreams (rare on this path) must not be buffered.
+	if strings.Contains(resp.Header.Get("Content-Type"), "event-stream") {
+		_ = h.store.TouchAPIKey(r.Context(), keyRow.ID)
+		h.streamSSE(w, resp.Body, keyRow, m, start)
+		return
+	}
+
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 50<<20))
+	if err != nil {
+		h.logRequest(r.Context(), keyRow, m, 0, 0, start, "error", "read upstream: "+err.Error())
+		h.writeErr(w, http.StatusBadGateway, "upstream read failed")
+		return
+	}
+	_ = h.store.TouchAPIKey(r.Context(), keyRow.ID)
+
+	// Only allowlisted headers are relayed; Content-Length is left to Go.
+	copyUpstreamHeaders(w, resp.Header)
+	if w.Header().Get("Content-Type") == "" {
+		w.Header().Set("Content-Type", "application/json")
+	}
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(respBody)
+
+	tin, tout := usageFromBody(respBody)
+	h.logRequest(r.Context(), keyRow, m, tin, tout, start, "success", "")
+}
+
+// usageFromBody pulls prompt/completion tokens out of a JSON response, tolerating
+// both the [OI] `usage` shape and the `input_tokens`/`output_tokens` variant.
+func usageFromBody(b []byte) (int64, int64) {
+	var parsed struct {
+		Usage *struct {
+			PromptTokens     int64 `json:"prompt_tokens"`
+			CompletionTokens int64 `json:"completion_tokens"`
+			InputTokens      int64 `json:"input_tokens"`
+			OutputTokens     int64 `json:"output_tokens"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal(b, &parsed); err != nil || parsed.Usage == nil {
+		return 0, 0
+	}
+	tin, tout := parsed.Usage.PromptTokens, parsed.Usage.CompletionTokens
+	if tin == 0 {
+		tin = parsed.Usage.InputTokens
+	}
+	if tout == 0 {
+		tout = parsed.Usage.OutputTokens
+	}
+	return tin, tout
 }
 
 func (h *Handler) ServeModels(w http.ResponseWriter, r *http.Request) {

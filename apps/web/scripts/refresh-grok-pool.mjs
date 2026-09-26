@@ -247,7 +247,16 @@ if (!dryRun && (refreshed.size > 0 || dropped.length > 0)) {
 		process.exit(1);
 	}
 	const payload = { ...cred, accounts: final };
-	await sql`update provider set credentials_enc = ${encrypt(JSON.stringify(payload))} where id = ${provider}`;
+	// row.id, not the --provider argument: the argument may be a NAME, and an
+	// UPDATE that matches nothing succeeds silently — the rotations then live
+	// only in the farm files while the database keeps the chain they rotated
+	// away from. Assert the write landed.
+	const res = await sql`update provider set credentials_enc = ${encrypt(JSON.stringify(payload))} where id = ${row.id}`;
+	if (res.count !== 1) {
+		console.error(`persist matched ${res.count} provider rows (expected 1) — aborting`);
+		await sql.end();
+		process.exit(1);
+	}
 }
 if (!dryRun) {
 	if (syncDir) {

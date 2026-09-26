@@ -32,20 +32,31 @@ const TOKEN_ENDPOINT = process.env.XAI_TOKEN_ENDPOINT || 'https://auth.x.ai/oaut
 
 const MASTER = process.env.CREDENTIALS_MASTER_KEY;
 const DSN = process.env.DATABASE_URL;
-if (!MASTER) { console.error('missing env: CREDENTIALS_MASTER_KEY'); process.exit(1); }
-if (!DSN) { console.error('missing env: DATABASE_URL'); process.exit(1); }
+if (!MASTER) {
+	console.error('missing env: CREDENTIALS_MASTER_KEY');
+	process.exit(1);
+}
+if (!DSN) {
+	console.error('missing env: DATABASE_URL');
+	process.exit(1);
+}
 
 // ---- args -------------------------------------------------------------------
 const argv = process.argv.slice(2);
 const dirs = [];
-let dryRun = false, check = true, workers = 8;
+let dryRun = false,
+	check = true,
+	workers = 8;
 for (let i = 0; i < argv.length; i++) {
 	const a = argv[i];
 	if (a === '--dir') dirs.push(argv[++i]);
 	else if (a === '--dry-run') dryRun = true;
 	else if (a === '--no-check') check = false;
 	else if (a === '--workers') workers = Number(argv[++i]) || 8;
-	else { console.error(`unknown argument: ${a}`); process.exit(2); }
+	else {
+		console.error(`unknown argument: ${a}`);
+		process.exit(2);
+	}
 }
 if (!dirs.length) dirs.push('/home/dwizzy/grok-register/cpa_auths');
 
@@ -76,14 +87,14 @@ async function refresh(rt) {
 	const body = new URLSearchParams({
 		grant_type: 'refresh_token',
 		refresh_token: rt,
-		client_id: CLIENT_ID,
+		client_id: CLIENT_ID
 	});
 	let res;
 	try {
 		res = await fetch(TOKEN_ENDPOINT, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
-			body,
+			body
 		});
 	} catch (err) {
 		return { ok: false, error: `network: ${err.message}` };
@@ -91,13 +102,25 @@ async function refresh(rt) {
 	const text = await res.text();
 	if (!res.ok) {
 		let why = text.slice(0, 120);
-		try { const j = JSON.parse(text); why = j.error_description || j.error || why; } catch {}
+		try {
+			const j = JSON.parse(text);
+			why = j.error_description || j.error || why;
+		} catch {}
 		return { ok: false, error: `HTTP ${res.status}: ${why}` };
 	}
 	let j;
-	try { j = JSON.parse(text); } catch { return { ok: false, error: 'unparseable token response' }; }
+	try {
+		j = JSON.parse(text);
+	} catch {
+		return { ok: false, error: 'unparseable token response' };
+	}
 	if (!j.access_token) return { ok: false, error: 'no access_token in response' };
-	return { ok: true, access_token: j.access_token, refresh_token: j.refresh_token || rt, expires_in: j.expires_in || 21600 };
+	return {
+		ok: true,
+		access_token: j.access_token,
+		refresh_token: j.refresh_token || rt,
+		expires_in: j.expires_in || 21600
+	};
 }
 
 // ---- harvest -----------------------------------------------------------------
@@ -114,7 +137,11 @@ function harvest(d) {
 	for (const f of readdirSync(d)) {
 		if (!f.endsWith('.json')) continue;
 		let cred;
-		try { cred = JSON.parse(readFileSync(join(d, f), 'utf8')); } catch { continue; }
+		try {
+			cred = JSON.parse(readFileSync(join(d, f), 'utf8'));
+		} catch {
+			continue;
+		}
 		if (!cred.email || !cred.refresh_token) continue;
 		out.push({
 			email: cred.email,
@@ -122,7 +149,7 @@ function harvest(d) {
 			refresh_token: cred.refresh_token,
 			id_token: cred.id_token || '',
 			expired: cred.expired || '',
-			_src: join(d, f),
+			_src: join(d, f)
 		});
 	}
 	return out;
@@ -140,9 +167,21 @@ try {
 	const existing = JSON.parse(decrypt(rows[0].credentials_enc));
 	const headers = existing.default_headers || { 'x-grok-client-version': CLI_VERSION };
 
-	// Merge by email; a later `expired` wins because it is the fresher token.
+	// Merge by email, keeping EVERY distinct token for an email, later `expired`
+	// first. The DB blob and the farm's files can hold different refresh tokens
+	// for the same account, and the later one is NOT always the live one: keeping
+	// only the newest let a dead copy hide a token that still refreshes, and the
+	// account was dropped while its file copy was fine. Seen on 2026-09-26 — 362
+	// DB entries with dead rotations vs 1028 files of which 663 were live.
 	const byEmail = new Map();
-	for (const a of existing.accounts || []) byEmail.set(a.email, a);
+	const push = (a) => {
+		const cur = byEmail.get(a.email) || [];
+		if (cur.some((x) => x.refresh_token === a.refresh_token)) return;
+		cur.push(a);
+		cur.sort((x, y) => String(y.expired || '').localeCompare(String(x.expired || '')));
+		byEmail.set(a.email, cur);
+	};
+	for (const a of existing.accounts || []) push(a);
 	const before = byEmail.size;
 
 	let added = 0;
@@ -150,46 +189,64 @@ try {
 		const found = harvest(d);
 		console.log(`harvest ${d}: ${found.length} credential(s)`);
 		for (const a of found) {
-			const prev = byEmail.get(a.email);
-			if (!prev) { byEmail.set(a.email, a); added++; continue; }
-			if (String(a.expired) > String(prev.expired || '')) byEmail.set(a.email, a);
+			if (!byEmail.has(a.email)) added++;
+			push(a);
 		}
 	}
-	console.log(`\npool: ${before} existing -> ${byEmail.size} after merge (+${added} new, ${byEmail.size - before} from disk)`);
+	let tokenCount = 0;
+	for (const v of byEmail.values()) tokenCount += v.length;
+	console.log(
+		`\npool: ${before} existing -> ${byEmail.size} after merge (+${added} new, ${byEmail.size - before} from disk); ${tokenCount} token candidate(s) for ${byEmail.size} email(s)`
+	);
 
-	let candidates = [...byEmail.values()];
+	const emails = [...byEmail.entries()];
+	let candidates = [...byEmail.values()].flat();
 	if (dryRun) {
 		// A dry run must NOT health-check: the check IS a token rotation, and
 		// rotating without persisting is what killed three accounts earlier.
 		// Report the merge and stop.
-		console.log(`\n[dry-run] ${candidates.length} account(s) would be health-checked and merged; nothing rotated, nothing written`);
+		console.log(
+			`\n[dry-run] ${candidates.length} account(s) would be health-checked and merged; nothing rotated, nothing written`
+		);
 		const withExpiry = candidates.filter((a) => Number.isFinite(Date.parse(a.expired))).length;
-		console.log(`[dry-run] ${withExpiry} carry an expiry field; the rest will be refreshed on first use`);
+		console.log(
+			`[dry-run] ${withExpiry} carry an expiry field; the rest will be refreshed on first use`
+		);
 	} else if (!check) {
 		console.log('--no-check: importing on trust (no health check, no rotation)');
 	} else {
-		console.log(`health-checking ${candidates.length} account(s) with ${workers} workers...`);
+		console.log(`health-checking ${emails.length} account(s) with ${workers} workers...`);
 		const kept = [];
 		const dropped = [];
 		let idx = 0;
 		async function worker() {
-			while (idx < candidates.length) {
-				const a = candidates[idx++];
-				const r = await refresh(a.refresh_token);
-				if (r.ok) {
+			while (idx < emails.length) {
+				const [email, cands] = emails[idx++];
+				// Every distinct token for this email, newest first. A refusal is not
+				// final until the older copies have had their turn too.
+				let lastError = 'no candidates';
+				for (const a of cands) {
+					const r = await refresh(a.refresh_token);
+					if (!r.ok) {
+						lastError = r.error;
+						continue;
+					}
 					kept.push({
-						email: a.email,
+						email,
 						access_token: r.access_token,
 						refresh_token: r.refresh_token,
 						id_token: a.id_token || '',
-						expired: new Date(Date.now() + r.expires_in * 1000).toISOString().replace(/\.\d+Z$/, 'Z'),
+						expired: new Date(Date.now() + r.expires_in * 1000)
+							.toISOString()
+							.replace(/\.\d+Z$/, 'Z')
 					});
-				} else {
-					dropped.push({ email: a.email, error: r.error });
+					lastError = null;
+					break;
 				}
+				if (lastError) dropped.push({ email, error: lastError });
 			}
 		}
-		await Promise.all(Array.from({ length: Math.min(workers, candidates.length) }, worker));
+		await Promise.all(Array.from({ length: Math.min(workers, emails.length) }, worker));
 
 		console.log(`\nlive: ${kept.length}   revoked/dead: ${dropped.length}`);
 		const reasons = new Map();
@@ -197,7 +254,8 @@ try {
 			const k = String(d.error).replace(/\d+/g, 'N').slice(0, 60);
 			reasons.set(k, (reasons.get(k) || 0) + 1);
 		}
-		for (const [k, n] of [...reasons].sort((a, b) => b[1] - a[1])) console.log(`   ${String(n).padStart(4)}x ${k}`);
+		for (const [k, n] of [...reasons].sort((a, b) => b[1] - a[1]))
+			console.log(`   ${String(n).padStart(4)}x ${k}`);
 
 		if (!kept.length) {
 			console.error('\nno live accounts — refusing to overwrite the pool with an empty one');
@@ -211,7 +269,7 @@ try {
 		api_key: candidates[0].access_token,
 		auth_kind: 'oauth',
 		default_headers: headers,
-		accounts: candidates,
+		accounts: candidates
 	};
 
 	if (dryRun) {
@@ -220,7 +278,9 @@ try {
 		await sql`update provider set credentials_enc = ${encrypt(JSON.stringify(blob))} where id = ${providerID}`;
 		const verify = await sql`select credentials_enc from provider where id = ${providerID}`;
 		const back = JSON.parse(decrypt(verify[0].credentials_enc));
-		console.log(`\nwrote ${back.accounts.length} account(s) to provider ${PROVIDER} (verified by re-reading)`);
+		console.log(
+			`\nwrote ${back.accounts.length} account(s) to provider ${PROVIDER} (verified by re-reading)`
+		);
 	}
 } finally {
 	await sql.end();

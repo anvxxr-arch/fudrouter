@@ -91,6 +91,17 @@ type Pool struct {
 	refresher      TokenRefresher
 	encrypt        func(plaintext string) (string, error)
 	persist        func(ctx context.Context, blob string) error
+
+	// load re-reads the provider's credential blob, so save can merge into the
+	// CURRENT state instead of overwriting it — see the note on save. Nil means
+	// "write the snapshot", the older and lossier behaviour.
+	load func(ctx context.Context) (credentials, error)
+
+	// loadedAt bounds how long a built pool is trusted. Anything outside this
+	// process can rewrite the blob (an import, a maintenance rotation), and a
+	// pool that is never rebuilt keeps serving tokens that were rotated away —
+	// which is exactly how 362 accounts read as unusable until a restart.
+	loadedAt time.Time
 }
 
 // newPool builds a rotation pool from a decrypted blob.
@@ -99,8 +110,11 @@ func newPool(
 	refresher TokenRefresher,
 	encrypt func(plaintext string) (string, error),
 	persist func(ctx context.Context, blob string) error,
+	load func(ctx context.Context) (credentials, error),
 ) *Pool {
 	p := &Pool{
+		loadedAt:       time.Now(),
+		load:           load,
 		fallbackAPIKey: cred.APIKey,
 		protocol:       cred.Protocol,
 		authKind:       cred.AuthKind,
@@ -237,7 +251,64 @@ func (a *poolAccount) token(ctx context.Context, r TokenRefresher) (string, bool
 	return access, rotated, nil
 }
 
-// save re-encrypts the whole blob and hands it to the store.
+// expiryAtLeast reports whether a is at least as fresh as b. Parsing first, and
+// the raw strings as a fallback: a maintainer can write an expiry this parser
+// does not know, and lexicographic order is still right for ISO-8601 where
+// "always prefer one side" would confidently keep a stale token.
+func expiryAtLeast(a, b string) bool {
+	if b == "" {
+		return true
+	}
+	if a == "" {
+		return false
+	}
+	ta, tb := parseExpiry(a), parseExpiry(b)
+	if !ta.IsZero() && !tb.IsZero() {
+		return !ta.Before(tb)
+	}
+	return a >= b
+}
+
+// mergeAccounts overlays `ours` onto `theirs` by email. Both sides describe the
+// same accounts; the copy whose access token expires later is the one that
+// rotated more recently, so it wins. Ties keep ours. Entries only `theirs` has
+// are preserved — they come from a writer that saw accounts this pool never had.
+func mergeAccounts(ours, theirs []account) []account {
+	if len(theirs) == 0 {
+		return ours
+	}
+	out := make([]account, len(theirs))
+	copy(out, theirs)
+	idx := make(map[string]int, len(out))
+	for i, a := range out {
+		idx[a.Email] = i
+	}
+	for _, a := range ours {
+		j, ok := idx[a.Email]
+		if !ok {
+			idx[a.Email] = len(out)
+			out = append(out, a)
+			continue
+		}
+		if expiryAtLeast(a.Expired, out[j].Expired) {
+			out[j] = a
+		}
+	}
+	return out
+}
+
+// stale reports whether the pool was built long enough ago that it should be
+// rebuilt from the provider's current blob.
+func (p *Pool) stale(now time.Time, ttl time.Duration) bool {
+	return now.Sub(p.loadedAt) > ttl
+}
+
+// save re-encrypts the blob and hands it to the store.
+//
+// The snapshot is merged into whatever the store holds NOW rather than
+// overwriting it. Two writers persist this column — the router's on-demand
+// refresh and a maintenance rotation — and a blind overwrite drops whichever
+// rotation landed first, which is how an account loses its live refresh chain.
 func (p *Pool) save(ctx context.Context) error {
 	if p.persist == nil || p.encrypt == nil {
 		return nil
@@ -250,6 +321,15 @@ func (p *Pool) save(ctx context.Context) error {
 		a.mu.Unlock()
 	}
 	p.mu.Unlock()
+
+	if p.load != nil {
+		cur, err := p.load(ctx)
+		if err != nil {
+			log.Printf("[proxy] save: current blob unreadable, writing the snapshot: %v", err)
+		} else {
+			snap = mergeAccounts(snap, cur.Accounts)
+		}
+	}
 
 	// protocol and auth_kind must survive a rewrite: dropping protocol turns a
 	// freebuff provider into a broken [OI] passthrough on the next rotation.

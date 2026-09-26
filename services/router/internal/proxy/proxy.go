@@ -129,18 +129,51 @@ func statusForKind(k freebuff.ErrorKind) int {
 	}
 }
 
-// poolFor returns the rotation pool for a provider, building it on first use.
+// poolReloadAfter bounds how long a built pool is trusted. The blob can be
+// rewritten from outside this process — an import, a maintenance rotation — and
+// a pool that never reloads keeps serving tokens that were rotated away,
+// refusing every request for that provider until someone restarts it. The
+// reload is cheap: the caller already decrypted the current blob to get here.
+//
+// A var, not a const, so a test can exercise the reload without sleeping.
+var poolReloadAfter = time.Minute
+
+// poolFor returns the rotation pool for a provider: built on first use, rebuilt
+// once its trust window has passed.
 func (h *Handler) poolFor(m *store.ModelRow, cred credentials) *Pool {
-	if v, ok := h.pools.Load(m.ProviderID); ok {
-		return v.(*Pool)
+	build := func() *Pool {
+		return newPool(cred, h.refresher,
+			h.crypt.Encrypt,
+			func(ctx context.Context, blob string) error {
+				return h.store.UpdateProviderCredentials(ctx, m.ProviderID, blob)
+			},
+			func(ctx context.Context) (credentials, error) {
+				enc, err := h.store.ProviderCredentials(ctx, m.ProviderID)
+				if err != nil {
+					return credentials{}, err
+				}
+				plain, err := h.crypt.Decrypt(enc)
+				if err != nil {
+					return credentials{}, err
+				}
+				var cur credentials
+				if err := json.Unmarshal([]byte(plain), &cur); err != nil {
+					return credentials{}, err
+				}
+				return cur, nil
+			},
+		)
 	}
-	p := newPool(cred, h.refresher,
-		h.crypt.Encrypt,
-		func(ctx context.Context, blob string) error {
-			return h.store.UpdateProviderCredentials(ctx, m.ProviderID, blob)
-		},
-	)
-	actual, _ := h.pools.LoadOrStore(m.ProviderID, p)
+	if v, ok := h.pools.Load(m.ProviderID); ok {
+		p := v.(*Pool)
+		if !p.stale(time.Now(), poolReloadAfter) {
+			return p
+		}
+		fresh := build()
+		h.pools.Store(m.ProviderID, fresh)
+		return fresh
+	}
+	actual, _ := h.pools.LoadOrStore(m.ProviderID, build())
 	return actual.(*Pool)
 }
 

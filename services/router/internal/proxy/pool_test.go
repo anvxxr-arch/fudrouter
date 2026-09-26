@@ -45,7 +45,23 @@ func (f *fakeRefresher) count(rt string) int {
 type persistedBlob struct {
 	mu     sync.Mutex
 	blobs  []string
+	cur    credentials
 	encErr error
+}
+
+// seed stands in for another writer (a maintenance rotation, an import) having
+// rewritten the blob since this pool was built.
+func (p *persistedBlob) seed(c credentials) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.cur = c
+}
+
+// load is the read side save merges into.
+func (p *persistedBlob) load(_ context.Context) (credentials, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.cur, nil
 }
 
 func (p *persistedBlob) encrypt(plain string) (string, error) {
@@ -59,6 +75,10 @@ func (p *persistedBlob) persist(_ context.Context, blob string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.blobs = append(p.blobs, blob)
+	var c credentials
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(blob, "ENC:")), &c); err == nil {
+		p.cur = c
+	}
 	return nil
 }
 
@@ -76,11 +96,82 @@ func (p *persistedBlob) last() (credentials, bool) {
 	return c, true
 }
 
+// A rotation that landed from another writer must survive this pool's save. The
+// pool's snapshot is not the whole truth: a maintenance rotation holds a newer
+// chain for accounts this pool has not touched, and an import adds accounts it
+// has never seen. Overwriting the blob with the snapshot loses both.
+func TestSaveMergesAnotherWritersRotation(t *testing.T) {
+	pb := &persistedBlob{}
+	p := testPool([]account{
+		{Email: "a@x", AccessToken: "ours", RefreshToken: "rt-ours", Expired: "2026-01-01T00:00:00Z"},
+	}, newFakeRefresher(), pb)
+	pb.seed(credentials{APIKey: "k", Accounts: []account{
+		{Email: "a@x", AccessToken: "theirs", RefreshToken: "rt-theirs", Expired: "2026-02-01T00:00:00Z"},
+		{Email: "b@x", AccessToken: "imported", RefreshToken: "rt-b", Expired: "2026-03-01T00:00:00Z"},
+	}})
+
+	if err := p.save(context.Background()); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	got, ok := pb.last()
+	if !ok {
+		t.Fatal("nothing persisted")
+	}
+	byEmail := map[string]account{}
+	for _, a := range got.Accounts {
+		byEmail[a.Email] = a
+	}
+	if byEmail["a@x"].RefreshToken != "rt-theirs" {
+		t.Errorf("a@x kept our older chain (%q), the later rotation was clobbered", byEmail["a@x"].RefreshToken)
+	}
+	if byEmail["b@x"].AccessToken != "imported" {
+		t.Errorf("an account this pool never saw was dropped: %+v", byEmail)
+	}
+	if len(got.Accounts) != 2 {
+		t.Errorf("merged pool has %d accounts, want exactly 2 (no duplicates)", len(got.Accounts))
+	}
+}
+
+// The mirror case: when this pool holds the later rotation it wins, so a merge
+// cannot resurrect the token the pool just rotated away from.
+func TestSaveKeepsOurNewerRotation(t *testing.T) {
+	pb := &persistedBlob{}
+	p := testPool([]account{
+		{Email: "a@x", AccessToken: "ours", RefreshToken: "rt-ours", Expired: "2026-02-01T00:00:00Z"},
+	}, newFakeRefresher(), pb)
+	pb.seed(credentials{APIKey: "k", Accounts: []account{
+		{Email: "a@x", AccessToken: "theirs", RefreshToken: "rt-theirs", Expired: "2026-01-01T00:00:00Z"},
+	}})
+
+	if err := p.save(context.Background()); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	got, _ := pb.last()
+	if len(got.Accounts) != 1 || got.Accounts[0].RefreshToken != "rt-ours" {
+		t.Errorf("our rotation lost to a stale external copy: %+v", got.Accounts)
+	}
+}
+
+// With no loader wired the old behaviour stands: the snapshot is written.
+func TestSaveWithoutLoaderWritesSnapshot(t *testing.T) {
+	pb := &persistedBlob{}
+	p := newPool(credentials{APIKey: "static-key", Accounts: []account{
+		{Email: "a@x", AccessToken: "tok", RefreshToken: "rt", Expired: "2026-01-01T00:00:00Z"},
+	}}, newFakeRefresher(), pb.encrypt, pb.persist, nil)
+	if err := p.save(context.Background()); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	got, ok := pb.last()
+	if !ok || len(got.Accounts) != 1 {
+		t.Fatalf("snapshot not written: %+v", got)
+	}
+}
+
 func future() string { return time.Now().Add(time.Hour).UTC().Format(time.RFC3339) }
 func past() string   { return time.Now().Add(-time.Hour).UTC().Format(time.RFC3339) }
 
 func testPool(accts []account, r TokenRefresher, pb *persistedBlob) *Pool {
-	return newPool(credentials{APIKey: "static-key", Accounts: accts}, r, pb.encrypt, pb.persist)
+	return newPool(credentials{APIKey: "static-key", Accounts: accts}, r, pb.encrypt, pb.persist, pb.load)
 }
 
 // Pick must spread requests over the pool instead of hammering one account.

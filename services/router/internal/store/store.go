@@ -156,6 +156,17 @@ func (s *Store) UpdateProviderCredentials(ctx context.Context, providerID, enc s
 	return err
 }
 
+// ProviderCredentials returns a provider's encrypted credential blob, so a
+// writer can merge into the CURRENT state instead of overwriting it with a
+// snapshot it built earlier. Two writers persist this column: the router's
+// on-demand refresh and the pool maintenance rotation.
+func (s *Store) ProviderCredentials(ctx context.Context, providerID string) (string, error) {
+	var enc string
+	err := s.pool.QueryRow(ctx,
+		`select credentials_enc from provider where id = $1`, providerID).Scan(&enc)
+	return enc, err
+}
+
 func (s *Store) InsertRequestLog(ctx context.Context, r *RequestLog) error {
 	if r.ID == "" {
 		r.ID = uuid.Must(uuid.NewV7()).String()

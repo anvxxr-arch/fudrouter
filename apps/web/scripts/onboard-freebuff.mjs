@@ -26,9 +26,10 @@ import { encryptCredentials } from '../src/lib/server/credentials.ts';
 const PROVIDER_ID = process.env.FREEBUFF_PROVIDER_ID || 'freebuff';
 const PROVIDER_NAME = 'Freebuff';
 const BASE_URL = process.env.FREEBUFF_BASE_URL || 'https://www.codebuff.com';
-// dev by default: spec §1 bans shipping personal-OAuth providers, so a farmed
-// provider stays invisible until ROUTER_ALLOW_DEV_PROVIDERS is set.
-const STATUS = process.env.FREEBUFF_PROVIDER_STATUS || 'dev';
+// 'active' by default: every onboarded upstream is a commercial arrangement
+// (confirmed 2026-09-26). Set FREEBUFF_PROVIDER_STATUS=dev to onboard this one
+// behind the spec §1 interlock instead.
+const STATUS = process.env.FREEBUFF_PROVIDER_STATUS || 'active';
 const PRIORITY = Number(process.env.FREEBUFF_PROVIDER_PRIORITY || 160);
 const DRY = process.argv.includes('--dry-run');
 

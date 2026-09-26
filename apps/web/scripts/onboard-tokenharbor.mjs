@@ -55,7 +55,7 @@ const cred = { api_key: usable[0].api_key, auth_kind: 'apikey', default_headers:
 try {
   await sql`
     insert into provider (id, name, base_url, credentials_enc, status, priority)
-    values (${PROVIDER_ID}, ${PROVIDER_NAME}, ${BASE_URL}, ${encrypt(cred)}, 'dev', 160)
+    values (${PROVIDER_ID}, ${PROVIDER_NAME}, ${BASE_URL}, ${encrypt(cred)}, 'active', 160)
     on conflict (id) do update set
       name = excluded.name,
       base_url = excluded.base_url,

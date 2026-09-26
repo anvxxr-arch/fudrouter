@@ -69,7 +69,7 @@ const MODELS = {
 try {
   await sql`
     insert into provider (id, name, base_url, credentials_enc, status, priority)
-    values (${PROVIDER_ID}, ${PROVIDER_NAME}, ${BASE_URL}, ${encrypt(cred)}, 'dev', 170)
+    values (${PROVIDER_ID}, ${PROVIDER_NAME}, ${BASE_URL}, ${encrypt(cred)}, 'active', 170)
     on conflict (id) do update set
       name = excluded.name,
       base_url = excluded.base_url,

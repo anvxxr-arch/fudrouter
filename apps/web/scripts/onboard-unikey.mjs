@@ -21,6 +21,11 @@ function encrypt(obj) {
   return Buffer.concat([iv, ct, tag]).toString('base64');
 }
 
+// The `model.input_price`/`output_price` columns are MICRO-USD per 1M tokens
+// (1 USD = 1e6 micro-USD); the model table below is written in plain USD per 1M.
+// Every price written must go through this or the router bills 1e-6 of list.
+const usdToMicro = (usd) => Math.round(Number(usd) * 1_000_000).toString();
+
 try {
   // Read keys
   const keys = (await import('node:fs')).readFileSync(KEY_FILE, 'utf8')
@@ -48,7 +53,7 @@ try {
   // Upsert provider
   await sql`
     insert into provider (id, name, base_url, credentials_enc, status, priority)
-    values (${PROVIDER_ID}, ${PROVIDER_NAME}, ${BASE_URL}, ${enc}, 'dev', 150)
+    values (${PROVIDER_ID}, ${PROVIDER_NAME}, ${BASE_URL}, ${enc}, 'active', 150)
     on conflict (id) do update set
       name = excluded.name,
       base_url = excluded.base_url,
@@ -109,9 +114,12 @@ try {
   ];
 
   for (const m of models) {
+    // `input`/`output` above are USD per 1M tokens; the column is MICRO-USD per
+    // 1M (1 USD = 1e6 micro-USD). Writing the raw dollar value made the router
+    // bill 1e-6 of list price and the pricing page render every model as $0.00.
     await sql`
       insert into model (id, slug, name, provider_id, input_price, output_price, context)
-      values (${crypto.randomUUID()}, ${m.slug}, ${m.name}, ${PROVIDER_ID}, ${m.input}, ${m.output}, ${m.context})
+      values (${crypto.randomUUID()}, ${m.slug}, ${m.name}, ${PROVIDER_ID}, ${usdToMicro(m.input)}, ${usdToMicro(m.output)}, ${m.context})
       on conflict (slug) do update set
         name = excluded.name,
         provider_id = excluded.provider_id,

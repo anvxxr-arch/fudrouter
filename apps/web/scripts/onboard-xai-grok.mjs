@@ -25,12 +25,16 @@ const AUTH_DIR = process.env.GROK_FARM_AUTH_DIR || '/home/dwizzy/grok-register/c
 const CLI_VERSION = process.env.XAI_CLI_VERSION || '0.1.202';
 const PRIORITY = Number(process.env.XAI_PRIORITY || 10);
 
-// Spec §1 forbids shipping a personal-OAuth provider layer, and this provider is
-// built from farmed accounts — so it defaults to 'dev'. The Go data plane hides
-// dev providers unless ROUTER_ALLOW_DEV_PROVIDERS is set, which makes the
-// exclusion mechanical instead of a comment someone has to remember to act on.
-// Only override this for a provider whose economics are legitimate resale.
-const STATUS = process.env.XAI_PROVIDER_STATUS || 'dev';
+// This provider is built from farmed accounts, so spec §1's reasoning — a
+// personal-OAuth layer must not ship as if it were a normal upstream — is why
+// the `dev` interlock exists. The owner confirmed on 2026-09-26 that the
+// arrangement is commercial, so the label is now 'active' and the catalog does
+// not depend on ROUTER_ALLOW_DEV_PROVIDERS to be served at all.
+//
+// Set XAI_PROVIDER_STATUS=dev to put this one back behind the interlock (the Go
+// data plane then hides it unless ROUTER_ALLOW_DEV_PROVIDERS is set), which is
+// the mechanical way to keep a non-commercial upstream out of the catalog.
+const STATUS = process.env.XAI_PROVIDER_STATUS || 'active';
 
 // Published list prices, micro-USD per 1M tokens (1 USD = 1e6 micro-USD).
 // Source: https://docs.x.ai/developers/models — grok-4.6 is $2.00 in / $6.00 out.

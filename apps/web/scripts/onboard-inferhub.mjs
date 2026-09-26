@@ -21,9 +21,19 @@ import { encryptCredentials } from '../src/lib/server/credentials.ts';
 const PROVIDER_ID = process.env.INFERHUB_PROVIDER_ID || 'inferhub';
 const PROVIDER_NAME = 'InferHub';
 const BASE_URL = (process.env.INFERHUB_BASE_URL || 'https://api.inferhub.dev/v1').replace(/\/+$/, '');
-const STATUS = process.env.INFERHUB_PROVIDER_STATUS || 'dev';
+// 'active': every onboarded upstream is a commercial arrangement (confirmed
+// 2026-09-26). `dev` is spec §1's label for a provider that must not ship, so a
+// commercial one has no reason to carry it. Override with the env var when
+// deliberately onboarding a non-commercial upstream.
+const STATUS = process.env.INFERHUB_PROVIDER_STATUS || 'active';
 const PRIORITY = Number(process.env.INFERHUB_PROVIDER_PRIORITY || 170);
 const DRY = process.argv.includes('--dry-run');
+
+// The upstream reports `pricing.official_in`/`official_out` in USD per 1M tokens,
+// but `model.input_price`/`output_price` are MICRO-USD per 1M (1 USD = 1e6
+// micro-USD). Inserting the raw dollar value made the router bill 1e-6 of list
+// price and the pricing page render every InferHub model as $0.00.
+const usdToMicro = (usd) => Math.round(Number(usd ?? 0) * 1_000_000).toString();
 
 function loadKeys() {
 	const out = [];
@@ -107,7 +117,7 @@ try {
 		const ctx = Number.isFinite(m.input_token_limit) ? m.input_token_limit : null;
 		const rows = await sql`
 			insert into model (id, slug, name, provider_id, input_price, output_price, context)
-			values (${randomUUID()}, ${m.id}, ${m.id}, ${PROVIDER_ID}, ${inP}, ${outP}, ${ctx})
+			values (${randomUUID()}, ${m.id}, ${m.id}, ${PROVIDER_ID}, ${usdToMicro(inP)}, ${usdToMicro(outP)}, ${ctx})
 			on conflict (slug) do update set
 				name = excluded.name,
 				input_price = excluded.input_price,

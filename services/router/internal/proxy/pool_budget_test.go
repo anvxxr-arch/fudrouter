@@ -15,13 +15,25 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 )
 
+// The two tests below deliberately walk a real 663-account pool, which costs
+// ~100s each. They are gated so the default suite stays fast; the measurement
+// is opt-in. Without this gate the proxy package went from ~1s to ~263s, which
+// is a 256x tax on every `go test ./...` for two tests of documentation value.
+//
+//	FUDROUTER_SLOW_POOL_TESTS=1 go test ./internal/proxy/ -run TestDeadPool -v
+func slowPoolTests() bool { return os.Getenv("FUDROUTER_SLOW_POOL_TESTS") == "1" }
+
 // A pool whose refreshes are slow enough that walking it exceeds the upstream
 // budget, but whose individual refreshes would each fit inside it.
 func TestPickIgnoresTheRequestTimeoutItWasHanded(t *testing.T) {
+	if !slowPoolTests() {
+		t.Skip("set FUDROUTER_SLOW_POOL_TESTS=1 — walks a 663-account pool, ~100s")
+	}
 	const poolSize = 40
 	const perRefresh = 60 * time.Millisecond
 	upstreamBudget := 200 * time.Millisecond
@@ -117,6 +129,9 @@ func TestOuterAttemptCapDoesNotBoundPoolWalk(t *testing.T) {
 // every request. One account is enough to establish that the pool is dead; the
 // rest is latency the client pays for nothing.
 func TestDeadPoolProbesEveryAccountOnEveryRequest(t *testing.T) {
+	if !slowPoolTests() {
+		t.Skip("set FUDROUTER_SLOW_POOL_TESTS=1 — walks a 663-account pool, ~100s")
+	}
 	const poolSize = 663
 	accounts := make([]*poolAccount, poolSize)
 	for i := range accounts {

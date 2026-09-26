@@ -15,6 +15,12 @@ import (
 	"time"
 )
 
+// Both tests here walk a real 663-account pool, costing ~80s each. Gated for the
+// same reason as pool_budget_test.go: two documentation-value tests must not tax
+// every `go test ./...` by four minutes. slowPoolTests lives in pool_budget_test.go.
+//
+//	FUDROUTER_SLOW_POOL_TESTS=1 go test ./internal/proxy/ -run TestPickFailure -v
+
 type failingRefresher struct {
 	calls    int
 	cost     time.Duration
@@ -29,6 +35,9 @@ func (f *failingRefresher) Refresh(_ context.Context, rt string) (string, string
 }
 
 func TestPickFailureCostAtRealPoolSize(t *testing.T) {
+	if !slowPoolTests() {
+		t.Skip("set FUDROUTER_SLOW_POOL_TESTS=1 — walks a 663-account pool, ~80s")
+	}
 	const poolSize = 663 // the live xai-grok account count
 	accounts := make([]*poolAccount, poolSize)
 	for i := range accounts {
@@ -69,6 +78,9 @@ func TestPickFailureCostAtRealPoolSize(t *testing.T) {
 // account, so a retry walks the pool without touching the network. This is the
 // difference between "one slow request" and "every request slow".
 func TestPickFailureIsCooldownOnRetry(t *testing.T) {
+	if !slowPoolTests() {
+		t.Skip("set FUDROUTER_SLOW_POOL_TESTS=1 — walks a 663-account pool, ~80s")
+	}
 	const poolSize = 663
 	accounts := make([]*poolAccount, poolSize)
 	for i := range accounts {

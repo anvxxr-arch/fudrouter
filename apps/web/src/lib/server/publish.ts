@@ -4,12 +4,15 @@ import { devProvidersAllowed, privateUpstreamsAllowed } from '$lib/publish';
 /**
  * The data plane's dev-provider opt-in, read from the same variable the router
  * runs with (`ROUTER_ALLOW_DEV_PROVIDERS`, set in `ecosystem.config.cjs` and
- * documented in `.env.example`).
+ * described in `.env.example` — where it is deliberately left commented out,
+ * because leaving it unset is the correct production posture).
  *
  * The control plane has to know this: with the flag off, a `dev` provider is
  * invisible no matter how many of its models an admin publishes, so the console
  * must say so instead of showing a green "published" badge for a slug the router
- * will 404.
+ * will 404. It must be set in BOTH environments: the router decides what it
+ * serves, this decides what the console claims, and a one-sided value makes the
+ * two disagree.
  */
 export function allowDevProviders(): boolean {
 	return devProvidersAllowed(env.ROUTER_ALLOW_DEV_PROVIDERS);

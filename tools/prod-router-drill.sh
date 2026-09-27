@@ -69,6 +69,26 @@ QRY "insert into provider (id,name,base_url,credentials_enc,status,priority) val
 	|| { fail "seed failed"; exit 1; }
 echo "  seeded: $(QRY 'select count(*) from provider') providers, $(QRY 'select count(*) from model') models"
 
+echo "### 3b. status constraints are enforced (migration 0005)"
+# The seed above only proves the valid values are ACCEPTED. A CHECK that was
+# added but never proven is a hope: the router matches `status` on exact string
+# literals, so a value outside the set does not error — the row just silently
+# stops being served. Probe both directions.
+if QRY "insert into provider (id,name,base_url,credentials_enc,status,priority)
+ values ('drill-bad','Drill Bad','https://example.invalid/v1','ZHVtbXk=','acitve',100);" >/dev/null 2>&1; then
+	fail "provider_status_check accepted a typo status"
+else
+	pass "provider typo status rejected"
+fi
+if QRY "insert into model (id,slug,name,provider_id,input_price,output_price,context,status)
+ values ('drill-bad-m','drill-bad-slug','Drill Bad','drill-active',0,0,1000,'published');" >/dev/null 2>&1; then
+	fail "model_status_check accepted a typo status"
+else
+	pass "model typo status rejected"
+fi
+CONSTRAINTS=$(QRY "select count(*) from pg_constraint where conname in ('provider_status_check','model_status_check');")
+check "$CONSTRAINTS" "2" "both status constraints present"
+
 echo "### 4. boot production (ROUTER_ALLOW_DEV_PROVIDERS unset)"
 set -a; . "$ENV_FILE"; set +a
 export DATABASE_URL="${DATABASE_URL%/*}/$DB"

@@ -2,7 +2,7 @@
  * Tailwind v4 @theme mirror of /DESIGN.md.
  *
  * Generated — never hand-edit. Regenerate after editing DESIGN.md:
- *   python3 scratch/regen_theme.py
+ *   python3 tools/regen_theme.py
  *
  * That script runs the official exporter and then re-injects the `clamp()`
  * expressions for the fluid headings. The exporter alone cannot: the spec
@@ -12,7 +12,8 @@
  *
  * NOTE: not imported anywhere (the app's styles come from tokens.css). It is
  * kept so Tailwind utility users get the same palette and type ladder without
- * re-deriving them from the spec.
+ * re-deriving them from the spec. The exporter drops hand-placed comments, so
+ * the brand labels are re-applied here rather than lost on every regeneration.
  */
 @theme {
 	/* Brand: FUD Orange ecosystem */
@@ -26,6 +27,10 @@
 	--color-primary: #ff6c11;
 	--color-primaryHover: #ff8a3d;
 	--color-onPrimary: #090b0f;
+	--color-orange: #ff6c11;
+	--color-orangeHover: #ff8a3d;
+	--color-amber: #ffaa2b;
+	--color-cream: #ffe2ae;
 	--color-success: #10b981;
 	--color-warning: #ffaa2b;
 	--color-danger: #f87171;
@@ -42,8 +47,8 @@
 	--font-base: "'Plus Jakarta Sans', system-ui, sans-serif";
 	--font-sm: "'Plus Jakarta Sans', system-ui, sans-serif";
 	--font-caption: "'Plus Jakarta Sans', system-ui, sans-serif";
-	--font-mono: "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace";
 	/* Brand type scale */
+	--font-mono: "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace";
 	--text-display-xl: clamp(3.5rem, 3.05rem + 2vw, 4.75rem);
 	--text-display: clamp(3.5rem, 3.05rem + 2vw, 4.75rem);
 	--text-h1: clamp(2.75rem, 2.48rem + 1.2vw, 3.5rem);
@@ -57,9 +62,11 @@
 	--text-sm: 0.875rem;
 	--text-caption: 0.75rem;
 	--text-mono: 0.8125rem;
-	--tracking-display-xl: -0.03em;
+	--tracking-display-xl: -0.028em;
 	--tracking-display: -0.02em;
 	--tracking-h1: -0.01em;
+	--tracking-lg: -0.00374em;
+	--tracking-base: -0.00374em;
 	--tracking-caption: 0.04em;
 	--font-weight-display-xl: 700;
 	--font-weight-display: 700;
@@ -81,6 +88,7 @@
 	--spacing-xs: 4px;
 	--spacing-sm: 8px;
 	--spacing-md: 16px;
+	--spacing-card: 20px;
 	--spacing-lg: 24px;
 	--spacing-xl: 32px;
 	--spacing-2xl: 48px;

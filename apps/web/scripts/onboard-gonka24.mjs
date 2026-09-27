@@ -30,7 +30,9 @@ function encrypt(obj) {
 
 const accountsRaw = JSON.parse(readFileSync(KEYS_FILE, 'utf8'));
 const accounts = accountsRaw
-	.filter((a) => a && typeof a.api_key === 'string' && a.api_key.startsWith('sk-') && a.working === true)
+	.filter(
+		(a) => a && typeof a.api_key === 'string' && a.api_key.startsWith('sk-') && a.working === true
+	)
 	.map((a) => ({
 		email: a.email || `gonka24-key-${a.api_key.slice(-6)}@gonka24`,
 		api_key: a.api_key,
@@ -57,11 +59,16 @@ try {
 			const pr = await fetch(BASE_URL + '/chat/completions', {
 				method: 'POST',
 				headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
-				body: JSON.stringify({ model: m.id, messages: [{ role: 'user', content: 'ping' }], max_tokens: 4 }),
+				body: JSON.stringify({
+					model: m.id,
+					messages: [{ role: 'user', content: 'ping' }],
+					max_tokens: 4
+				}),
 				signal: AbortSignal.timeout(30000)
 			});
 			served = pr.status === 200;
-			if (!served) console.log(`  probe ${m.id}: HTTP ${pr.status} ${(await pr.text()).slice(0, 80)}`);
+			if (!served)
+				console.log(`  probe ${m.id}: HTTP ${pr.status} ${(await pr.text()).slice(0, 80)}`);
 		} catch (e) {
 			console.log(`  probe ${m.id}: ${String(e).slice(0, 80)}`);
 		}
@@ -76,7 +83,8 @@ try {
 		});
 	}
 	console.log('catalog:');
-	for (const m of models) console.log(`  ${m.status.padEnd(8)} ${m.slug} (served now: ${m.served})`);
+	for (const m of models)
+		console.log(`  ${m.status.padEnd(8)} ${m.slug} (served now: ${m.served})`);
 
 	const cred = { api_key: key, auth_kind: 'apikey', default_headers: {}, accounts };
 	const p = await sql`

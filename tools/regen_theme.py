@@ -7,7 +7,14 @@ because the spec frontmatter accepts static dimensions only (px/em/rem) — a
 clamp() is perfectly valid. So this wraps the export and re-injects the fluid
 expressions documented in DESIGN.md's typography table.
 
-Run from the repo root:  python3 scratch/regen_theme.py
+Run from the repo root:
+
+    python3 tools/regen_theme.py            # write the file
+    python3 tools/regen_theme.py --check    # exit 1 if it would change
+
+`--check` exists because the exporter is not byte-stable: it drops hand-placed
+comments such as `/* Brand: FUD Orange ecosystem */`, so a bare run silently
+removes them. Check mode is what CI and pre-commit should use.
 """
 import re
 import subprocess
@@ -17,6 +24,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SPEC = ROOT / "DESIGN.md"
 OUT = ROOT / "apps/web/src/lib/design/theme.tailwind.css"
+
+CHECK = "--check" in sys.argv[1:]
 
 # scale name -> clamp expression, read straight from the spec's fluid table so
 # the two can never disagree.
@@ -56,7 +65,7 @@ header = """/*
  * Tailwind v4 @theme mirror of /DESIGN.md.
  *
  * Generated — never hand-edit. Regenerate after editing DESIGN.md:
- *   python3 scratch/regen_theme.py
+ *   python3 tools/regen_theme.py
  *
  * That script runs the official exporter and then re-injects the `clamp()`
  * expressions for the fluid headings. The exporter alone cannot: the spec
@@ -66,11 +75,42 @@ header = """/*
  *
  * NOTE: not imported anywhere (the app's styles come from tokens.css). It is
  * kept so Tailwind utility users get the same palette and type ladder without
- * re-deriving them from the spec.
+ * re-deriving them from the spec. The exporter drops hand-placed comments, so
+ * the brand labels are re-applied here rather than lost on every regeneration.
  */
 """
 
-OUT.write_text(header + body + "\n")
-print(f"wrote {OUT.relative_to(ROOT)}  ({len(fluid)} fluid headings injected)")
-for name, expr in fluid.items():
-    print(f"  --text-{name}: {expr}")
+# The exporter does not know about our brand labels, and it strips comments, so
+# re-apply them to keep the file self-describing and stable across runs. Anchors
+# carry their own leading tab because the emitted declarations are tab-indented.
+BRAND_MARKS = (
+    ("\t--color-bg:", "\t/* Brand: FUD Orange ecosystem */\n\t--color-bg:"),
+    ("\t--font-mono:", "\t/* Brand type scale */\n\t--font-mono:"),
+)
+
+
+def with_brand_marks(css_body: str) -> str:
+    for anchor, replacement in BRAND_MARKS:
+        if replacement.split("\n", 1)[0] in css_body:
+            continue
+        if anchor not in css_body:
+            sys.exit(f"brand mark anchor {anchor!r} missing from the export")
+        css_body = css_body.replace(anchor, replacement, 1)
+    return css_body
+
+
+rendered = header + with_brand_marks(body) + "\n"
+rel = OUT.relative_to(ROOT)
+
+if CHECK:
+    current = OUT.read_text() if OUT.exists() else ""
+    if current == rendered:
+        print(f"ok: {rel} is up to date")
+    else:
+        print(f"drift: {rel} differs from what DESIGN.md implies — run: python3 tools/regen_theme.py")
+        sys.exit(1)
+else:
+    OUT.write_text(rendered)
+    print(f"wrote {rel}  ({len(fluid)} fluid headings injected)")
+    for name, expr in fluid.items():
+        print(f"  --text-{name}: {expr}")

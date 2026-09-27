@@ -10,3 +10,19 @@ bin/
 .DS_Store
 infra/data/
 *.tar.gz
+
+# npm is the package manager for this repo (package-lock.json is the tracked
+# lockfile; workspaces are npm workspaces). Lockfiles/artifacts from bun and pnpm
+# are side effects of a tool that is not part of the toolchain and must never be
+# committed — a third lockfile silently wins on some machines and installs a
+# different tree than CI does.
+bun.lock
+bun.lockb
+pnpm-lock.yaml
+pnpm-workspace.yaml
+node_modules/.pnpm/
+
+# `patch`/`git apply` leftovers: a rejected hunk leaves these beside the target.
+*.orig
+*.rej
+

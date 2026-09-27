@@ -30,3 +30,17 @@ node_modules/.pnpm/
 # by definition; real tools get promoted into tools/ and committed from there.
 scratch/
 
+# shadcn-svelte's config, present at apps/web/components.json only. It is not
+# junk by accident: it points at src/lib/components/ui, src/lib/utils.ts and
+# tailwind.config.js, and NONE of those exist here — there is no components/ui
+# directory, no utils.ts, no tailwind config file at all, and neither shadcn-svelte
+# nor bits-ui is a dependency (this app is Tailwind v4 via the Vite plugin, which
+# has no config file for it to name).
+#
+# It is therefore config for a setup this repo does not have, and every path in
+# it is wrong. Committing it would be worse than ignoring it: `npx
+# shadcn-svelte add` reads it to decide where to write components, so it would
+# scatter new files into a directory tree the build never reads. If shadcn is
+# adopted for real, delete this line and commit the config the tool generates.
+apps/web/components.json
+

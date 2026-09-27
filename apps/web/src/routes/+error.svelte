@@ -43,22 +43,22 @@
 	}
 	.code {
 		display: block;
-		color: var(--fr-text-muted);
-		font-size: var(--fr-text-caption);
+		color: var(--color-text-muted);
+		font-size: var(--text-caption);
 		font-weight: 600;
 		letter-spacing: 0.08em;
 	}
 	h1 {
-		margin: var(--fr-space-sm) 0;
+		margin: var(--space-sm) 0;
 	}
 	.detail {
-		margin: 0 0 var(--fr-space-md);
-		font-size: var(--fr-text-sm);
+		margin: 0 0 var(--space-md);
+		font-size: var(--text-sm);
 	}
 	.actions {
 		display: flex;
-		gap: var(--fr-space-sm);
+		gap: var(--space-sm);
 		flex-wrap: wrap;
-		margin-top: var(--fr-space-md);
+		margin-top: var(--space-md);
 	}
 </style>

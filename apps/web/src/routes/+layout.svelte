@@ -58,6 +58,6 @@
 	main {
 		max-width: 1100px;
 		margin: 0 auto;
-		padding: var(--fr-space-lg);
+		padding: var(--space-lg);
 	}
 </style>

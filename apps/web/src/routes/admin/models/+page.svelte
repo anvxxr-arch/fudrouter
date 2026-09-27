@@ -325,7 +325,7 @@
 	}
 	form {
 		display: grid;
-		gap: var(--fr-space-md);
+		gap: var(--space-md);
 	}
 	.filters {
 		grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
@@ -334,9 +334,9 @@
 	.bulk {
 		display: flex;
 		flex-wrap: wrap;
-		gap: var(--fr-space-sm);
+		gap: var(--space-sm);
 		align-items: center;
-		margin-block: var(--fr-space-md);
+		margin-block: var(--space-md);
 	}
 	.bulk .muted {
 		margin-right: auto;

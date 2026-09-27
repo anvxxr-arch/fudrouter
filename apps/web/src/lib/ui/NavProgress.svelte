@@ -21,7 +21,7 @@
 		left: 0;
 		right: 0;
 		height: 2px;
-		background: var(--fr-primary);
+		background: var(--primary);
 		z-index: 200;
 	}
 </style>

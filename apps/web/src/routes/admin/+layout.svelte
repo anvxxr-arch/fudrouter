@@ -37,37 +37,37 @@
 <style>
 	.admin-nav {
 		display: flex;
-		gap: var(--fr-space-sm);
+		gap: var(--space-sm);
 		flex-wrap: wrap;
-		padding: var(--fr-space-sm) var(--fr-space-lg);
-		border-bottom: 1px solid var(--fr-border);
-		background: var(--fr-surface);
+		padding: var(--space-sm) var(--space-lg);
+		border-bottom: 1px solid var(--color-border);
+		background: var(--color-surface);
 	}
 	.admin-nav a {
-		padding: var(--fr-space-xs) var(--fr-space-sm);
-		border-radius: var(--fr-radius-md);
-		color: var(--fr-text-muted);
-		font-size: var(--fr-text-sm);
+		padding: var(--space-xs) var(--space-sm);
+		border-radius: var(--radius-md);
+		color: var(--color-text-muted);
+		font-size: var(--text-sm);
 		/* Standalone tab targets must clear 24x24 CSS px (WCAG 2.5.8). */
 		display: inline-flex;
 		align-items: center;
 		min-height: 24px;
 	}
 	.admin-nav a:hover {
-		background: var(--fr-surface-raised);
-		color: var(--fr-text);
+		background: var(--color-surface-raised);
+		color: var(--color-text);
 		text-decoration: none;
 	}
 	.admin-nav a.active {
-		background: var(--fr-surface-raised);
-		box-shadow: inset 0 -2px 0 var(--fr-primary);
-		color: var(--fr-text);
+		background: var(--color-surface-raised);
+		box-shadow: inset 0 -2px 0 var(--primary);
+		color: var(--color-text);
 		font-weight: 600;
 	}
 
 	/* Narrow screens: keep the tab strip on one scrollable row rather than
 	   wrapping, which would strand the last tab on a line of its own.
-	   Matches --fr-bp-tablet in tokens.css. */
+	   Matches 820px in tokens.css. */
 	@media (max-width: 820px) {
 		.admin-nav {
 			flex-wrap: nowrap;

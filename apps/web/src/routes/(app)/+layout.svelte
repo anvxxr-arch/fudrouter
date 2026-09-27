@@ -47,13 +47,13 @@
 	.appbar {
 		display: flex;
 		flex-wrap: wrap;
-		gap: var(--fr-space-md);
+		gap: var(--space-md);
 		align-items: center;
-		padding: var(--fr-space-md) var(--fr-space-lg);
-		border-bottom: 1px solid var(--fr-border);
+		padding: var(--space-md) var(--space-lg);
+		border-bottom: 1px solid var(--color-border);
 	}
 	.brand {
-		color: var(--fr-text);
+		color: var(--color-text);
 		font-weight: 700;
 	}
 	/* Standalone header links must clear 24x24 CSS px (WCAG 2.5.8). */
@@ -69,37 +69,37 @@
 		margin-left: auto;
 	}
 	.who {
-		color: var(--fr-text-muted);
-		font-size: var(--fr-text-sm);
+		color: var(--color-text-muted);
+		font-size: var(--text-sm);
 	}
 	.shell {
 		display: grid;
 		grid-template-columns: 12rem 1fr;
-		gap: var(--fr-space-lg);
+		gap: var(--space-lg);
 		max-width: 1100px;
 		margin: 0 auto;
-		padding: var(--fr-space-lg);
+		padding: var(--space-lg);
 	}
 	aside {
 		display: grid;
 		align-content: start;
-		gap: var(--fr-space-xs);
+		gap: var(--space-xs);
 	}
 	aside a {
-		padding: var(--fr-space-sm);
-		border-radius: var(--fr-radius-md);
-		color: var(--fr-text-muted);
-		font-size: var(--fr-text-sm);
+		padding: var(--space-sm);
+		border-radius: var(--radius-md);
+		color: var(--color-text-muted);
+		font-size: var(--text-sm);
 	}
 	aside a:hover {
-		background: var(--fr-surface);
-		color: var(--fr-text);
+		background: var(--color-surface);
+		color: var(--color-text);
 		text-decoration: none;
 	}
 	aside a.active {
-		background: var(--fr-surface);
-		box-shadow: inset 2px 0 0 var(--fr-primary);
-		color: var(--fr-text);
+		background: var(--color-surface);
+		box-shadow: inset 2px 0 0 var(--primary);
+		color: var(--color-text);
 		font-weight: 600;
 	}
 
@@ -109,7 +109,7 @@
 		min-width: 0;
 	}
 
-	/* Below --fr-bp-tablet: collapse to single column, nav becomes a
+	/* Below 820px: collapse to single column, nav becomes a
 	   scrollable row. */
 	@media (max-width: 820px) {
 		.shell {

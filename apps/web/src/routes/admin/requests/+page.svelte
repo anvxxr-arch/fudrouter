@@ -63,9 +63,9 @@
 <style>
 	.filters {
 		display: flex;
-		gap: var(--fr-space-md);
+		gap: var(--space-md);
 		align-items: flex-end;
-		margin: var(--fr-space-md) 0;
+		margin: var(--space-md) 0;
 	}
 	.pick {
 		width: 12rem;

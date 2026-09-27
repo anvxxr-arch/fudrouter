@@ -19,18 +19,18 @@
 		display: flex;
 		align-items: flex-start;
 		justify-content: space-between;
-		gap: var(--fr-space-md);
-		margin-top: var(--fr-space-lg);
-		margin-bottom: var(--fr-space-md);
+		gap: var(--space-md);
+		margin-top: var(--space-lg);
+		margin-bottom: var(--space-md);
 	}
 	.lede {
 		margin: 0;
-		color: var(--fr-text-muted);
+		color: var(--color-text-muted);
 		max-width: 46rem;
 	}
 	.actions {
 		display: flex;
-		gap: var(--fr-space-sm);
+		gap: var(--space-sm);
 		flex-shrink: 0;
 	}
 </style>

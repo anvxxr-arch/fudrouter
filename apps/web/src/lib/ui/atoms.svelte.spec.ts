@@ -155,7 +155,7 @@ describe('the shared tone table', () => {
 	});
 
 	it('gives every alert tone its own border colour', () => {
-		// Regression: `.alert`'s scoped `--_tone: var(--fr-info)` default compiled to
+		// Regression: `.alert`'s scoped `--_tone: var(--color-info)` default compiled to
 		// (0,2,0) and beat `.fr-tone-warning` (0,1,0), so EVERY alert rendered the
 		// info colour. Asserting the role alone never caught it — the colour has to
 		// be measured, and against a different tone.
@@ -200,7 +200,7 @@ describe('the metric strip', () => {
 describe('a guide is not a table', () => {
 	it('separates fact rows with spacing, not a rule that mimics a table row', () => {
 		// Regression: `.fr-dl > div` carried the same `border-bottom: 1px solid
-		// var(--fr-border)` as `table.fr td`, so a Guide stacked directly above a
+		// var(--color-border)` as `table.fr td`, so a Guide stacked directly above a
 		// table read as one continuous table — the two blocks had no way to say
 		// they were different things.
 		const { container } = render(Facts, {

@@ -50,13 +50,13 @@
 	.pub {
 		display: flex;
 		flex-wrap: wrap;
-		gap: var(--fr-space-md);
+		gap: var(--space-md);
 		align-items: center;
-		padding: var(--fr-space-md) var(--fr-space-lg);
-		border-bottom: 1px solid var(--fr-border);
+		padding: var(--space-md) var(--space-lg);
+		border-bottom: 1px solid var(--color-border);
 	}
 	.brand {
-		color: var(--fr-text);
+		color: var(--color-text);
 		font-weight: 700;
 	}
 	/*
@@ -74,50 +74,50 @@
 	}
 	.pub nav {
 		display: flex;
-		gap: var(--fr-space-md);
+		gap: var(--space-md);
 	}
 	.pub nav a {
-		padding: var(--fr-space-xs) 0;
+		padding: var(--space-xs) 0;
 		border-bottom: 2px solid transparent;
-		color: var(--fr-text-muted);
-		font-size: var(--fr-text-sm);
+		color: var(--color-text-muted);
+		font-size: var(--text-sm);
 	}
 	.pub nav a:hover {
-		color: var(--fr-text);
+		color: var(--color-text);
 		text-decoration: none;
 	}
 	.pub nav a.active {
-		border-bottom-color: var(--fr-primary);
-		color: var(--fr-text);
+		border-bottom-color: var(--primary);
+		color: var(--color-text);
 	}
 	.spacer {
 		margin-left: auto;
 	}
 	.cta {
-		padding: var(--fr-space-sm) var(--fr-space-md);
-		background: var(--fr-primary);
-		color: var(--fr-on-primary);
-		border-radius: var(--fr-radius-md);
-		font-size: var(--fr-text-sm);
+		padding: var(--space-sm) var(--space-md);
+		background: var(--primary);
+		color: var(--on-primary);
+		border-radius: var(--radius-md);
+		font-size: var(--text-sm);
 		font-weight: 600;
 	}
 	.cta:hover {
-		background: var(--fr-primary-hover);
+		background: var(--primary-hover);
 		text-decoration: none;
 	}
 	footer {
 		display: flex;
 		justify-content: space-between;
-		gap: var(--fr-space-md);
-		margin-top: var(--fr-space-2xl);
-		padding: var(--fr-space-md) var(--fr-space-lg);
-		border-top: 1px solid var(--fr-border);
-		color: var(--fr-text-muted);
-		font-size: var(--fr-text-sm);
+		gap: var(--space-md);
+		margin-top: var(--space-2xl);
+		padding: var(--space-md) var(--space-lg);
+		border-top: 1px solid var(--color-border);
+		color: var(--color-text-muted);
+		font-size: var(--text-sm);
 	}
 	.legal {
 		display: flex;
-		gap: var(--fr-space-md);
+		gap: var(--space-md);
 	}
 	/* WCAG 2.5.8: standalone footer links must be >= 24px tall. */
 	.legal a {

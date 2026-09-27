@@ -11,6 +11,20 @@ const fonts = readFileSync(new URL('./fonts.css', import.meta.url), 'utf8');
 const hexes = (text: string) =>
 	new Set((text.match(/#[0-9a-fA-F]{6}\b/g) ?? []).map((h) => h.toLowerCase()));
 
+/**
+ * Every stylesheet the system ships: the design directory, plus the page sheets
+ * that live beside their routes. The dangling-var and primitive-tier guards
+ * below both walk this list.
+ */
+const sheets: string[] = [
+	...readdirSync(new URL('.', import.meta.url))
+		.filter((f) => f.endsWith('.css'))
+		.map((f) => readFileSync(new URL(f, import.meta.url), 'utf8')),
+	...readdirSync(new URL('../../routes/(public)/', import.meta.url))
+		.filter((f) => f.endsWith('.css'))
+		.map((f) => readFileSync(new URL(`../../routes/(public)/${f}`, import.meta.url), 'utf8'))
+];
+
 describe('design tokens', () => {
 	it('implements every colour declared in DESIGN.md', () => {
 		const declared = [...hexes(spec)];
@@ -27,16 +41,16 @@ describe('design tokens', () => {
 
 	it('exposes the semantic scales every surface relies on', () => {
 		for (const token of [
-			'--fr-primary',
-			'--fr-success',
-			'--fr-warning',
-			'--fr-danger',
-			'--fr-info',
-			'--fr-text-muted',
-			'--fr-space-md',
-			'--fr-radius-lg',
-			'--fr-control-h-md',
-			'--fr-focus'
+			'--primary',
+			'--color-success',
+			'--warning',
+			'--color-danger',
+			'--color-info',
+			'--color-text-muted',
+			'--space-md',
+			'--radius-lg',
+			'--control-h-md',
+			'--focus-ring'
 		]) {
 			expect(css).toContain(token);
 		}
@@ -65,13 +79,13 @@ describe('numeric scales', () => {
 		const declared = yamlScale('rounded');
 		expect(declared.size, 'no rounded scale found in DESIGN.md').toBeGreaterThan(0);
 		for (const [name, value] of declared) {
-			const actual = css.match(new RegExp(`--fr-radius-${name}:\\s*([^;]+);`))?.[1];
-			expect(actual, `tokens.css has no --fr-radius-${name}`).toBeDefined();
+			const actual = css.match(new RegExp(`--radius-${name}:\\s*([^;]+);`))?.[1];
+			expect(actual, `tokens.css has no --radius-${name}`).toBeDefined();
 			if (name === 'pill') {
 				// The spec says 999px; any large value that clamps to a pill is fine.
 				expect(parseFloat(actual!)).toBeGreaterThanOrEqual(999);
 			} else {
-				expect(actual!.trim(), `--fr-radius-${name}`).toBe(value);
+				expect(actual!.trim(), `--radius-${name}`).toBe(value);
 			}
 		}
 	});
@@ -80,15 +94,15 @@ describe('numeric scales', () => {
 		const declared = yamlScale('spacing');
 		expect(declared.size, 'no spacing scale found in DESIGN.md').toBeGreaterThan(0);
 		for (const [name, value] of declared) {
-			const actual = css.match(new RegExp(`--fr-space-${name}:\\s*([^;]+);`))?.[1];
-			expect(actual?.trim(), `--fr-space-${name}`).toBe(value);
+			const actual = css.match(new RegExp(`--space-${name}:\\s*([^;]+);`))?.[1];
+			expect(actual?.trim(), `--space-${name}`).toBe(value);
 		}
 	});
 
 	it('keeps both scales strictly increasing', () => {
 		for (const [section, prefix] of [
-			['rounded', '--fr-radius-'],
-			['spacing', '--fr-space-']
+			['rounded', '--radius-'],
+			['spacing', '--space-']
 		] as const) {
 			const values = [...yamlScale(section).values()].map((v) =>
 				v.endsWith('rem') ? parseFloat(v) * 16 : parseFloat(v)
@@ -102,18 +116,26 @@ describe('numeric scales', () => {
 
 	it('implements the motion scale DESIGN.md declares', () => {
 		// The spec said "motion is opt-out" and named no value for it, so
-		// `--fr-dur-med` and `--fr-ease` resolved to nothing and animated
+		// `--duration-med` and `--ease` resolved to nothing and animated
 		// nothing while the build stayed green. A motion scale is normative now,
 		// and it is checked like the others.
 		//
 		// Motion does not fit `yamlScale`: the easing is a function, not a
 		// number, and the spec names its steps in camelCase while CSS spells
-		// them kebab-case (`durFast` -> `--fr-dur-fast`). Written out rather
+		// them kebab-case (`durFast` -> `--duration-fast`). Written out rather
 		// than generalised, because a general parser that quietly skipped
 		// non-numeric values is the reason the scale went missing the first
 		// time.
-		const motion = [...spec.matchAll(/^\s{2}(dur(?:Fast|Med)|ease):\s*"?(.*?)"?\s*$/gm)].map(
-			(m) => [`--fr-${m[1].replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`, m[2]] as const
+		// The spec names its steps `durFast`/`durMed`/`ease`; the stylesheet
+		// spells them `--duration-fast`/`--duration-med`/`--ease`. The mapping is
+		// written out rather than derived, because the general form
+		// (`durFast` -> `dur-fast`) produces `--dur-fast`, which is the name the
+		// scale was never given.
+		const toToken = (step: string) =>
+			({ durFast: '--duration-fast', durMed: '--duration-med', ease: '--ease' })[step] ??
+			`--${step}`;
+		const motion = [...spec.matchAll(/^\s{2}(dur(?:Fast|Med)|ease):\s*"?([^"\n]*)"?\s*$/gm)].map(
+			(m) => [toToken(m[1]), m[2].trim()] as const
 		);
 		expect(motion.length, 'no motion scale found in DESIGN.md').toBeGreaterThan(0);
 		for (const [token, value] of motion) {
@@ -126,14 +148,14 @@ describe('numeric scales', () => {
 	it('declares no spacing or radius token that DESIGN.md does not define', () => {
 		// The other direction, and the one that was missing. Every test above
 		// walks spec → css, so a token added to tokens.css with no spec entry
-		// passed unnoticed — which is how `--fr-space-3xl` landed here first.
+		// passed unnoticed — which is how `--space-3xl` landed here first.
 		// A value in the stylesheet that the document does not describe is a
 		// value nobody reviews.
 		const known = new Set([
 			...yamlScale('spacing').keys(),
 			...yamlScale('rounded').keys()
 		]);
-		for (const prefix of ['--fr-space-', '--fr-radius-'] as const) {
+		for (const prefix of ['--space-', '--radius-'] as const) {
 			const found = [...css.matchAll(new RegExp(`${prefix}([a-z0-9-]+):`, 'g'))].map((m) => m[1]);
 			expect(found.length, `no ${prefix} tokens found`).toBeGreaterThan(0);
 			const extra = found.filter((n) => !known.has(n));
@@ -142,42 +164,80 @@ describe('numeric scales', () => {
 	});
 
 	it('declares no motion token that DESIGN.md does not define', () => {
-		// `found` yields names with the `fr-` prefix stripped off the `--fr-`
-		// token, so the spec side has to be reduced the same way or every
-		// motion token looks undocumented.
+		// `found` yields bare names (`duration-fast`) while the spec says
+		// `durFast`, so the spec side is reduced through the same mapping or
+		// every motion token looks undocumented.
 		const known = new Set(
-			[...spec.matchAll(/^\s{2}(dur(?:Fast|Med)|ease):/gm)].map((m) =>
-				`fr-${m[1].replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`
+			[...spec.matchAll(/^\s{2}(dur(?:Fast|Med)|ease):/gm)].map(
+				(m) => m[1] === 'ease' ? 'ease' : m[1].replace(/^dur(Fast|Med)$/, (_, s) => `duration-${s.toLowerCase()}`)
 			)
 		);
 		expect(known.size, 'no motion scale found in DESIGN.md').toBeGreaterThan(0);
-		const found = [...css.matchAll(/--(fr-dur[\w-]*|fr-ease[\w-]*):/g)].map((m) => m[1]);
+		const found = [...css.matchAll(/--(duration[\w-]*|ease):/g)].map((m) => m[1]);
 		const extra = found.filter((n) => !known.has(n));
 		expect(extra, `motion tokens undocumented in DESIGN.md: ${extra.join(', ')}`).toEqual([]);
 	});
 
-	it('references no --fr-* custom property that tokens.css does not declare', () => {
+	it('references no custom property that tokens.css does not declare', () => {
 		// The failure this whole layer exists to prevent: a var() with no
 		// definition is not an error in CSS, it is a declaration that silently
-		// does nothing — a `background: var(--fr-nope)` falls back to
+		// does nothing — a `background: var(--nope)` falls back to
 		// transparent, and the page looks merely unstyled rather than broken.
 		// Scanning the stylesheets catches it at review time, where it is fixable.
-		const declared = new Set([...css.matchAll(/(--fr-[\w-]+)\s*:/g)].map((m) => m[1]));
-		const sheets = readdirSync(new URL('.', import.meta.url))
-			.filter((f) => f.endsWith('.css'))
-			.map((f) => readFileSync(new URL(f, import.meta.url), 'utf8'))
-			// The page sheets live outside this directory; walk up for them too.
-			.concat(
-				readdirSync(new URL('../../routes/(public)/', import.meta.url))
-					.filter((f) => f.endsWith('.css'))
-					.map((f) =>
-						readFileSync(new URL(`../../routes/(public)/${f}`, import.meta.url), 'utf8')
-					)
-			);
-		const used = new Set(sheets.flatMap((s) => [...s.matchAll(/var\((--fr-[\w-]+)\)/g)].map((m) => m[1])));
-		expect(used.size, 'no var(--fr-*) references found — is the scan wired up?').toBeGreaterThan(0);
+		// A property declared on a *class* is tier 3, not a global token: the
+		// component atoms declare their own local variables (`--_bg`, `--_tone`)
+		// inside their selector and consume them there. Those are declared, and
+		// checking the whole sheet rather than `:root` alone is what separates
+		// "local component variable" from "token nobody defined".
+		const declared = new Set(sheets.flatMap((s) => [...s.matchAll(/(--[\w-]+)\s*:/g)].map((m) => m[1])));
+		const used = new Set(sheets.flatMap((s) => [...s.matchAll(/var\((--[\w-]+)\)/g)].map((m) => m[1])));
+		expect(used.size, 'no var(--*) references found — is the scan wired up?').toBeGreaterThan(0);
 		const dangling = [...used].filter((t) => !declared.has(t));
 		expect(dangling, `referenced but never declared: ${dangling.join(', ')}`).toEqual([]);
+	});
+
+	it('keeps components out of the primitive tier', () => {
+		// The tier rule is the reason the primitives are named at all. A button
+		// that reads `--color-orange` instead of `--primary` has hardcoded intent:
+		// it says "this is orange", so a rebrand leaves it behind. Nothing caught
+		// that, because a primitive is by definition *declared* — the dangling-var
+		// guard cannot see it, and the spec check only walks token *names*, not
+		// the tier a consumer sits in.
+		//
+		// Scope: stylesheets and page sheets, i.e. everything outside `:root`.
+		// The primitive block itself is the one place naming a primitive is the
+		// point, and the tier-2 aliases are exempt because pointing at a
+		// primitive is exactly what they are for.
+		const semantic = new Set(
+			[...css.matchAll(/^	(--[\w-]+):\s*var\(/gm)].map((m) => m[1])
+		);
+		//
+		// The rule is scoped to the brand hues that HAVE a semantic alias:
+		// `--color-orange` is backed by `--primary`, `--color-amber` by
+		// `--warning`. Reaching for those two in a component hardcodes brand
+		// intent that a theme is entitled to own.
+		//
+		// The role colours are a different case and stay out of it. The primitive
+		// name IS the role there: nothing sits behind `--color-info` except a hex,
+		// so an alias would be indirection without a decision. Shape and measure
+		// (`--space-md`, `--radius-md`, `--text-h1`) are not theme questions at
+		// all — no rebrand makes a card's padding 20px — and stay single-tier.
+		const brandOnly = new Set(['--color-orange', '--color-amber']);
+
+		// Walk every stylesheet, minus the `:root` blocks that define the tiers.
+		const reached = new Set(
+			sheets.flatMap((s) =>
+				s
+					.split(/^}\s*$/m)
+					.filter((chunk) => !/:root\s*{/.test(chunk))
+					.flatMap((chunk) => [...chunk.matchAll(/var\((--color-[\w-]+)\)/g)].map((m) => m[1]))
+			)
+		);
+		const leaked = [...reached].filter((n) => brandOnly.has(n) && !semantic.has(n));
+		expect(
+			leaked,
+			`components must read the semantic tier for a brand hue: ${leaked.join(', ')}`
+		).toEqual([]);
 	});
 });
 
@@ -206,18 +266,18 @@ describe('typography', () => {
 		const unique = [...new Set(declared)];
 		expect(unique.length, `scales disagree on the UI face: ${unique.join(' vs ')}`).toBe(1);
 
-		const token = css.match(/--fr-font-ui:\s*([^;]+);/)?.[1] ?? '';
-		expect(token, 'tokens.css declares no --fr-font-ui').not.toBe('');
+		const token = css.match(/--font-ui:\s*([^;]+);/)?.[1] ?? '';
+		expect(token, 'tokens.css declares no --font-ui').not.toBe('');
 		expect(
 			firstFamily(token),
-			`DESIGN.md says "${unique[0]}" but --fr-font-ui starts with "${firstFamily(token)}"`
+			`DESIGN.md says "${unique[0]}" but --font-ui starts with "${firstFamily(token)}"`
 		).toBe(unique[0]);
 	});
 
 	it('loads the family it names via @font-face', () => {
 		// A family named in the stack but never declared is silently dropped to the
 		// system fallback — which is exactly how "Inter" behaved for months.
-		const uiFamily = firstFamily(css.match(/--fr-font-ui:\s*([^;]+);/)![1]);
+		const uiFamily = firstFamily(css.match(/--font-ui:\s*([^;]+);/)![1]);
 		const declared = [...fontsCss.matchAll(/font-family:\s*'([^']+)'/g)].map((m) => m[1]);
 		expect(declared, `no @font-face declares "${uiFamily}"`).toContain(uiFamily);
 	});
@@ -250,8 +310,8 @@ describe('type scale', () => {
 		return Number(m[1]) * (m[2] === 'px' ? 1 : 16);
 	};
 	const sizeOf = (name: string) => {
-		const value = css.match(new RegExp(`--fr-text-${name}:\\s*([^;]+);`))?.[1];
-		if (!value) throw new Error(`tokens.css declares no --fr-text-${name}`);
+		const value = css.match(new RegExp(`--text-${name}:\\s*([^;]+);`))?.[1];
+		if (!value) throw new Error(`tokens.css declares no --text-${name}`);
 		// A fluid heading is judged by its floor: the size at the smallest viewport.
 		return toPx((/^clamp\(([^,]+),/.exec(value.trim())?.[1] ?? value).trim());
 	};
@@ -286,8 +346,8 @@ describe('type scale', () => {
 	it('implements every fluid heading exactly as DESIGN.md documents it', () => {
 		expect(fluidTable.length, 'no fluid-heading table found in DESIGN.md').toBeGreaterThan(0);
 		for (const { name, expr } of fluidTable) {
-			expect(css, `tokens.css is missing --fr-text-${name}: ${expr}`).toContain(
-				`--fr-text-${name}: ${expr};`
+			expect(css, `tokens.css is missing --text-${name}: ${expr}`).toContain(
+				`--text-${name}: ${expr};`
 			);
 		}
 	});
@@ -315,8 +375,8 @@ describe('type scale', () => {
 	it('holds static text still — no viewport unit in the text steps', () => {
 		// Body copy that reflows because someone resized a window is hostile to read.
 		for (const name of ['caption', 'sm', 'base', 'lg']) {
-			const value = css.match(new RegExp(`--fr-text-${name}:\\s*([^;]+);`))?.[1] ?? '';
-			expect(value, `--fr-text-${name} must not scale with the viewport`).not.toMatch(
+			const value = css.match(new RegExp(`--text-${name}:\\s*([^;]+);`))?.[1] ?? '';
+			expect(value, `--text-${name} must not scale with the viewport`).not.toMatch(
 				/clamp|vw|vh/
 			);
 		}
@@ -324,14 +384,12 @@ describe('type scale', () => {
 
 	it('keeps the ladder monotonic — a bigger heading is never smaller', () => {
 		const ladder = [
-			'display-xl',
 			'display',
 			'h1',
 			'h2',
 			'h3',
 			'h4',
 			'h5',
-			'h6',
 			'lg',
 			'base',
 			'sm',
@@ -342,15 +400,15 @@ describe('type scale', () => {
 			const below = sizeOf(ladder[i]);
 			expect(
 				above,
-				`--fr-text-${ladder[i - 1]} (${above}px) must not be smaller than --fr-text-${ladder[i]} (${below}px)`
+				`--text-${ladder[i - 1]} (${above}px) must not be smaller than --text-${ladder[i]} (${below}px)`
 			).toBeGreaterThanOrEqual(below);
 		}
 	});
 
 	it('maps heading elements onto the ladder instead of raw values', () => {
-		for (const el of ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']) {
+		for (const el of ['h1', 'h2', 'h3', 'h4', 'h5']) {
 			const rule = new RegExp(
-				`^${el}\\s*\\{[^}]*font-size:\\s*var\\((--fr-text-[a-z0-9-]+)\\)`,
+				`^${el}\\s*\\{[^}]*font-size:\\s*var\\((--text-[a-z0-9-]+)\\)`,
 				'm'
 			).exec(css);
 			expect(rule, `${el} takes its font-size from nothing in the scale`).not.toBeNull();
@@ -359,22 +417,20 @@ describe('type scale', () => {
 	});
 
 	it('declares exactly the ladder DESIGN.md defines — no stragglers', () => {
-		// `muted` is the text *colour*, not a size; everything else must be a step.
-		const declared = [...css.matchAll(/--fr-text-([a-z0-9-]+):/g)].map((m) => m[1]).sort();
+		// Muted text is a colour (`--color-text-muted`), never a size — the earlier
+		// `--text-muted` blurred those two and the ladder silently grew a step.
+		const declared = [...css.matchAll(/--text-([a-z0-9-]+):/g)].map((m) => m[1]).sort();
 		expect(declared).toEqual(
 			[
 				'base',
 				'caption',
 				'display',
-				'display-xl',
 				'h1',
 				'h2',
 				'h3',
 				'h4',
 				'h5',
-				'h6',
 				'lg',
-				'muted',
 				'sm'
 			].sort()
 		);
@@ -406,16 +462,15 @@ describe('optical sizing', () => {
 		return out;
 	})();
 
-	const token = (name: string) => css.match(new RegExp(`--fr-${name}:\\s*([^;]+);`))?.[1]?.trim();
+	const token = (name: string) => css.match(new RegExp(`--${name}:\\s*([^;]+);`))?.[1]?.trim();
 
 	it('implements the display and body leading DESIGN.md declares', () => {
-		expect(token('display-xl-lh'), '--fr-display-xl-lh').toBe(yamlType['display-xl'].lineHeight);
-		expect(token('display-lh'), '--fr-display-lh').toBe(yamlType['display'].lineHeight);
-		expect(token('body-lh'), '--fr-body-lh').toBe(yamlType['base'].lineHeight);
-		expect(token('display-tracking'), '--fr-display-tracking').toBe(
-			yamlType['display-xl'].letterSpacing
+		expect(token('lh-display'), '--lh-display').toBe(yamlType['display'].lineHeight);
+		expect(token('lh-body'), '--lh-body').toBe(yamlType['base'].lineHeight);
+		expect(token('tracking-display'), '--tracking-display').toBe(
+			yamlType['display'].letterSpacing
 		);
-		expect(token('body-tracking'), '--fr-body-tracking').toBe(yamlType['base'].letterSpacing);
+		expect(token('tracking-body'), '--tracking-body').toBe(yamlType['base'].letterSpacing);
 	});
 
 	it('gives lg and base the same body leading — one body size, one rhythm', () => {
@@ -425,7 +480,7 @@ describe('optical sizing', () => {
 
 	it('applies the body leading to the document, not just the token', () => {
 		const bodyRule = /body\s*\{[^}]*\}/.exec(css)?.[0] ?? '';
-		expect(bodyRule).toContain('line-height: var(--fr-body-lh)');
-		expect(bodyRule).toContain('letter-spacing: var(--fr-body-tracking)');
+		expect(bodyRule).toContain('line-height: var(--lh-body)');
+		expect(bodyRule).toContain('letter-spacing: var(--tracking-body)');
 	});
 });

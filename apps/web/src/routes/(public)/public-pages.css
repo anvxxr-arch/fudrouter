@@ -30,12 +30,12 @@
 	display: flex;
 	flex-direction: column;
 	align-items: flex-start;
-	gap: var(--fr-space-md);
+	gap: var(--space-md);
 
 	/* Enough room to breathe at desktop, tight enough on a phone that the CTA
 	   is never below the fold. */
-	padding-block: clamp(var(--fr-space-2xl), 9vw, var(--fr-space-3xl));
-	padding-inline: var(--fr-space-lg);
+	padding-block: clamp(var(--space-2xl), 9vw, var(--space-3xl));
+	padding-inline: var(--space-lg);
 	overflow: hidden;
 
 	/* The type is the hero, so the copy column is capped: an 11-word lede
@@ -45,11 +45,11 @@
 
 .display-xl {
 	margin: 0;
-	font-size: var(--fr-text-h1);
+	font-size: var(--text-h1);
 	line-height: 1.04;
 	letter-spacing: -0.03em;
 	text-wrap: balance;
-	color: var(--fr-text);
+	color: var(--color-text);
 }
 
 /*
@@ -77,9 +77,9 @@
 .lede {
 	margin: 0;
 	max-width: 34rem;
-	font-size: var(--fr-text-lg);
+	font-size: var(--text-lg);
 	line-height: 1.5;
-	color: var(--fr-text-muted);
+	color: var(--color-text-muted);
 	text-wrap: pretty;
 }
 
@@ -90,10 +90,10 @@
 .metrics-strip {
 	display: grid;
 	grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
-	gap: var(--fr-space-md);
-	padding: var(--fr-space-lg);
-	border-block: 1px solid var(--fr-border);
-	background: var(--fr-surface);
+	gap: var(--space-md);
+	padding: var(--space-lg);
+	border-block: 1px solid var(--color-border);
+	background: var(--color-surface);
 }
 
 /* ── Features ───────────────────────────────────────────────────────────────
@@ -102,25 +102,25 @@
 .features {
 	display: grid;
 	grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
-	gap: var(--fr-space-xl);
-	padding: var(--fr-space-2xl) var(--fr-space-lg);
+	gap: var(--space-xl);
+	padding: var(--space-2xl) var(--space-lg);
 }
 
 .features article {
 	display: flex;
 	flex-direction: column;
-	gap: var(--fr-space-sm);
+	gap: var(--space-sm);
 }
 
 .features h2 {
 	margin: 0;
-	font-size: var(--fr-text-h4);
-	color: var(--fr-text);
+	font-size: var(--text-h4);
+	color: var(--color-text);
 }
 
 .features .muted {
 	margin: 0;
-	color: var(--fr-text-muted);
+	color: var(--color-text-muted);
 	line-height: 1.6;
 }
 
@@ -128,42 +128,42 @@
  * The block a developer copies from, so it is set in the mono face at a size
  * that stays readable while scanning paths. */
 .endpoints {
-	padding: 0 var(--fr-space-lg) var(--fr-space-2xl);
+	padding: 0 var(--space-lg) var(--space-2xl);
 }
 
 .endpoints > h2 {
-	margin: 0 0 var(--fr-space-lg);
-	font-size: var(--fr-text-h3);
-	color: var(--fr-text);
+	margin: 0 0 var(--space-lg);
+	font-size: var(--text-h3);
+	color: var(--color-text);
 }
 
 .endpoint-grid {
 	display: grid;
 	grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
-	gap: var(--fr-space-md);
+	gap: var(--space-md);
 }
 
 .endpoint-card {
 	display: flex;
 	flex-direction: column;
-	gap: var(--fr-space-xs);
+	gap: var(--space-xs);
 
 	/* A card you can point at, rather than a list item. */
-	padding: var(--fr-space-md);
-	border: 1px solid var(--fr-border);
-	border-radius: var(--fr-radius-md);
-	background: var(--fr-surface);
-	transition: border-color var(--fr-dur-fast) var(--fr-ease);
+	padding: var(--space-md);
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-md);
+	background: var(--color-surface);
+	transition: border-color var(--duration-fast) var(--ease);
 }
 
 .endpoint-card:hover {
-	border-color: var(--fr-border-strong);
+	border-color: var(--color-border-strong);
 }
 
 .endpoint-card code {
-	font-family: var(--fr-font-mono);
-	font-size: var(--fr-text-sm);
-	color: var(--fr-text);
+	font-family: var(--font-mono);
+	font-size: var(--text-sm);
+	color: var(--color-text);
 	overflow-wrap: anywhere;
 }
 
@@ -173,21 +173,21 @@
  * readable for a colour-blind reader and in a forced-colours theme.
  */
 .endpoint-card .method {
-	color: var(--fr-primary);
+	color: var(--primary);
 }
 
 .auth-note {
-	margin: var(--fr-space-lg) 0 0;
-	font-size: var(--fr-text-sm);
-	color: var(--fr-text-muted);
+	margin: var(--space-lg) 0 0;
+	font-size: var(--text-sm);
+	color: var(--color-text-muted);
 }
 
 .auth-note code {
-	font-family: var(--fr-font-mono);
+	font-family: var(--font-mono);
 	padding: 0.1em 0.35em;
-	border-radius: var(--fr-radius-sm);
-	background: var(--fr-surface-raised);
-	color: var(--fr-text);
+	border-radius: var(--radius-sm);
+	background: var(--color-surface-raised);
+	color: var(--color-text);
 }
 
 /* ── Closing CTA ───────────────────────────────────────────────────────────
@@ -197,21 +197,21 @@
 	display: flex;
 	flex-direction: column;
 	align-items: center;
-	gap: var(--fr-space-md);
-	padding: var(--fr-space-3xl) var(--fr-space-lg);
+	gap: var(--space-md);
+	padding: var(--space-3xl) var(--space-lg);
 	text-align: center;
 }
 
 .closing h2 {
 	margin: 0;
-	font-size: var(--fr-text-h2);
+	font-size: var(--text-h2);
 	letter-spacing: -0.02em;
-	color: var(--fr-text);
+	color: var(--color-text);
 }
 
 .closing .muted {
 	margin: 0;
-	color: var(--fr-text-muted);
+	color: var(--color-text-muted);
 }
 
 /* ── Motion ─────────────────────────────────────────────────────────────────
@@ -229,7 +229,7 @@
 	.features article,
 	.endpoint-card,
 	.closing > * {
-		animation: fr-rise var(--fr-dur-med) var(--fr-ease) backwards;
+		animation: fr-rise var(--duration-med) var(--ease) backwards;
 	}
 
 	/* Staggered by position, not by index: three cells, three steps, and the
@@ -280,24 +280,24 @@
 .pricing-grid {
 	display: grid;
 	grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
-	gap: var(--fr-space-lg);
+	gap: var(--space-lg);
 }
 
 .price-card {
 	display: flex;
 	flex-direction: column;
-	gap: var(--fr-space-sm);
-	padding: var(--fr-space-card);
-	border: 1px solid var(--fr-border);
-	border-radius: var(--fr-radius-md);
-	background: var(--fr-surface);
+	gap: var(--space-sm);
+	padding: var(--space-card);
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-md);
+	background: var(--color-surface);
 	transition:
-		border-color var(--fr-dur-fast) var(--fr-ease),
-		transform var(--fr-dur-fast) var(--fr-ease);
+		border-color var(--duration-fast) var(--ease),
+		transform var(--duration-fast) var(--ease);
 }
 
 .price-card:hover {
-	border-color: var(--fr-border-strong);
+	border-color: var(--color-border-strong);
 	transform: translateY(-2px);
 }
 
@@ -305,22 +305,22 @@
 	display: flex;
 	align-items: baseline;
 	justify-content: space-between;
-	gap: var(--fr-space-sm);
+	gap: var(--space-sm);
 }
 
 .price-card h3 {
 	margin: 0;
-	font-size: var(--fr-text-lg);
-	color: var(--fr-text);
+	font-size: var(--text-lg);
+	color: var(--color-text);
 	overflow-wrap: anywhere;
 }
 
 /* The slug only renders when it differs from the name, so when it does render
  * it has to look secondary — it is a copy target, not a heading. */
 .price-card .slug {
-	font-family: var(--fr-font-mono);
-	font-size: var(--fr-text-caption);
-	color: var(--fr-text-muted);
+	font-family: var(--font-mono);
+	font-size: var(--text-caption);
+	color: var(--color-text-muted);
 	overflow-wrap: anywhere;
 }
 
@@ -331,21 +331,21 @@
  */
 .prices {
 	margin-top: auto;
-	padding-top: var(--fr-space-sm);
-	border-top: 1px solid var(--fr-border);
+	padding-top: var(--space-sm);
+	border-top: 1px solid var(--color-border);
 }
 
 .price-row {
 	display: flex;
 	align-items: baseline;
 	justify-content: space-between;
-	gap: var(--fr-space-sm);
+	gap: var(--space-sm);
 }
 
 .price {
-	font-family: var(--fr-font-mono);
-	font-size: var(--fr-text-base);
-	color: var(--fr-text);
+	font-family: var(--font-mono);
+	font-size: var(--text-base);
+	color: var(--color-text);
 	font-variant-numeric: tabular-nums;
 }
 
@@ -363,43 +363,43 @@
 .indicator {
 	display: flex;
 	align-items: center;
-	gap: var(--fr-space-sm);
-	padding: var(--fr-space-md) var(--fr-space-lg);
-	border: 1px solid var(--fr-border);
-	border-radius: var(--fr-radius-md);
-	background: var(--fr-surface);
+	gap: var(--space-sm);
+	padding: var(--space-md) var(--space-lg);
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-md);
+	background: var(--color-surface);
 }
 
 .dot {
 	width: 0.6rem;
 	height: 0.6rem;
-	border-radius: var(--fr-radius-pill);
-	background: var(--fr-success);
+	border-radius: var(--radius-pill);
+	background: var(--color-success);
 	flex-shrink: 0;
 }
 
 /* The one place a state is shown by colour as well as word: a slow pulse, so a
  * glance at the tab title area is enough. `transform` only, so it composites. */
 .indicator:not(.down) .dot {
-	animation: fr-pulse 2.4s var(--fr-ease) infinite;
+	animation: fr-pulse 2.4s var(--ease) infinite;
 }
 
 .indicator.down .dot {
-	background: var(--fr-danger);
+	background: var(--color-danger);
 }
 
 .state {
-	font-size: var(--fr-text-lg);
-	color: var(--fr-text);
+	font-size: var(--text-lg);
+	color: var(--color-text);
 }
 
 .sep,
 .meta {
-	color: var(--fr-text-muted);
+	color: var(--color-text-muted);
 }
 
 .meta {
-	font-size: var(--fr-text-sm);
+	font-size: var(--text-sm);
 }
 
 @keyframes fr-pulse {
@@ -430,76 +430,76 @@
 .surface-grid {
 	display: grid;
 	grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
-	gap: var(--fr-space-md);
+	gap: var(--space-md);
 }
 
 .surface-card {
 	display: flex;
 	flex-direction: column;
-	gap: var(--fr-space-sm);
-	padding: var(--fr-space-card);
-	border: 1px solid var(--fr-border);
-	border-radius: var(--fr-radius-md);
-	background: var(--fr-surface);
+	gap: var(--space-sm);
+	padding: var(--space-card);
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-md);
+	background: var(--color-surface);
 }
 
 .surface-card header {
 	display: flex;
 	flex-direction: column;
-	gap: var(--fr-space-xs);
+	gap: var(--space-xs);
 }
 
 .surface-card h3 {
 	margin: 0;
-	font-size: var(--fr-text-lg);
-	color: var(--fr-text);
+	font-size: var(--text-lg);
+	color: var(--color-text);
 }
 
 .surface-card .endpoint {
-	font-family: var(--fr-font-mono);
-	font-size: var(--fr-text-sm);
-	color: var(--fr-primary);
+	font-family: var(--font-mono);
+	font-size: var(--text-sm);
+	color: var(--primary);
 	overflow-wrap: anywhere;
 }
 
 .surface-card .muted {
 	margin: 0;
-	color: var(--fr-text-muted);
+	color: var(--color-text-muted);
 	line-height: 1.5;
 }
 
 .model-grid {
 	display: grid;
 	grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
-	gap: var(--fr-space-md);
+	gap: var(--space-md);
 }
 
 .model-card {
 	display: flex;
 	flex-direction: column;
-	gap: var(--fr-space-sm);
-	padding: var(--fr-space-card);
-	border: 1px solid var(--fr-border);
-	border-radius: var(--fr-radius-md);
-	background: var(--fr-surface);
-	transition: border-color var(--fr-dur-fast) var(--fr-ease);
+	gap: var(--space-sm);
+	padding: var(--space-card);
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-md);
+	background: var(--color-surface);
+	transition: border-color var(--duration-fast) var(--ease);
 }
 
 .model-card:hover {
-	border-color: var(--fr-border-strong);
+	border-color: var(--color-border-strong);
 }
 
 .model-card header {
 	display: flex;
 	align-items: baseline;
 	justify-content: space-between;
-	gap: var(--fr-space-sm);
+	gap: var(--space-sm);
 }
 
 .model-card h3 {
 	margin: 0;
-	font-size: var(--fr-text-base);
-	color: var(--fr-text);
+	font-size: var(--text-base);
+	color: var(--color-text);
 	overflow-wrap: anywhere;
 }
 
@@ -511,20 +511,20 @@
 	display: flex;
 	flex-direction: column;
 	gap: 2px;
-	padding-top: var(--fr-space-sm);
-	border-top: 1px solid var(--fr-border);
+	padding-top: var(--space-sm);
+	border-top: 1px solid var(--color-border);
 }
 
 .model-card .slug {
-	font-family: var(--fr-font-mono);
-	font-size: var(--fr-text-caption);
-	color: var(--fr-text-muted);
+	font-family: var(--font-mono);
+	font-size: var(--text-caption);
+	color: var(--color-text-muted);
 	overflow-wrap: anywhere;
 }
 
 .model-card .context {
-	font-size: var(--fr-text-caption);
-	color: var(--fr-text-muted);
+	font-size: var(--text-caption);
+	color: var(--color-text-muted);
 	font-variant-numeric: tabular-nums;
 }
 
@@ -536,15 +536,15 @@
 	display: flex;
 	flex-direction: column;
 	align-items: center;
-	gap: var(--fr-space-lg);
+	gap: var(--space-lg);
 	min-height: 62vh;
 	justify-content: center;
-	padding: var(--fr-space-2xl) var(--fr-space-lg);
+	padding: var(--space-2xl) var(--space-lg);
 }
 
 .swap {
-	font-size: var(--fr-text-sm);
-	color: var(--fr-text-muted);
+	font-size: var(--text-sm);
+	color: var(--color-text-muted);
 }
 
 /* ══ Shared CTA / closing block ═══════════════════════════════════════════ */
@@ -553,7 +553,7 @@
 	display: flex;
 	flex-direction: column;
 	align-items: center;
-	gap: var(--fr-space-sm);
-	padding: var(--fr-space-2xl) var(--fr-space-lg);
+	gap: var(--space-sm);
+	padding: var(--space-2xl) var(--space-lg);
 	text-align: center;
 }

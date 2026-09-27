@@ -48,9 +48,9 @@
 						{
 							label,
 							data: days.map((d) => d.requests),
-							backgroundColor: token('--fr-primary'),
-							hoverBackgroundColor: token('--fr-primary-hover'),
-							borderRadius: Number.parseInt(token('--fr-radius-sm') || '4', 10),
+							backgroundColor: token('--primary'),
+							hoverBackgroundColor: token('--primary-hover'),
+							borderRadius: Number.parseInt(token('--radius-sm') || '4', 10),
 							maxBarThickness: 26
 						}
 					]
@@ -64,12 +64,12 @@
 					plugins: {
 						legend: { display: false },
 						tooltip: {
-							backgroundColor: token('--fr-surface-raised'),
-							borderColor: token('--fr-border-strong'),
+							backgroundColor: token('--color-surface-raised'),
+							borderColor: token('--color-border-strong'),
 							borderWidth: 1,
-							cornerRadius: Number.parseInt(token('--fr-radius-md') || '8', 10),
-							titleColor: token('--fr-text'),
-							bodyColor: token('--fr-text'),
+							cornerRadius: Number.parseInt(token('--radius-md') || '8', 10),
+							titleColor: token('--color-text'),
+							bodyColor: token('--color-text'),
 							displayColors: false,
 							padding: 10,
 							callbacks: {
@@ -89,20 +89,20 @@
 					scales: {
 						x: {
 							grid: { display: false },
-							border: { color: token('--fr-border') },
+							border: { color: token('--color-border') },
 							ticks: {
-								color: token('--fr-text-muted'),
-								font: { family: token('--fr-font-mono'), size: 11 },
+								color: token('--color-text-muted'),
+								font: { family: token('--font-mono'), size: 11 },
 								maxRotation: 0
 							}
 						},
 						y: {
 							beginAtZero: true,
-							grid: { color: token('--fr-border') },
+							grid: { color: token('--color-border') },
 							border: { display: false },
 							ticks: {
-								color: token('--fr-text-muted'),
-								font: { family: token('--fr-font-mono'), size: 11 },
+								color: token('--color-text-muted'),
+								font: { family: token('--font-mono'), size: 11 },
 								precision: 0
 							}
 						}

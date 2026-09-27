@@ -148,11 +148,11 @@
 	}
 	.secret {
 		display: block;
-		margin-top: var(--fr-space-sm);
+		margin-top: var(--space-sm);
 		word-break: break-all;
 	}
 	form {
 		display: grid;
-		gap: var(--fr-space-md);
+		gap: var(--space-md);
 	}
 </style>

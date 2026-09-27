@@ -20,21 +20,21 @@
 <style>
 	.stat {
 		display: grid;
-		gap: var(--fr-space-sm);
+		gap: var(--space-sm);
 		min-width: 8rem;
-		padding: var(--fr-space-card);
-		background: var(--fr-surface);
-		border: 1px solid var(--fr-border);
-		border-radius: var(--fr-radius-lg);
+		padding: var(--space-card);
+		background: var(--color-surface);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-lg);
 	}
 	.value {
-		font-size: var(--fr-text-h3);
-		line-height: var(--fr-display-lh);
+		font-size: var(--text-h3);
+		line-height: var(--lh-display);
 	}
 	.success {
-		color: var(--fr-success);
+		color: var(--color-success);
 	}
 	.danger {
-		color: var(--fr-danger);
+		color: var(--color-danger);
 	}
 </style>

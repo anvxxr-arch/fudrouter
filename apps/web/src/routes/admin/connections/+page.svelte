@@ -73,6 +73,6 @@
 
 <style>
 	tr.inuse td {
-		background: color-mix(in srgb, var(--fr-success) 7%, transparent);
+		background: color-mix(in srgb, var(--color-success) 7%, transparent);
 	}
 </style>

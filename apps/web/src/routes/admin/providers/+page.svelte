@@ -157,6 +157,6 @@
 	}
 	form {
 		display: grid;
-		gap: var(--fr-space-md);
+		gap: var(--space-md);
 	}
 </style>

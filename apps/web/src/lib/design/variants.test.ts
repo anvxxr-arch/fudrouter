@@ -88,13 +88,13 @@ describe('no atom re-declares a shared style', () => {
 	 * Declarations that belong to a shared shell in components.css and nowhere else.
 	 *
 	 * Only *composite* shell geometry is listed. Referencing a token is not
-	 * duplication — `Badge` using `--fr-radius-pill` is a component consuming the
+	 * duplication — `Badge` using `--radius-pill` is a component consuming the
 	 * design system, which is the point of having tokens at all.
 	 */
 	const shared = [
-		'--fr-control-h-md',
-		'--fr-control-h-sm',
-		'--fr-control-h-lg',
+		'--control-h-md',
+		'--control-h-sm',
+		'--control-h-lg',
 		'letter-spacing: 0.04em'
 	];
 
@@ -145,8 +145,8 @@ describe('shared class names', () => {
 	});
 
 	it('only references control-height tokens that tokens.css declares', () => {
-		const declared = new Set([...tokens.matchAll(/--fr-control-h-[a-z0-9]+/g)].map((m) => m[0]));
-		const used = new Set([...css.matchAll(/--fr-control-h-[a-z0-9]+/g)].map((m) => m[0]));
+		const declared = new Set([...tokens.matchAll(/--control-h-[a-z0-9]+/g)].map((m) => m[0]));
+		const used = new Set([...css.matchAll(/--control-h-[a-z0-9]+/g)].map((m) => m[0]));
 		expect(used.size).toBeGreaterThan(0);
 		for (const u of used) {
 			expect(declared, `${u} is used in components.css but not declared in tokens.css`).toContain(
@@ -164,7 +164,16 @@ describe('DESIGN.md describes what is actually built', () => {
 	// one with `danger` text. Nothing failed, because nothing compared the two.
 	const spec = readFileSync(new URL('../../../../../DESIGN.md', import.meta.url), 'utf8');
 
-	/** `surfaceRaised` -> `surface-raised`, the token naming rule. */
+	/**
+	 * A spec colour name -> the CSS custom property that implements it.
+	 *
+	 * `colors.*` is the primitive tier and is prefixed (`surfaceRaised` ->
+	 * `--color-surface-raised`); `semantic.*` is the alias tier and is not
+	 * (`primary` -> `--primary`). The spec states the tier in the ref itself, so
+	 * there is nothing to guess here.
+	 */
+	const tokenFor = (tier: string, name: string) =>
+		tier === 'semantic' ? `--${kebab(name)}` : `--color-${kebab(name)}`;
 	const kebab = (s: string) => s.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
 
 	/** The `button-<variant>:` entry's declared colours, as CSS token names. */
@@ -179,8 +188,8 @@ describe('DESIGN.md describes what is actually built', () => {
 			// to their CSS custom-property name; raw values pass through unchanged.
 			const m = new RegExp(`^\\s+${key}:\\s*"([^"]+)"`, 'm').exec(block);
 			if (!m) return null;
-			const token = /^\{colors\.([A-Za-z]+)\}$/.exec(m[1]);
-			return token ? kebab(token[1]) : m[1];
+			const token = /^\{(colors|semantic)\.([A-Za-z]+)\}$/.exec(m[1]);
+			return token ? tokenFor(token[1], token[2]) : m[1];
 		};
 		const bg = ref('backgroundColor');
 		const fg = ref('textColor');
@@ -195,9 +204,9 @@ describe('DESIGN.md describes what is actually built', () => {
 	 * `--_fg` alone. So the resolved colours are the base's with the variant
 	 * layered on top — not just whatever the variant block literally contains.
 	 *
-	 * A value can be either a `var(--fr-...)` token ref (which we read by name)
+	 * A value can be either a `var(--...)` token ref (which we read by name)
 	 * or a raw CSS value like `transparent` (which we read literally). Token refs
-	 * win: `ghost` sets `--_fg` to `var(--fr-info)`, so we report `info`; the base
+	 * win: `ghost` sets `--_fg` to `var(--color-info)`, so we report `info`; the base
 	 * sets `--_bg` to `transparent`, so we report `transparent`.
 	 */
 	const implementedColours = (variant: string) => {
@@ -205,7 +214,10 @@ describe('DESIGN.md describes what is actually built', () => {
 		const override = new RegExp(`\\.fr-btn--${variant}\\s*\\{([^}]*)\\}`).exec(css)?.[1];
 		if (!base) return null;
 		const get = (prop: string, block: string) => {
-			const varMatch = new RegExp(`${prop}:\\s*var\\(--fr-([a-z0-9-]+)\\)`).exec(block);
+			// Both tiers reach here: a component may name the semantic token
+			// (`--primary`) but never a brand primitive, so the whole `var(--…)`
+			// name is what we compare against the spec's tier-aware ref.
+			const varMatch = new RegExp(`${prop}:\\s*var\\((--[a-z0-9-]+)\\)`).exec(block);
 			if (varMatch) return varMatch[1];
 			const rawMatch = new RegExp(`${prop}:\\s*([^;]+);`).exec(block);
 			return rawMatch ? rawMatch[1].trim() : null;

@@ -19,13 +19,13 @@
 	.badge {
 		display: inline-flex;
 		align-items: center;
-		gap: var(--fr-space-xs);
-		padding: 2px var(--fr-space-sm);
-		border: 1px solid var(--fr-border);
-		border-radius: var(--fr-radius-pill);
-		background: var(--fr-surface-raised);
+		gap: var(--space-xs);
+		padding: 2px var(--space-sm);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-pill);
+		background: var(--color-surface-raised);
 		color: var(--_tone);
-		font-size: var(--fr-text-caption);
+		font-size: var(--text-caption);
 		font-weight: 600;
 		white-space: nowrap;
 	}

@@ -623,31 +623,31 @@
 		margin-top: 0;
 	}
 	h3 {
-		margin-top: var(--fr-space-lg);
+		margin-top: var(--space-lg);
 	}
 	form {
 		display: grid;
-		gap: var(--fr-space-md);
+		gap: var(--space-md);
 	}
 	.inline-form {
 		display: flex;
 		flex-wrap: wrap;
-		gap: var(--fr-space-md);
+		gap: var(--space-md);
 		align-items: end;
-		margin-block: var(--fr-space-md);
+		margin-block: var(--space-md);
 	}
 	.stats {
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
-		gap: var(--fr-space-md);
+		gap: var(--space-md);
 	}
 	.tier-filter,
 	.bulk {
 		display: flex;
 		flex-wrap: wrap;
-		gap: var(--fr-space-sm);
+		gap: var(--space-sm);
 		align-items: center;
-		margin-block: var(--fr-space-md);
+		margin-block: var(--space-md);
 	}
 	.bulk .muted {
 		margin-right: auto;
@@ -657,22 +657,22 @@
 	.gallery {
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
-		gap: var(--fr-space-md);
+		gap: var(--space-md);
 	}
 	.model-card {
 		min-width: 0;
 		display: grid;
-		gap: var(--fr-space-xs);
+		gap: var(--space-xs);
 		align-content: start;
-		padding: var(--fr-space-card);
-		background: var(--fr-surface);
-		border: 1px solid var(--fr-border);
-		border-radius: var(--fr-radius-lg);
+		padding: var(--space-card);
+		background: var(--color-surface);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-lg);
 	}
 	.model-card .head {
 		display: flex;
 		flex-wrap: wrap;
-		gap: var(--fr-space-sm);
+		gap: var(--space-sm);
 		align-items: flex-start;
 		justify-content: space-between;
 		min-width: 0;
@@ -683,24 +683,24 @@
 	}
 	.badges {
 		display: flex;
-		gap: var(--fr-space-xs);
+		gap: var(--space-xs);
 		flex-wrap: wrap;
 	}
 	.small {
-		font-size: var(--fr-text-sm);
+		font-size: var(--text-sm);
 	}
 	.reply {
 		margin: 0;
-		padding: var(--fr-space-card);
-		background: var(--fr-surface-raised);
-		border: 1px solid var(--fr-border);
-		border-radius: var(--fr-radius-md);
+		padding: var(--space-card);
+		background: var(--color-surface-raised);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-md);
 		white-space: pre-wrap;
 		overflow-wrap: anywhere;
 	}
 	.chat-result {
 		display: grid;
-		gap: var(--fr-space-md);
-		margin-top: var(--fr-space-lg);
+		gap: var(--space-md);
+		margin-top: var(--space-lg);
 	}
 </style>

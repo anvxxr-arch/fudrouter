@@ -18,10 +18,10 @@
 <style>
 	.field {
 		display: grid;
-		gap: var(--fr-space-xs);
+		gap: var(--space-xs);
 	}
 	.hint {
-		color: var(--fr-text-muted);
-		font-size: var(--fr-text-sm);
+		color: var(--color-text-muted);
+		font-size: var(--text-sm);
 	}
 </style>

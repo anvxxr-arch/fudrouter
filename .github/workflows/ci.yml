@@ -53,6 +53,11 @@ jobs:
           FLEXYROUTE_CLIENT_SECRET=ci-placeholder-client-secret
           EOF
       - run: npx playwright install --with-deps chromium
+      - name: Check the generated theme against DESIGN.md
+        # theme.tailwind.css is generated from the spec. It drifted silently
+        # for as long as the file existed: editing DESIGN.md left the mirror
+        # stale and nothing failed, because nothing compared the two.
+        run: python3 tools/regen_theme.py --check
       - run: npm run db:migrate --workspace apps/web
       - run: npm run db:check --workspace apps/web
       - run: npm run check --workspace apps/web

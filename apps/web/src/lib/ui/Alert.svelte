@@ -23,17 +23,17 @@
 		/* Text stays neutral: DESIGN.md gives Alert a *coloured left border*, and
 		   `Badge` is the atom that tints its text. Without this the shared
 		   `.fr-tone-*` colour rule would leak in and tint the copy too. */
-		color: var(--fr-text);
-		padding: var(--fr-space-sm) var(--fr-space-md);
-		background: var(--fr-surface);
-		border: 1px solid var(--fr-border);
+		color: var(--color-text);
+		padding: var(--space-sm) var(--space-md);
+		background: var(--color-surface);
+		border: 1px solid var(--color-border);
 		/* The fallback rides in the var() so it cannot outrank the tone class.
-		   As a `--_tone: var(--fr-info)` DECLARATION it did: this scoped `.alert`
+		   As a `--_tone: var(--color-info)` DECLARATION it did: this scoped `.alert`
 		   selector compiles to `.alert.svelte-xxx` (0,2,0) and beat
 		   `.fr-tone-warning` (0,1,0), so every Alert rendered info blue whatever
 		   its tone. An unrecognised tone still degrades to the info border. */
-		border-left: 3px solid var(--_tone, var(--fr-info));
-		border-radius: var(--fr-radius-md);
-		font-size: var(--fr-text-sm);
+		border-left: 3px solid var(--_tone, var(--color-info));
+		border-radius: var(--radius-md);
+		font-size: var(--text-sm);
 	}
 </style>

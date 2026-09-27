@@ -2,7 +2,15 @@
 version: alpha
 name: Fudrouter
 description: A dark-first developer console — precise, calm, and legible under long working sessions. Inspired by Apple Human Interface Design.
+# Tier 1 — primitives. Raw values, named for what they ARE, never for where
+# they go. A rebrand edits one value here and nothing downstream has to know.
+# Nothing in a component may consume this tier: `--color-orange` in a button
+# means "this is orange", not "this is the action colour".
 colors:
+  orange: "#FF6C11"
+  orangeHover: "#FF8A3D"
+  amber: "#FFAA2B"
+  cream: "#FFE2AE"
   bg: "#090B0F"
   surface: "#151922"
   surfaceRaised: "#1E2430"
@@ -10,26 +18,21 @@ colors:
   borderStrong: "#3D4660"
   text: "#F5F6F8"
   textMuted: "#8B94A3"
-  primary: "#FF6C11"
-  primaryHover: "#FF8A3D"
-  onPrimary: "#090B0F"
-  orange: "#FF6C11"
-  orangeHover: "#FF8A3D"
-  amber: "#FFAA2B"
-  cream: "#FFE2AE"
   success: "#10B981"
-  warning: "#FFAA2B"
   danger: "#F87171"
   info: "#38BDF8"
-  focus: "2px solid #FF6C11"
-  bpTablet: "820px"
+  focus: "2px solid {colors.orange}"
+  # Tier 2 — semantic. What a colour is FOR, and the only tier a component
+  # reads. Thin on purpose: a semantic token earns its place only when it
+  # names a decision a theme could make differently. `--success` qualifies (a
+  # status badge must go green without a stylesheet knowing what green is);
+  # a token that merely renames a primitive does not, and there are none.
+semantic:
+  primary: "{colors.orange}"
+  primaryHover: "{colors.orangeHover}"
+  onPrimary: "{colors.bg}"
+  warning: "{colors.amber}"
 typography:
-  display-xl:
-    fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif"
-    fontSize: 3.5rem
-    fontWeight: 700
-    lineHeight: 1.07
-    letterSpacing: "-0.028em"
   display:
     fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif"
     fontSize: 3.5rem
@@ -60,11 +63,6 @@ typography:
   h5:
     fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif"
     fontSize: 1.25rem
-    fontWeight: 600
-    lineHeight: 1.4
-  h6:
-    fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif"
-    fontSize: 1.125rem
     fontWeight: 600
     lineHeight: 1.4
   lg:
@@ -124,14 +122,14 @@ motion:
   ease: "cubic-bezier(0.16, 1, 0.3, 1)"
 components:
   button-primary:
-    backgroundColor: "{colors.primary}"
-    textColor: "{colors.onPrimary}"
+    backgroundColor: "{semantic.primary}"
+    textColor: "{semantic.onPrimary}"
     rounded: "{rounded.md}"
     padding: 8px
     height: 44px
   button-primary-hover:
-    backgroundColor: "{colors.primaryHover}"
-    textColor: "{colors.onPrimary}"
+    backgroundColor: "{semantic.primaryHover}"
+    textColor: "{semantic.onPrimary}"
   button-secondary:
     backgroundColor: "{colors.surfaceRaised}"
     textColor: "{colors.text}"
@@ -185,7 +183,7 @@ components:
     padding: 4px
   badge-warning:
     backgroundColor: "{colors.surfaceRaised}"
-    textColor: "{colors.warning}"
+    textColor: "{semantic.warning}"
     rounded: "{rounded.pill}"
     padding: 4px
   badge-danger:
@@ -281,13 +279,12 @@ The three audiences — **public** visitors, **members** (buyers), and **staff**
 The scale splits in two:
 
 - **Static text** — `caption` · `sm` · `base` · `lg`. Fixed at every viewport.
-- **Fluid headings** — `h6` · `h5` · `h4` · `h3` · `h2` · `h1` · `display` · `display-xl`. Grow with viewport.
+- **Fluid headings** — `h5` · `h4` · `h3` · `h2` · `h1` · `display`. Grow with viewport. (`h6` and `display-xl` were removed — each was byte-identical to `lg` and `display` respectively, so the second name was a way to spell the same step twice.)
 
-**Optical sizing (Apple HIG):** Display sizes (≥20px) use tighter tracking and lighter stroke; body sizes (<20px) use tighter, sturdier tracking. The `display-xl` headline runs at `line-height: 1.07` with `letter-spacing: -0.028em` — compressed, billboard-like impact. Body copy at `1.47` line-height with `-0.00374em` tracking — comfortable without slack.
+**Optical sizing (Apple HIG):** Display sizes (≥20px) use tighter tracking and lighter stroke; body sizes (<20px) use tighter, sturdier tracking. The `display` headline runs at `line-height: 1.07` with `letter-spacing: -0.028em` — compressed, billboard-like impact. Body copy at `1.47` line-height with `-0.00374em` tracking — comfortable without slack.
 
 | Token | Floor | Fluid expression | Ceiling |
 | --- | --- | --- | --- |
-| `display-xl` | 3.5rem | `clamp(3.5rem, 3.05rem + 2vw, 4.75rem)` | 4.75rem |
 | `display` | 3.5rem | `clamp(3.5rem, 3.05rem + 2vw, 4.75rem)` | 4.75rem |
 | `h1` | 2.75rem | `clamp(2.75rem, 2.48rem + 1.2vw, 3.5rem)` | 3.5rem |
 | `h2` | 2.25rem | `clamp(2.25rem, 2.07rem + 0.8vw, 2.75rem)` | 2.75rem |

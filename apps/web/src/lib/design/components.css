@@ -34,8 +34,8 @@
  * geometry (padding, border, alignment) in tokens.css. */
 .fr-label,
 table.fr th {
-	color: var(--fr-text-muted);
-	font-size: var(--fr-text-caption);
+	color: var(--color-text-muted);
+	font-size: var(--text-caption);
 	font-weight: 600;
 	letter-spacing: 0.04em;
 	text-transform: uppercase;
@@ -54,7 +54,7 @@ table.fr th {
  * submit control on the same baseline — they are literally the same rule. */
 .fr-btn {
 	--_bg: transparent;
-	--_fg: var(--fr-text);
+	--_fg: var(--color-text);
 	--_bd: transparent;
 	--_bg-hover: var(--_bg);
 	--_bd-hover: var(--_bd);
@@ -62,15 +62,15 @@ table.fr th {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
-	gap: var(--fr-space-xs);
-	min-height: var(--fr-control-h-md);
-	padding: 0 var(--fr-space-md);
+	gap: var(--space-xs);
+	min-height: var(--control-h-md);
+	padding: 0 var(--space-md);
 	border: 1px solid var(--_bd);
-	border-radius: var(--fr-radius-md);
+	border-radius: var(--radius-md);
 	background: var(--_bg);
 	color: var(--_fg);
 	font-family: inherit;
-	font-size: var(--fr-text-sm);
+	font-size: var(--text-sm);
 	font-weight: 600;
 	line-height: 1;
 	cursor: pointer;
@@ -97,66 +97,66 @@ table.fr th {
 }
 
 .fr-btn--primary {
-	--_bg: var(--fr-primary);
-	--_fg: var(--fr-on-primary);
-	--_bg-hover: var(--fr-primary-hover);
+	--_bg: var(--primary);
+	--_fg: var(--on-primary);
+	--_bg-hover: var(--primary-hover);
 }
 
 .fr-btn--secondary {
-	--_bg: var(--fr-surface-raised);
-	--_bd: var(--fr-border-strong);
-	--_bd-hover: var(--fr-primary);
+	--_bg: var(--color-surface-raised);
+	--_bd: var(--color-border-strong);
+	--_bd-hover: var(--primary);
 }
 
 .fr-btn--danger {
-	--_bg: var(--fr-surface-raised);
-	--_fg: var(--fr-danger);
-	--_bd: color-mix(in srgb, var(--fr-danger) 45%, var(--fr-border-strong));
-	--_bg-hover: color-mix(in srgb, var(--fr-danger) 14%, var(--fr-surface-raised));
+	--_bg: var(--color-surface-raised);
+	--_fg: var(--color-danger);
+	--_bd: color-mix(in srgb, var(--color-danger) 45%, var(--color-border-strong));
+	--_bg-hover: color-mix(in srgb, var(--color-danger) 14%, var(--color-surface-raised));
 }
 
 .fr-btn--ghost {
-	--_fg: var(--fr-info);
-	--_bg-hover: var(--fr-surface);
+	--_fg: var(--color-info);
+	--_bg-hover: var(--color-surface);
 }
 
 /* Sizes. Only the metrics that actually differ — everything else is inherited. */
 .fr-btn--sm {
-	min-height: var(--fr-control-h-sm);
-	padding: 0 var(--fr-space-sm);
-	font-size: var(--fr-text-caption);
+	min-height: var(--control-h-sm);
+	padding: 0 var(--space-sm);
+	font-size: var(--text-caption);
 }
 
 .fr-btn--md {
-	min-height: var(--fr-control-h-md);
+	min-height: var(--control-h-md);
 }
 
 .fr-btn--lg {
-	min-height: var(--fr-control-h-lg);
-	padding: 0 var(--fr-space-lg);
-	font-size: var(--fr-text-base);
+	min-height: var(--control-h-lg);
+	padding: 0 var(--space-lg);
+	font-size: var(--text-base);
 }
 
 /* ── Control (input / select / textarea) ─────────────────────────────────────
  * The same shell for all three, so a row of mixed controls lines up. */
 .fr-control {
 	width: 100%;
-	min-height: var(--fr-control-h-md);
-	padding: 0 var(--fr-space-md);
-	background: var(--fr-surface);
-	border: 1px solid var(--fr-border-strong);
-	border-radius: var(--fr-radius-md);
-	color: var(--fr-text);
+	min-height: var(--control-h-md);
+	padding: 0 var(--space-md);
+	background: var(--color-surface);
+	border: 1px solid var(--color-border-strong);
+	border-radius: var(--radius-md);
+	color: var(--color-text);
 	font-family: inherit;
-	font-size: var(--fr-text-sm);
+	font-size: var(--text-sm);
 }
 
 .fr-control::placeholder {
-	color: var(--fr-text-muted);
+	color: var(--color-text-muted);
 }
 
 .fr-control:hover:not(:disabled):not([aria-invalid='true']) {
-	border-color: var(--fr-primary);
+	border-color: var(--primary);
 }
 
 .fr-control:disabled {
@@ -167,14 +167,14 @@ table.fr th {
 /* Validation failure is a border AND the word, never colour alone — the message
  * is the caller's, this only marks the field. */
 .fr-control[aria-invalid='true'] {
-	border-color: var(--fr-danger);
+	border-color: var(--color-danger);
 }
 
 /* Multi-line controls size by content, not by a fixed control height. */
 .fr-control--multiline {
 	min-height: 0;
-	padding: var(--fr-space-sm);
-	font-family: var(--fr-font-mono);
+	padding: var(--space-sm);
+	font-family: var(--font-mono);
 	resize: vertical;
 }
 
@@ -182,26 +182,26 @@ table.fr th {
  * member of CONTROL_SIZES has a rule — and so a future change to the base cannot
  * silently move the default size. */
 .fr-control--sm {
-	min-height: var(--fr-control-h-sm);
-	padding: 0 var(--fr-space-xs);
-	font-size: var(--fr-text-caption);
+	min-height: var(--control-h-sm);
+	padding: 0 var(--space-xs);
+	font-size: var(--text-caption);
 }
 
 .fr-control--md {
-	min-height: var(--fr-control-h-md);
+	min-height: var(--control-h-md);
 }
 
 .fr-control--lg {
-	min-height: var(--fr-control-h-lg);
-	padding: 0 var(--fr-space-md);
-	font-size: var(--fr-text-base);
+	min-height: var(--control-h-lg);
+	padding: 0 var(--space-md);
+	font-size: var(--text-base);
 }
 
 /* ── Feedback ───────────────────────────────────────────────────────────────
  * A wrapper for Alert that adds bottom margin. 16 occurrences across 9 pages
- * used to each define `.feedback { margin-bottom: var(--fr-space-md) }`. */
+ * used to each define `.feedback { margin-bottom: var(--space-md) }`. */
 .fr-feedback {
-	margin-bottom: var(--fr-space-md);
+	margin-bottom: var(--space-md);
 }
 
 /* ── Layout utilities ───────────────────────────────────────────────────────
@@ -209,32 +209,32 @@ table.fr th {
 .fr-grid {
 	display: grid;
 	grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
-	gap: var(--fr-space-md);
+	gap: var(--space-md);
 }
 
 .fr-stats {
 	display: flex;
 	flex-wrap: wrap;
-	gap: var(--fr-space-md);
-	margin-bottom: var(--fr-space-md);
+	gap: var(--space-md);
+	margin-bottom: var(--space-md);
 }
 
 .fr-actions {
 	display: flex;
-	gap: var(--fr-space-sm);
+	gap: var(--space-sm);
 	justify-content: flex-end;
 }
 
 .fr-inline {
 	display: inline-flex;
 	align-items: center;
-	gap: var(--fr-space-xs);
+	gap: var(--space-xs);
 }
 
 .fr-section {
 	display: grid;
-	gap: var(--fr-space-sm);
-	margin-top: var(--fr-space-xl);
+	gap: var(--space-sm);
+	margin-top: var(--space-xl);
 }
 .fr-section > header h2 {
 	margin: 0;
@@ -242,25 +242,25 @@ table.fr th {
 .fr-lede {
 	margin: 0;
 	max-width: 46rem;
-	color: var(--fr-text-muted);
+	color: var(--color-text-muted);
 }
 .fr-prose {
 	display: grid;
-	gap: var(--fr-space-sm);
+	gap: var(--space-sm);
 	max-width: 46rem;
 }
 .fr-prose p {
 	margin: 0;
 }
 .fr-guide > .fr-section:first-child {
-	margin-top: var(--fr-space-md);
+	margin-top: var(--space-md);
 }
 
 /* Term/detail. The label is `.fr-label` (uppercase caption); the value is not.
  * `minmax(0, 1fr)` so a long unbreakable value shrinks instead of widening the page. */
 .fr-dl {
 	display: grid;
-	gap: var(--fr-space-md);
+	gap: var(--space-md);
 	margin: 0;
 }
 /* Rows are separated by SPACING, never a rule. A full-width hairline here is
@@ -270,7 +270,7 @@ table.fr th {
 .fr-dl > div {
 	display: grid;
 	grid-template-columns: minmax(8rem, 14rem) minmax(0, 1fr);
-	gap: var(--fr-space-xs) var(--fr-space-md);
+	gap: var(--space-xs) var(--space-md);
 	align-items: baseline;
 }
 .fr-dl dd {
@@ -282,7 +282,7 @@ table.fr th {
 /* Labeled sample. `pre` geometry stays in tokens.css; this only stacks the caption. */
 .fr-code {
 	display: grid;
-	gap: var(--fr-space-xs);
+	gap: var(--space-xs);
 	margin: 0;
 	min-width: 0;
 }
@@ -291,48 +291,48 @@ table.fr th {
 .fr-divider {
 	display: flex;
 	align-items: center;
-	gap: var(--fr-space-md);
-	margin: var(--fr-space-lg) 0;
-	color: var(--fr-text-muted);
-	font-size: var(--fr-text-sm);
+	gap: var(--space-md);
+	margin: var(--space-lg) 0;
+	color: var(--color-text-muted);
+	font-size: var(--text-sm);
 }
 .fr-divider::before,
 .fr-divider::after {
 	content: '';
 	flex: 1;
 	height: 1px;
-	background: var(--fr-border);
+	background: var(--color-border);
 }
 
 /* One accent mark under a marketing headline. Flat primary, not a gradient. */
 .fr-rule {
 	width: 2.5rem;
 	height: 2px;
-	margin: 0 0 var(--fr-space-md);
+	margin: 0 0 var(--space-md);
 	border: 0;
-	background: var(--fr-primary);
+	background: var(--primary);
 }
 
 /* The scene edge — a hairline that fades out at both ends, drawn where two
  * scenes share one background. A solid `border` there reads as a table rule. */
 .fr-visual-divider {
 	height: 1px;
-	margin: var(--fr-space-2xl) 0;
+	margin: var(--space-2xl) 0;
 	border: 0;
 	background: linear-gradient(
 		90deg,
 		transparent,
-		color-mix(in srgb, var(--fr-orange) 55%, transparent) 18%,
-		color-mix(in srgb, var(--fr-amber) 55%, transparent) 82%,
+		color-mix(in srgb, var(--primary) 55%, transparent) 18%,
+		color-mix(in srgb, var(--warning) 55%, transparent) 82%,
 		transparent
 	);
 }
 
-/* Matches --fr-bp-tablet. A two-column fact row cannot hold a long value at 320px. */
+/* Matches 820px. A two-column fact row cannot hold a long value at 320px. */
 @media (max-width: 820px) {
 	.fr-dl > div {
 		grid-template-columns: minmax(0, 1fr);
-		gap: var(--fr-space-xs);
+		gap: var(--space-xs);
 	}
 }
 
@@ -342,19 +342,19 @@ table.fr th {
  * the colour — `Badge` and `Alert` each used to carry their own copy of this
  * table, which is two places to update when a colour moves. */
 .fr-tone-neutral {
-	--_tone: var(--fr-text-muted);
+	--_tone: var(--color-text-muted);
 }
 .fr-tone-info {
-	--_tone: var(--fr-info);
+	--_tone: var(--color-info);
 }
 .fr-tone-success {
-	--_tone: var(--fr-success);
+	--_tone: var(--color-success);
 }
 .fr-tone-warning {
-	--_tone: var(--fr-warning);
+	--_tone: var(--warning);
 }
 .fr-tone-danger {
-	--_tone: var(--fr-danger);
+	--_tone: var(--color-danger);
 }
 
 /* A tone carrier PAINTS its text, so a plain element can carry a tone without a

@@ -12,12 +12,12 @@
 <style>
 	.empty {
 		display: grid;
-		gap: var(--fr-space-xs);
-		padding: var(--fr-space-xl) var(--fr-space-md);
+		gap: var(--space-xs);
+		padding: var(--space-xl) var(--space-md);
 		text-align: center;
-		color: var(--fr-text-muted);
+		color: var(--color-text-muted);
 	}
 	.hint {
-		font-size: var(--fr-text-sm);
+		font-size: var(--text-sm);
 	}
 </style>

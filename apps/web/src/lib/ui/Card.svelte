@@ -13,9 +13,9 @@
 
 <style>
 	.card {
-		background: var(--fr-surface);
-		border: 1px solid var(--fr-border);
-		border-radius: var(--fr-radius-lg);
-		padding: var(--fr-space-card);
+		background: var(--color-surface);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-lg);
+		padding: var(--space-card);
 	}
 </style>

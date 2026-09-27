@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { resolve } from '$app/paths';
 	import { formatCost, formatTokens, formatDateTime } from '$lib/format';
 	import { Alert, Badge, EmptyState, Guide, PageHeader, StatCard, TableWrap } from '$lib/ui';
 

@@ -45,6 +45,7 @@ export function parseTier(value: unknown): TierFilter {
 export function cleanSlug(value: unknown, max = MAX_SLUG_CHARS): string | null {
 	const s = String(value ?? '').trim();
 	if (!s || s.length > max) return null;
+	// eslint-disable-next-line no-control-regex
 	if (/[\s\u0000-\u001f\u007f]/.test(s)) return null;
 	return s;
 }
@@ -83,8 +84,49 @@ export function parseIndex(value: unknown, count: number): number | null {
 	return n;
 }
 
-/** Only http(s), never with credentials embedded, never with a fragment. */
-export function safeUpstreamUrl(baseUrl: unknown): string | null {
+/**
+ * Hosts an admin-provided `base_url` must never reach.
+ *
+ * `base_url` is attacker-controllable by anyone holding `admin.providers` (and,
+ * before the privilege-ordering fix, by a self-promoted `finance_admin`), and the
+ * provider page fetches `<base_url>/models` and `<base_url>/chat/completions`
+ * server-side — so without this a base_url of `http://127.0.0.1:5432` or
+ * `http://169.254.169.254/` turns those actions into an SSRF probe of the
+ * loopback/LAN/metadata surface. Blocks literal private addresses, loopback,
+ * link-local and CGNAT. A DNS name that resolves to a private address still needs
+ * a dial-time check (out of scope here); this closes the literal-IP case.
+ *
+ * Escapable via `ALLOW_PRIVATE_UPSTREAMS` because this deployment legitimately
+ * runs local upstreams (the seed provider is `http://127.0.0.1:20128/v1`).
+ */
+function isBlockedHost(host: string): boolean {
+	const h = host.toLowerCase().replace(/^\[|\]$/g, '');
+	if (h === 'localhost' || h.endsWith('.localhost')) return true;
+	const m = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+	if (m) {
+		const a = Number(m[1]);
+		const b = Number(m[2]);
+		if (a === 0 || a === 10 || a === 127) return true;
+		if (a === 169 && b === 254) return true; // link-local incl. cloud metadata
+		if (a === 172 && b >= 16 && b <= 31) return true;
+		if (a === 192 && b === 168) return true;
+		if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
+		return false;
+	}
+	// IPv6 loopback, link-local (fe80::/10) and unique-local (fc00::/7).
+	if (h === '::1') return true;
+	if (h.startsWith('fe80:') || h.startsWith('fc') || h.startsWith('fd')) return true;
+	return false;
+}
+
+/**
+ * Only http(s), never with credentials embedded, never with a fragment.
+ *
+ * `allowPrivate` (from `ALLOW_PRIVATE_UPSTREAMS`) relaxes the loopback/private
+ * block for a deployment whose upstreams are local. It is an explicit argument
+ * rather than an env read so this module stays pure and testable.
+ */
+export function safeUpstreamUrl(baseUrl: unknown, allowPrivate = false): string | null {
 	let u: URL;
 	try {
 		u = new URL(String(baseUrl ?? '').trim());
@@ -94,6 +136,8 @@ export function safeUpstreamUrl(baseUrl: unknown): string | null {
 	if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
 	// `https://user:pass@host` puts a secret in every log line and error message.
 	if (u.username || u.password) return null;
+	// A private/loopback/link-local target turns this fetch into an SSRF probe.
+	if (!allowPrivate && isBlockedHost(u.hostname)) return null;
 	u.hash = '';
 	return u.toString().replace(/\/$/, '');
 }

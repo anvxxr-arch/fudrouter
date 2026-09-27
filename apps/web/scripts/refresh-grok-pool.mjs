@@ -54,7 +54,18 @@ function duration(s) {
 	const m = /^(\d+)(s|m|h)?$/.exec(s);
 	if (!m) throw new Error(`bad duration: ${s}`);
 	const n = Number(m[1]);
-	return n * (m[2] === 's' ? 1000 : m[2] === 'm' ? 60000 : m[2] === 'h' ? 3600000 : m[2] === undefined ? 1000 : 0);
+	return (
+		n *
+		(m[2] === 's'
+			? 1000
+			: m[2] === 'm'
+				? 60000
+				: m[2] === 'h'
+					? 3600000
+					: m[2] === undefined
+						? 1000
+						: 0)
+	);
 }
 for (let i = 0; i < argv.length; i++) {
 	const a = argv[i];
@@ -96,7 +107,11 @@ function encrypt(plain) {
 // ---- refresh ----------------------------------------------------------------
 async function refresh(rt) {
 	if (!rt) return { ok: false, error: 'no refresh token' };
-	const body = new URLSearchParams({ grant_type: 'refresh_token', refresh_token: rt, client_id: CLIENT_ID });
+	const body = new URLSearchParams({
+		grant_type: 'refresh_token',
+		refresh_token: rt,
+		client_id: CLIENT_ID
+	});
 	let res;
 	try {
 		res = await fetch(TOKEN_ENDPOINT, {
@@ -113,7 +128,9 @@ async function refresh(rt) {
 		try {
 			const j = JSON.parse(text);
 			why = j.error_description || j.error || why;
-		} catch {}
+		} catch {
+			// non-JSON error body: `why` already holds the raw text
+		}
 		return { ok: false, error: `HTTP ${res.status}: ${why}` };
 	}
 	let j;
@@ -134,7 +151,8 @@ async function refresh(rt) {
 // A refusal that will never change: the account is gone, not unlucky. Anything
 // else (network, 5xx, rate limit) is kept — dropping accounts because upstream
 // hiccuped is how a pool shrinks for no reason.
-const TERMINAL = /invalid_grant|invalid or unknown refresh token|blocked|unauthorized|HTTP 40[013]/i;
+const TERMINAL =
+	/invalid_grant|invalid or unknown refresh token|blocked|unauthorized|HTTP 40[013]/i;
 
 function parseExpiry(s) {
 	const t = Date.parse(s || '');
@@ -251,7 +269,8 @@ if (!dryRun && (refreshed.size > 0 || dropped.length > 0)) {
 	// UPDATE that matches nothing succeeds silently — the rotations then live
 	// only in the farm files while the database keeps the chain they rotated
 	// away from. Assert the write landed.
-	const res = await sql`update provider set credentials_enc = ${encrypt(JSON.stringify(payload))} where id = ${row.id}`;
+	const res =
+		await sql`update provider set credentials_enc = ${encrypt(JSON.stringify(payload))} where id = ${row.id}`;
 	if (res.count !== 1) {
 		console.error(`persist matched ${res.count} provider rows (expected 1) — aborting`);
 		await sql.end();
@@ -270,7 +289,9 @@ if (!dryRun) {
 			if (existed) {
 				try {
 					prior = JSON.parse(readFileSync(f, 'utf8'));
-				} catch {}
+				} catch {
+					// corrupt state file: start a fresh object rather than lose the write
+				}
 			}
 			writeFileSync(f, JSON.stringify({ ...prior, ...a }, null, 2) + '\n', { mode: 0o600 });
 			written++;
@@ -297,7 +318,7 @@ const summary = {
 const unhealthy =
 	!dryRun &&
 	(dropped.length > 0 ||
-	(accounts.length > 0 && final.length < accounts.length * 0.9) ||
+		(accounts.length > 0 && final.length < accounts.length * 0.9) ||
 		(targets.length > 0 && kept.length > targets.length / 2));
 if (unhealthy) {
 	console.error(

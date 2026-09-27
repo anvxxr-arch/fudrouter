@@ -20,7 +20,10 @@ import { join } from 'node:path';
 import { decryptCredentials } from '../src/lib/server/credentials.ts';
 
 const PROVIDER = process.env.INFERHUB_PROVIDER_ID || 'inferhub';
-const BASE_URL = (process.env.INFERHUB_BASE_URL || 'https://api.inferhub.dev/v1').replace(/\/+$/, '');
+const BASE_URL = (process.env.INFERHUB_BASE_URL || 'https://api.inferhub.dev/v1').replace(
+	/\/+$/,
+	''
+);
 const ROUTER = (process.env.ROUTER_BASE_URL || 'http://127.0.0.1:8100').replace(/\/+$/, '');
 const DSN = process.env.DATABASE_URL;
 if (!DSN) {
@@ -42,14 +45,21 @@ function devKey() {
 	try {
 		execFileSync(
 			process.execPath,
-			['--experimental-strip-types', '--env-file=.env', 'scripts/dev-api-key.mjs', 'inferhub-verify'],
+			[
+				'--experimental-strip-types',
+				'--env-file=.env',
+				'scripts/dev-api-key.mjs',
+				'inferhub-verify'
+			],
 			{ env: { ...process.env, DEV_KEY_OUT: out }, stdio: 'pipe' }
 		);
 		return readFileSync(out, 'utf8').trim();
 	} finally {
 		try {
 			unlinkSync(out);
-		} catch {}
+		} catch {
+			// best-effort temp cleanup; a leftover file must not fail the gate
+		}
 	}
 }
 
@@ -67,7 +77,9 @@ async function chat(key, model) {
 	let body = null;
 	try {
 		body = await res.json();
-	} catch {}
+	} catch {
+		// non-JSON error body: the status line still tells the story
+	}
 	return { res, body };
 }
 
@@ -109,7 +121,9 @@ try {
 	);
 	check(
 		'accounts never refresh (static keys, far-future expiry)',
-		(creds.accounts ?? []).every((a) => a.refresh_token === null && String(a.expired).startsWith('2099'))
+		(creds.accounts ?? []).every(
+			(a) => a.refresh_token === null && String(a.expired).startsWith('2099')
+		)
 	);
 
 	// 3. models attached
@@ -138,7 +152,11 @@ try {
 	} else if (saturated) {
 		check('router reached inferhub (HTTP 503 — market has no capacity right now)', true, type);
 	} else {
-		check('router reached inferhub', false, `HTTP ${r.res.status} ${JSON.stringify(r.body).slice(0, 160)}`);
+		check(
+			'router reached inferhub',
+			false,
+			`HTTP ${r.res.status} ${JSON.stringify(r.body).slice(0, 160)}`
+		);
 	}
 } finally {
 	await sql.end();

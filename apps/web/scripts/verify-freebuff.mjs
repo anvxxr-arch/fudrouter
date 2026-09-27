@@ -36,14 +36,21 @@ function devKey() {
 	try {
 		execFileSync(
 			process.execPath,
-			['--experimental-strip-types', '--env-file=.env', 'scripts/dev-api-key.mjs', 'freebuff-verify'],
+			[
+				'--experimental-strip-types',
+				'--env-file=.env',
+				'scripts/dev-api-key.mjs',
+				'freebuff-verify'
+			],
 			{ env: { ...process.env, DEV_KEY_OUT: out }, stdio: 'pipe' }
 		);
 		return readFileSync(out, 'utf8').trim();
 	} finally {
 		try {
 			unlinkSync(out);
-		} catch {}
+		} catch {
+			// best-effort temp cleanup; a leftover file must not fail the gate
+		}
 	}
 }
 
@@ -61,7 +68,9 @@ async function chat(key, model) {
 	let body = null;
 	try {
 		body = await res.json();
-	} catch {}
+	} catch {
+		// non-JSON error body: the status line still tells the story
+	}
 	return { res, body };
 }
 
@@ -77,7 +86,11 @@ try {
 	}
 	const p = rows[0];
 	check('status is active or dev', p.status === 'active' || p.status === 'dev', p.status);
-	check('base_url is the Codebuff host', p.base_url.replace(/\/+$/, '') === 'https://www.codebuff.com', p.base_url);
+	check(
+		'base_url is the Codebuff host',
+		p.base_url.replace(/\/+$/, '') === 'https://www.codebuff.com',
+		p.base_url
+	);
 
 	// 2. the stored blob decrypts and declares the native protocol
 	let creds;
@@ -103,7 +116,9 @@ try {
 	);
 	check(
 		'accounts never refresh (static tokens, far-future expiry)',
-		(creds.accounts ?? []).every((a) => a.refresh_token === null && String(a.expired).startsWith('2099'))
+		(creds.accounts ?? []).every(
+			(a) => a.refresh_token === null && String(a.expired).startsWith('2099')
+		)
 	);
 
 	// 3. models attached
@@ -111,12 +126,15 @@ try {
 		select m.slug from model m join provider p on p.id = m.provider_id
 		where p.id = ${PROVIDER} and m.status = 'active' order by m.slug`;
 	check('active models attached', models.length >= 10, `${models.length} models`);
-	check('free tier is priced at zero', await (async () => {
-		const priced = await sql`
+	check(
+		'free tier is priced at zero',
+		await (async () => {
+			const priced = await sql`
 			select count(*)::int as n from model m join provider p on p.id = m.provider_id
 			where p.id = ${PROVIDER} and (m.input_price <> 0 or m.output_price <> 0)`;
-		return priced[0].n === 0;
-	})());
+			return priced[0].n === 0;
+		})()
+	);
 
 	// 4. drive the RUNNING router: this is the real proof the Go protocol works
 	const key = devKey();
@@ -126,8 +144,13 @@ try {
 	check(`router ${'z-ai/glm-5.3-flash'} HTTP 200`, direct.res.ok, `HTTP ${direct.res.status}`);
 	const text = direct.body?.choices?.[0]?.message?.content ?? '';
 	check('router returned content', text.trim().length > 0, JSON.stringify(text.slice(0, 40)));
-	check('router reported usage', !!direct.body?.usage,
-		direct.body?.usage ? `in ${direct.body.usage.prompt_tokens} / out ${direct.body.usage.completion_tokens}` : 'none');
+	check(
+		'router reported usage',
+		!!direct.body?.usage,
+		direct.body?.usage
+			? `in ${direct.body.usage.prompt_tokens} / out ${direct.body.usage.completion_tokens}`
+			: 'none'
+	);
 
 	// A paused model must be transparently served by its fallback (Resolve).
 	const fb = await chat(key, 'google/gemini-3.8-flash');

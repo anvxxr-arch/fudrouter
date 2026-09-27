@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { enhance } from '$app/forms';
 	import {
 		Alert,
@@ -77,7 +78,7 @@
 />
 
 <p class="muted">
-	<a href="/admin/providers">← All providers</a>
+	<a href={resolve('/admin/providers')}>← All providers</a>
 </p>
 
 {#if form?.error}<div class="fr-feedback"><Alert tone="danger">{form.error}</Alert></div>{/if}

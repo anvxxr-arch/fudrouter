@@ -32,7 +32,10 @@ const CLI_VERSION = process.env.XAI_CLI_VERSION || '0.1.202';
 
 const argv = process.argv.slice(2);
 let providerName = process.env.XAI_PROVIDER_NAME || 'xai-grok';
-let limit = Infinity, workers = 6, prune = false, asJson = false;
+let limit = Infinity,
+	workers = 6,
+	prune = false,
+	asJson = false;
 for (let i = 0; i < argv.length; i++) {
 	const a = argv[i];
 	if (a === '--provider') providerName = argv[++i];
@@ -40,13 +43,22 @@ for (let i = 0; i < argv.length; i++) {
 	else if (a === '--workers') workers = Number(argv[++i]) || 6;
 	else if (a === '--prune') prune = true;
 	else if (a === '--json') asJson = true;
-	else { console.error(`unknown argument: ${a}`); process.exit(2); }
+	else {
+		console.error(`unknown argument: ${a}`);
+		process.exit(2);
+	}
 }
 
 const MASTER = process.env.CREDENTIALS_MASTER_KEY;
 const DSN = process.env.DATABASE_URL;
-if (!MASTER) { console.error('missing env: CREDENTIALS_MASTER_KEY'); process.exit(1); }
-if (!DSN) { console.error('missing env: DATABASE_URL'); process.exit(1); }
+if (!MASTER) {
+	console.error('missing env: CREDENTIALS_MASTER_KEY');
+	process.exit(1);
+}
+if (!DSN) {
+	console.error('missing env: DATABASE_URL');
+	process.exit(1);
+}
 
 const key = Buffer.from(MASTER, 'base64');
 function decrypt(wire) {
@@ -69,13 +81,18 @@ async function get(token, path, timeoutMs = 25000) {
 			headers: {
 				Authorization: `Bearer ${token}`,
 				'User-Agent': 'grok-cli/0.1.202',
-				'x-grok-client-version': CLI_VERSION,
+				'x-grok-client-version': CLI_VERSION
 			},
-			signal: ctl.signal,
+			signal: ctl.signal
 		});
 		const text = await res.text();
 		let body = null;
-		try { body = JSON.parse(text); } catch {}
+		// body stays null on a non-JSON body; callers read the raw text for the error
+		try {
+			body = JSON.parse(text);
+		} catch {
+			/* keep null */
+		}
 		return { status: res.status, body, text };
 	} catch (err) {
 		return { status: 0, body: null, text: String(err.message || err) };
@@ -88,14 +105,23 @@ const sql = postgres(DSN);
 try {
 	const [row] = await sql`
 		select id, credentials_enc from provider where name = ${providerName}`;
-	if (!row) { console.error(`provider not found: ${providerName}`); process.exit(1); }
+	if (!row) {
+		console.error(`provider not found: ${providerName}`);
+		process.exit(1);
+	}
 
 	const blob = JSON.parse(decrypt(row.credentials_enc));
 	const accounts = blob.accounts || [];
-	if (!accounts.length) { console.error('provider has no accounts'); process.exit(1); }
+	if (!accounts.length) {
+		console.error('provider has no accounts');
+		process.exit(1);
+	}
 
 	const targets = accounts.slice(0, Number.isFinite(limit) ? limit : accounts.length);
-	if (!asJson) console.log(`checking ${targets.length}/${accounts.length} account(s) on ${providerName} with ${workers} workers...\n`);
+	if (!asJson)
+		console.log(
+			`checking ${targets.length}/${accounts.length} account(s) on ${providerName} with ${workers} workers...\n`
+		);
 
 	const results = [];
 	let idx = 0;
@@ -104,7 +130,7 @@ try {
 			const a = targets[idx++];
 			const [user, billing] = await Promise.all([
 				get(a.access_token, '/user'),
-				get(a.access_token, '/billing'),
+				get(a.access_token, '/billing')
 			]);
 			const cfg = billing.body?.config;
 			results.push({
@@ -117,7 +143,7 @@ try {
 				monthlyLimit: cfg?.monthlyLimit?.val ?? null,
 				onDemandCap: cfg?.onDemandCap?.val ?? null,
 				periodEnd: cfg?.billingPeriodEnd ?? null,
-				_a: a,
+				_a: a
 			});
 		}
 	}
@@ -131,21 +157,40 @@ try {
 	const healthy = results.filter((r) => r.httpUser === 200 && !r.blocked && r.grokCode !== false);
 
 	if (asJson) {
-		console.log(JSON.stringify({ provider: providerName, total: accounts.length, checked: results.length,
-			healthy: healthy.length, blocked: blocked.length, noGrokCode: noCode.length, unreachable: dead.length,
-			accounts: results.map(({ _a, ...r }) => r) }, null, 2));
+		console.log(
+			JSON.stringify(
+				{
+					provider: providerName,
+					total: accounts.length,
+					checked: results.length,
+					healthy: healthy.length,
+					blocked: blocked.length,
+					noGrokCode: noCode.length,
+					unreachable: dead.length,
+					// `_a` is the raw account (it holds the api_key) — kept for the table
+					// path below, stripped here so the JSON dump can never carry a key.
+					accounts: results.map((row) => {
+						const r = { ...row };
+						delete r._a;
+						return r;
+					})
+				},
+				null,
+				2
+			)
+		);
 	} else {
 		console.log('email'.padEnd(38) + 'user  bill  used  limit  grokCode  blocked');
 		console.log('-'.repeat(84));
 		for (const r of results) {
 			console.log(
 				String(r.email).padEnd(38) +
-				String(r.httpUser).padEnd(6) +
-				String(r.httpBilling).padEnd(6) +
-				String(r.used ?? '-').padEnd(6) +
-				String(r.monthlyLimit ?? '-').padEnd(7) +
-				String(r.grokCode ?? '-').padEnd(10) +
-				String(r.blocked ?? '-')
+					String(r.httpUser).padEnd(6) +
+					String(r.httpBilling).padEnd(6) +
+					String(r.used ?? '-').padEnd(6) +
+					String(r.monthlyLimit ?? '-').padEnd(7) +
+					String(r.grokCode ?? '-').padEnd(10) +
+					String(r.blocked ?? '-')
 			);
 		}
 		console.log('\n' + '-'.repeat(84));
@@ -168,8 +213,12 @@ try {
 			await sql`update provider set credentials_enc = ${encrypt(JSON.stringify({ ...blob, accounts: kept, api_key: kept[0].access_token }))} where id = ${row.id}`;
 			const [chk] = await sql`select credentials_enc from provider where id = ${row.id}`;
 			const back = JSON.parse(decrypt(chk.credentials_enc));
-			console.log(`\n--prune: dropped ${bad.size}, pool ${accounts.length} -> ${back.accounts.length} (verified by re-reading)`);
-			console.log('restart the router: Handler.pools caches the pool per provider and never reloads it');
+			console.log(
+				`\n--prune: dropped ${bad.size}, pool ${accounts.length} -> ${back.accounts.length} (verified by re-reading)`
+			);
+			console.log(
+				'restart the router: Handler.pools caches the pool per provider and never reloads it'
+			);
 		}
 	}
 } finally {

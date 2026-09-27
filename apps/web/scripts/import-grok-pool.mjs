@@ -25,7 +25,6 @@ import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 const PROVIDER = process.env.XAI_PROVIDER_NAME || 'xai-grok';
-const BASE_URL = process.env.XAI_BASE_URL || 'https://cli-chat-proxy.grok.com/v1';
 const CLI_VERSION = process.env.XAI_CLI_VERSION || '0.1.202';
 const CLIENT_ID = process.env.XAI_OAUTH_CLIENT_ID || 'b1a00492-073a-47ea-816f-4c329264a828';
 const TOKEN_ENDPOINT = process.env.XAI_TOKEN_ENDPOINT || 'https://auth.x.ai/oauth2/token';
@@ -105,7 +104,9 @@ async function refresh(rt) {
 		try {
 			const j = JSON.parse(text);
 			why = j.error_description || j.error || why;
-		} catch {}
+		} catch {
+			// non-JSON error body: `why` already holds the raw text
+		}
 		return { ok: false, error: `HTTP ${res.status}: ${why}` };
 	}
 	let j;

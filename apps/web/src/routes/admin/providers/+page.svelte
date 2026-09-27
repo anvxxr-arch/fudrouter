@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { enhance } from '$app/forms';
 	import {
 		Alert,
@@ -79,7 +80,7 @@
 		<tbody>
 			{#each data.providers as p (p.id)}
 				<tr>
-					<td><a href="/admin/providers/{p.id}">{p.name}</a></td>
+					<td><a href={resolve('/admin/providers/[id]', { id: p.id })}>{p.name}</a></td>
 					<td><code>{p.baseUrl}</code></td>
 					<td><Badge tone={p.status === 'active' ? 'success' : 'warning'}>{p.status}</Badge></td>
 					<td class="num">{p.priority}</td>

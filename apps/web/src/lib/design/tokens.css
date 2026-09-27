@@ -40,8 +40,16 @@
 	 * that is still visible where the box clips paints a straight seam.
 	 * It never carries meaning and is not interactive. */
 	--fr-glow:
-		radial-gradient(55% 60% at 30% 0%, color-mix(in srgb, var(--fr-orange) 18%, transparent), transparent 60%),
-		radial-gradient(55% 60% at 70% 0%, color-mix(in srgb, var(--fr-amber) 13%, transparent), transparent 60%);
+		radial-gradient(
+			55% 60% at 30% 0%,
+			color-mix(in srgb, var(--fr-orange) 18%, transparent),
+			transparent 60%
+		),
+		radial-gradient(
+			55% 60% at 70% 0%,
+			color-mix(in srgb, var(--fr-amber) 13%, transparent),
+			transparent 60%
+		);
 
 	/* Type.
 	 *

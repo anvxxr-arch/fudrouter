@@ -26,8 +26,7 @@ function guardMayAct(
 	targetRole: string | null,
 	grantedRole?: string
 ): string | null {
-	if (canAdminister(actorRole(locals), targetRole, grantedRole))
-		return null;
+	if (canAdminister(actorRole(locals), targetRole, grantedRole)) return null;
 	return grantedRole !== undefined && grantedRole !== targetRole
 		? 'You cannot grant a role above your own level'
 		: 'You cannot modify a user at or above your own level';

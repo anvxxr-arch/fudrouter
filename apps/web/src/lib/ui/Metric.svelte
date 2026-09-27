@@ -1,7 +1,11 @@
 <script lang="ts">
 	// Atom: a single large metric for hero strips and dashboard overviews.
 	// Value is tabular (no reflow); label is caption treatment.
-	let { label, value, tone = 'neutral' }: { label: string; value: string | number; tone?: string } = $props();
+	let {
+		label,
+		value,
+		tone = 'neutral'
+	}: { label: string; value: string | number; tone?: string } = $props();
 </script>
 
 <div class="metric">

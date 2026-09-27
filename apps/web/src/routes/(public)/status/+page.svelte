@@ -6,10 +6,7 @@
 	let { data } = $props();
 </script>
 
-<PageHeader
-	title="Status"
-	lede="Health of the data plane that answers your API calls."
-/>
+<PageHeader title="Status" lede="Health of the data plane that answers your API calls." />
 
 <div class="fr-decorative-orb" aria-hidden="true">
 	<FluidOrb size={240} color="#3B82F4" />
@@ -47,7 +44,11 @@
 				     a state in one row and a count in the next, so a uniform container is
 				     the honest one — a pill on one row only reads as a missing badge, and
 				     every Badge carries a status dot a count has nothing to mean. -->
-				<td><span class={data.up ? 'fr-tone-success' : 'fr-tone-danger'}>{data.up ? 'Operational' : 'Unreachable'}</span></td>
+				<td
+					><span class={data.up ? 'fr-tone-success' : 'fr-tone-danger'}
+						>{data.up ? 'Operational' : 'Unreachable'}</span
+					></td
+				>
 			</tr>
 			<tr>
 				<td><code>GET /v1/models</code></td>
@@ -60,5 +61,3 @@
 </TableWrap>
 
 <Guide id="status" />
-
-

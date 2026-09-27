@@ -32,8 +32,7 @@
 <Guide id="admin-connections" />
 
 <TableWrap label="Connections">
-<table class="fr">
-	
+	<table class="fr">
 		<thead>
 			<tr>
 				<th>Provider</th><th>Base URL</th><th>Status</th><th>In use</th><th>Requests</th>
@@ -69,10 +68,11 @@
 				<tr><td colspan="9"><EmptyState title="No providers configured" /></td></tr>
 			{/each}
 		</tbody>
-	</table></TableWrap>
+	</table></TableWrap
+>
 
 <style>
-	
 	tr.inuse td {
 		background: color-mix(in srgb, var(--fr-success) 7%, transparent);
-	}</style>
+	}
+</style>

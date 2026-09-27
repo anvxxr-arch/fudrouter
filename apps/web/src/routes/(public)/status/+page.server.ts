@@ -25,8 +25,20 @@ export const load = async () => {
 		const list = await fetch(`${base}/v1/models`);
 		if (list.ok) models = ((await list.json()).data ?? []).length;
 
-		return { up: true, service, models, latencyMs: Date.now() - started, checkedAt: new Date().toISOString() };
+		return {
+			up: true,
+			service,
+			models,
+			latencyMs: Date.now() - started,
+			checkedAt: new Date().toISOString()
+		};
 	} catch {
-		return { up: false, service: '', models: 0, latencyMs: Date.now() - started, checkedAt: new Date().toISOString() };
+		return {
+			up: false,
+			service: '',
+			models: 0,
+			latencyMs: Date.now() - started,
+			checkedAt: new Date().toISOString()
+		};
 	}
 };

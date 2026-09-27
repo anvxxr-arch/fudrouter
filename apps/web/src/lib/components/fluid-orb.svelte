@@ -119,7 +119,10 @@ void main() {
 		const canvasEl = canvas;
 		if (!canvasEl) return;
 
-		const gl = canvasEl.getContext('webgl', { antialias: true, alpha: true }) as WebGLRenderingContext | null;
+		const gl = canvasEl.getContext('webgl', {
+			antialias: true,
+			alpha: true
+		}) as WebGLRenderingContext | null;
 		if (!gl) return;
 
 		const program = gl.createProgram();

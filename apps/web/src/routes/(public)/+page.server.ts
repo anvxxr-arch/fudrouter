@@ -24,7 +24,10 @@ export const load: PageServerLoad = async ({ locals }) => {
 	};
 	try {
 		const [modelsAgg, callsAgg, latencyAgg] = await Promise.all([
-			db.select({ n: sql<number>`count(*)::int` }).from(model).where(eq(model.status, 'active')),
+			db
+				.select({ n: sql<number>`count(*)::int` })
+				.from(model)
+				.where(eq(model.status, 'active')),
 			db.select({ n: sql<number>`count(*)::int` }).from(requestLog),
 			db
 				.select({ avg: sql<string | null>`avg(${requestLog.latencyMs})` })

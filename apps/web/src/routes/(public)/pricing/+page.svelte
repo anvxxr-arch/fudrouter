@@ -10,10 +10,7 @@
 	const per1M = (p: string) => formatCost(BigInt(Math.round(Number(p))));
 </script>
 
-<PageHeader
-	title="Pricing"
-	lede="Pay per token — no seat fees. One API key, every model."
-/>
+<PageHeader title="Pricing" lede="Pay per token — no seat fees. One API key, every model." />
 
 <div class="fr-decorative-orb" aria-hidden="true">
 	<FluidOrb size={280} color="#1A73F2" />
@@ -64,8 +61,9 @@
 
 <Section title="Coding plan" lede="Included in a subscription instead of billed per token.">
 	<p class="muted">
-		Coding-plan models are covered by a subscription. That program is not live yet —
-		see <a href={resolve('/models')}>Models</a> for the preview.
+		Coding-plan models are covered by a subscription. That program is not live yet — see <a
+			href={resolve('/models')}>Models</a
+		> for the preview.
 	</p>
 </Section>
 
@@ -75,5 +73,3 @@
 </div>
 
 <Guide id="pricing" />
-
-

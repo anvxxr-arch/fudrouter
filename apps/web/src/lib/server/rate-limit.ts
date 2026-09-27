@@ -140,10 +140,7 @@ export function limitCredentialAttempt(
 	// Signup has no meaningful identity to limit on: every attempt names a new
 	// address by definition, so a per-email cap would never trigger.
 	if (scope === 'login' && identity) {
-		const decision = consume(
-			`${scope}:id:${identity.toLowerCase()}`,
-			LOGIN_PER_IDENTITY
-		);
+		const decision = consume(`${scope}:id:${identity.toLowerCase()}`, LOGIN_PER_IDENTITY);
 		if (!decision.allowed) return decision;
 	}
 

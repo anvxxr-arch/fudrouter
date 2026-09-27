@@ -44,7 +44,7 @@
 		{ method: 'POST', path: '/v1/chat/completions', note: 'Chat, streaming or not' },
 		{ method: 'GET', path: '/v1/models', note: 'Models this deployment exposes' },
 		{ method: 'GET', path: '/health', note: 'Data-plane liveness' }
-];
+	];
 </script>
 
 <svelte:head>
@@ -56,8 +56,7 @@
 	<hr class="fr-rule" />
 	<h1 class="display-xl">One API.<br />Every model.</h1>
 	<p class="lede">
-		Buy access once, spend it across every provider — metered per request,
-		auditable to the token.
+		Buy access once, spend it across every provider — metered per request, auditable to the token.
 	</p>
 	<div class="fr-actions">
 		<ButtonLink variant="primary" href={resolve('/signup')}>Get started</ButtonLink>
@@ -99,7 +98,9 @@
 			</article>
 		{/each}
 	</div>
-	<p class="muted auth-note">Authenticate with <code>Authorization: Bearer sk-ar-…</code>. Mint a key from your dashboard.</p>
+	<p class="muted auth-note">
+		Authenticate with <code>Authorization: Bearer sk-ar-…</code>. Mint a key from your dashboard.
+	</p>
 </section>
 
 <VisualDivider />
@@ -109,5 +110,3 @@
 	<p class="muted">Sign up, mint a key, and point a client at the API.</p>
 	<ButtonLink variant="primary" href={resolve('/signup')}>Get started</ButtonLink>
 </section>
-
-

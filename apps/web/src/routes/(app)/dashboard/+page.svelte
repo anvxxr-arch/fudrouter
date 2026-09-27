@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import FluidOrb from '$lib/components/fluid-orb.svelte';
-	import {formatCost, formatTokens, formatDateTime} from '$lib/format';
+	import { formatCost, formatTokens, formatDateTime } from '$lib/format';
 	import { Badge, EmptyState, Guide, PageHeader, StatCard, UsageChart, TableWrap } from '$lib/ui';
 
 	let { data } = $props();
@@ -32,14 +32,14 @@
 <Guide id="dashboard" />
 
 <p class="muted">
-	Manage keys under <a href={resolve('/dashboard/keys')}>API Keys</a>. Metered cost, per model, is on
+	Manage keys under <a href={resolve('/dashboard/keys')}>API Keys</a>. Metered cost, per model, is
+	on
 	<a href={resolve('/dashboard/billing')}>Billing</a>.
 </p>
 
 <h2>Recent requests</h2>
 <TableWrap label="Recent requests">
-<table class="fr">
-	
+	<table class="fr">
 		<thead>
 			<tr><th>When</th><th>Model</th><th>In</th><th>Out</th><th>Cost</th><th>Status</th></tr>
 		</thead>
@@ -61,6 +61,5 @@
 				>
 			{/each}
 		</tbody>
-</table></TableWrap>
-
-
+	</table></TableWrap
+>

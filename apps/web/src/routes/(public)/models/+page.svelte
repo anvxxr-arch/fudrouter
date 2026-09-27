@@ -16,7 +16,9 @@
 </div>
 
 <div class="fr-feedback">
-	<Alert tone="warning">Preview build — the free and premium badges below are placeholder data, not billing.</Alert>
+	<Alert tone="warning"
+		>Preview build — the free and premium badges below are placeholder data, not billing.</Alert
+	>
 </div>
 
 <Section title="Surfaces" lede="A surface is the path prefix your client points at.">
@@ -37,7 +39,10 @@
 {#each API_SURFACE_ORDER as surface (surface)}
 	{@const meta = API_SURFACES[surface]}
 	{@const rows = modelsOn(data.catalog, surface)}
-	<Section title={meta.label} lede="{modelsOn(data.catalog, surface).length} models on this surface.">
+	<Section
+		title={meta.label}
+		lede="{modelsOn(data.catalog, surface).length} models on this surface."
+	>
 		{#if rows.length === 0}
 			<EmptyState title="No models on this surface yet" />
 		{:else}
@@ -69,5 +74,3 @@
 {/each}
 
 <Guide id="models" />
-
-

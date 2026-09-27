@@ -21,8 +21,7 @@
 
 <h2>Top resource consumers (by cost)</h2>
 <TableWrap label="Top resource consumers">
-<table class="fr">
-	
+	<table class="fr">
 		<thead>
 			<tr><th>Key</th><th>Owner</th><th>Requests</th><th>Tokens</th><th>Cost</th></tr>
 		</thead>
@@ -39,12 +38,12 @@
 				<tr><td colspan="5"><EmptyState title="No traffic yet" /></td></tr>
 			{/each}
 		</tbody>
-	</table></TableWrap>
+	</table></TableWrap
+>
 
 <h2>Recent requests</h2>
 <TableWrap label="Recent requests">
-<table class="fr">
-	
+	<table class="fr">
 		<thead>
 			<tr><th>When</th><th>User</th><th>Model</th><th>Status</th><th>Latency</th><th>Cost</th></tr>
 		</thead>
@@ -62,4 +61,5 @@
 				<tr><td colspan="6"><EmptyState title="No requests yet" /></td></tr>
 			{/each}
 		</tbody>
-	</table></TableWrap>
+	</table></TableWrap
+>

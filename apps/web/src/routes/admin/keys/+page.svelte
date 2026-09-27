@@ -1,7 +1,19 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { formatCost, formatTokens } from '$lib/format';
-	import { Alert, Badge, Button, Card, EmptyState, Field, Input, PageHeader, Guide, Select, TableWrap } from '$lib/ui';
+	import {
+		Alert,
+		Badge,
+		Button,
+		Card,
+		EmptyState,
+		Field,
+		Input,
+		PageHeader,
+		Guide,
+		Select,
+		TableWrap
+	} from '$lib/ui';
 	import { withPending } from '$lib/forms';
 
 	let { data, form } = $props();
@@ -55,8 +67,7 @@
 <Guide id="admin-keys" />
 
 <TableWrap label="Client keys">
-<table class="fr">
-	
+	<table class="fr">
 		<thead>
 			<tr>
 				<th>Key</th><th>Owner</th><th>Status</th><th>Requests</th><th>Tokens</th><th>Cost</th>
@@ -132,7 +143,6 @@
 </TableWrap>
 
 <style>
-	
 	h2.first {
 		margin-top: 0;
 	}
@@ -144,4 +154,5 @@
 	form {
 		display: grid;
 		gap: var(--fr-space-md);
-	}</style>
+	}
+</style>

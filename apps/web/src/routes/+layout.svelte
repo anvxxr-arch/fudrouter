@@ -20,16 +20,15 @@
 	// One description per section — same resolution rule as the title map.
 	const DESCRIPTIONS: Record<string, string> = {
 		'/': 'One API key, every model. A commercial AI router with per-request metering, rate limits, and auditable usage.',
-		'/pricing': 'Pay per token — no seat fees. Per-model input and output prices across every provider.',
+		'/pricing':
+			'Pay per token — no seat fees. Per-model input and output prices across every provider.',
 		'/models': 'Every model this deployment serves, with context windows and tier badges.',
 		'/docs': 'API reference: auth, catalog, chat completions, and health endpoints.',
 		'/status': 'Live data-plane status and recent incidents.',
 		'/legal/terms': 'Terms of Service for fudrouter.',
 		'/legal/privacy': 'Privacy Policy for fudrouter.'
 	};
-	const description = $derived(
-		DESCRIPTIONS[page.url.pathname] ?? DESCRIPTIONS['/']!
-	);
+	const description = $derived(DESCRIPTIONS[page.url.pathname] ?? DESCRIPTIONS['/']!);
 </script>
 
 <svelte:head>

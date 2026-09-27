@@ -16,8 +16,7 @@
 <Guide id="admin-users" />
 
 <TableWrap label="Users">
-<table class="fr">
-	
+	<table class="fr">
 		<thead>
 			<tr>
 				<th>User</th><th>Role</th><th>Keys</th><th>Requests</th><th>Spend</th><th>Status</th><th
@@ -66,7 +65,8 @@
 				<tr><td colspan="7"><EmptyState title="No users" /></td></tr>
 			{/each}
 		</tbody>
-	</table></TableWrap>
+	</table></TableWrap
+>
 
 <style>
-	</style>
+</style>

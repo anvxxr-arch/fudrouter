@@ -231,7 +231,6 @@ table.fr th {
 	gap: var(--fr-space-xs);
 }
 
-
 .fr-section {
 	display: grid;
 	gap: var(--fr-space-sm);

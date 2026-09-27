@@ -38,6 +38,3 @@
 </div>
 
 <Guide id="signup" />
-
-
-

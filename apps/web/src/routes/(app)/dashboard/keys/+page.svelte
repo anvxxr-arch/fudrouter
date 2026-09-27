@@ -1,7 +1,18 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import FluidOrb from '$lib/components/fluid-orb.svelte';
-	import { Alert, Badge, Button, Card, EmptyState, Field, Guide, Input, PageHeader, TableWrap } from '$lib/ui';
+	import {
+		Alert,
+		Badge,
+		Button,
+		Card,
+		EmptyState,
+		Field,
+		Guide,
+		Input,
+		PageHeader,
+		TableWrap
+	} from '$lib/ui';
 	import { withPending } from '$lib/forms';
 
 	let { data, form } = $props();
@@ -49,8 +60,7 @@
      last row and the two read as one table. -->
 <h2>Your keys</h2>
 <TableWrap label="Your keys">
-<table class="fr">
-	
+	<table class="fr">
 		<thead>
 			<tr><th>Name</th><th>Prefix</th><th>Created</th><th>Status</th><th>Actions</th></tr>
 		</thead>
@@ -80,6 +90,5 @@
 				<tr><td colspan="5"><EmptyState title="No keys yet" hint="Create one above." /></td></tr>
 			{/each}
 		</tbody>
-	</table></TableWrap>
-
-
+	</table></TableWrap
+>

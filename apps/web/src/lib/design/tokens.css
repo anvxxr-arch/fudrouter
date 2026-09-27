@@ -108,6 +108,28 @@
 	--fr-space-lg: 24px;
 	--fr-space-xl: 32px;
 	--fr-space-2xl: 48px;
+	/* The last step of the 4px rhythm. Sits past 2xl on purpose: it is the
+	 * section-break scale, used for the one gap on a page that should feel
+	 * like a pause. Past this a page wants two sections, not more space. */
+	--fr-space-3xl: 80px;
+
+	/* Motion — a scale, not a single duration.
+	 *
+	 * The system had no motion tokens at all: `prefers-reduced-motion` in the
+	 * block below could only *cancel* an animation, because there was no value
+	 * for one to be written against. That is why the public pages animated
+	 * nothing — the first attempt at it referenced `--fr-dur-med` and
+	 * `--fr-ease`, which resolved to nothing and did nothing, silently.
+	 *
+	 * Only two durations, on purpose. Fast for anything that answers a click
+	 * (a delay past ~120ms reads as lag); slow only for entrances, where the
+	 * length is what makes the movement legible rather than jarring. */
+	--fr-dur-fast: 120ms;
+	--fr-dur-med: 320ms;
+	/* One curve, ease-out: things decelerate as they arrive, which reads as
+	 * "settling" rather than "starting". An ease-in on a UI transition makes
+	 * the interface feel like it is lagging behind the user. */
+	--fr-ease: cubic-bezier(0.16, 1, 0.3, 1);
 
 	/* Interaction */
 	/* Control heights are a scale, not a single value — a compact button inside a

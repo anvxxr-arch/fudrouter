@@ -11,3 +11,8 @@
    share (button shell, control shell, label, tone table) so nothing is duplicated
    inside a scoped <style> block. */
 @import '../lib/design/components.css';
+
+/* Public page styles (hero, feature grid, endpoint cards, pricing, models,
+   status). These were markup with no rules anywhere — see the header of the
+   file for how that survived a "design system" commit. */
+@import '(public)/public-pages.css';

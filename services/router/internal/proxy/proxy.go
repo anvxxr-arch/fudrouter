@@ -116,6 +116,19 @@ func clampTokens(n int64) int64 {
 // such bound: it is governed by the client's own connection.
 const nonStreamTimeout = 120 * time.Second
 
+// genericTimeout bounds the non-streaming body read on the generic /v1/* path
+// (embeddings, rerank, …), which ServeChat's nonStreamTimeout never covered.
+//
+// Sized like nonStreamTimeout because it plays the same role: a non-streaming
+// upstream answer that has not finished inside two minutes is a dead upstream,
+// not a slow one. A stream is exempt — no timer is armed for it, so a
+// long-lived completion is unaffected.
+//
+// A variable, not a constant, so a test can exercise the closing behaviour
+// without waiting two minutes. Production never reassigns it; tests do, and
+// restore it.
+var genericTimeout = 120 * time.Second
+
 // statusForKind maps a freebuff protocol failure to the HTTP status reported
 // when the router cannot fail over to another account.
 func statusForKind(k freebuff.ErrorKind) int {
@@ -581,6 +594,15 @@ func (h *Handler) logRequest(ctx context.Context, keyRow *store.APIKeyRow, m *st
 // upstream. Unlike the old passthrough it enforces key limits, fails over across
 // pooled accounts on 401/403, relays only allowlisted response headers, and
 // writes a request_log row — so the call is billed and visible to usage/limits.
+//
+// The upstream exchange is bounded end to end for non-streaming responses.
+// ServeChat can decide this from the request body's `stream` flag, but this
+// handler only learns the response is a stream once the headers arrive, so the
+// bound is applied in two phases: the request and header phase run under
+// genericTimeout, and the deadline is released before the body is read only if
+// the response is an event stream. An event stream therefore still lives until
+// the client disconnects (r.Context()), and a non-streaming response — an
+// upstream that trickles, or never closes the body — is still capped.
 func (h *Handler) ServeGeneric(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 
@@ -647,17 +669,33 @@ func (h *Handler) ServeGeneric(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Bound the non-streaming path. The request context alone is not a bound: it
+	// only ends if the client disconnects, and a client waiting on an upstream
+	// that never answers keeps this goroutine and its connection for as long as
+	// it likes.
+	//
+	// The bound is NOT a context deadline on the upstream request. A deadline
+	// here cannot be released once the response turns out to be a stream, and
+	// releasing it by cancelling would kill the response body it is attached to
+	// — cutting the stream off after the first event, which is the exact
+	// failure the no-Timeout client exists to avoid. So the two phases are
+	// bounded separately:
+	//
+	//   - the header phase by the transport's ResponseHeaderTimeout (120s),
+	//     which already applies to every upstream call, and
+	//   - the non-streaming body by a timer that closes the body, below.
+	//
+	// A stream is therefore governed by the client's connection, as intended.
+	pickCtx, cancelPick := context.WithTimeout(r.Context(), pickBudget)
+	defer cancelPick()
+
 	var resp *http.Response
 	var lastStatus int
 	var lastErr error
 	var servedBy string
 	usedAttempts := 0
-	// ServeGeneric's upstream call is not wrapped in the nonStreamTimeout budget
-	// that ServeChat applies, so this Pick gets the request context directly.
-	// Pick still bounds itself (maxPickAttempts + pickBudget) — that is what
-	// keeps a dead pool from costing 99.652s on this path too.
 	for attempt := 0; attempt < attempts; attempt++ {
-		picked, err := pool.Pick(r.Context())
+		picked, err := pool.Pick(pickCtx)
 		if err != nil {
 			log.Printf("[proxy] no usable credential for provider %s: %v", m.ProviderID, err)
 			h.logRequest(r.Context(), keyRow, m, 0, 0, start, "error", "no usable credential")
@@ -665,6 +703,10 @@ func (h *Handler) ServeGeneric(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// The request context is correct here and must stay that way: the
+		// transport's ResponseHeaderTimeout bounds the header phase, and a
+		// deadline on this request could not be dropped later without killing
+		// resp.Body if the response is a stream.
 		upReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost, upURL, bytes.NewReader(body))
 		if err != nil {
 			h.writeErr(w, http.StatusInternalServerError, "upstream request build failed")
@@ -734,12 +776,25 @@ func (h *Handler) ServeGeneric(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Streaming upstreams (rare on this path) must not be buffered.
+	// Streaming upstreams (rare on this path) must not be buffered. No timer is
+	// armed for this branch: a stream lives until the client disconnects, which
+	// r.Context() already covers, and http.Client carries no overall Timeout for
+	// exactly this reason.
 	if strings.Contains(resp.Header.Get("Content-Type"), "event-stream") {
 		_ = h.store.TouchAPIKey(r.Context(), keyRow.ID)
 		h.streamSSE(w, resp.Body, keyRow, m, start)
 		return
 	}
+
+	// Non-streaming: bound the body read with a timer that CLOSES the body when
+	// it fires. Closing is the only lever that stops a stalled read without
+	// cancelling a context the response depends on. The size cap is separate and
+	// already in place via LimitReader.
+	bodyTimer := time.AfterFunc(genericTimeout, func() {
+		log.Printf("[proxy] generic path: upstream body exceeded %v, closing", genericTimeout)
+		_ = resp.Body.Close()
+	})
+	defer bodyTimer.Stop()
 
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 50<<20))
 	if err != nil {

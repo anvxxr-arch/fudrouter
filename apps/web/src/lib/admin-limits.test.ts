@@ -112,7 +112,31 @@ describe('safeUpstreamUrl', () => {
 	it('accepts http(s) and drops a trailing slash', () => {
 		expect(safeUpstreamUrl('https://openrouter.ai/api/v1')).toBe('https://openrouter.ai/api/v1');
 		expect(safeUpstreamUrl('https://openrouter.ai/api/v1/')).toBe('https://openrouter.ai/api/v1');
-		expect(safeUpstreamUrl('http://127.0.0.1:8100')).toBe('http://127.0.0.1:8100');
+	});
+
+	it('refuses loopback/private/link-local targets unless explicitly allowed', () => {
+		// A stored base_url is fetched server-side, so a private target is an SSRF
+		// probe (the loopback DB, the cloud metadata endpoint). Blocked by default.
+		for (const blocked of [
+			'http://127.0.0.1:8100',
+			'http://localhost:3000/v1',
+			'http://169.254.169.254/',
+			'http://10.0.0.5/v1',
+			'http://192.168.100.6:5432',
+			'http://172.16.0.1/v1',
+			'http://100.64.0.1/v1',
+			'http://[::1]:8100/v1'
+		]) {
+			expect(safeUpstreamUrl(blocked), blocked).toBeNull();
+		}
+		// The deployment runs local upstreams (seed = http://127.0.0.1:20128/v1),
+		// so the block must be escapable by an explicit opt-in.
+		expect(safeUpstreamUrl('http://127.0.0.1:8100', true)).toBe('http://127.0.0.1:8100');
+		expect(safeUpstreamUrl('http://127.0.0.1:20128/v1', true)).toBe('http://127.0.0.1:20128/v1');
+		// A public host is unaffected by the flag either way.
+		expect(safeUpstreamUrl('https://openrouter.ai/api/v1', true)).toBe(
+			'https://openrouter.ai/api/v1'
+		);
 	});
 
 	it('refuses a scheme that is not http(s)', () => {

@@ -65,3 +65,16 @@ export function isPublished(modelStatus: string): boolean {
 export function devProvidersAllowed(raw: string | undefined | null): boolean {
 	return ['1', 'true', 'yes', 'on'].includes((raw ?? '').trim().toLowerCase());
 }
+
+/**
+ * Opt-in for upstream `base_url`s that point at loopback / private ranges.
+ *
+ * Blocking private targets is the secure default (a stored `base_url` is fetched
+ * server-side, so `http://169.254.169.254/` is an SSRF probe). But this deployment
+ * legitimately runs LOCAL upstreams — `SEED_PROVIDER_BASE_URL` is
+ * `http://127.0.0.1:20128/v1` — so the block has to be escapable. Same truthy
+ * parse and same fail-closed rule as the dev-provider flag.
+ */
+export function privateUpstreamsAllowed(raw: string | undefined | null): boolean {
+	return devProvidersAllowed(raw);
+}

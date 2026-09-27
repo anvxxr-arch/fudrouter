@@ -368,3 +368,13 @@ table.fr th {
 .fr-tone-danger {
 	color: var(--_tone);
 }
+
+/* Decorative WebGL orb used across public/member pages */
+.fr-decorative-orb {
+	position: absolute;
+	top: -3rem;
+	right: -5rem;
+	z-index: -2;
+	opacity: 0.3;
+	pointer-events: none;
+}

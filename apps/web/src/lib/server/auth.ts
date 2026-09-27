@@ -11,10 +11,12 @@ export const auth = betterAuth({
 	baseURL: env.ORIGIN,
 	secret: env.BETTER_AUTH_SECRET,
 	database: drizzleAdapter(db, { provider: 'pg', schema: authSchema }),
-	// baseURL is the public origin (https://ai.karepmuwes.my.id). Keep the local
-	// dev origins trusted so `localhost:3000` / `127.0.0.1:3000` logins still work
-	// while the same build serves the tunnel.
-	trustedOrigins: ['http://localhost:3000', 'http://127.0.0.1:3000'],
+	// baseURL is the public origin (https://ai.karepmuwes.my.id). The local dev
+	// origins are trusted ONLY outside production — in prod they would widen CSRF
+	// trust to a spoofable Origin for a convenience the ORIGIN binding already
+	// makes unreachable.
+	trustedOrigins:
+		env.NODE_ENV === 'production' ? [] : ['http://localhost:3000', 'http://127.0.0.1:3000'],
 	emailAndPassword: { enabled: true },
 	socialProviders: {
 		discord: {

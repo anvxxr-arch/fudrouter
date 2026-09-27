@@ -86,16 +86,18 @@ export const model = pgTable(
 );
 
 // request_log — append-only, highest-volume table. cost = micro-units of currency.
+//
+// The ledger must SURVIVE deletion of its subject. `user_id`/`api_key_id` are
+// nullable with ON DELETE SET NULL (not CASCADE): removing a user or a key used
+// to erase that subject's entire usage and cost history — the financial record —
+// in one statement. A NULL subject is the anonymised form; model/provider/cost
+// aggregates stay intact. Never make these CASCADE again.
 export const requestLog = pgTable(
 	'request_log',
 	{
 		id: text('id').primaryKey(),
-		userId: text('user_id')
-			.notNull()
-			.references(() => user.id, { onDelete: 'cascade' }),
-		apiKeyId: text('api_key_id')
-			.notNull()
-			.references(() => apiKey.id, { onDelete: 'cascade' }),
+		userId: text('user_id').references(() => user.id, { onDelete: 'set null' }),
+		apiKeyId: text('api_key_id').references(() => apiKey.id, { onDelete: 'set null' }),
 		modelId: text('model_id')
 			.notNull()
 			.references(() => model.id),

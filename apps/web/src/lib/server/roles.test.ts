@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { capsFor, hasCap, landingFor, requiredCap, requireCap, ALL_CAPS } from './roles';
+import {
+	capsFor,
+	hasCap,
+	landingFor,
+	requiredCap,
+	requireCap,
+	canAdminister,
+	ALL_CAPS
+} from './roles';
 
 describe('capsFor', () => {
 	it('gives an unknown or absent role member only (fail-closed)', () => {
@@ -103,5 +111,45 @@ describe('requireCap', () => {
 		const ops = { user: { id: 'u2', role: 'ops_admin' } } as unknown as App.Locals;
 		expect(statusOf(() => requireCap(member, 'member'))).toBeNull();
 		expect(statusOf(() => requireCap(ops, 'admin.providers'))).toBeNull();
+	});
+});
+
+describe('canAdminister (privilege ordering)', () => {
+	it('admin dominates every role, so it administers anyone', () => {
+		for (const target of ['user', 'finance_admin', 'ops_admin', 'admin']) {
+			expect(canAdminister('admin', target), `admin -> ${target}`).toBe(true);
+		}
+	});
+
+	it('refuses the self-promotion that the old self-demotion guard allowed', () => {
+		// finance_admin holds admin.users but not admin; it must not be able to
+		// grant itself (or anyone) the admin role.
+		expect(canAdminister('finance_admin', 'finance_admin', 'admin')).toBe(false);
+		expect(canAdminister('ops_admin', 'ops_admin', 'admin')).toBe(false);
+		// ...nor to promote a plain user straight to admin.
+		expect(canAdminister('finance_admin', 'user', 'admin')).toBe(false);
+	});
+
+	it('refuses acting on a peer or a superior', () => {
+		// finance_admin must not demote/ban an admin or an ops_admin.
+		expect(canAdminister('finance_admin', 'admin')).toBe(false);
+		expect(canAdminister('finance_admin', 'ops_admin')).toBe(false);
+		// ops_admin must not touch a finance_admin (billing/users it lacks).
+		expect(canAdminister('ops_admin', 'finance_admin')).toBe(false);
+	});
+
+	it('allows acting on a role at or below your own level', () => {
+		expect(canAdminister('finance_admin', 'user', 'user')).toBe(true);
+		expect(canAdminister('finance_admin', 'user', 'finance_admin')).toBe(true);
+		expect(canAdminister('ops_admin', 'user', 'ops_admin')).toBe(true);
+		// A member-only role dominates only `member`.
+		expect(canAdminister('user', 'user')).toBe(true);
+		expect(canAdminister('user', 'admin')).toBe(false);
+	});
+
+	it('treats an unknown actor or target as the least-privileged role', () => {
+		expect(canAdminister(null, 'admin')).toBe(false);
+		expect(canAdminister('nobody', 'user')).toBe(true); // member dominates member
+		expect(canAdminister('admin', 'nobody')).toBe(true);
 	});
 });

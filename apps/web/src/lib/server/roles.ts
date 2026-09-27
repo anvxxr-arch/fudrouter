@@ -70,6 +70,34 @@ export function landingFor(role?: string | null): string {
 	return hasCap(role, 'admin.view') ? '/admin' : '/dashboard';
 }
 
+/** True when `actor` holds every capability `target` holds (a superset test). */
+export function capsDominate(actor: Set<Capability>, target: Set<Capability>): boolean {
+	for (const cap of target) if (!actor.has(cap)) return false;
+	return true;
+}
+
+/**
+ * Privilege ordering for user administration.
+ *
+ * An actor may only act on a target whose capabilities it dominates, and may
+ * only grant a role it also dominates. Identity alone is NOT enough: a guard that
+ * only blocks self-demotion let `finance_admin` (which holds `admin.users` but
+ * not `admin`) promote itself to full admin. `admin` dominates everything, so it
+ * still administers every account.
+ */
+export function canAdminister(
+	actorRole: string | null | undefined,
+	targetRole: string | null | undefined,
+	grantedRole?: string | null
+): boolean {
+	const actor = capsFor(actorRole);
+	if (!capsDominate(actor, capsFor(targetRole))) return false;
+	if (grantedRole !== undefined && grantedRole !== null) {
+		if (!capsDominate(actor, capsFor(grantedRole))) return false;
+	}
+	return true;
+}
+
 /**
  * Route → required capability. Longest matching prefix wins, so `/admin/billing`
  * (admin.billing) beats `/admin` (admin.view). A path with no entry is public.

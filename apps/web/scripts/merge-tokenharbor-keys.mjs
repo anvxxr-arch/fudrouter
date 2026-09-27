@@ -58,7 +58,13 @@ try {
   console.log(`new keys added: ${added}`);
 
   if (added > 0) {
-    await sql`update provider set credentials_enc = ${encrypt(cred)} where id = ${PROVIDER_ID}`;
+    const res = await sql`update provider set credentials_enc = ${encrypt(cred)} where id = ${PROVIDER_ID}`;
+  // An UPDATE matching no rows succeeds: assert the write landed instead of
+  // trusting the exit code (see references/pool-maintenance.md).
+  if (res.count !== 1) {
+    console.error(`persist matched ${res.count} provider rows (expected 1)`);
+    process.exit(1);
+  }
     console.log(`pool now holds ${cred.accounts.length} keys`);
   } else {
     console.log('nothing new — pool unchanged');

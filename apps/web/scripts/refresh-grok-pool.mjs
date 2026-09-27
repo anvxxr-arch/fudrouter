@@ -290,6 +290,20 @@ const summary = {
 	dryRun,
 	files: syncDir ? { written, created } : undefined
 };
+// The exit code is the alert. systemd carries it (the unit goes failed, visible
+// with `systemctl --user --failed`), so a run that loses accounts, shrinks the
+// pool, or fails most of its window cannot pass unnoticed just because it
+// printed a summary: 0 = fine, 1 = look at this.
+const unhealthy =
+	!dryRun &&
+	(dropped.length > 0 ||
+	(accounts.length > 0 && final.length < accounts.length * 0.9) ||
+		(targets.length > 0 && kept.length > targets.length / 2));
+if (unhealthy) {
+	console.error(
+		`UNHEALTHY: dropped=${dropped.length} pool ${accounts.length}->${final.length} kept=${kept.length}/${targets.length}`
+	);
+}
 if (quiet) {
 	console.log(JSON.stringify(summary));
 } else {
@@ -303,3 +317,4 @@ if (quiet) {
 	if (kept.length > 10) console.log(`  ... and ${kept.length - 10} more kept`);
 }
 await sql.end();
+if (unhealthy) process.exit(1);

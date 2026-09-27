@@ -341,6 +341,11 @@ func (h *Handler) ServeCompletions(w http.ResponseWriter, r *http.Request) {
 	// A non-streaming completion is bounded end to end; a stream is not, because
 	// http.Client.Timeout would sever it mid-answer (the old 120s client did
 	// exactly that). A stream lives until the client disconnects (r.Context()).
+	// Pick bounds itself (maxPickAttempts + pickBudget) but is also handed the
+	// bounded upstream context, so a credential search can never outlive the
+	// upstream budget it is charged to. It was r.Context() here, which carries
+	// no deadline at all — that is how a single request ended up spending 99.652s
+	// inside a 120s budget.
 	upCtx := r.Context()
 	if !stream {
 		var cancel context.CancelFunc
@@ -354,7 +359,7 @@ func (h *Handler) ServeCompletions(w http.ResponseWriter, r *http.Request) {
 	var servedBy string
 	usedAttempts := 0
 	for attempt := 0; attempt < attempts; attempt++ {
-		picked, err := pool.Pick(r.Context())
+		picked, err := pool.Pick(upCtx)
 		if err != nil {
 			log.Printf("[proxy] no usable credential for provider %s: %v", m.ProviderID, err)
 			h.logRequest(r.Context(), keyRow, m, 0, 0, start, "error", "no usable credential")
@@ -647,6 +652,10 @@ func (h *Handler) ServeGeneric(w http.ResponseWriter, r *http.Request) {
 	var lastErr error
 	var servedBy string
 	usedAttempts := 0
+	// ServeGeneric's upstream call is not wrapped in the nonStreamTimeout budget
+	// that ServeChat applies, so this Pick gets the request context directly.
+	// Pick still bounds itself (maxPickAttempts + pickBudget) — that is what
+	// keeps a dead pool from costing 99.652s on this path too.
 	for attempt := 0; attempt < attempts; attempt++ {
 		picked, err := pool.Pick(r.Context())
 		if err != nil {

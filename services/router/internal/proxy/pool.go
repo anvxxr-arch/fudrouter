@@ -24,6 +24,37 @@ const refreshLead = 5 * time.Minute
 // revoked account is not retried on every single request.
 const failCooldown = 5 * time.Minute
 
+// maxPickAttempts caps how many accounts one Pick may probe.
+//
+// A pool is walked round-robin until an account yields a token. When a
+// provider is dead — revoked refresh tokens, an upstream 403 on every account,
+// a mass session invalidation — the walk is the entire cost of the request and
+// the client pays all of it: one HTTP round trip per account, serially. On the
+// live xAI farm (663 accounts, ~150ms per refresh) a single request spent 99.652
+// seconds learning that the pool was dead, 83% of the 120s non-streaming
+// upstream budget, before it ever reached the upstream.
+//
+// The outer failover loop already caps its own attempts at 3, so this bound
+// does not reduce the number of accounts a healthy request can reach: a
+// working account is found within the first few probes. It only stops the walk
+// from being unbounded when nothing works.
+const maxPickAttempts = 20
+
+// pickBudget bounds the wall-clock time one Pick may spend on refreshes.
+//
+// A deadline is honoured, not relied upon as the only guard: with
+// maxPickAttempts alone a single slow upstream (30s http.Client timeout) could
+// still cost 20 x 30s. The bound is a fraction of the tightest upstream budget
+// (nonStreamTimeout, 120s) so a credential search cannot consume the whole
+// request. See proxy.go: the caller hands Pick the request context, which
+// carries no deadline, so Pick must bound itself.
+//
+// Sized against measurement, not taste: a refresh costs ~150ms live
+// (DEEPDIVE-pool-walk-2026-09-26), so a full capped walk of 20 costs ~3s. 5s
+// leaves headroom for a slow upstream while staying far below the 120s it is
+// charged to, and below the 30s the refresh client itself allows.
+const pickBudget = 5 * time.Second
+
 // account is one upstream identity inside a provider's credential blob.
 type account struct {
 	Email        string `json:"email"`
@@ -172,9 +203,38 @@ func (p *Pool) Pick(ctx context.Context) (Picked, error) {
 	p.mu.Unlock()
 
 	var lastErr error
+	// Bound the walk twice, in the unit that actually costs money: round trips
+	// and wall clock. The caller passes the request context, which carries no
+	// deadline (the non-streaming budget is applied to upCtx, not to
+	// r.Context()), so Pick cannot inherit one and must impose its own.
+	walkCtx, cancelWalk := context.WithTimeout(ctx, pickBudget)
+	defer cancelWalk()
+
+	// spent counts round trips; scanned counts accounts examined. A cooling-down
+	// account or a live token is answered locally, so it advances scanned
+	// without advancing spent — that is what lets a pool of 600 dead accounts
+	// still reach the one healthy account without exhausting the budget.
+	spent, scanned := 0, 0
 	for i := 0; i < n; i++ {
+		if spent >= maxPickAttempts {
+			log.Printf("[proxy] pool walk stopped at the cap: %d round trip(s) spent, %d of %d account(s) examined",
+				spent, scanned, n)
+			break
+		}
+		select {
+		case <-walkCtx.Done():
+			log.Printf("[proxy] pool walk stopped after %v: %d of %d account(s) examined, %d round trip(s) spent: %v",
+				pickBudget, scanned, n, spent, walkCtx.Err())
+			lastErr = walkCtx.Err()
+			scanned = n
+		default:
+		}
+		if scanned >= n {
+			break
+		}
 		a := p.accounts[(start+i)%n]
-		tok, rotated, err := a.token(ctx, p.refresher)
+		scanned++
+		tok, rotated, err := a.token(walkCtx, p.refresher, &spent)
 		if err != nil {
 			lastErr = err
 			continue
@@ -199,13 +259,27 @@ func (p *Pool) Pick(ctx context.Context) (Picked, error) {
 	if lastErr == nil {
 		lastErr = errors.New("no usable account")
 	}
+	// Say what actually happened. "all N unusable" would be false once the cap
+	// or the budget stops the walk early, and that inflated count is exactly
+	// what makes a bounded failure look like a whole-pool outage in the logs.
+	if scanned < n {
+		return Picked{}, fmt.Errorf("%d of %d account(s) examined, %d refresh(es) attempted, all unusable (walk bounded): %w",
+			scanned, n, spent, lastErr)
+	}
 	return Picked{}, fmt.Errorf("all %d account(s) unusable: %w", n, lastErr)
 }
 
 // token returns a valid access token, refreshing it when it is near expiry. The
 // second result reports whether the stored refresh token changed, so the caller
 // knows the blob must be written back.
-func (a *poolAccount) token(ctx context.Context, r TokenRefresher) (string, bool, error) {
+//
+// A false result here is cheap: a cooling-down account and an already-live
+// token are both answered from local state, with no HTTP round trip. Only the
+// paths that call r.Refresh cost a request. Pick's walk cap must be measured in
+// round trips, not in iterations, or a pool of 600 dead accounts would exhaust
+// the cap on free probes and never reach the one healthy account at the back.
+// cost, if non-nil, is incremented once per round trip actually attempted.
+func (a *poolAccount) token(ctx context.Context, r TokenRefresher, cost *int) (string, bool, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -226,6 +300,9 @@ func (a *poolAccount) token(ctx context.Context, r TokenRefresher) (string, bool
 		return "", false, fmt.Errorf("%s: token expired and no refresher configured", a.data.Email)
 	}
 
+	if cost != nil {
+		*cost++
+	}
 	access, refresh, expiresIn, err := r.Refresh(ctx, a.data.RefreshToken)
 	if err != nil {
 		a.deadUntil = time.Now().Add(failCooldown)

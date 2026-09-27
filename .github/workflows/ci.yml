@@ -112,6 +112,15 @@ jobs:
         working-directory: services/router
       - run: go build ./...
         working-directory: services/router
+      # Dependency vulns are not visible to build, vet or test: a module that
+      # compiles and passes every test can still carry a known CVE. This one
+      # scan is what took the router from 30 advisories to 0; without it in CI
+      # the next `go get` silently puts them back.
+      - name: Scan dependencies for known vulnerabilities
+        working-directory: services/router
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          "$HOME/go/bin/govulncheck" ./...
       # -v so that any remaining t.Skip is visible in the log rather than
       # indistinguishable from a pass.
       - run: go test ./... -race -v

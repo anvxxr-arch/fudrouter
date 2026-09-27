@@ -5,6 +5,7 @@ import { requireCap } from '$lib/server/roles';
 import { decryptCredentials } from '$lib/server/credentials';
 import { db } from '$lib/server/db';
 import { provider, requestLog } from '$lib/server/db/schema';
+import { assertPublicUpstream } from '$lib/server/ssrf';
 
 export const load: PageServerLoad = async ({ locals }) => {
 	requireCap(locals, 'admin.ops');
@@ -89,11 +90,27 @@ export const actions: Actions = {
 		if (apiKey) headers['authorization'] = `Bearer ${apiKey}`;
 
 		const url = `${p.baseUrl.replace(/\/$/, '')}/models`;
+
+		// base_url is admin-supplied, so this fetch is a request-forgery
+		// primitive until the target is checked: 169.254.169.254 hands over the
+		// cloud instance's credentials, and anything on 127.0.0.1 turns this
+		// page into a port scanner for the box. The router applies the same rule
+		// at the socket (internal/proxy/guard.go); this is the web-side check,
+		// because global fetch has no dial hook to hang it on.
+		const guard = await assertPublicUpstream(p.baseUrl);
+		if (!guard.ok) {
+			return { test: { ...result, url, message: guard.reason } };
+		}
+
 		const started = Date.now();
 		try {
 			const ctrl = new AbortController();
 			const timer = setTimeout(() => ctrl.abort(), 8000);
-			const res = await fetch(url, { headers, signal: ctrl.signal });
+			// manual, not follow: a redirect is a second request to an address
+			// nothing has checked yet, which is the whole attack. The router
+			// re-guards every hop at the socket; fetch cannot, so it does not
+			// follow at all.
+			const res = await fetch(url, { headers, signal: ctrl.signal, redirect: 'manual' });
 			clearTimeout(timer);
 			return {
 				test: { ...result, ok: res.ok, status: res.status, latencyMs: Date.now() - started, url }

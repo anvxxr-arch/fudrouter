@@ -13,6 +13,12 @@
 import postgres from 'postgres';
 import { createCipheriv, randomBytes, randomUUID } from 'node:crypto';
 import { readFileSync, existsSync } from 'node:fs';
+import {
+	resolveStatus,
+	assertValidStatus,
+	providerUpsertConflict,
+	statusLogSuffix
+} from '../src/lib/server/provider-status.ts';
 
 const KEYS_FILE = process.argv[2] || '/home/dwizzy/mingles-router-farmer/mingles_keys.json';
 const PROVIDER_ID = 'mingles';
@@ -49,6 +55,11 @@ const key = accounts[0].access_token;
 const probeFile = '/home/dwizzy/.hermes/cache/scratch/mingles-probe2.json';
 const probe = existsSync(probeFile) ? JSON.parse(readFileSync(probeFile, 'utf8')) : {};
 
+// `provider.status` is the operator's call: this only seeds a NEW row, and
+// rewrites an existing one when MINGLES_PROVIDER_STATUS is set explicitly.
+const { value: STATUS, isExplicit: STATUS_EXPLICIT } = resolveStatus('MINGLES_PROVIDER_STATUS');
+assertValidStatus(STATUS, 'MINGLES_PROVIDER_STATUS');
+
 try {
 	// --- live catalog (id + context_window), probed for current availability ---
 	const mr = await fetch(BASE_URL + '/models', { headers: { Authorization: 'Bearer ' + key } });
@@ -74,18 +85,15 @@ try {
 	const cred = { api_key: key, auth_kind: 'apikey', default_headers: {}, accounts };
 	const p = await sql`
     insert into provider (id, name, base_url, credentials_enc, status, priority)
-    values (${PROVIDER_ID}, ${PROVIDER_NAME}, ${BASE_URL}, ${encrypt(cred)}, 'active', 165)
-    on conflict (id) do update set
-      name = excluded.name,
-      base_url = excluded.base_url,
-      credentials_enc = excluded.credentials_enc,
-      priority = excluded.priority
-    returning id`;
+    values (${PROVIDER_ID}, ${PROVIDER_NAME}, ${BASE_URL}, ${encrypt(cred)}, ${STATUS}, 165)
+    ${providerUpsertConflict('id', STATUS, STATUS_EXPLICIT)}`;
 	if (p.count !== 1) {
 		console.error(`provider upsert matched ${p.count} rows`);
 		process.exit(1);
 	}
-	console.log(`provider ${PROVIDER_ID} upserted with ${accounts.length} keys`);
+	console.log(
+		`provider ${PROVIDER_ID} upserted with ${accounts.length} keys (${statusLogSuffix(STATUS, STATUS_EXPLICIT)})`
+	);
 
 	for (const m of models) {
 		// model.slug is UNIQUE table-wide: never steal a slug owned by another

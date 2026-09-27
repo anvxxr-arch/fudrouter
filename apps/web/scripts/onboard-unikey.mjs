@@ -3,6 +3,12 @@
 // Usage: node --env-file=apps/web/.env scripts/onboard-unikey.mjs
 import postgres from 'postgres';
 import { createCipheriv, randomBytes } from 'node:crypto';
+import {
+	resolveStatus,
+	assertValidStatus,
+	providerUpsertConflict,
+	statusLogSuffix
+} from '../src/lib/server/provider-status.ts';
 
 const KEY_FILE = '/home/dwizzy/.hermes/cache/documents/doc_99ebe3069425_unikey_tuyul_keys.txt';
 const PROVIDER_ID = 'unikey';
@@ -25,6 +31,11 @@ function encrypt(obj) {
 // (1 USD = 1e6 micro-USD); the model table below is written in plain USD per 1M.
 // Every price written must go through this or the router bills 1e-6 of list.
 const usdToMicro = (usd) => Math.round(Number(usd) * 1_000_000).toString();
+
+// `provider.status` is the operator's call: this only seeds a NEW row, and
+// rewrites an existing one when UNIKEY_PROVIDER_STATUS is set explicitly.
+const { value: STATUS, isExplicit: STATUS_EXPLICIT } = resolveStatus('UNIKEY_PROVIDER_STATUS');
+assertValidStatus(STATUS, 'UNIKEY_PROVIDER_STATUS');
 
 try {
 	// Read keys
@@ -56,15 +67,9 @@ try {
 	// Upsert provider
 	await sql`
     insert into provider (id, name, base_url, credentials_enc, status, priority)
-    values (${PROVIDER_ID}, ${PROVIDER_NAME}, ${BASE_URL}, ${enc}, 'active', 150)
-    on conflict (id) do update set
-      name = excluded.name,
-      base_url = excluded.base_url,
-      credentials_enc = excluded.credentials_enc,
-      status = excluded.status,
-      priority = excluded.priority
-  `;
-	console.log(`provider ${PROVIDER_ID} upserted`);
+    values (${PROVIDER_ID}, ${PROVIDER_NAME}, ${BASE_URL}, ${enc}, ${STATUS}, 150)
+    ${providerUpsertConflict('id', STATUS, STATUS_EXPLICIT)}`;
+	console.log(`provider ${PROVIDER_ID} upserted (${statusLogSuffix(STATUS, STATUS_EXPLICIT)})`);
 
 	// Upsert models (28 chat models from UniKey catalog)
 	const models = [

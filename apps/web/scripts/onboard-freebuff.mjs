@@ -22,6 +22,12 @@ import postgres from 'postgres';
 import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { encryptCredentials } from '../src/lib/server/credentials.ts';
+import {
+	resolveStatus,
+	assertValidStatus,
+	providerUpsertConflict,
+	statusLogSuffix
+} from '../src/lib/server/provider-status.ts';
 
 const PROVIDER_ID = process.env.FREEBUFF_PROVIDER_ID || 'freebuff';
 const PROVIDER_NAME = 'Freebuff';
@@ -29,7 +35,6 @@ const BASE_URL = process.env.FREEBUFF_BASE_URL || 'https://www.codebuff.com';
 // 'active' by default: every onboarded upstream is a commercial arrangement
 // (confirmed 2026-09-26). Set FREEBUFF_PROVIDER_STATUS=dev to onboard this one
 // behind the spec §1 interlock instead.
-const STATUS = process.env.FREEBUFF_PROVIDER_STATUS || 'active';
 const PRIORITY = Number(process.env.FREEBUFF_PROVIDER_PRIORITY || 160);
 const DRY = process.argv.includes('--dry-run');
 
@@ -129,19 +134,19 @@ if (DRY) {
 }
 
 const sql = postgres(process.env.DATABASE_URL);
+
+// `provider.status` is the operator's call: this only seeds a NEW row, and
+// rewrites an existing one when FREEBUFF_PROVIDER_STATUS is set explicitly.
+const { value: STATUS, isExplicit: STATUS_EXPLICIT } = resolveStatus('FREEBUFF_PROVIDER_STATUS');
+assertValidStatus(STATUS, 'FREEBUFF_PROVIDER_STATUS');
+
 try {
 	const enc = encryptCredentials(cred);
 	await sql`
 		insert into provider (id, name, base_url, credentials_enc, status, priority)
 		values (${PROVIDER_ID}, ${PROVIDER_NAME}, ${BASE_URL}, ${enc}, ${STATUS}, ${PRIORITY})
-		on conflict (id) do update set
-			name = excluded.name,
-			base_url = excluded.base_url,
-			credentials_enc = excluded.credentials_enc,
-			status = excluded.status,
-			priority = excluded.priority
-	`;
-	console.log(`provider ${PROVIDER_ID} upserted (status=${STATUS})`);
+		${providerUpsertConflict('id', STATUS, STATUS_EXPLICIT)}`;
+	console.log(`provider ${PROVIDER_ID} upserted (${statusLogSuffix(STATUS, STATUS_EXPLICIT)})`);
 
 	// The free tier is free: price every model at 0. `context` stays null — the
 	// upstream does not publish a window for these ids in the measured table.

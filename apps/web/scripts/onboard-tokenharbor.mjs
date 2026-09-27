@@ -8,6 +8,12 @@
 import postgres from 'postgres';
 import { createCipheriv, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import {
+	resolveStatus,
+	assertValidStatus,
+	providerUpsertConflict,
+	statusLogSuffix
+} from '../src/lib/server/provider-status.ts';
 
 const KEY_FILE = process.argv[2] || '/home/dwizzy/th-bot/th_keys_direct.txt';
 const PROVIDER_ID = 'tokenharbor';
@@ -58,18 +64,19 @@ const accounts = usable.map((r, i) => ({
 
 const cred = { api_key: usable[0].api_key, auth_kind: 'apikey', default_headers: {}, accounts };
 
+// `provider.status` is the operator's call: this only seeds a NEW row, and
+// rewrites an existing one when TOKENHARBOR_PROVIDER_STATUS is set explicitly.
+const { value: STATUS, isExplicit: STATUS_EXPLICIT } = resolveStatus('TOKENHARBOR_PROVIDER_STATUS');
+assertValidStatus(STATUS, 'TOKENHARBOR_PROVIDER_STATUS');
+
 try {
 	await sql`
     insert into provider (id, name, base_url, credentials_enc, status, priority)
-    values (${PROVIDER_ID}, ${PROVIDER_NAME}, ${BASE_URL}, ${encrypt(cred)}, 'active', 160)
-    on conflict (id) do update set
-      name = excluded.name,
-      base_url = excluded.base_url,
-      credentials_enc = excluded.credentials_enc,
-      status = excluded.status,
-      priority = excluded.priority
-  `;
-	console.log(`provider ${PROVIDER_ID} upserted with ${accounts.length} keys`);
+    values (${PROVIDER_ID}, ${PROVIDER_NAME}, ${BASE_URL}, ${encrypt(cred)}, ${STATUS}, 160)
+    ${providerUpsertConflict('id', STATUS, STATUS_EXPLICIT)}`;
+	console.log(
+		`provider ${PROVIDER_ID} upserted with ${accounts.length} keys (${statusLogSuffix(STATUS, STATUS_EXPLICIT)})`
+	);
 
 	const models = [
 		{ slug: 'mimo-v2.5:free', name: 'MiMo v2.5 (free)', input: 0, output: 0, context: 128000 }

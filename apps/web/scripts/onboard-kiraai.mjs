@@ -12,6 +12,12 @@
 import postgres from 'postgres';
 import { createCipheriv, randomBytes, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import {
+	resolveStatus,
+	assertValidStatus,
+	providerUpsertConflict,
+	statusLogSuffix
+} from '../src/lib/server/provider-status.ts';
 
 const KEY_FILE = process.argv[2] || '/home/dwizzy/kira/kira_keys.txt';
 const PROVIDER_ID = 'kiraai';
@@ -66,18 +72,19 @@ const MODELS = {
 	'kira-2.0-image': ['Kira 2.0 Image', 128000]
 };
 
+// `provider.status` is the operator's call: this only seeds a NEW row, and
+// rewrites an existing one when KIRAAI_PROVIDER_STATUS is set explicitly.
+const { value: STATUS, isExplicit: STATUS_EXPLICIT } = resolveStatus('KIRAAI_PROVIDER_STATUS');
+assertValidStatus(STATUS, 'KIRAAI_PROVIDER_STATUS');
+
 try {
 	await sql`
     insert into provider (id, name, base_url, credentials_enc, status, priority)
-    values (${PROVIDER_ID}, ${PROVIDER_NAME}, ${BASE_URL}, ${encrypt(cred)}, 'active', 170)
-    on conflict (id) do update set
-      name = excluded.name,
-      base_url = excluded.base_url,
-      credentials_enc = excluded.credentials_enc,
-      status = excluded.status,
-      priority = excluded.priority
-  `;
-	console.log(`provider ${PROVIDER_ID} upserted with ${accounts.length} keys`);
+    values (${PROVIDER_ID}, ${PROVIDER_NAME}, ${BASE_URL}, ${encrypt(cred)}, ${STATUS}, 170)
+    ${providerUpsertConflict('id', STATUS, STATUS_EXPLICIT)}`;
+	console.log(
+		`provider ${PROVIDER_ID} upserted with ${accounts.length} keys (${statusLogSuffix(STATUS, STATUS_EXPLICIT)})`
+	);
 
 	for (const [slug, [name, ctx]] of Object.entries(MODELS)) {
 		await sql`
@@ -88,8 +95,7 @@ try {
         name = excluded.name,
         context = excluded.context,
         input_price = excluded.input_price,
-        output_price = excluded.output_price,
-        status = excluded.status
+        output_price = excluded.output_price
     `;
 	}
 	console.log(`${Object.keys(MODELS).length} models upserted`);

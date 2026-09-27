@@ -18,6 +18,11 @@ import postgres from 'postgres';
 import { createCipheriv, randomBytes } from 'node:crypto';
 import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import {
+	resolveStatus,
+	assertValidStatus,
+	providerUpsertConflict
+} from '../src/lib/server/provider-status.ts';
 
 const PROVIDER_NAME = process.env.XAI_PROVIDER_NAME || 'xai-grok';
 const BASE_URL = process.env.XAI_BASE_URL || 'https://cli-chat-proxy.grok.com/v1';
@@ -34,7 +39,6 @@ const PRIORITY = Number(process.env.XAI_PRIORITY || 10);
 // Set XAI_PROVIDER_STATUS=dev to put this one back behind the interlock (the Go
 // data plane then hides it unless ROUTER_ALLOW_DEV_PROVIDERS is set), which is
 // the mechanical way to keep a non-commercial upstream out of the catalog.
-const STATUS = process.env.XAI_PROVIDER_STATUS || 'active';
 
 // Published list prices, micro-USD per 1M tokens (1 USD = 1e6 micro-USD).
 // Source: https://docs.x.ai/developers/models — grok-4.6 is $2.00 in / $6.00 out.
@@ -82,11 +86,17 @@ if (!existsSync(AUTH_DIR)) {
 	process.exit(1);
 }
 
+// `provider.status` is the operator's call: this only seeds a NEW row, and
+// rewrites an existing one when XAI_PROVIDER_STATUS is set explicitly.
+const { value: STATUS, isExplicit: STATUS_EXPLICIT } = resolveStatus('XAI_PROVIDER_STATUS');
+assertValidStatus(STATUS, 'XAI_PROVIDER_STATUS');
+
 // ---- load the credential pool (dedupe by email, newest expiry wins) ----
 const byEmail = new Map();
 for (const f of readdirSync(AUTH_DIR)) {
 	if (!f.startsWith('xai-') || !f.endsWith('.json')) continue;
 	let d;
+
 	try {
 		d = JSON.parse(readFileSync(join(AUTH_DIR, f), 'utf8'));
 	} catch {
@@ -122,11 +132,7 @@ try {
 	const rows = await sql`
 		insert into provider (id, name, base_url, credentials_enc, status, priority)
 		values (${crypto.randomUUID()}, ${PROVIDER_NAME}, ${BASE_URL}, ${encrypt(creds)}, ${STATUS}, ${PRIORITY})
-		on conflict (name) do update
-		  set base_url = excluded.base_url,
-		      credentials_enc = excluded.credentials_enc,
-		      status = excluded.status,
-		      priority = excluded.priority
+		${providerUpsertConflict('name', STATUS, STATUS_EXPLICIT)}
 		returning id`;
 	const pid = rows[0].id;
 
@@ -154,7 +160,9 @@ try {
 
 	console.log(`onboarded provider "${PROVIDER_NAME}"`);
 	console.log(`  base_url     : ${check[0].base_url}`);
-	console.log(`  status       : ${check[0].status} (priority ${check[0].priority})`);
+	console.log(
+		`  status       : ${check[0].status} (priority ${check[0].priority}) — ${STATUS_EXPLICIT ? 'explicit override' : 'preserved from the stored row'}`
+	);
 	console.log(`  credentials  : ${check[0].enc_len} chars ciphertext, ${accounts.length} accounts`);
 	console.log(`  models       : ${check[0].models}`);
 	console.log(

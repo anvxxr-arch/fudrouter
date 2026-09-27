@@ -17,6 +17,12 @@ import postgres from 'postgres';
 import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { encryptCredentials } from '../src/lib/server/credentials.ts';
+import {
+	resolveStatus,
+	assertValidStatus,
+	providerUpsertConflict,
+	statusLogSuffix
+} from '../src/lib/server/provider-status.ts';
 
 const PROVIDER_ID = process.env.INFERHUB_PROVIDER_ID || 'inferhub';
 const PROVIDER_NAME = 'InferHub';
@@ -28,7 +34,6 @@ const BASE_URL = (process.env.INFERHUB_BASE_URL || 'https://api.inferhub.dev/v1'
 // 2026-09-26). `dev` is spec §1's label for a provider that must not ship, so a
 // commercial one has no reason to carry it. Override with the env var when
 // deliberately onboarding a non-commercial upstream.
-const STATUS = process.env.INFERHUB_PROVIDER_STATUS || 'active';
 const PRIORITY = Number(process.env.INFERHUB_PROVIDER_PRIORITY || 170);
 const DRY = process.argv.includes('--dry-run');
 
@@ -112,19 +117,19 @@ const accounts = keys.map((k, i) => ({
 const cred = { api_key: keys[0], auth_kind: 'apikey', default_headers: {}, accounts };
 
 const sql = postgres(process.env.DATABASE_URL);
+
+// `provider.status` is the operator's call: this only seeds a NEW row, and
+// rewrites an existing one when INFERHUB_PROVIDER_STATUS is set explicitly.
+const { value: STATUS, isExplicit: STATUS_EXPLICIT } = resolveStatus('INFERHUB_PROVIDER_STATUS');
+assertValidStatus(STATUS, 'INFERHUB_PROVIDER_STATUS');
+
 try {
 	const enc = encryptCredentials(cred);
 	await sql`
 		insert into provider (id, name, base_url, credentials_enc, status, priority)
 		values (${PROVIDER_ID}, ${PROVIDER_NAME}, ${BASE_URL}, ${enc}, ${STATUS}, ${PRIORITY})
-		on conflict (id) do update set
-			name = excluded.name,
-			base_url = excluded.base_url,
-			credentials_enc = excluded.credentials_enc,
-			status = excluded.status,
-			priority = excluded.priority
-	`;
-	console.log(`provider ${PROVIDER_ID} upserted (status=${STATUS})`);
+		${providerUpsertConflict('id', STATUS, STATUS_EXPLICIT)}`;
+	console.log(`provider ${PROVIDER_ID} upserted (${statusLogSuffix(STATUS, STATUS_EXPLICIT)})`);
 
 	// `model.slug` is UNIQUE table-wide: the `where` clause makes a slug owned by
 	// another provider a no-op instead of reassigning (and later cascading) it.

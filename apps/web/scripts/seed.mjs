@@ -60,5 +60,7 @@ const model = await sql`
 	      status = 'active'
 	returning id, slug`;
 
-console.log(`seeded: provider ${process.env.SEED_PROVIDER_NAME} (${pid}), model ${model[0].slug} (${model[0].id})`);
+console.log(
+	`seeded: provider ${process.env.SEED_PROVIDER_NAME} (${pid}), model ${model[0].slug} (${model[0].id})`
+);
 await sql.end();

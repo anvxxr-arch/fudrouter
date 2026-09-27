@@ -11,7 +11,10 @@ import { decryptCredentials } from '../src/lib/server/credentials.ts';
 
 const PROVIDER = process.env.XAI_PROVIDER_NAME || 'xai-grok';
 const DSN = process.env.DATABASE_URL;
-if (!DSN) { console.error('missing env: DATABASE_URL'); process.exit(1); }
+if (!DSN) {
+	console.error('missing env: DATABASE_URL');
+	process.exit(1);
+}
 
 const sql = postgres(DSN);
 let failed = 0;
@@ -44,11 +47,16 @@ try {
 	}
 	check('has api_key', typeof creds.api_key === 'string' && creds.api_key.length > 20);
 	check('auth_kind is oauth', creds.auth_kind === 'oauth');
-	check('account pool non-empty', Array.isArray(creds.accounts) && creds.accounts.length > 0,
-		`${creds.accounts?.length ?? 0} accounts`);
-	check('default_headers carries the CLI version gate',
+	check(
+		'account pool non-empty',
+		Array.isArray(creds.accounts) && creds.accounts.length > 0,
+		`${creds.accounts?.length ?? 0} accounts`
+	);
+	check(
+		'default_headers carries the CLI version gate',
 		!!creds.default_headers?.['x-grok-client-version'],
-		creds.default_headers?.['x-grok-client-version']);
+		creds.default_headers?.['x-grok-client-version']
+	);
 
 	// 3. models are attached and priced
 	const models = await sql`
@@ -56,7 +64,10 @@ try {
 		from model m join provider p on p.id = m.provider_id
 		where p.name = ${PROVIDER} and m.status = 'active' order by m.slug`;
 	check('active models attached', models.length >= 2, models.map((m) => m.slug).join(', '));
-	check('prices are non-zero', models.every((m) => Number(m.input_price) > 0 && Number(m.output_price) > 0));
+	check(
+		'prices are non-zero',
+		models.every((m) => Number(m.input_price) > 0 && Number(m.output_price) > 0)
+	);
 
 	// 4. the decrypted credential actually works against the live upstream
 	for (const m of models) {
@@ -84,10 +95,16 @@ try {
 			continue;
 		}
 		const text = body?.choices?.[0]?.message?.content ?? '';
-		check(`live upstream ${m.slug} returned content`, text.trim().length > 0,
-			JSON.stringify(text.slice(0, 40)));
-		check(`live upstream ${m.slug} reported usage`, !!body?.usage,
-			body?.usage ? `in ${body.usage.prompt_tokens} / out ${body.usage.completion_tokens}` : 'none');
+		check(
+			`live upstream ${m.slug} returned content`,
+			text.trim().length > 0,
+			JSON.stringify(text.slice(0, 40))
+		);
+		check(
+			`live upstream ${m.slug} reported usage`,
+			!!body?.usage,
+			body?.usage ? `in ${body.usage.prompt_tokens} / out ${body.usage.completion_tokens}` : 'none'
+		);
 	}
 } finally {
 	await sql.end();

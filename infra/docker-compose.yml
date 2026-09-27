@@ -4,19 +4,14 @@ name: fudrouter
 # hardened Postgres (project `infra-pg`, 127.0.0.1:5432, database `fudrouter`,
 # role `fudrouter`) — see /home/dwizzy/infra-pg/docker-compose.yml, which
 # explicitly replaces the old per-app `fudrouter-db` container on :5434.
-# Only the cache is still owned by this stack.
 #
 # The old `fudrouter-pgdata` volume is intentionally left on disk (unreferenced)
 # as a rollback safety net for the :5434 -> :5432 migration.
-services:
-  cache:
-    image: valkey/valkey:8
-    container_name: fudrouter-cache
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:6379:6379"
-    healthcheck:
-      test: ["CMD", "valkey-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
+#
+# The `cache` (valkey/valkey:8 on 127.0.0.1:6379) service was REMOVED: no code
+# path in `apps/web` or `services/router` references redis/valkey/6379, the
+# keyspace held 0 keys, and it had 0 established connections — a running service
+# with no consumer. Both apps are stateless over Postgres. If a cache is needed
+# later, add it back deliberately with its consumer.
+services: {}
+

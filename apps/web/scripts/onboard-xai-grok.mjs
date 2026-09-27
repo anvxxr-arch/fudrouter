@@ -41,14 +41,32 @@ const STATUS = process.env.XAI_PROVIDER_STATUS || 'active';
 // grok-4.7 is served by the upstream but is NOT in the published table, so it
 // inherits the flagship rate. Confirm before S2 turns these into real billing.
 const MODELS = [
-	{ slug: 'grok-4.6', name: 'Grok 4.6', context: 500000, input: '2000000.000000', output: '6000000.000000' },
-	{ slug: 'grok-4.7', name: 'Grok 4.7', context: 500000, input: '2000000.000000', output: '6000000.000000' }
+	{
+		slug: 'grok-4.6',
+		name: 'Grok 4.6',
+		context: 500000,
+		input: '2000000.000000',
+		output: '6000000.000000'
+	},
+	{
+		slug: 'grok-4.7',
+		name: 'Grok 4.7',
+		context: 500000,
+		input: '2000000.000000',
+		output: '6000000.000000'
+	}
 ];
 
 const MASTER = process.env.CREDENTIALS_MASTER_KEY;
 const DSN = process.env.DATABASE_URL;
-if (!MASTER) { console.error('missing env: CREDENTIALS_MASTER_KEY'); process.exit(1); }
-if (!DSN) { console.error('missing env: DATABASE_URL'); process.exit(1); }
+if (!MASTER) {
+	console.error('missing env: CREDENTIALS_MASTER_KEY');
+	process.exit(1);
+}
+if (!DSN) {
+	console.error('missing env: DATABASE_URL');
+	process.exit(1);
+}
 
 function encrypt(plain) {
 	const key = Buffer.from(MASTER, 'base64');
@@ -139,7 +157,9 @@ try {
 	console.log(`  status       : ${check[0].status} (priority ${check[0].priority})`);
 	console.log(`  credentials  : ${check[0].enc_len} chars ciphertext, ${accounts.length} accounts`);
 	console.log(`  models       : ${check[0].models}`);
-	console.log(`  expiries     : ${accounts[0].expired} .. ${accounts[accounts.length - 1].expired}`);
+	console.log(
+		`  expiries     : ${accounts[0].expired} .. ${accounts[accounts.length - 1].expired}`
+	);
 } finally {
 	await sql.end();
 }

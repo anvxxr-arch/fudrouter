@@ -33,16 +33,30 @@ const STATUS = process.env.FREEBUFF_PROVIDER_STATUS || 'active';
 const PRIORITY = Number(process.env.FREEBUFF_PROVIDER_PRIORITY || 160);
 const DRY = process.argv.includes('--dry-run');
 
-const MODELS_URL = new URL('../../../services/router/internal/freebuff/models.json', import.meta.url);
+const MODELS_URL = new URL(
+	'../../../services/router/internal/freebuff/models.json',
+	import.meta.url
+);
 
 function loadTokens() {
 	const out = [];
 	const file = process.env.FREEBUFF_TOKEN_FILE;
 	if (file) {
-		out.push(...readFileSync(file, 'utf8').split(/\r?\n/).map((s) => s.trim()).filter(Boolean));
+		out.push(
+			...readFileSync(file, 'utf8')
+				.split(/\r?\n/)
+				.map((s) => s.trim())
+				.filter(Boolean)
+		);
 	}
 	for (const v of [process.env.FREEBUFF_TOKEN, process.env.FREEBUFF_TOKENS]) {
-		if (v) out.push(...v.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean));
+		if (v)
+			out.push(
+				...v
+					.split(/[\s,]+/)
+					.map((s) => s.trim())
+					.filter(Boolean)
+			);
 	}
 	return [...new Set(out)];
 }
@@ -77,7 +91,9 @@ console.log(`loaded ${usable.length} Bearer token(s)`);
 
 const modelRows = JSON.parse(readFileSync(MODELS_URL, 'utf8'));
 const models = modelRows.filter((m) => !m.namespace);
-console.log(`loaded ${models.length} models from ${MODELS_URL.pathname.split('/').slice(-3).join('/')}`);
+console.log(
+	`loaded ${models.length} models from ${MODELS_URL.pathname.split('/').slice(-3).join('/')}`
+);
 
 // Static Bearer tokens never refresh: `expired` must be far future so the pool
 // treats them as permanently valid (a null/absent value triggers a refresh that
@@ -100,10 +116,14 @@ const cred = {
 
 if (DRY) {
 	console.log('\n--dry-run: no writes.');
-	console.log(`provider: ${PROVIDER_ID} (${PROVIDER_NAME}) base_url=${BASE_URL} status=${STATUS} priority=${PRIORITY}`);
+	console.log(
+		`provider: ${PROVIDER_ID} (${PROVIDER_NAME}) base_url=${BASE_URL} status=${STATUS} priority=${PRIORITY}`
+	);
 	console.log(`models:   ${models.length}`);
 	for (const m of models) {
-		console.log(`  ${m.id.padEnd(38)} agent=${m.agent.padEnd(16)} available=${m.available}${m.fallback ? ' fallback=' + m.fallback : ''}`);
+		console.log(
+			`  ${m.id.padEnd(38)} agent=${m.agent.padEnd(16)} available=${m.available}${m.fallback ? ' fallback=' + m.fallback : ''}`
+		);
 	}
 	process.exit(0);
 }

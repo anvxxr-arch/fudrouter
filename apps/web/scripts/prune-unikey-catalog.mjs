@@ -18,24 +18,24 @@ const KEEP = ['deepseek/deepseek-v4-flash', 'BAAI/bge-m3'];
 
 const sql = postgres(process.env.DATABASE_URL);
 try {
-  const rows = await sql`select slug, status from model where provider_id = ${PROVIDER_ID}`;
-  const hide = rows.filter((r) => !KEEP.includes(r.slug) && r.status === 'active');
-  console.log(`unikey models: ${rows.length}, keeping ${KEEP.length}, hiding ${hide.length}`);
-  for (const r of hide) console.log(`  - ${JSON.stringify(r.slug)}`);
+	const rows = await sql`select slug, status from model where provider_id = ${PROVIDER_ID}`;
+	const hide = rows.filter((r) => !KEEP.includes(r.slug) && r.status === 'active');
+	console.log(`unikey models: ${rows.length}, keeping ${KEEP.length}, hiding ${hide.length}`);
+	for (const r of hide) console.log(`  - ${JSON.stringify(r.slug)}`);
 
-  if (hide.length) {
-    await sql`
+	if (hide.length) {
+		await sql`
       update model set status = 'inactive'
       where provider_id = ${PROVIDER_ID}
         and slug <> all(${sql.array(KEEP)})
         and status = 'active'`;
-  }
+	}
 
-  const left = await sql`
+	const left = await sql`
     select slug, name, status from model
     where provider_id = ${PROVIDER_ID} order by status, slug`;
-  console.log(`\nunikey catalog (${left.length}):`);
-  for (const r of left) console.log(`  [${r.status}] ${r.slug}  ${r.name}`);
+	console.log(`\nunikey catalog (${left.length}):`);
+	for (const r of left) console.log(`  [${r.status}] ${r.slug}  ${r.name}`);
 } finally {
-  await sql.end();
+	await sql.end();
 }

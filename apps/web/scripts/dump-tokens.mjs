@@ -19,7 +19,9 @@ try {
 	const raw = Buffer.from(row.credentials_enc, 'base64');
 	const d = createDecipheriv('aes-256-gcm', key, raw.subarray(0, 12));
 	d.setAuthTag(raw.subarray(raw.length - 16));
-	const blob = JSON.parse(Buffer.concat([d.update(raw.subarray(12, raw.length - 16)), d.final()]).toString());
+	const blob = JSON.parse(
+		Buffer.concat([d.update(raw.subarray(12, raw.length - 16)), d.final()]).toString()
+	);
 	for (const a of blob.accounts.slice(0, N)) {
 		console.log(pairs ? `${a.email}	${a.access_token}` : a.access_token);
 	}

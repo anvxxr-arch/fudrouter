@@ -40,12 +40,19 @@ const signup = await fetch(`${WEB}/api/auth/sign-up/email`, {
 });
 check('signup returns 200', signup.status === 200, `HTTP ${signup.status}`);
 
-const cookies = signup.headers.getSetCookie().map((c) => c.split(';')[0]).join('; ');
+const cookies = signup.headers
+	.getSetCookie()
+	.map((c) => c.split(';')[0])
+	.join('; ');
 check('signup sets a session cookie', /session_token=/.test(cookies));
 
 // 2. The protected route must reject an anonymous caller and accept this one.
 const anon = await fetch(`${WEB}/keys`, { redirect: 'manual' });
-check('anonymous /keys is redirected', anon.status === 303 || anon.status === 302, `HTTP ${anon.status}`);
+check(
+	'anonymous /keys is redirected',
+	anon.status === 303 || anon.status === 302,
+	`HTTP ${anon.status}`
+);
 
 const keysPage = await fetch(`${WEB}/keys`, { headers: { cookie: cookies } });
 check('authenticated /keys renders', keysPage.status === 200, `HTTP ${keysPage.status}`);
@@ -68,7 +75,10 @@ const apiKey = minted ? minted[0] : '';
 // 4. The data plane must reject a bogus key and accept the minted one.
 const bogus = await fetch(`${ROUTER}/v1/chat/completions`, {
 	method: 'POST',
-	headers: { 'content-type': 'application/json', authorization: 'Bearer sk-ar-bogus_bogusbogusbogusbogus' },
+	headers: {
+		'content-type': 'application/json',
+		authorization: 'Bearer sk-ar-bogus_bogusbogusbogusbogus'
+	},
 	body: JSON.stringify({ model: MODEL, messages: [{ role: 'user', content: 'hi' }] })
 });
 check('router rejects an invalid key', bogus.status === 401, `HTTP ${bogus.status}`);
@@ -76,10 +86,17 @@ check('router rejects an invalid key', bogus.status === 401, `HTTP ${bogus.statu
 const completion = await fetch(`${ROUTER}/v1/chat/completions`, {
 	method: 'POST',
 	headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
-	body: JSON.stringify({ model: MODEL, messages: [{ role: 'user', content: 'Reply with exactly: E2E' }] })
+	body: JSON.stringify({
+		model: MODEL,
+		messages: [{ role: 'user', content: 'Reply with exactly: E2E' }]
+	})
 });
 const completionBody = await completion.text();
-check('router accepts the minted key', completion.status === 200, `HTTP ${completion.status} ${completionBody.slice(0, 120)}`);
+check(
+	'router accepts the minted key',
+	completion.status === 200,
+	`HTTP ${completion.status} ${completionBody.slice(0, 120)}`
+);
 
 let usage = null;
 try {
@@ -87,7 +104,11 @@ try {
 } catch {
 	/* not json */
 }
-check('completion returns token usage', Boolean(usage && usage.prompt_tokens > 0), JSON.stringify(usage));
+check(
+	'completion returns token usage',
+	Boolean(usage && usage.prompt_tokens > 0),
+	JSON.stringify(usage)
+);
 
 // 5. The request must be billed and visible on /usage.
 const usagePage = await fetch(`${WEB}/usage`, { headers: { cookie: cookies } });

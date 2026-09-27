@@ -21,7 +21,10 @@ function randChars(n) {
 }
 
 const DSN = process.env.DATABASE_URL;
-if (!DSN) { console.error('missing env: DATABASE_URL'); process.exit(1); }
+if (!DSN) {
+	console.error('missing env: DATABASE_URL');
+	process.exit(1);
+}
 
 const label = process.argv[2] || 'dev';
 const email = process.env.DEV_KEY_EMAIL || 'dev@fudrouter.local';

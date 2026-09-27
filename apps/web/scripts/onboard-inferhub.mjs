@@ -20,7 +20,10 @@ import { encryptCredentials } from '../src/lib/server/credentials.ts';
 
 const PROVIDER_ID = process.env.INFERHUB_PROVIDER_ID || 'inferhub';
 const PROVIDER_NAME = 'InferHub';
-const BASE_URL = (process.env.INFERHUB_BASE_URL || 'https://api.inferhub.dev/v1').replace(/\/+$/, '');
+const BASE_URL = (process.env.INFERHUB_BASE_URL || 'https://api.inferhub.dev/v1').replace(
+	/\/+$/,
+	''
+);
 // 'active': every onboarded upstream is a commercial arrangement (confirmed
 // 2026-09-26). `dev` is spec §1's label for a provider that must not ship, so a
 // commercial one has no reason to carry it. Override with the env var when
@@ -38,10 +41,21 @@ const usdToMicro = (usd) => Math.round(Number(usd ?? 0) * 1_000_000).toString();
 function loadKeys() {
 	const out = [];
 	if (process.env.INFERHUB_API_KEY_FILE) {
-		out.push(...readFileSync(process.env.INFERHUB_API_KEY_FILE, 'utf8').split(/\r?\n/).map((s) => s.trim()).filter(Boolean));
+		out.push(
+			...readFileSync(process.env.INFERHUB_API_KEY_FILE, 'utf8')
+				.split(/\r?\n/)
+				.map((s) => s.trim())
+				.filter(Boolean)
+		);
 	}
 	for (const v of [process.env.INFERHUB_API_KEY, process.env.INFERHUB_API_KEYS]) {
-		if (v) out.push(...v.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean));
+		if (v)
+			out.push(
+				...v
+					.split(/[\s,]+/)
+					.map((s) => s.trim())
+					.filter(Boolean)
+			);
 	}
 	return [...new Set(out)];
 }
@@ -64,13 +78,19 @@ const raw = Array.isArray(body?.data) ? body.data : [];
 
 // Namespace placeholders (id ends with '/', e.g. `ag/`, `cb/`) are not callable
 // models — seeding them would advertise a slug that always fails.
-const models = raw.filter((m) => typeof m?.id === 'string' && m.id.trim() !== '' && !m.id.endsWith('/'));
+const models = raw.filter(
+	(m) => typeof m?.id === 'string' && m.id.trim() !== '' && !m.id.endsWith('/')
+);
 const skippedNs = raw.length - models.length;
-console.log(`catalog: ${raw.length} entries, ${models.length} callable models (${skippedNs} namespace placeholders skipped)`);
+console.log(
+	`catalog: ${raw.length} entries, ${models.length} callable models (${skippedNs} namespace placeholders skipped)`
+);
 
 if (DRY) {
 	console.log('\n--dry-run: no writes.');
-	console.log(`provider: ${PROVIDER_ID} (${PROVIDER_NAME}) base_url=${BASE_URL} status=${STATUS} priority=${PRIORITY}`);
+	console.log(
+		`provider: ${PROVIDER_ID} (${PROVIDER_NAME}) base_url=${BASE_URL} status=${STATUS} priority=${PRIORITY}`
+	);
 	for (const m of models) {
 		const p = m.pricing || {};
 		const inP = p.official_in ?? 0;
@@ -131,10 +151,14 @@ try {
 	}
 	console.log(`${upserted} models upserted`);
 	if (collided.length) {
-		console.warn(`skipped ${collided.length} model(s) owned by another provider: ${collided.slice(0, 12).join(', ')}${collided.length > 12 ? ` …+${collided.length - 12}` : ''}`);
+		console.warn(
+			`skipped ${collided.length} model(s) owned by another provider: ${collided.slice(0, 12).join(', ')}${collided.length > 12 ? ` …+${collided.length - 12}` : ''}`
+		);
 	}
 
-	console.log('\n✅ InferHub onboarded. Restart the router only if re-onboarding an existing pool:');
+	console.log(
+		'\n✅ InferHub onboarded. Restart the router only if re-onboarding an existing pool:'
+	);
 	console.log('   pm2 restart fudrouter-router');
 } finally {
 	await sql.end();

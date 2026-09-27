@@ -13,8 +13,14 @@ const PROVIDER = process.argv[2] || process.env.XAI_PROVIDER_NAME || 'xai-grok';
 const MASTER = process.env.CREDENTIALS_MASTER_KEY;
 const DSN = process.env.DATABASE_URL;
 
-if (!MASTER) { console.error('missing env: CREDENTIALS_MASTER_KEY'); process.exit(1); }
-if (!DSN) { console.error('missing env: DATABASE_URL'); process.exit(1); }
+if (!MASTER) {
+	console.error('missing env: CREDENTIALS_MASTER_KEY');
+	process.exit(1);
+}
+if (!DSN) {
+	console.error('missing env: DATABASE_URL');
+	process.exit(1);
+}
 
 function decrypt(wire) {
 	const key = Buffer.from(MASTER, 'base64');
@@ -48,11 +54,13 @@ try {
 	console.log(`headers  : ${JSON.stringify(cred.default_headers || {})}`);
 	console.log(`accounts : ${accounts.length}`);
 
-	let expired = 0, valid = 0;
+	let expired = 0,
+		valid = 0;
 	for (const a of accounts) {
 		const exp = Date.parse(a.expired);
 		const ok = Number.isFinite(exp) && exp > now;
-		if (ok) valid++; else expired++;
+		if (ok) valid++;
+		else expired++;
 	}
 	console.log(`valid    : ${valid}`);
 	console.log(`expired  : ${expired}`);
@@ -60,7 +68,9 @@ try {
 	for (const a of accounts.slice(0, 5)) {
 		const exp = Date.parse(a.expired);
 		const flag = Number.isFinite(exp) && exp > now ? 'valid  ' : 'expired';
-		console.log(`  ${flag} ${String(a.email).padEnd(40)} exp=${a.expired} rt=${String(a.refresh_token).slice(0, 6)}…`);
+		console.log(
+			`  ${flag} ${String(a.email).padEnd(40)} exp=${a.expired} rt=${String(a.refresh_token).slice(0, 6)}…`
+		);
 	}
 } finally {
 	await sql.end();

@@ -238,6 +238,36 @@ func (h *Handler) authenticate(r *http.Request) (*store.APIKeyRow, error) {
 	return row, nil
 }
 
+// shouldFailover reports whether ANOTHER pooled account could plausibly turn
+// this upstream status into a success. A 401/403 is a dead credential and a 429
+// is a per-account throttle or quota: both belong to the account that produced
+// them. A 502/503/504 is the upstream itself misbehaving (every account shares
+// it, but a retry can still land on a healthy instance). Everything else
+// (400/404/422...) is request-shaped - another credential changes nothing.
+//
+// Measured before this guard: scratch/route-integrity/run.sh, a pool of
+// [429-account, live-account] returned 429 to the client on attempt 1, and the
+// same for 503, while a live account sat in the pool.
+func shouldFailover(code int) bool {
+	switch code {
+	case http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests,
+		http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return true
+	}
+	return false
+}
+
+// parksAccount reports whether a failoverable status blames THIS account. 401/403
+// (dead credential) and 429 (per-account throttle) do, so the account is parked
+// for failCooldown instead of being re-probed by every later request. 5xx does
+// NOT: the whole pool shares one upstream, and parking every account during a
+// provider-wide outage would empty the pool for five minutes and turn a blip
+// into an outage.
+func parksAccount(code int) bool {
+	return code == http.StatusUnauthorized || code == http.StatusForbidden ||
+		code == http.StatusTooManyRequests
+}
+
 func (h *Handler) ServeCompletions(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 
@@ -320,6 +350,7 @@ func (h *Handler) ServeCompletions(w http.ResponseWriter, r *http.Request) {
 
 	var resp *http.Response
 	var lastStatus int
+	var lastErr error
 	var servedBy string
 	usedAttempts := 0
 	for attempt := 0; attempt < attempts; attempt++ {
@@ -379,6 +410,13 @@ func (h *Handler) ServeCompletions(w http.ResponseWriter, r *http.Request) {
 
 			resp, err = h.client.Do(upReq)
 			if err != nil {
+				// A transport error (timeout, reset, EOF) can be
+				// account-specific: fail over while attempts remain and
+				// surface it only when every account has been tried.
+				lastStatus, lastErr = 0, err
+				if attempt+1 < attempts {
+					continue
+				}
 				h.logRequest(r.Context(), keyRow, m, 0, 0, start, "error", err.Error())
 				h.writeErr(w, http.StatusBadGateway, "upstream request failed")
 				return
@@ -386,12 +424,16 @@ func (h *Handler) ServeCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 		lastStatus = resp.StatusCode
 
-		// The credential was rejected: drop that account and try another.
-		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		// Fail over when another account can plausibly turn this into a
+		// success; park the account only when the status blames it.
+		if shouldFailover(resp.StatusCode) {
+			code := resp.StatusCode
 			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
 			_ = resp.Body.Close()
 			resp = nil
-			pool.MarkFailed(picked.Token)
+			if parksAccount(code) {
+				pool.MarkFailed(picked.Token)
+			}
 			continue
 		}
 		servedBy = picked.Email
@@ -400,8 +442,11 @@ func (h *Handler) ServeCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if resp == nil {
-		h.logRequest(r.Context(), keyRow, m, 0, 0, start, "upstream_error",
-			fmt.Sprintf("upstream %d on every account", lastStatus))
+		reason := fmt.Sprintf("upstream %d on every account", lastStatus)
+		if lastErr != nil {
+			reason = fmt.Sprintf("upstream unreachable on every account: %v", lastErr)
+		}
+		h.logRequest(r.Context(), keyRow, m, 0, 0, start, "upstream_error", reason)
 		h.writeErr(w, http.StatusBadGateway, "upstream rejected every pooled credential")
 		return
 	}
@@ -599,6 +644,7 @@ func (h *Handler) ServeGeneric(w http.ResponseWriter, r *http.Request) {
 
 	var resp *http.Response
 	var lastStatus int
+	var lastErr error
 	var servedBy string
 	usedAttempts := 0
 	for attempt := 0; attempt < attempts; attempt++ {
@@ -626,17 +672,27 @@ func (h *Handler) ServeGeneric(w http.ResponseWriter, r *http.Request) {
 
 		resp, err = h.client.Do(upReq)
 		if err != nil {
+			// A transport error (timeout, reset, EOF) can be
+			// account-specific: fail over while attempts remain and
+			// surface it only when every account has been tried.
+			lastStatus, lastErr = 0, err
+			if attempt+1 < attempts {
+				continue
+			}
 			h.logRequest(r.Context(), keyRow, m, 0, 0, start, "error", err.Error())
 			h.writeErr(w, http.StatusBadGateway, "upstream request failed")
 			return
 		}
 		lastStatus = resp.StatusCode
 
-		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		if shouldFailover(resp.StatusCode) {
+			code := resp.StatusCode
 			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
 			_ = resp.Body.Close()
 			resp = nil
-			pool.MarkFailed(picked.Token)
+			if parksAccount(code) {
+				pool.MarkFailed(picked.Token)
+			}
 			continue
 		}
 		servedBy = picked.Email
@@ -645,8 +701,11 @@ func (h *Handler) ServeGeneric(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if resp == nil {
-		h.logRequest(r.Context(), keyRow, m, 0, 0, start, "upstream_error",
-			fmt.Sprintf("upstream %d on every account", lastStatus))
+		reason := fmt.Sprintf("upstream %d on every account", lastStatus)
+		if lastErr != nil {
+			reason = fmt.Sprintf("upstream unreachable on every account: %v", lastErr)
+		}
+		h.logRequest(r.Context(), keyRow, m, 0, 0, start, "upstream_error", reason)
 		h.writeErr(w, http.StatusBadGateway, "upstream rejected every pooled credential")
 		return
 	}

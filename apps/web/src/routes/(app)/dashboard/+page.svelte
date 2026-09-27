@@ -1,11 +1,15 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
+	import FluidOrb from '$lib/components/fluid-orb.svelte';
 	import {formatCost, formatTokens, formatDateTime} from '$lib/format';
 	import { Badge, EmptyState, Guide, PageHeader, StatCard, UsageChart, TableWrap } from '$lib/ui';
 
 	let { data } = $props();
 </script>
 
+<div class="fr-decorative-orb" aria-hidden="true">
+	<FluidOrb size={220} color="#3B82F4" />
+</div>
 <PageHeader
 	title="Dashboard"
 	lede="Your usage at a glance. Everything below is scoped to your account."

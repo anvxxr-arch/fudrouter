@@ -4,7 +4,7 @@ import { uuidv7 } from 'uuidv7';
 import type { Actions, PageServerLoad } from './$types';
 import { requireCap } from '$lib/server/roles';
 import { decryptCredentials, type Credentials } from '$lib/server/credentials';
-import { allowDevProviders } from '$lib/server/publish';
+import { allowDevProviders, allowPrivateUpstreams } from '$lib/server/publish';
 import { microToUsd, usdToMicro } from '$lib/server/admin';
 import { db } from '$lib/server/db';
 import { model, provider, requestLog } from '$lib/server/db/schema';
@@ -108,7 +108,7 @@ async function fetchUpstreamCatalog(
 	url: string;
 	rateLimit: Record<string, string>;
 }> {
-	const base = safeUpstreamUrl(baseUrl);
+	const base = safeUpstreamUrl(baseUrl, allowPrivateUpstreams());
 	if (!base) throw new Error('provider base URL is not a usable http(s) URL');
 	const url = `${base}/models`;
 	const headers = headersFor(cred, tokenAt(cred, index));
@@ -596,7 +596,7 @@ async function sandboxChat(
 		};
 	}
 
-	const base = safeUpstreamUrl(p.baseUrl);
+	const base = safeUpstreamUrl(p.baseUrl, allowPrivateUpstreams());
 	if (!base) return { fatal: 'provider base URL is not a usable http(s) URL' };
 	const url = `${base}/chat/completions`;
 	const headers = { ...headersFor(cred, tokenAt(cred, 0)), 'content-type': 'application/json' };

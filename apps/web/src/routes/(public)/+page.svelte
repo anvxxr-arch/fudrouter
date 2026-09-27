@@ -2,6 +2,7 @@
 	import { resolve } from '$app/paths';
 	import { formatTokens } from '$lib/format';
 	import { ButtonLink, Guide, Metric, VisualDivider } from '$lib/ui';
+	import FluidOrb from '$lib/components/fluid-orb.svelte';
 
 	// Structured data for rich snippets — states only what the page states.
 	const jsonLd = JSON.stringify({
@@ -62,6 +63,9 @@
 		<ButtonLink variant="primary" href={resolve('/signup')}>Get started</ButtonLink>
 		<ButtonLink href={resolve('/pricing')}>See pricing</ButtonLink>
 	</div>
+	<div class="fr-decorative-orb" aria-hidden="true">
+		<FluidOrb size={320} color="#1A73F2" />
+	</div>
 </section>
 
 <VisualDivider />
@@ -106,101 +110,4 @@
 	<ButtonLink variant="primary" href={resolve('/signup')}>Get started</ButtonLink>
 </section>
 
-<style>
-	.hero {
-		position: relative;
-		isolation: isolate;
-		padding: var(--fr-space-2xl) 0 0;
-	}
-	.hero::before {
-		content: '';
-		position: absolute;
-		inset: 0 0 20%;
-		z-index: -1;
-		pointer-events: none;
-		background: var(--fr-glow);
-	}
-	.display-xl {
-		max-width: 16ch;
-		margin: 0;
-		font-size: var(--fr-text-display-xl);
-		font-weight: 700;
-		line-height: var(--fr-display-xl-lh);
-		letter-spacing: var(--fr-display-tracking);
-	}
-	.lede {
-		max-width: 46ch;
-		margin: 0;
-		color: var(--fr-text-muted);
-		font-size: var(--fr-text-lg);
-		line-height: var(--fr-body-lh);
-	}
-	.fr-actions {
-		display: flex;
-		gap: var(--fr-space-sm);
-		justify-content: flex-start;
-	}
-	.metrics-strip {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
-		gap: var(--fr-space-lg);
-		padding: 0 0 var(--fr-space-2xl);
-	}
-	.features {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
-		gap: var(--fr-space-2xl);
-		padding: 0 0 var(--fr-space-2xl);
-	}
-	.features h2 {
-		margin: 0 0 var(--fr-space-xs);
-		font-size: var(--fr-text-h5);
-	}
-	.features p {
-		margin: 0;
-		font-size: var(--fr-text-sm);
-	}
-	.endpoint-grid {
-		display: grid;
-		gap: var(--fr-space-md);
-		margin-top: var(--fr-space-md);
-		/* A grid item defaults to min-width:auto — it will not shrink below
-		   its widest child, so a long endpoint path drags the page wide
-		   (WCAG 1.4.10 reflow failure at 320px). */
-		grid-template-columns: minmax(0, 1fr);
-	}
-	.endpoint-card {
-		display: grid;
-		grid-template-columns: 4rem minmax(0, 1fr);
-		align-items: center;
-		gap: var(--fr-space-md);
-		padding: var(--fr-space-sm) var(--fr-space-md);
-		background: var(--fr-surface);
-		border: 1px solid var(--fr-border);
-		border-radius: var(--fr-radius-md);
-	}
-	.endpoint-card > .muted {
-		grid-column: 2;
-	}
-	.endpoint-card code {
-		font-size: var(--fr-text-sm);
-		overflow-wrap: anywhere;
-	}
-	.auth-note {
-		margin-top: var(--fr-space-md);
-		font-size: var(--fr-text-sm);
-	}
-	.closing {
-		display: grid;
-		justify-items: start;
-		gap: var(--fr-space-sm);
-		padding-bottom: var(--fr-space-2xl);
-	}
-	.closing h2 {
-		margin: 0;
-		font-size: var(--fr-text-h3);
-	}
-	.closing p {
-		margin: 0;
-	}
-</style>
+

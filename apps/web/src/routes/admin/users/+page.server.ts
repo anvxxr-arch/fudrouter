@@ -1,11 +1,37 @@
 import { fail } from '@sveltejs/kit';
 import { desc, eq, sql } from 'drizzle-orm';
 import type { Actions, PageServerLoad } from './$types';
-import { requireCap } from '$lib/server/roles';
+import { requireCap, canAdminister } from '$lib/server/roles';
 import { db } from '$lib/server/db';
 import { apiKey, requestLog, user } from '$lib/server/db/schema';
+import { session as sessionTable } from '$lib/server/db/auth.schema';
 
 const ROLES = ['user', 'finance_admin', 'ops_admin', 'admin'];
+
+/** The acting user's role, or null when unauthenticated. */
+function actorRole(locals: App.Locals): string | null {
+	return (locals.user as { role?: string | null } | null)?.role ?? null;
+}
+
+/**
+ * Guard a role/ban mutation by privilege ORDER, not by identity alone.
+ *
+ * `admin.users` is held by `finance_admin` too, so a check that only blocked
+ * self-demotion let a billing-only account promote ITSELF to `admin` (full
+ * `ALL_CAPS`, including provider-credential access). Returns the refusal message,
+ * or null when the action is permitted. See `canAdminister` in `$lib/server/roles`.
+ */
+function guardMayAct(
+	locals: App.Locals,
+	targetRole: string | null,
+	grantedRole?: string
+): string | null {
+	if (canAdminister(actorRole(locals), targetRole, grantedRole))
+		return null;
+	return grantedRole !== undefined && grantedRole !== targetRole
+		? 'You cannot grant a role above your own level'
+		: 'You cannot modify a user at or above your own level';
+}
 
 export const load: PageServerLoad = async ({ locals }) => {
 	requireCap(locals, 'admin.users');
@@ -56,15 +82,23 @@ export const actions: Actions = {
 		const id = String(form.get('id') ?? '').trim();
 		const role = String(form.get('role') ?? '').trim();
 		if (!id || !ROLES.includes(role)) return fail(400, { error: 'Invalid role' });
-		if (id === locals.user!.id && role !== 'admin')
-			return fail(400, { error: 'You cannot demote yourself' });
 
-		const updated = await db
-			.update(user)
-			.set({ role })
+		// Changing your OWN role is always refused: with only a self-demotion
+		// guard, an actor whose cap set includes `admin.users` could promote
+		// itself. Reading the current role is required for the ordering check.
+		if (id === locals.user!.id) return fail(400, { error: 'You cannot change your own role' });
+
+		const [target] = await db
+			.select({ role: user.role })
+			.from(user)
 			.where(eq(user.id, id))
-			.returning({ id: user.id });
-		if (updated.length === 0) return fail(404, { error: 'User not found' });
+			.limit(1);
+		if (!target) return fail(404, { error: 'User not found' });
+
+		const refusal = guardMayAct(locals, target.role, role);
+		if (refusal) return fail(403, { error: refusal });
+
+		await db.update(user).set({ role }).where(eq(user.id, id));
 		return { roleSet: id };
 	},
 
@@ -76,13 +110,29 @@ export const actions: Actions = {
 		if (id === locals.user!.id) return fail(400, { error: 'You cannot ban yourself' });
 
 		const [target] = await db
-			.select({ banned: user.banned })
+			.select({ banned: user.banned, role: user.role })
 			.from(user)
 			.where(eq(user.id, id))
 			.limit(1);
 		if (!target) return fail(404, { error: 'User not found' });
 
-		await db.update(user).set({ banned: !target.banned }).where(eq(user.id, id));
+		// Same ordering rule as setRole: an actor must not be able to ban a peer
+		// or a superior (e.g. finance_admin banning an admin).
+		const refusal = guardMayAct(locals, target.role);
+		if (refusal) return fail(403, { error: refusal });
+
+		const nowBanned = !target.banned;
+		await db.update(user).set({ banned: nowBanned }).where(eq(user.id, id));
+
+		// Revoke every live session when banning. better-auth only consults
+		// `banned` when a session is CREATED (its `session.create.before` hook),
+		// so an already-issued session keeps full access until it expires — up to
+		// seven days. Measured live: a banned user's session stayed valid until
+		// 2026-09-30. A ban that does not take effect immediately is not a ban.
+		if (nowBanned) {
+			await db.delete(sessionTable).where(eq(sessionTable.userId, id));
+		}
+
 		return { bannedToggled: id };
 	}
 };

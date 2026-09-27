@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Guide, PageHeader, TableWrap } from '$lib/ui';
+	import FluidOrb from '$lib/components/fluid-orb.svelte';
 	import { formatDateTime } from '$lib/format';
 
 	let { data } = $props();
@@ -9,6 +10,10 @@
 	title="Status"
 	lede="Health of the data plane that answers your API calls."
 />
+
+<div class="fr-decorative-orb" aria-hidden="true">
+	<FluidOrb size={240} color="#3B82F4" />
+</div>
 
 <!-- One focal answer to "is it working?": a dot AND the word, so it reads without
      colour. The page used to state the same health four times across three blocks
@@ -56,31 +61,4 @@
 
 <Guide id="status" />
 
-<style>
-	.indicator {
-		display: flex;
-		align-items: center;
-		gap: var(--fr-space-sm);
-		margin-top: var(--fr-space-md);
-	}
-	.dot {
-		flex: none;
-		width: 10px;
-		height: 10px;
-		border-radius: var(--fr-radius-pill);
-		background: var(--fr-success);
-	}
-	.indicator.down .dot {
-		background: var(--fr-danger);
-	}
-	.state {
-		font-size: var(--fr-text-h4);
-	}
-	.sep {
-		color: var(--fr-text-muted);
-	}
-	.meta {
-		margin: var(--fr-space-sm) 0 0;
-		font-size: var(--fr-text-sm);
-	}
-</style>
+

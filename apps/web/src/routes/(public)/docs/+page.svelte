@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { CodeBlock, Guide, PageHeader } from '$lib/ui';
+	import FluidOrb from '$lib/components/fluid-orb.svelte';
 
 	// Code samples live in JS strings so their `{` / `}` are never parsed as
 	// Svelte expressions.
@@ -21,8 +22,12 @@
 
 <PageHeader
 	title="API reference"
-	lede="[OI]-compatible. Authenticate with Authorization: Bearer sk-ar-…"
+	lede="[OI]-compatible. Authenticate with Authorization: Bearer ***"
 />
+
+<div class="fr-decorative-orb" aria-hidden="true">
+	<FluidOrb size={240} color="#3B82F4" />
+</div>
 
 <Guide id="docs" />
 
@@ -53,3 +58,5 @@
 		</p>
 	</div>
 </section>
+
+

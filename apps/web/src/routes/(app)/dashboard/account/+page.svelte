@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import FluidOrb from '$lib/components/fluid-orb.svelte';
 	import { Alert, Button, Card, Facts, Field, Guide, Input, PageHeader } from '$lib/ui';
 	import { formatDate } from '$lib/format';
 	import { withPending } from '$lib/forms';
@@ -9,6 +10,9 @@
 	const track = withPending((v) => (pending = v));
 </script>
 
+<div class="fr-decorative-orb" aria-hidden="true">
+	<FluidOrb size={220} color="#3B82F4" />
+</div>
 <PageHeader title="Account" lede="Your profile and how we address you in the console." />
 
 {#if form?.saved}<div class="fr-feedback"><Alert tone="success">Saved.</Alert></div>{/if}
@@ -41,9 +45,4 @@
 
 <Guide id="account" />
 
-<style>
-	form {
-		display: grid;
-		gap: var(--fr-space-md);
-	}
-</style>
+

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import FluidOrb from '$lib/components/fluid-orb.svelte';
 	import { Alert, Badge, Button, Card, EmptyState, Field, Guide, Input, PageHeader, TableWrap } from '$lib/ui';
 	import { withPending } from '$lib/forms';
 
@@ -10,6 +11,9 @@
 	const track = withPending((v) => (pending = v));
 </script>
 
+<div class="fr-decorative-orb" aria-hidden="true">
+	<FluidOrb size={220} color="#3B82F4" />
+</div>
 <PageHeader
 	title="API Keys"
 	lede="Keys authenticate your calls to the router. The secret is shown once, at creation."
@@ -78,21 +82,4 @@
 		</tbody>
 	</table></TableWrap>
 
-<style>
-	
-	.secret {
-		display: block;
-		margin: var(--fr-space-sm) 0;
-		word-break: break-all;
-	}
-	.create {
-		display: grid;
-		gap: var(--fr-space-md);
-		max-width: 28rem;
-	}
-	/* The form is 28rem; an unconstrained card left ~320px of dead panel beside it.
-	   Constrain the card instead of stretching the field. */
-	.narrow {
-		max-width: 32rem;
-	}
-</style>
+

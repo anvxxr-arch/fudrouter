@@ -1,10 +1,14 @@
 <script lang="ts">
-	import {formatCost, formatTokens, formatDateTime} from '$lib/format';
+	import { formatCost, formatTokens, formatDateTime } from '$lib/format';
+	import FluidOrb from '$lib/components/fluid-orb.svelte';
 	import { Badge, EmptyState, Guide, PageHeader, StatCard, TableWrap } from '$lib/ui';
 
 	let { data } = $props();
 </script>
 
+<div class="fr-decorative-orb" aria-hidden="true">
+	<FluidOrb size={220} color="#3B82F4" />
+</div>
 <PageHeader title="Usage" lede="Requests routed for your account, newest first." />
 
 <section class="fr-stats">
@@ -18,8 +22,7 @@
 
 <h2>Requests</h2>
 <TableWrap label="Requests">
-<table class="fr">
-	
+	<table class="fr">
 		<thead>
 			<tr
 				><th>When</th><th>Model</th><th>In</th><th>Out</th><th>Cost</th><th>Latency</th><th
@@ -46,11 +49,12 @@
 				<tr><td colspan="7"><EmptyState title="No requests yet" /></td></tr>
 			{/each}
 		</tbody>
-	</table></TableWrap>
+	</table></TableWrap
+>
 
 {#if data.totals.requests > data.recent.length}
 	<p class="muted">
-		Showing the {data.recent.length} newest of {formatTokens(data.totals.requests)} — this table is
-		capped, the totals above are not.
+		Showing the {data.recent.length} newest of {formatTokens(data.totals.requests)} — this table is capped,
+		the totals above are not.
 	</p>
 {/if}

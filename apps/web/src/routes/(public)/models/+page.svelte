@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Alert, Badge, EmptyState, Guide, PageHeader, Section } from '$lib/ui';
+	import FluidOrb from '$lib/components/fluid-orb.svelte';
 	import { BASE_URL, API_SURFACES, API_SURFACE_ORDER, modelsOn, tierTone } from '$lib/catalog';
 
 	let { data } = $props();
@@ -9,6 +10,10 @@
 	title="Models"
 	lede="Every model this deployment serves through the [OI]-compatible API."
 />
+
+<div class="fr-decorative-orb" aria-hidden="true">
+	<FluidOrb size={260} color="#3B82F4" />
+</div>
 
 <div class="fr-feedback">
 	<Alert tone="warning">Preview build — the free and premium badges below are placeholder data, not billing.</Alert>
@@ -65,82 +70,4 @@
 
 <Guide id="models" />
 
-<style>
-	.surface-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
-		gap: var(--fr-space-lg);
-	}
-	.surface-card {
-		display: grid;
-		gap: var(--fr-space-sm);
-		padding: var(--fr-space-card);
-		background: var(--fr-surface);
-		border: 1px solid var(--fr-border);
-		border-radius: var(--fr-radius-lg);
-	}
-	.surface-card header {
-		display: grid;
-		gap: var(--fr-space-xs);
-	}
-	.surface-card h3 {
-		margin: 0;
-		font-size: var(--fr-text-h5);
-		font-weight: 600;
-	}
-	.endpoint {
-		color: var(--fr-text-muted);
-		font-size: var(--fr-text-sm);
-		word-break: break-all;
-	}
-	.model-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
-		gap: var(--fr-space-lg);
-	}
-	.model-card {
-		/* Flex column, not grid: the trailing block needs `margin-top: auto` to sit
-		   on the card's bottom edge. In a row of stretched cards, a title that wraps
-		   one line more would otherwise push everything after it down. */
-		display: flex;
-		flex-direction: column;
-		gap: var(--fr-space-sm);
-		padding: var(--fr-space-card);
-		background: var(--fr-surface);
-		border: 1px solid var(--fr-border);
-		border-radius: var(--fr-radius-lg);
-	}
-	.model-card header {
-		display: flex;
-		/* Top-aligned, not centred: the badge must sit at the same offset from the
-		   card's top edge in every card. Centring it against the title made it
-		   drift down by a line whenever a long slug wrapped one line further. */
-		align-items: flex-start;
-		justify-content: space-between;
-		gap: var(--fr-space-sm);
-		/* long model names must wrap, not push the badge past the card
-		   (WCAG 1.4.10 at 320px) */
-		min-width: 0;
-	}
-	.model-card h3 {
-		margin: 0;
-		font-size: var(--fr-text-base);
-		font-weight: 600;
-		overflow-wrap: anywhere;
-	}
-	.meta {
-		display: grid;
-		gap: var(--fr-space-xs);
-		justify-items: start;
-		margin-top: auto;
-	}
-	.slug {
-		color: var(--fr-text-muted);
-		font-size: var(--fr-text-sm);
-		overflow-wrap: anywhere;
-	}
-	.context {
-		font-size: var(--fr-text-sm);
-		color: var(--fr-text-muted);
-	}
-</style>
+

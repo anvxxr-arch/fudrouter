@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { Badge, ButtonLink, EmptyState, Guide, PageHeader, Section } from '$lib/ui';
+	import FluidOrb from '$lib/components/fluid-orb.svelte';
 	import { modelsOn, tierTone } from '$lib/catalog';
 	import { formatCost } from '$lib/format';
 
@@ -13,6 +14,10 @@
 	title="Pricing"
 	lede="Pay per token — no seat fees. One API key, every model."
 />
+
+<div class="fr-decorative-orb" aria-hidden="true">
+	<FluidOrb size={280} color="#1A73F2" />
+</div>
 
 <Section title="Pay-as-you-go" lede="Prices are per 1M tokens. Input and output are priced apart.">
 	{#if rows.length === 0}
@@ -71,65 +76,4 @@
 
 <Guide id="pricing" />
 
-<style>
-	.pricing-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
-		gap: var(--fr-space-lg);
-	}
-	.price-card {
-		/* Flex column, not grid: the price block needs `margin-top: auto` to sit on
-		   the card's bottom edge (see the markup comment). */
-		display: flex;
-		flex-direction: column;
-		gap: var(--fr-space-sm);
-		padding: var(--fr-space-card);
-		background: var(--fr-surface);
-		border: 1px solid var(--fr-border);
-		border-radius: var(--fr-radius-lg);
-	}
-	.price-card header {
-		display: flex;
-		/* Top-aligned, not centred: the badge must sit at the same offset from the
-		   card's top edge in every card. Centring it against the title made it
-		   drift down by a line whenever a long slug wrapped one line further. */
-		align-items: flex-start;
-		justify-content: space-between;
-		gap: var(--fr-space-sm);
-		/* long model names must wrap, not push the badge past the card
-		   (WCAG 1.4.10 at 320px) */
-		min-width: 0;
-	}
-	.price-card h3 {
-		margin: 0;
-		font-size: var(--fr-text-base);
-		font-weight: 600;
-		overflow-wrap: anywhere;
-	}
-	.slug {
-		color: var(--fr-text-muted);
-		font-size: var(--fr-text-sm);
-		overflow-wrap: anywhere;
-	}
-	.prices {
-		display: grid;
-		gap: var(--fr-space-sm);
-		margin-top: auto;
-	}
-	.price-row {
-		display: flex;
-		align-items: baseline;
-		justify-content: space-between;
-		gap: var(--fr-space-sm);
-	}
-	.price {
-		font-size: var(--fr-text-h5);
-		font-weight: 700;
-	}
-	.cta {
-		display: flex;
-		align-items: center;
-		gap: var(--fr-space-md);
-		margin-top: var(--fr-space-xl);
-	}
-</style>
+

@@ -1,6 +1,7 @@
 import { fail, redirect } from '@sveltejs/kit';
 import type { Actions } from './$types';
 import { auth } from '$lib/server/auth';
+import { limitCredentialAttempt, formatRetryAfter } from '$lib/server/rate-limit';
 
 export const actions: Actions = {
 	default: async ({ request }) => {
@@ -11,6 +12,16 @@ export const actions: Actions = {
 
 		if (!email || !password || !name) {
 			return fail(400, { error: 'Name, email and password are all required' });
+		}
+
+		// Same bypass as the login action: auth.api.* skips better-auth's
+		// router-level limiter. Signup is limited per address — a per-account cap
+		// would never fire, since every attempt names a fresh address.
+		const decision = limitCredentialAttempt('signup', request.headers, email);
+		if (!decision.allowed) {
+			return fail(429, {
+				error: `Too many attempts. Try again in ${formatRetryAfter(decision.retryAfterMs)}.`
+			});
 		}
 
 		// better-auth's server API returns data and THROWS APIError on failure —

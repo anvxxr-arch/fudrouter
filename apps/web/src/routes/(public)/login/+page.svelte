@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import FluidOrb from '$lib/components/fluid-orb.svelte';
 	import { resolve } from '$app/paths';
 	import { Alert, Button, Card, DiscordButton, Field, Guide, Input } from '$lib/ui';
 	import { withPending } from '$lib/forms';
@@ -11,6 +12,9 @@
 
 <div class="auth-centered">
 	<h1>Log in</h1>
+	<div class="fr-decorative-orb" aria-hidden="true">
+		<FluidOrb size={200} color="#3B82F4" />
+	</div>
 	<Card>
 		{#if form?.error}
 			<div class="fr-feedback"><Alert tone="danger">{form.error}</Alert></div>
@@ -32,21 +36,4 @@
 
 <Guide id="login" />
 
-<style>
-	form {
-		display: grid;
-		gap: var(--fr-space-md);
-	}
-	.auth-centered {
-		max-width: 24rem;
-		margin: var(--fr-space-2xl) auto;
-	}
-	.auth-centered h1 {
-		text-align: center;
-	}
-	.swap {
-		margin-top: var(--fr-space-md);
-		text-align: center;
-		font-size: var(--fr-text-sm);
-	}
-</style>
+

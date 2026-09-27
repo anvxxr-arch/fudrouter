@@ -109,6 +109,19 @@ spacing:
   lg: 24px
   xl: 32px
   2xl: 48px
+  # The section-break step. Past this a page wants two sections, not more
+  # space — it exists so the one gap that should read as a pause has a name
+  # rather than a literal in whichever stylesheet needed it.
+  3xl: 80px
+motion:
+  # Two durations only. Anything answering a click must land inside the ~100ms
+  # where a delay stops reading as lag; entrances are the one place a longer
+  # curve buys legibility, because that is where the movement needs explaining.
+  durFast: 120ms
+  durMed: 320ms
+  # One curve, ease-out. An ease-in on a UI transition makes the interface feel
+  # like it is chasing the user instead of settling where they put it.
+  ease: "cubic-bezier(0.16, 1, 0.3, 1)"
 components:
   button-primary:
     backgroundColor: "{colors.primary}"
@@ -393,6 +406,19 @@ One breakpoint, **820px**: below it the member/admin sidebar collapses to a wrap
 - **Inline links are underlined** (WCAG 1.4.1) — `p a, li a, dd a, dt a, td a, .lede a`.
 - **Skip link** opens every surface. First tab stop, off-screen until focused.
 - **Motion is opt-out** — `prefers-reduced-motion: reduce` collapses every transition.
+- **Motion is what the `motion` scale names, and nothing else** — an animation may
+  not introduce a duration, easing or keyframe of its own; it composes `motion.*`.
+  Motion that lives in a stylesheet without a spec entry is motion nobody can
+  review, and `tokens.test.ts` cannot hold an undocumented value in place.
+- **Transform and opacity only.** Both are compositor properties, so neither
+  triggers layout. Animating width, height, top or margin does, and on a page
+  this size that is the difference between a reveal and a stutter.
+- **Entrances are the only animation that is not optional to write.** A control
+  that changes state on hover or press transitions it — that is `durFast`, and
+  the rest-state must already look correct without it.
+- **An entrance must be able to fail closed.** Any `animation` with a `backwards`
+  fill needs a `reduce` branch that restores the resting state explicitly, so a
+  skipped animation can never leave content at `opacity: 0`.
 - **Every wait is announced** — progress bar + `sr-only` status region; form POST disables button + `aria-busy`.
 - **Repeated row controls named per row** via `aria-label`.
 - **Focus with `outline`, never `box-shadow`** — `--fr-focus` holds the ring shorthand.

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 // DESIGN.md is the normative spec; tokens.css is its implementation. This test
@@ -98,6 +98,86 @@ describe('numeric scales', () => {
 			}
 			expect(css).toContain(prefix);
 		}
+	});
+
+	it('implements the motion scale DESIGN.md declares', () => {
+		// The spec said "motion is opt-out" and named no value for it, so
+		// `--fr-dur-med` and `--fr-ease` resolved to nothing and animated
+		// nothing while the build stayed green. A motion scale is normative now,
+		// and it is checked like the others.
+		//
+		// Motion does not fit `yamlScale`: the easing is a function, not a
+		// number, and the spec names its steps in camelCase while CSS spells
+		// them kebab-case (`durFast` -> `--fr-dur-fast`). Written out rather
+		// than generalised, because a general parser that quietly skipped
+		// non-numeric values is the reason the scale went missing the first
+		// time.
+		const motion = [...spec.matchAll(/^\s{2}(dur(?:Fast|Med)|ease):\s*"?(.*?)"?\s*$/gm)].map(
+			(m) => [`--fr-${m[1].replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`, m[2]] as const
+		);
+		expect(motion.length, 'no motion scale found in DESIGN.md').toBeGreaterThan(0);
+		for (const [token, value] of motion) {
+			const actual = css.match(new RegExp(`${token}:\\s*([^;]+);`))?.[1];
+			expect(actual, `tokens.css has no ${token}`).toBeDefined();
+			expect(actual!.trim(), token).toBe(value);
+		}
+	});
+
+	it('declares no spacing or radius token that DESIGN.md does not define', () => {
+		// The other direction, and the one that was missing. Every test above
+		// walks spec → css, so a token added to tokens.css with no spec entry
+		// passed unnoticed — which is how `--fr-space-3xl` landed here first.
+		// A value in the stylesheet that the document does not describe is a
+		// value nobody reviews.
+		const known = new Set([
+			...yamlScale('spacing').keys(),
+			...yamlScale('rounded').keys()
+		]);
+		for (const prefix of ['--fr-space-', '--fr-radius-'] as const) {
+			const found = [...css.matchAll(new RegExp(`${prefix}([a-z0-9-]+):`, 'g'))].map((m) => m[1]);
+			expect(found.length, `no ${prefix} tokens found`).toBeGreaterThan(0);
+			const extra = found.filter((n) => !known.has(n));
+			expect(extra, `${prefix} tokens undocumented in DESIGN.md: ${extra.join(', ')}`).toEqual([]);
+		}
+	});
+
+	it('declares no motion token that DESIGN.md does not define', () => {
+		// `found` yields names with the `fr-` prefix stripped off the `--fr-`
+		// token, so the spec side has to be reduced the same way or every
+		// motion token looks undocumented.
+		const known = new Set(
+			[...spec.matchAll(/^\s{2}(dur(?:Fast|Med)|ease):/gm)].map((m) =>
+				`fr-${m[1].replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`
+			)
+		);
+		expect(known.size, 'no motion scale found in DESIGN.md').toBeGreaterThan(0);
+		const found = [...css.matchAll(/--(fr-dur[\w-]*|fr-ease[\w-]*):/g)].map((m) => m[1]);
+		const extra = found.filter((n) => !known.has(n));
+		expect(extra, `motion tokens undocumented in DESIGN.md: ${extra.join(', ')}`).toEqual([]);
+	});
+
+	it('references no --fr-* custom property that tokens.css does not declare', () => {
+		// The failure this whole layer exists to prevent: a var() with no
+		// definition is not an error in CSS, it is a declaration that silently
+		// does nothing — a `background: var(--fr-nope)` falls back to
+		// transparent, and the page looks merely unstyled rather than broken.
+		// Scanning the stylesheets catches it at review time, where it is fixable.
+		const declared = new Set([...css.matchAll(/(--fr-[\w-]+)\s*:/g)].map((m) => m[1]));
+		const sheets = readdirSync(new URL('.', import.meta.url))
+			.filter((f) => f.endsWith('.css'))
+			.map((f) => readFileSync(new URL(f, import.meta.url), 'utf8'))
+			// The page sheets live outside this directory; walk up for them too.
+			.concat(
+				readdirSync(new URL('../../routes/(public)/', import.meta.url))
+					.filter((f) => f.endsWith('.css'))
+					.map((f) =>
+						readFileSync(new URL(`../../routes/(public)/${f}`, import.meta.url), 'utf8')
+					)
+			);
+		const used = new Set(sheets.flatMap((s) => [...s.matchAll(/var\((--fr-[\w-]+)\)/g)].map((m) => m[1])));
+		expect(used.size, 'no var(--fr-*) references found — is the scan wired up?').toBeGreaterThan(0);
+		const dangling = [...used].filter((t) => !declared.has(t));
+		expect(dangling, `referenced but never declared: ${dangling.join(', ')}`).toEqual([]);
 	});
 });
 

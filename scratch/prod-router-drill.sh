@@ -43,11 +43,14 @@ export DATABASE_URL="${DATABASE_URL%/*}/$DB"
 export ROUTER_ADDR=127.0.0.1:$PORT
 unset ROUTER_ALLOW_DEV_PROVIDERS
 
+# Build to a SCRATCH path: outputting to bin/ would silently replace the
+# binary production is deployed from (with whatever is in the working tree).
+BIN=/tmp/fudrouter-router-drill
 cd "$ROUTER_DIR"
-go build -o bin/fudrouter-router . || { echo "  BUILD FAILED"; exit 1; }
-echo "  go build OK"
+go build -o "$BIN" . || { echo "  BUILD FAILED"; exit 1; }
+echo "  go build OK -> $BIN"
 
-./bin/fudrouter-router >/tmp/drill-router.log 2>&1 &
+"$BIN" >/tmp/drill-router.log 2>&1 &
 PID=$!
 for i in $(seq 1 15); do curl -s -o /dev/null -m 2 "http://127.0.0.1:$PORT/health" && break; sleep 1; done
 H=$(curl -s -o /dev/null -w '%{http_code}' -m 5 "http://127.0.0.1:$PORT/health")
@@ -62,7 +65,7 @@ kill $PID 2>/dev/null; wait $PID 2>/dev/null
 
 echo "### 5. boot with ROUTER_ALLOW_DEV_PROVIDERS=1 (opt-in opens it)"
 export ROUTER_ALLOW_DEV_PROVIDERS=1
-./bin/fudrouter-router >/tmp/drill-router2.log 2>&1 &
+"$BIN" >/tmp/drill-router2.log 2>&1 &
 PID=$!
 for i in $(seq 1 15); do curl -s -o /dev/null -m 2 "http://127.0.0.1:$PORT/health" && break; sleep 1; done
 MODELS=$(curl -s -m 10 "http://127.0.0.1:$PORT/v1/models")

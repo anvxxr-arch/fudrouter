@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { formatTokens } from '$lib/format';
-	import { ButtonLink, Guide, Metric, VisualDivider } from '$lib/ui';
+	import { BorderGlow, ButtonLink, Guide, Metric, VisualDivider } from '$lib/ui';
 	import FluidOrb from '$lib/components/fluid-orb.svelte';
 
 	// Structured data for rich snippets — states only what the page states.
@@ -91,11 +91,15 @@
 	<h2>Endpoints</h2>
 	<div class="endpoint-grid">
 		{#each endpoints as e (e.path)}
-			<article class="endpoint-card">
+			<!-- BorderGlow *is* the card: it paints the surface, the 1px border and
+			     the radius, and its glow is the hover affordance. Wrapping the old
+			     `<article>` instead would have stacked a second border and
+			     background on top and hidden the effect. -->
+			<BorderGlow class="endpoint-card" radius="var(--radius-md)">
 				<span class="method fr-label">{e.method}</span>
 				<code>{e.path}</code>
 				<span class="muted">{e.note}</span>
-			</article>
+			</BorderGlow>
 		{/each}
 	</div>
 	<p class="muted auth-note">

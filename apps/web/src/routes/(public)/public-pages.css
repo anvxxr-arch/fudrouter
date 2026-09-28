@@ -143,21 +143,18 @@
 	gap: var(--space-md);
 }
 
+/* BorderGlow supplies the surface, the 1px border and the radius, and its glow
+   replaces the old `:hover` border-color as the affordance. What is left here is
+   pure layout, and the children live inside the component's `.inner` wrapper —
+   so the column and its gap belong there, not on the host. */
 .endpoint-card {
+	padding: var(--space-md);
+}
+
+.endpoint-card .inner {
 	display: flex;
 	flex-direction: column;
 	gap: var(--space-xs);
-
-	/* A card you can point at, rather than a list item. */
-	padding: var(--space-md);
-	border: 1px solid var(--color-border);
-	border-radius: var(--radius-md);
-	background: var(--color-surface);
-	transition: border-color var(--duration-fast) var(--ease);
-}
-
-.endpoint-card:hover {
-	border-color: var(--color-border-strong);
 }
 
 .endpoint-card code {

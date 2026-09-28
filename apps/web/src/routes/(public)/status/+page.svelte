@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { PageHeader, TableWrap } from '$lib/ui';
+	import { Counter, PageHeader, TableWrap } from '$lib/ui';
 	import FluidOrb from '$lib/components/fluid-orb.svelte';
 	import { formatDateTime } from '$lib/format';
 
@@ -26,7 +26,13 @@
 
 <p class="meta muted">
 	<span class="num">Checked {formatDateTime(new Date(data.checkedAt))} UTC</span> ·
-	<span class="num">probe {data.latencyMs.toLocaleString()} ms</span>
+	<!-- The probe number is the one value on this page that moves between
+	     refreshes, so it rolls rather than snaps. `label` keeps it announced:
+	     the digits are painted as a transformed column, which reads as noise to
+	     a screen reader, so the accessible name carries the number instead. -->
+	<span class="num"
+		>probe <Counter value={data.latencyMs} size="sm" label={String(data.latencyMs)} /> ms</span
+	>
 </p>
 
 <!-- The two calls this page actually makes. The old table listed
@@ -53,7 +59,13 @@
 			<tr>
 				<td><code>GET /v1/models</code></td>
 				<td>
-					<span class="num">{data.up ? `${data.models.toLocaleString()} models` : '—'}</span>
+					{#if data.up}
+						<span class="num"
+							><Counter value={data.models} size="sm" label={String(data.models)} /> models</span
+						>
+					{:else}
+						<span class="num">—</span>
+					{/if}
 				</td>
 			</tr>
 		</tbody>

@@ -29,138 +29,24 @@ export type Guide = {
 export const GUIDES = {
 	home: {
 		audience: 'public',
+		// The landing leads with the product, not with a glossary. This is the
+		// ONLY explanatory block on a public page, and `guides.test.ts` fails
+		// the build if it grows past one short section. Everything it used to
+		// carry — surfaces, the first-call walkthrough, price units — is
+		// reference material and lives in the `docs` guide, where someone
+		// arrived already looking for it.
 		sections: [
 			{
-				title: 'What a call costs you',
-				lede: 'One key, many upstream models. Every accepted call is metered.',
+				title: 'One key, many models',
 				facts: [
-					{
-						term: 'Auth',
-						detail: 'Authorization: Bearer, then the key you mint. The secret is shown once.'
-					},
-					{
-						term: 'Catalog',
-						detail: 'GET /v1/models lists what this deployment serves. It is public.'
-					},
-					{
-						term: 'Chat',
-						detail: 'POST /v1/chat/completions is the call that authenticates and bills.'
-					},
-					{ term: 'Health', detail: 'GET /health is the data plane. It does not check your key.' },
-					{
-						term: 'Unit',
-						detail:
-							'Prices are USD per 1M tokens, stored as micro-units so the total does not drift.'
-					}
-				]
-			},
-			{
-				title: 'Two surfaces, one account',
-				lede: 'A surface is the path prefix your client points at. It is not a filter on one list.',
-				paragraphs: [
-					'Pay as you go is /v1, billed per token. The coding-plan prefix (/coding/v1) is shown in the catalog so you can see the split, but that route is not on the data plane yet — treat the coding column as a preview, not a live endpoint.'
-				],
-				facts: [
-					{
-						term: 'Pay as you go',
-						detail: 'https://ai.karepmuwes.my.id/v1 — per token, no seat fee.'
-					},
-					{
-						term: 'Coding plan',
-						detail: 'https://ai.karepmuwes.my.id/coding/v1 — preview. Not routable yet.'
-					},
-					{
-						term: 'Tiers',
-						detail: 'free / premium badges on Models and Pricing are placeholder assignments.'
-					}
-				]
-			},
-			{
-				title: 'First call',
-				facts: [
-					{ term: '1. Account', detail: 'Sign up with email or Discord. You land on API Keys.' },
-					{ term: '2. Key', detail: 'Name it, create it, copy it. It cannot be shown again.' },
-					{
-						term: '3. Client',
-						detail: 'Point any OpenAI-compatible client at the base URL and the key.'
-					},
-					{
-						term: '4. Audit',
-						detail:
-							'Usage lists every call: model, tokens, cost, latency, status. Prompts are not stored.'
-					}
+					{ term: 'Catalog', detail: 'GET /v1/models is public. No key needed.' },
+					{ term: 'Calls', detail: 'POST /v1/chat/completions, metered per token.' }
 				]
 			}
 		]
 	},
-	pricing: {
-		audience: 'public',
-		sections: [
-			{
-				title: 'How to read a price',
-				lede: 'The table is the pay-as-you-go surface only. A model that is not on /v1 has no per-token price to quote.',
-				facts: [
-					{ term: 'Unit', detail: 'USD per 1 million tokens. Input and output are priced apart.' },
-					{
-						term: 'Storage',
-						detail:
-							'The database keeps micro-units (millionths). The page formats those, it does not round in the row.'
-					},
-					{
-						term: 'Context',
-						detail:
-							'The context column is the model window, in thousands of tokens, when we have one.'
-					},
-					{
-						term: 'Tier',
-						detail:
-							'Placeholder. The model table has no tier column yet, so do not treat the badge as billing.'
-					},
-					{
-						term: 'Coding plan',
-						detail:
-							'Covered models would be included in a subscription. That program is not live; this page does not invent a seat price.'
-					}
-				]
-			}
-		]
-	},
-	models: {
-		audience: 'public',
-		sections: [
-			{
-				title: 'How to read the catalog',
-				lede: 'Grouped by surface, because the surface is the URL your client uses. The tier is a property of the row, not the group.',
-				facts: [
-					{
-						term: 'Slug',
-						detail:
-							'The string you send as model. When it is the same as the display name — which it is on almost every model — the card prints it once.'
-					},
-					{
-						term: 'Context',
-						detail:
-							'Window size in tokens, when the row has one. A dash means we have not recorded it.'
-					},
-					{
-						term: 'Tier',
-						detail:
-							'free or premium, colour and word. Placeholder until the database owns the assignment.'
-					},
-					{
-						term: 'Same model, two surfaces',
-						detail:
-							'A slug can be free on one prefix and premium on the other. Read the row, not the name alone.'
-					},
-					{
-						term: 'What is missing',
-						detail:
-							'Provider names and upstream URLs are not on this page. They are an admin concern.'
-					}
-				]
-			}
-		]
-	},
+	
+	
 	docs: {
 		audience: 'public',
 		sections: [
@@ -210,13 +96,66 @@ export const GUIDES = {
 						detail: 'Failures use an error.message object and a 4xx or 5xx status.'
 					}
 				]
-			}
-		]
-	},
-	status: {
-		audience: 'public',
-		sections: [
-			{
+			},
+{
+				title: 'How to read a price',
+				lede: 'The table is the pay-as-you-go surface only. A model that is not on /v1 has no per-token price to quote.',
+				facts: [
+					{ term: 'Unit', detail: 'USD per 1 million tokens. Input and output are priced apart.' },
+					{
+						term: 'Storage',
+						detail:
+							'The database keeps micro-units (millionths). The page formats those, it does not round in the row.'
+					},
+					{
+						term: 'Context',
+						detail:
+							'The context column is the model window, in thousands of tokens, when we have one.'
+					},
+					{
+						term: 'Tier',
+						detail:
+							'Placeholder. The model table has no tier column yet, so do not treat the badge as billing.'
+					},
+					{
+						term: 'Coding plan',
+						detail:
+							'Covered models would be included in a subscription. That program is not live; this page does not invent a seat price.'
+					}
+				]
+			},
+{
+				title: 'How to read the catalog',
+				lede: 'Grouped by surface, because the surface is the URL your client uses. The tier is a property of the row, not the group.',
+				facts: [
+					{
+						term: 'Slug',
+						detail:
+							'The string you send as model. When it is the same as the display name — which it is on almost every model — the card prints it once.'
+					},
+					{
+						term: 'Context',
+						detail:
+							'Window size in tokens, when the row has one. A dash means we have not recorded it.'
+					},
+					{
+						term: 'Tier',
+						detail:
+							'free or premium, colour and word. Placeholder until the database owns the assignment.'
+					},
+					{
+						term: 'Same model, two surfaces',
+						detail:
+							'A slug can be free on one prefix and premium on the other. Read the row, not the name alone.'
+					},
+					{
+						term: 'What is missing',
+						detail:
+							'Provider names and upstream URLs are not on this page. They are an admin concern.'
+					}
+				]
+			},
+{
 				title: 'What this check is',
 				lede: 'A probe from this page load, not a historical uptime feed.',
 				facts: [
@@ -240,13 +179,8 @@ export const GUIDES = {
 						detail: 'Each upstream provider is probed from Admin → Connections, not from here.'
 					}
 				]
-			}
-		]
-	},
-	login: {
-		audience: 'public',
-		sections: [
-			{
+			},
+{
 				title: 'What signing in opens',
 				facts: [
 					{
@@ -266,13 +200,8 @@ export const GUIDES = {
 						detail: 'See other accounts, provider credentials, or the request log across users.'
 					}
 				]
-			}
-		]
-	},
-	signup: {
-		audience: 'public',
-		sections: [
-			{
+			},
+{
 				title: 'What an account is',
 				facts: [
 					{
@@ -297,6 +226,9 @@ export const GUIDES = {
 			}
 		]
 	},
+	
+	
+	
 	terms: {
 		audience: 'public',
 		sections: [

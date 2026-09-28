@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Alert, Badge, EmptyState, Guide, PageHeader, Section } from '$lib/ui';
+	import { Alert, Badge, EmptyState, PageHeader, Section } from '$lib/ui';
 	import FluidOrb from '$lib/components/fluid-orb.svelte';
 	import { BASE_URL, API_SURFACES, API_SURFACE_ORDER, modelsOn, tierTone } from '$lib/catalog';
 
@@ -73,4 +73,3 @@
 	</Section>
 {/each}
 
-<Guide id="models" />

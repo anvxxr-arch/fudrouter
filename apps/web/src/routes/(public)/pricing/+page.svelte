@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import { Badge, ButtonLink, EmptyState, Guide, PageHeader, Section } from '$lib/ui';
+	import { Badge, ButtonLink, EmptyState, PageHeader, Section } from '$lib/ui';
 	import FluidOrb from '$lib/components/fluid-orb.svelte';
 	import { modelsOn, tierTone } from '$lib/catalog';
 	import { formatCost } from '$lib/format';
@@ -72,4 +72,3 @@
 	<span class="muted">Then mint a key and point a client at the API.</span>
 </div>
 
-<Guide id="pricing" />

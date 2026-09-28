@@ -2,7 +2,7 @@
 	import { enhance } from '$app/forms';
 	import FluidOrb from '$lib/components/fluid-orb.svelte';
 	import { resolve } from '$app/paths';
-	import { Alert, Button, Card, DiscordButton, Field, Guide, Input } from '$lib/ui';
+	import { Alert, Button, Card, DiscordButton, Field, Input } from '$lib/ui';
 	import { withPending } from '$lib/forms';
 
 	let { form } = $props();
@@ -37,4 +37,3 @@
 	<p class="swap muted">Already have an account? <a href={resolve('/login')}>Log in</a></p>
 </div>
 
-<Guide id="signup" />

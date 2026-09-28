@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Guide, PageHeader, TableWrap } from '$lib/ui';
+	import { PageHeader, TableWrap } from '$lib/ui';
 	import FluidOrb from '$lib/components/fluid-orb.svelte';
 	import { formatDateTime } from '$lib/format';
 
@@ -60,4 +60,3 @@
 	</table>
 </TableWrap>
 
-<Guide id="status" />

@@ -34,11 +34,13 @@ export const ALERT_TONES = ['info', 'success', 'warning', 'danger'] as const;
 export type AlertTone = (typeof ALERT_TONES)[number];
 
 /**
- * `StatCard` accents its value for good/bad only — a KPI number reads as plain
- * text otherwise. Deliberately NOT the five-tone list: a type that accepts `info`
- * and ignores it is a lie the caller cannot see.
+ * `StatCard` accents its value for good/warning/bad — a KPI number reads as
+ * plain text otherwise. Deliberately NOT the five-tone list: a type that accepts
+ * `info` and ignores it is a lie the caller cannot see. `warning` earns its place
+ * for degraded / rate-limited / abuse states, which are neither success nor
+ * failure but need to stand out from a neutral number.
  */
-export const STAT_TONES = ['neutral', 'success', 'danger'] as const;
+export const STAT_TONES = ['neutral', 'success', 'warning', 'danger'] as const;
 export type StatTone = (typeof STAT_TONES)[number];
 
 /** The class a tone maps to. Defined once so every tone-carrying atom agrees. */

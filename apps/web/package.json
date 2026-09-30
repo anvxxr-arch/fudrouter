@@ -14,10 +14,6 @@
 		"test": "npm run test:unit -- --run",
 		"lint": "prettier --check . && eslint .",
 		"format": "prettier --write .",
-		"db:push": "drizzle-kit push",
-		"db:generate": "drizzle-kit generate",
-		"db:migrate": "drizzle-kit migrate",
-		"db:check": "drizzle-kit check",
 		"db:studio": "drizzle-kit studio",
 		"seed": "node --env-file=.env scripts/seed.mjs",
 		"onboard:xai": "node --env-file=.env scripts/onboard-xai-grok.mjs",
@@ -28,13 +24,15 @@
 		"onboard:freebuff": "node --experimental-strip-types --env-file=.env scripts/onboard-freebuff.mjs",
 		"verify:freebuff": "node --experimental-strip-types --env-file=.env scripts/verify-freebuff.mjs",
 		"onboard:inferhub": "node --experimental-strip-types --env-file=.env scripts/onboard-inferhub.mjs",
-		"verify:inferhub": "node --experimental-strip-types --env-file=.env scripts/verify-inferhub.mjs"
+		"verify:inferhub": "node --experimental-strip-types --env-file=.env scripts/verify-inferhub.mjs",
+		"db:migrate": "../../scripts/migrate.sh"
 	},
 	"dependencies": {
 		"@rolldown/binding-linux-x64-gnu": "^1.2.9",
 		"better-auth": "^1.6.23",
 		"chart.js": "^4.5.1",
 		"drizzle-orm": "^0.45.2",
+		"ioredis": "^6.0.0",
 		"postgres": "^3.4.9",
 		"uuidv7": "^1.2.1"
 	},

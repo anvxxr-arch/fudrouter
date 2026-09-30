@@ -168,6 +168,12 @@ type recorded struct {
 
 func mockUpstream(t *testing.T, rec *recorded, sessionBody string, chatStatus int) *httptest.Server {
 	t.Helper()
+	// The upstream under test is an httptest server on 127.0.0.1, and the client
+	// carries the real SSRF dial guard from internal/netguard — so without the
+	// escape hatch every call is refused as a non-public target. t.Setenv restores
+	// the fail-closed default when the test ends. Set here rather than in each test
+	// because the Manager's clients are constructed inside New(), after this runs.
+	t.Setenv("ALLOW_PRIVATE_UPSTREAMS", "1")
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		switch {

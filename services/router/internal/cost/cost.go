@@ -57,6 +57,17 @@ func Compute(tokensIn, tokensOut int64, priceIn, priceOut int64) int64 {
 	return divRound(tokensIn, priceIn) + divRound(tokensOut, priceOut)
 }
 
+// ComputeUsage bills the four token classes at their own price (spec §6):
+// uncached input, cached input, non-reasoning output, reasoning output. The
+// caller applies the spec §6 NULL fallbacks first (cached input bills at the
+// input price when no cached pricing is offered, reasoning at the output
+// price), so every price here is a billable one. Class counts are clamped
+// non-negative upstream of this call (proxy.billing clamp).
+func ComputeUsage(tokensIn, cachedInput, tokensOut, reasoning int64, priceIn, priceCached, priceOut, priceReasoning int64) int64 {
+	return divRound(tokensIn, priceIn) + divRound(cachedInput, priceCached) +
+		divRound(tokensOut, priceOut) + divRound(reasoning, priceReasoning)
+}
+
 func divRound(tokens, price int64) int64 {
 	if tokens == 0 || price == 0 {
 		return 0

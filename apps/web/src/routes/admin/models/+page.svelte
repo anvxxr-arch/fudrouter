@@ -4,26 +4,25 @@
 		Alert,
 		Badge,
 		Button,
+		ButtonLink,
 		Card,
 		EmptyState,
 		Field,
+		Guide,
 		Input,
 		PageHeader,
-		Guide,
 		Select,
 		TableWrap
 	} from '$lib/ui';
 	import { withPending } from '$lib/forms';
-
+	import { formatCost } from '$lib/format';
 	let { data, form } = $props();
 	let pending = $state(false);
 	const track = withPending((v) => (pending = v));
-
 	let editing = $state<string | null>(null);
 	function toggle(id: string) {
 		editing = editing === id ? null : id;
 	}
-
 	// Checkbox selection. The boxes live inside the table but belong to the
 	// toolbar form (HTML `form=` attribute) — a form may not nest, and every row
 	// already carries its own edit/delete form.
@@ -35,29 +34,19 @@
 	function selectNone() {
 		selected = [];
 	}
-
 	const stateLabels: Record<string, string> = {
 		unpublished: 'not published',
 		'provider-off': 'provider off'
 	};
 </script>
-
 <PageHeader
 	title="Models"
 	lede="What clients can call. Publishing is the switch — a model must be published and its provider live before the router serves it."
 />
-
 {#if form?.error}<div class="fr-feedback"><Alert tone="danger">{form.error}</Alert></div>{/if}
 {#if form?.message}
 	<div class="fr-feedback"><Alert tone="success">{form.message}</Alert></div>
 {/if}
-{#if form?.created}
-	<div class="fr-feedback"><Alert tone="success">Model “{form.created}” created.</Alert></div>
-{/if}
-{#if form?.deleted}
-	<div class="fr-feedback"><Alert tone="success">Model deleted.</Alert></div>
-{/if}
-
 <Card>
 	<h2 class="first">Publish state</h2>
 	<p class="muted">
@@ -123,9 +112,12 @@
 		</table>
 	</TableWrap>
 </Card>
-
 <Card>
 	<h2 class="first">Add model</h2>
+	<p class="muted">
+		Creates the canonical model, one provider mapping (upstream name defaults to the slug) and
+		pricing version 1 — all in one transaction.
+	</p>
 	<form method="POST" action="?/create" use:enhance={track}>
 		<div class="fr-grid">
 			<Field label="Provider">
@@ -137,7 +129,10 @@
 			</Field>
 			<Field label="Display name"><Input name="name" placeholder="Grok 4.6" required /></Field>
 			<Field label="Slug"><Input name="slug" placeholder="grok-4.6" required /></Field>
+			<Field label="Family"><Input name="family" placeholder="grok" /></Field>
+			<Field label="Developer"><Input name="developer" placeholder="xAI" /></Field>
 			<Field label="Context"><Input name="context" type="number" placeholder="128000" /></Field>
+			<Field label="Max output"><Input name="maxOutput" type="number" placeholder="8192" /></Field>
 			<Field label="Input USD / 1M">
 				<Input name="inputUsd" type="number" step="0.0001" placeholder="2.00" required />
 			</Field>
@@ -150,18 +145,23 @@
 					{#each data.statuses as s (s)}<option value={s}>{s}</option>{/each}
 				</Select>
 			</Field>
+			<Field label="Upstream model id" hint="Defaults to the slug">
+				<Input name="providerModelId" placeholder="grok-4.6" />
+			</Field>
+			<Field label="Modality (JSON)"><Input name="modality" placeholder={'{"text": true}'} /></Field>
+			<Field label="Capabilities (JSON flags)">
+				<Input name="capabilities" placeholder={'{"tools": true, "vision": false}'} />
+			</Field>
+			<Field label="Description"><Input name="description" placeholder="What it is for" /></Field>
 		</div>
 		<div class="submit">
 			<Button type="submit" {pending} variant="primary">Create model</Button>
 		</div>
 	</form>
 </Card>
-
 <Guide id="admin-models" />
-
 <Card>
 	<h2 class="first">Catalog</h2>
-
 	<form method="GET" class="filters">
 		<Field label="Provider">
 			<Select name="provider">
@@ -180,13 +180,11 @@
 		</Field>
 		<div class="submit"><Button type="submit">Apply</Button></div>
 	</form>
-
 	<p class="muted">
 		Showing {data.models.length} of {data.counts.all} — {data.counts.served} live, {data.counts
 			.hidden}
 		hidden.
 	</p>
-
 	<!-- The toolbar form. Checkboxes in the table reference it by id. -->
 	<form id="bulk" method="POST" action="?/bulk" use:enhance={track} class="bulk">
 		<span class="muted">{selected.length} selected</span>
@@ -199,15 +197,14 @@
 			Unpublish selected
 		</Button>
 	</form>
-
 	<TableWrap label="Catalog">
 		<table class="fr">
 			<thead>
 				<tr>
 					<th><span class="sr-only">Select</span></th>
-					<th>Slug</th><th>Name</th><th>Provider</th><th>Context</th><th>In / 1M</th><th
-						>Out / 1M</th
-					><th>Publish</th><th>Reachable</th><th>Actions</th>
+					<th>Slug</th><th>Name</th><th>Family</th><th>Provider</th><th>Mappings</th><th
+						>Context</th
+					><th>In / 1M</th><th>Out / 1M</th><th>Publish</th><th>Reachable</th><th>Actions</th>
 				</tr>
 			</thead>
 			<tbody>
@@ -225,10 +222,12 @@
 						</td>
 						<td><code>{m.slug}</code></td>
 						<td>{m.name}</td>
+						<td>{m.family ?? '—'}</td>
 						<td>{m.providerName}</td>
+						<td class="num">{m.mappingCount}</td>
 						<td class="num">{m.context ?? '—'}</td>
-						<td class="num">${m.inputUsd}</td>
-						<td class="num">${m.outputUsd}</td>
+						<td class="num">{formatCost(BigInt(m.inputPriceMicro), m.currency)}</td>
+						<td class="num">{formatCost(BigInt(m.outputPriceMicro), m.currency)}</td>
 						<td><Badge tone={m.status === 'active' ? 'success' : 'neutral'}>{m.status}</Badge></td>
 						<td>
 							{#if m.served}
@@ -265,6 +264,7 @@
 									</Button>
 								{/if}
 							</form>
+							<ButtonLink href="/admin/models/{m.id}">Open</ButtonLink>
 							<Button type="button" onclick={() => toggle(m.id)}>Edit</Button>
 							<form method="POST" action="?/delete" use:enhance={track} class="fr-inline">
 								<input type="hidden" name="id" value={m.id} />
@@ -276,21 +276,35 @@
 					</tr>
 					{#if editing === m.id}
 						<tr class="edit-row">
-							<td colspan="10">
+							<td colspan="12">
 								<form method="POST" action="?/update" use:enhance={track}>
 									<input type="hidden" name="id" value={m.id} />
 									<div class="fr-grid">
-										<Field label="Input USD / 1M">
-											<Input name="inputUsd" type="number" step="0.0001" value={m.inputUsd} />
-										</Field>
-										<Field label="Output USD / 1M">
-											<Input name="outputUsd" type="number" step="0.0001" value={m.outputUsd} />
-										</Field>
+										<Field label="Display name"><Input name="name" value={m.name} /></Field>
+										<Field label="Slug"><Input name="slug" value={m.slug} /></Field>
+										<Field label="Family"><Input name="family" value={m.family ?? ''} /></Field>
+										<Field label="Developer"><Input name="developer" value={m.developer ?? ''} /></Field>
 										<Field label="Context">
 											<Input name="context" type="number" value={m.context ?? ''} />
 										</Field>
+										<Field label="Max output">
+											<Input name="maxOutput" type="number" value={m.maxOutput ?? ''} />
+										</Field>
+										<Field label="Currency"><Input name="currency" value={m.currency} maxlength="3" /></Field>
+										<Field label="Modality (JSON)">
+											<Input name="modality" value={JSON.stringify(m.modality)} />
+										</Field>
+										<Field label="Capabilities (JSON flags)">
+											<Input name="capabilities" value={JSON.stringify(m.capabilities)} />
+										</Field>
+										<Field label="Description">
+											<Input name="description" value={m.description ?? ''} />
+										</Field>
 										<Field label="Status">
 											<Select name="status">
+												{#if !(data.statuses as readonly string[]).includes(m.status)}
+													<option value={m.status} selected>{m.status} (stored)</option>
+												{/if}
 												{#each data.statuses as s (s)}
 													<option value={s} selected={s === m.status}>{s}</option>
 												{/each}
@@ -312,13 +326,12 @@
 						</tr>
 					{/if}
 				{:else}
-					<tr><td colspan="10"><EmptyState title="No models match this filter" /></td></tr>
+					<tr><td colspan="12"><EmptyState title="No models match this filter" /></td></tr>
 				{/each}
 			</tbody>
 		</table>
 	</TableWrap>
 </Card>
-
 <style>
 	h2.first {
 		margin-top: 0;

@@ -1,61 +1,71 @@
-import { desc, eq, isNull, sql } from 'drizzle-orm';
+import { desc, eq, sql } from 'drizzle-orm';
 import type { PageServerLoad } from './$types';
 import { requireCap } from '$lib/server/roles';
 import { db } from '$lib/server/db';
-import { apiKey, model, provider, requestLog, user } from '$lib/server/db/schema';
+import {
+	apiKey,
+	connection,
+	model,
+	provider,
+	requestLog,
+	user
+} from '$lib/server/db/schema';
 
 export const load: PageServerLoad = async ({ locals }) => {
 	requireCap(locals, 'admin.view');
-
-	const [providers, models, activeKeys, users] = await Promise.all([
-		db.$count(provider),
-		db.$count(model),
-		db.$count(apiKey, isNull(apiKey.revokedAt)),
-		db.$count(user)
+	const [[providers], [models], [connections], [keys], [users], [reqAgg]] = await Promise.all([
+		db.select({ n: sql<number>`count(*)::int` }).from(provider),
+		db.select({ n: sql<number>`count(*)::int` }).from(model),
+		db.select({ n: sql<number>`count(*)::int` }).from(connection),
+		db
+			.select({ n: sql<number>`count(*) filter (where ${apiKey.status} = 'active')::int` })
+			.from(apiKey),
+		db.select({ n: sql<number>`count(*)::int` }).from(user),
+		db
+			.select({
+				n: sql<number>`count(*)::int`,
+				tokens: sql<number>`coalesce(sum(${requestLog.tokensIn} + ${requestLog.tokensOut}), 0)::int`,
+				costMicro: sql<string>`coalesce(sum(${requestLog.cost}), 0)::text`
+			})
+			.from(requestLog)
 	]);
-
-	const [totals] = await db
+	const topConsumers = await db
 		.select({
+			keyId: requestLog.apiKeyId,
+			keyName: sql<string>`coalesce(${apiKey.name}, '—')`,
+			email: sql<string>`coalesce(${user.email}, '—')`,
 			requests: sql<number>`count(*)::int`,
-			tokensIn: sql<number>`coalesce(sum(${requestLog.tokensIn}), 0)::int`,
-			tokensOut: sql<number>`coalesce(sum(${requestLog.tokensOut}), 0)::int`,
-			cost: sql<string>`coalesce(sum(${requestLog.cost}), 0)::text`
-		})
-		.from(requestLog);
-
-	// Top resource consumers, per client key (answers "which key burns the most").
-	const topKeys = await db
-		.select({
-			name: apiKey.name,
-			prefix: apiKey.prefix,
-			email: user.email,
-			requests: sql<number>`count(*)::int`,
-			tokens: sql<number>`coalesce(sum(${requestLog.tokensIn} + ${requestLog.tokensOut}), 0)::int`,
-			cost: sql<string>`coalesce(sum(${requestLog.cost}), 0)::text`
+			costMicro: sql<string>`coalesce(sum(${requestLog.cost}), 0)::text`
 		})
 		.from(requestLog)
-		.innerJoin(apiKey, eq(apiKey.id, requestLog.apiKeyId))
-		.innerJoin(user, eq(user.id, requestLog.userId))
-		.groupBy(apiKey.id, apiKey.name, apiKey.prefix, user.email)
-		.orderBy(desc(sql`sum(${requestLog.cost})`))
-		.limit(5);
-
+		.leftJoin(apiKey, eq(apiKey.id, requestLog.apiKeyId))
+		.leftJoin(user, eq(user.id, requestLog.userId))
+		.groupBy(requestLog.apiKeyId, apiKey.name, user.email)
+		.orderBy(sql`coalesce(sum(${requestLog.cost}), 0) desc`)
+		.limit(8);
 	const recent = await db
 		.select({
 			id: requestLog.id,
 			createdAt: requestLog.createdAt,
-			email: user.email,
-			modelSlug: model.slug,
-			status: requestLog.status,
+			requestedModel: requestLog.requestedModel,
 			latencyMs: requestLog.latencyMs,
-			cost: requestLog.cost,
-			currency: requestLog.currency
+			status: requestLog.status
 		})
 		.from(requestLog)
-		.innerJoin(user, eq(user.id, requestLog.userId))
-		.leftJoin(model, eq(model.id, requestLog.modelId))
 		.orderBy(desc(requestLog.createdAt))
-		.limit(8);
-
-	return { providers, models, activeKeys, users, totals, topKeys, recent };
+		.limit(12);
+	return {
+		counts: {
+			providers: providers.n,
+			models: models.n,
+			connections: connections.n,
+			activeKeys: keys.n,
+			users: users.n,
+			requests: reqAgg.n,
+			tokens: reqAgg.tokens,
+			costMicro: reqAgg.costMicro
+		},
+		topConsumers,
+		recent
+	};
 };

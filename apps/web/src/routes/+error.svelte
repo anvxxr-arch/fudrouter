@@ -1,30 +1,59 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
+	import { asPublicErrorBody, describeStatus } from '$lib/error-ux';
 	import { ButtonLink, Card } from '$lib/ui';
 
-	// One boundary for every failure: a 404 from a missing route, a 500 from a
-	// load function, a 403 from the capability guard. The status is shown as a
-	// number *and* a sentence, so it reads without relying on colour.
-	const title = $derived(page.status === 404 ? 'Page not found' : 'Something went wrong');
-	const hint = $derived(
-		page.status === 404
-			? 'That address does not exist on this deployment.'
-			: 'This page could not be loaded. Try again, or head back home.'
+	// One boundary for every failure on every surface (public, member, admin).
+	// PRD §130: a user-facing error answers FOUR questions — What happened? /
+	// Why? / What can I do? / Request ID? — in those words, so nobody has to
+	// infer them from a status code. Errors thrown via
+	// `$lib/server/public-error` carry the answers; anything else (bare
+	// error(), a hook redirect, a load crash) falls back to status-derived
+	// copy below, so the shape is never missing.
+	const body = $derived(asPublicErrorBody(page.error));
+	const status = $derived(page.status);
+	const fallback = $derived(describeStatus(status));
+	const what = $derived(
+		body?.message || page.error?.message || (status === 404 ? 'Page not found' : 'Something went wrong')
 	);
+	const why = $derived(body?.why ?? fallback.why);
+	const action = $derived(body?.action ?? fallback.action);
+	const requestId = $derived(body?.requestId ?? null);
 </script>
 
 <div class="error">
 	<Card>
-		<span class="code num">{page.status}</span>
-		<h1>{title}</h1>
-		<p class="muted">{hint}</p>
-		{#if page.error?.message && page.status !== 404}
-			<p class="detail"><code>{page.error.message}</code></p>
-		{/if}
+		<span class="code num">{status}</span>
+		<h1>{status === 404 ? 'Page not found' : 'Something went wrong'}</h1>
+
+		<dl class="answers">
+			<div>
+				<dt class="fr-label">What happened?</dt>
+				<dd>{what}</dd>
+			</div>
+			<div>
+				<dt class="fr-label">Why?</dt>
+				<dd>{why}</dd>
+			</div>
+			<div>
+				<dt class="fr-label">What can I do?</dt>
+				<dd>{action}</dd>
+			</div>
+			<!-- PRD §130: the fourth question is always ANSWERED, even when the
+			     answer is "none was recorded" — a missing row is a fact, and leaving
+			     the question unasked is the failure this page exists to prevent. -->
+			<div>
+				<dt class="fr-label">Request ID?</dt>
+				<dd>
+					{#if requestId}<code>{requestId}</code>{:else}None was recorded for this page load.{/if}
+				</dd>
+			</div>
+		</dl>
+
 		<div class="actions">
 			<ButtonLink variant="primary" href={resolve('/')}>Back to home</ButtonLink>
-			{#if page.status !== 404}
+			{#if status !== 404}
 				<ButtonLink href={resolve('/status')}>Service status</ButtonLink>
 			{/if}
 		</div>
@@ -33,7 +62,7 @@
 
 <style>
 	.error {
-		max-width: 34rem;
+		max-width: 38rem;
 		margin: 0 auto;
 		/* Centred in the upper half: a card hugging the very top over a screen of
 		   empty space reads as unfinished. */
@@ -49,10 +78,19 @@
 		letter-spacing: 0.08em;
 	}
 	h1 {
-		margin: var(--space-sm) 0;
+		margin: var(--space-sm) 0 var(--space-md);
 	}
-	.detail {
+	.answers {
+		display: grid;
+		gap: var(--space-sm);
 		margin: 0 0 var(--space-md);
+	}
+	.answers div {
+		display: grid;
+		gap: 2px;
+	}
+	.answers dd {
+		margin: 0;
 		font-size: var(--text-sm);
 	}
 	.actions {

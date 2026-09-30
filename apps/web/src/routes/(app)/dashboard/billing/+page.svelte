@@ -1,87 +1,159 @@
 <script lang="ts">
-	import { formatCost, formatTokens, formatDateTime } from '$lib/format';
-	import { Alert, Badge, EmptyState, Guide, PageHeader, StatCard, TableWrap } from '$lib/ui';
-
-	let { data } = $props();
-	const currency = $derived(data.allTime.currency || 'USD');
+	import { enhance } from '$app/forms';
+	import { formatDateTime, formatTokens } from '$lib/format';
+	import {
+		Alert,
+		Badge,
+		Button,
+		Card,
+		EmptyState,
+		Field,
+		Guide,
+		Input,
+		PageHeader,
+		StatCard,
+		TableWrap
+	} from '$lib/ui';
+	import { formatMicro, formatMicroSigned, microToDecimal, type Micro } from './billing-format';
+	import { withPending } from '$lib/forms';
+	let { data, form } = $props();
+	// Runes: every $state declaration sits above the first use of its variable,
+	// or svelte-check reports "$state used before its declaration".
+	let pending = $state(false);
+	const track = withPending((v) => (pending = v));
+	const currency = $derived(data.currency);
+	const balance = $derived(data.balanceMicro as Micro);
+	// The call-out only matters when something is actually low: balance at or
+	// under the hard stop (router rejects with INSUFFICIENT_CREDITS, spec §10)
+	// or under the warning threshold.
+	// `balanceState`, not `state`: a binding named `state` next to the $state
+	// rune trips svelte-check's rune parser ("Cannot use 'state' as a store").
+	const balanceState = $derived.by(() => {
+		const b = BigInt(data.balanceMicro);
+		if (b <= BigInt(data.hardStopThresholdMicro)) return 'stopped';
+		if (b < BigInt(data.warningThresholdMicro)) return 'warn';
+		return 'ok';
+	});
 </script>
-
-<PageHeader title="Billing" lede="What this account has used, and what it is charged for." />
-
-<Alert tone="info">
-	This deployment does not bill. No payment method is on file and there is no balance to top up, so
-	nothing is charged — the figures below are the metered cost of your calls, kept for reference.
-</Alert>
-
-<section class="fr-stats">
-	<StatCard label="Spend to date" value={formatCost(BigInt(data.allTime.cost), currency)} />
-	<StatCard label="This month" value={formatCost(BigInt(data.month.cost), currency)} />
-	<StatCard label="Requests" value={formatTokens(data.allTime.requests)} />
-	<StatCard label="Tokens" value={formatTokens(data.allTime.tokensIn + data.allTime.tokensOut)} />
-</section>
-
-<h2>Usage by model</h2>
-{#if data.byModel.length === 0}
-	<EmptyState title="Nothing metered yet" hint="A row appears here after your first logged call." />
-{:else}
-	<TableWrap label="Usage by model">
-		<table class="fr">
-			<thead>
-				<tr><th>Model</th><th>Requests</th><th>In</th><th>Out</th><th>Cost</th></tr>
-			</thead>
-			<tbody>
-				{#each data.byModel as m (m.slug ?? 'unmatched')}
-					<tr>
-						<td>{m.slug ?? '—'}</td>
-						<td class="num">{formatTokens(m.requests)}</td>
-						<td class="num">{formatTokens(m.tokensIn)}</td>
-						<td class="num">{formatTokens(m.tokensOut)}</td>
-						<td class="num">{formatCost(BigInt(m.cost), currency)}</td>
-					</tr>
-				{/each}
-			</tbody>
-		</table>
-	</TableWrap>
-	{#if data.modelCount > data.byModel.length}
-		<p class="muted">
-			Showing the {data.byModel.length} highest-cost of {formatTokens(data.modelCount)} models you have
-			used.
-		</p>
-	{/if}
+<PageHeader title="Billing" lede="Account balance, low-balance thresholds, and this period's spend." />
+{#if form?.error}<div class="fr-feedback"><Alert tone="danger">{form.error}</Alert></div>{/if}
+{#if form?.saved}<div class="fr-feedback"><Alert tone="success">Thresholds saved.</Alert></div>{/if}
+{#if balanceState === 'stopped'}
+	<div class="fr-feedback">
+		<Alert tone="danger">
+			<strong>Hard stop reached.</strong> The balance is at or below the hard-stop threshold, so the
+			router rejects requests with <code>INSUFFICIENT_CREDITS</code>. Add credits to resume.
+		</Alert>
+	</div>
+{:else if balanceState === 'warn'}
+	<div class="fr-feedback">
+		<Alert tone="warning">
+			Balance is below the warning threshold — add credits before it hits the hard stop.
+		</Alert>
+	</div>
 {/if}
-
-<h2>Recent charges</h2>
-<TableWrap label="Recent charges">
-	<table class="fr">
-		<thead>
-			<tr><th>When</th><th>Model</th><th>In</th><th>Out</th><th>Cost</th><th>Status</th></tr>
-		</thead>
-		<tbody>
-			{#each data.recent as r (r.id)}
-				<tr>
-					<td class="num">{formatDateTime(r.createdAt)}</td>
-					<td>{r.modelSlug ?? '—'}</td>
-					<td class="num">{formatTokens(r.tokensIn)}</td>
-					<td class="num">{formatTokens(r.tokensOut)}</td>
-					<td class="num">{formatCost(r.cost, r.currency)}</td>
-					<td><Badge tone={r.status === 'success' ? 'success' : 'danger'}>{r.status}</Badge></td>
-				</tr>
-			{:else}
-				<tr
-					><td colspan="6"
-						><EmptyState
-							title="No charges yet"
-							hint="Call the API with a key and the rows land here."
-						/></td
-					></tr
-				>
-			{/each}
-		</tbody>
-	</table>
-</TableWrap>
-
+<section class="fr-stats">
+	<StatCard label="Balance" value={formatMicro(balance, currency)} />
+	<StatCard label="Currency" value={currency} />
+	<StatCard label="Status" value={data.status} />
+	<StatCard label="This period" value={formatMicro(data.period.spentMicro, currency)} />
+</section>
 <p class="muted">
-	The twenty newest rows. Usage lists the newest fifty, with latency and the error string.
+	Current period ({formatDateTime(new Date(data.period.start))} → {formatDateTime(
+		new Date(data.period.end)
+	)}) — {formatTokens(data.period.requests)} billed requests.
 </p>
-
+<div class="grid2">
+	<Card>
+		<h2>Low-balance thresholds</h2>
+		<p class="muted">
+			The router warns below the warning threshold and rejects requests at or below the hard stop
+			(spec §10).
+		</p>
+		{#if data.canWrite}
+			<form method="POST" action="?/thresholds" use:enhance={track} class="stack">
+				<Field label="Warning threshold (USD)" hint="Alerts fire below this balance.">
+					<Input
+						name="warning"
+						value={microToDecimal(data.warningThresholdMicro)}
+						inputmode="decimal"
+						required
+					/>
+				</Field>
+				<Field
+					label="Hard-stop threshold (USD)"
+					hint="Requests are rejected at or below this balance (INSUFFICIENT_CREDITS)."
+				>
+					<Input
+						name="hard_stop"
+						value={microToDecimal(data.hardStopThresholdMicro)}
+						inputmode="decimal"
+						required
+					/>
+				</Field>
+				<Button type="submit" variant="primary" {pending}>Save thresholds</Button>
+			</form>
+		{:else}
+			<p class="muted">
+				Current: warn below {formatMicro(data.warningThresholdMicro, currency)}, hard stop at {formatMicro(
+					data.hardStopThresholdMicro,
+					currency
+				)}. You need <code>billing.write</code> to change them.
+			</p>
+		{/if}
+	</Card>
+	<Card>
+		<h2>Low-balance alerts</h2>
+		<p class="muted">Alert events fired at your thresholds, newest first.</p>
+		<TableWrap label="Low-balance alerts">
+			<table class="fr">
+				<thead><tr><th>When</th><th>Balance</th><th>State</th><th>Message</th></tr></thead>
+				<tbody>
+					{#each data.events as e (e.id)}
+						<tr>
+							<td class="num">{formatDateTime(new Date(e.triggeredAt))}</td>
+							<td class="num">{formatMicroSigned(BigInt(e.valueMicro), currency)}</td>
+							<td><Badge tone={e.state === 'firing' ? 'warning' : 'success'}>{e.state}</Badge></td>
+							<td>{e.message}</td>
+						</tr>
+					{:else}
+						<tr
+							><td colspan="4"
+								><EmptyState
+									title="No alerts yet"
+									hint="An event appears when the balance crosses a threshold."
+								/></td
+							></tr
+						>
+					{/each}
+				</tbody>
+			</table>
+		</TableWrap>
+	</Card>
+</div>
+<nav class="billing-nav" aria-label="Billing sections">
+	<a href="/dashboard/billing/credits">Credits & ledger</a>
+	<a href="/dashboard/billing/transactions">Transactions</a>
+	<a href="/dashboard/billing/invoices">Invoices</a>
+	<a href="/dashboard/billing/payment-methods">Payment methods</a>
+</nav>
 <Guide id="billing" />
+
+<style>
+	.grid2 {
+		display: grid;
+		gap: var(--space-lg);
+		grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+	}
+	.stack {
+		display: grid;
+		gap: var(--space-md);
+		justify-items: start;
+	}
+	.billing-nav {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-md);
+		margin-top: var(--space-xl);
+	}
+</style>

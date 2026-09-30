@@ -36,4 +36,3 @@
 	</Card>
 	<p class="swap muted">Already have an account? <a href={resolve('/login')}>Log in</a></p>
 </div>
-

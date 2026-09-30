@@ -151,10 +151,7 @@ describe('numeric scales', () => {
 		// passed unnoticed — which is how `--space-3xl` landed here first.
 		// A value in the stylesheet that the document does not describe is a
 		// value nobody reviews.
-		const known = new Set([
-			...yamlScale('spacing').keys(),
-			...yamlScale('rounded').keys()
-		]);
+		const known = new Set([...yamlScale('spacing').keys(), ...yamlScale('rounded').keys()]);
 		for (const prefix of ['--space-', '--radius-'] as const) {
 			const found = [...css.matchAll(new RegExp(`${prefix}([a-z0-9-]+):`, 'g'))].map((m) => m[1]);
 			expect(found.length, `no ${prefix} tokens found`).toBeGreaterThan(0);
@@ -168,8 +165,10 @@ describe('numeric scales', () => {
 		// `durFast`, so the spec side is reduced through the same mapping or
 		// every motion token looks undocumented.
 		const known = new Set(
-			[...spec.matchAll(/^\s{2}(dur(?:Fast|Med)|ease):/gm)].map(
-				(m) => m[1] === 'ease' ? 'ease' : m[1].replace(/^dur(Fast|Med)$/, (_, s) => `duration-${s.toLowerCase()}`)
+			[...spec.matchAll(/^\s{2}(dur(?:Fast|Med)|ease):/gm)].map((m) =>
+				m[1] === 'ease'
+					? 'ease'
+					: m[1].replace(/^dur(Fast|Med)$/, (_, s) => `duration-${s.toLowerCase()}`)
 			)
 		);
 		expect(known.size, 'no motion scale found in DESIGN.md').toBeGreaterThan(0);
@@ -189,8 +188,12 @@ describe('numeric scales', () => {
 		// inside their selector and consume them there. Those are declared, and
 		// checking the whole sheet rather than `:root` alone is what separates
 		// "local component variable" from "token nobody defined".
-		const declared = new Set(sheets.flatMap((s) => [...s.matchAll(/(--[\w-]+)\s*:/g)].map((m) => m[1])));
-		const used = new Set(sheets.flatMap((s) => [...s.matchAll(/var\((--[\w-]+)\)/g)].map((m) => m[1])));
+		const declared = new Set(
+			sheets.flatMap((s) => [...s.matchAll(/(--[\w-]+)\s*:/g)].map((m) => m[1]))
+		);
+		const used = new Set(
+			sheets.flatMap((s) => [...s.matchAll(/var\((--[\w-]+)\)/g)].map((m) => m[1]))
+		);
 		expect(used.size, 'no var(--*) references found — is the scan wired up?').toBeGreaterThan(0);
 		const dangling = [...used].filter((t) => !declared.has(t));
 		expect(dangling, `referenced but never declared: ${dangling.join(', ')}`).toEqual([]);
@@ -208,9 +211,7 @@ describe('numeric scales', () => {
 		// The primitive block itself is the one place naming a primitive is the
 		// point, and the tier-2 aliases are exempt because pointing at a
 		// primitive is exactly what they are for.
-		const semantic = new Set(
-			[...css.matchAll(/^	(--[\w-]+):\s*var\(/gm)].map((m) => m[1])
-		);
+		const semantic = new Set([...css.matchAll(/^\t(--[\w-]+):\s*var\(/gm)].map((m) => m[1]));
 		//
 		// The rule is scoped to the brand hues that HAVE a semantic alias:
 		// `--color-orange` is backed by `--primary`, `--color-amber` by
@@ -376,25 +377,12 @@ describe('type scale', () => {
 		// Body copy that reflows because someone resized a window is hostile to read.
 		for (const name of ['caption', 'sm', 'base', 'lg']) {
 			const value = css.match(new RegExp(`--text-${name}:\\s*([^;]+);`))?.[1] ?? '';
-			expect(value, `--text-${name} must not scale with the viewport`).not.toMatch(
-				/clamp|vw|vh/
-			);
+			expect(value, `--text-${name} must not scale with the viewport`).not.toMatch(/clamp|vw|vh/);
 		}
 	});
 
 	it('keeps the ladder monotonic — a bigger heading is never smaller', () => {
-		const ladder = [
-			'display',
-			'h1',
-			'h2',
-			'h3',
-			'h4',
-			'h5',
-			'lg',
-			'base',
-			'sm',
-			'caption'
-		];
+		const ladder = ['display', 'h1', 'h2', 'h3', 'h4', 'h5', 'lg', 'base', 'sm', 'caption'];
 		for (let i = 1; i < ladder.length; i++) {
 			const above = sizeOf(ladder[i - 1]);
 			const below = sizeOf(ladder[i]);
@@ -421,18 +409,7 @@ describe('type scale', () => {
 		// `--text-muted` blurred those two and the ladder silently grew a step.
 		const declared = [...css.matchAll(/--text-([a-z0-9-]+):/g)].map((m) => m[1]).sort();
 		expect(declared).toEqual(
-			[
-				'base',
-				'caption',
-				'display',
-				'h1',
-				'h2',
-				'h3',
-				'h4',
-				'h5',
-				'lg',
-				'sm'
-			].sort()
+			['base', 'caption', 'display', 'h1', 'h2', 'h3', 'h4', 'h5', 'lg', 'sm'].sort()
 		);
 	});
 });
@@ -467,9 +444,7 @@ describe('optical sizing', () => {
 	it('implements the display and body leading DESIGN.md declares', () => {
 		expect(token('lh-display'), '--lh-display').toBe(yamlType['display'].lineHeight);
 		expect(token('lh-body'), '--lh-body').toBe(yamlType['base'].lineHeight);
-		expect(token('tracking-display'), '--tracking-display').toBe(
-			yamlType['display'].letterSpacing
-		);
+		expect(token('tracking-display'), '--tracking-display').toBe(yamlType['display'].letterSpacing);
 		expect(token('tracking-body'), '--tracking-body').toBe(yamlType['base'].letterSpacing);
 	});
 

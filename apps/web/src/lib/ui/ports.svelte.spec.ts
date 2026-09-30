@@ -224,7 +224,9 @@ describe('the border glow', () => {
 
 		// Any colour syntax the browser can emit for a gradient stop.
 		const colourRe = /#[0-9a-f]{3,8}\b|rgba?\([^)]*\)|oklch\([^)]*\)|lab\([^)]*\)/gi;
-		const colours = [...base.matchAll(colourRe)].map((m) => m[0].replace(/\s+/g, ' ').toLowerCase());
+		const colours = [...base.matchAll(colourRe)].map((m) =>
+			m[0].replace(/\s+/g, ' ').toLowerCase()
+		);
 		expect(colours.length, 'colour stops found in the gradient').toBeGreaterThan(0);
 
 		const isTransparent = (c: string) =>

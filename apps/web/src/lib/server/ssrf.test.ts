@@ -19,6 +19,25 @@ describe('assertPublicUpstream', () => {
 			expect(r.ok, `${host} must be rejected`).toBe(false);
 		}
 	});
+	it('rejects IPv6 link-local, unique-local and multicast', async () => {
+		// A dotted-quad check cannot see these. `new URL()` leaves them intact, so
+		// the guard has to name the ranges explicitly — the Go plane mirrors the
+		// same set in internal/netguard, and the two must not drift.
+		for (const host of ['[fe80::1]', '[febf::1]', '[fc00::1]', '[fd12:3456::1]', '[ff02::1]']) {
+			const r = await assertPublicUpstream(`http://${host}/models`);
+			expect(r.ok, `${host} must be rejected`).toBe(false);
+		}
+	});
+	it('rejects an IPv4-mapped address after the URL parser rewrites it to hex', async () => {
+		// `new URL()` normalises `[::ffff:127.0.0.1]` to `[::ffff:7f00:1]`, so a
+		// guard that looks for the dotted prefix after parsing sees nothing. The
+		// kernel still connects, which makes this the most deceptive spelling of
+		// loopback in the set.
+		for (const host of ['[::ffff:127.0.0.1]', '[::ffff:10.0.0.1]', '[::ffff:169.254.169.254]']) {
+			const r = await assertPublicUpstream(`http://${host}/`);
+			expect(r.ok, `${host} must be rejected`).toBe(false);
+		}
+	});
 
 	it('rejects the IPv4-mapped loopback the kernel still connects to', async () => {
 		// A filter that greps for "127." misses this one; the kernel does not.

@@ -1,22 +1,23 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { enhance } from '$app/forms';
 	import { Alert, Badge, Button, EmptyState, Guide, PageHeader, TableWrap } from '$lib/ui';
 	import { withPending } from '$lib/forms';
-
 	let { data, form } = $props();
 	let pending = $state(false);
 	const track = withPending((v) => (pending = v));
+	const healthTone: Record<string, 'success' | 'warning' | 'danger' | 'neutral'> = {
+		healthy: 'success',
+		degraded: 'warning',
+		unhealthy: 'danger',
+		unknown: 'neutral'
+	};
 </script>
 
 <PageHeader
 	title="Connections"
-	lede="Routing picks one provider per request. The provider that served the newest call is flagged “in use”."
+	lede="Every upstream endpoint fudrouter can dial, across all providers, with the credentials attached to each."
 />
-
-<p class="muted">
-	Last request: {data.lastRequestAt ? data.lastRequestAt.replace('T', ' ').slice(0, 19) : '—'}
-</p>
-
 {#if form?.test}
 	<div class="fr-feedback">
 		<Alert tone={form.test.ok ? 'success' : 'danger'}>
@@ -28,51 +29,41 @@
 		</Alert>
 	</div>
 {/if}
-
 <Guide id="admin-connections" />
-
 <TableWrap label="Connections">
 	<table class="fr">
 		<thead>
 			<tr>
-				<th>Provider</th><th>Base URL</th><th>Status</th><th>In use</th><th>Requests</th>
-				<th>Errors</th><th>Avg latency</th><th>Last call</th><th>Actions</th>
+				<th>Name</th><th>Provider</th><th>Base URL</th><th>Region</th><th>Auth</th><th>Health</th>
+				<th>Enabled</th><th>Priority</th><th>Credentials</th><th>Actions</th>
 			</tr>
 		</thead>
 		<tbody>
-			{#each data.providers as p (p.id)}
-				<tr class:inuse={p.inUse}>
-					<td>{p.name}</td>
-					<td><code>{p.baseUrl}</code></td>
+			{#each data.connections as c (c.id)}
+				<tr>
+					<td>{c.name} <span class="muted"><code>{c.slug}</code></span></td>
 					<td>
-						<Badge tone={p.status === 'active' ? 'success' : 'warning'}>{p.status}</Badge>
+						<a href={resolve('/admin/providers/[id]', { id: c.providerId })}>{c.providerName}</a>
 					</td>
-					<td
-						>{#if p.inUse}<Badge tone="success">live</Badge>{:else}<span class="muted">—</span
-							>{/if}</td
-					>
-					<td class="num">{p.requests}</td>
-					<td class="num"
-						>{#if p.errors > 0}<span class="bad">{p.errors}</span>{:else}{p.errors}{/if}</td
-					>
-					<td class="num">{p.avgLatency} ms</td>
-					<td class="num">{p.lastAt ? p.lastAt.replace('T', ' ').slice(0, 19) : 'never'}</td>
+					<td><code>{c.baseUrl}</code></td>
+					<td>{c.region ?? '—'}</td>
+					<td>{c.authType}</td>
+					<td><Badge tone={healthTone[c.healthStatus] ?? 'neutral'}>{c.healthStatus}</Badge></td>
+					<td>
+						{#if c.enabled}<Badge tone="success">on</Badge>{:else}<Badge tone="neutral">off</Badge>{/if}
+					</td>
+					<td class="num">{c.priority}</td>
+					<td class="num">{c.credentialHealthy}/{c.credentialTotal} healthy</td>
 					<td class="fr-actions">
 						<form method="POST" action="?/test" use:enhance={track}>
-							<input type="hidden" name="id" value={p.id} />
-							<Button type="submit" {pending} aria-label="Test connection {p.name}">Test</Button>
+							<input type="hidden" name="id" value={c.providerId} />
+							<Button type="submit" {pending} aria-label="Test connection {c.name}">Test</Button>
 						</form>
 					</td>
 				</tr>
 			{:else}
-				<tr><td colspan="9"><EmptyState title="No providers configured" /></td></tr>
+				<tr><td colspan="10"><EmptyState title="No connections configured" /></td></tr>
 			{/each}
 		</tbody>
-	</table></TableWrap
->
-
-<style>
-	tr.inuse td {
-		background: color-mix(in srgb, var(--color-success) 7%, transparent);
-	}
-</style>
+	</table>
+</TableWrap>

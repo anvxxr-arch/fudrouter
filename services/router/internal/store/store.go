@@ -1,29 +1,38 @@
 // Package store is the data plane's only database access.
+//
+// The schema is `infra/migrations/0006_platform_schema.sql` +
+// `0007_platform_backfill.sql` (literal source of truth:
+// docs/specs/2026-09-30-platform-schema.md §3–§10). Legacy S0 columns
+// (`provider.base_url`, `provider.credentials_enc`, `api_key.limits`,
+// `request_log.tokens_in/tokens_out/cost`) still exist and are still written and
+// read here until migration 0009 drops them — the compatibility promises in
+// spec §14 depend on it.
 package store
 
 import (
 	"context"
 	"errors"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
-	"github.com/gofrs/uuid/v5"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// ErrNotFound is the "no such row" answer for every lookup here.
 var ErrNotFound = errors.New("not found")
 
 // Store is the data plane's only database access.
 //
-// allowDevProviders gates rows with `provider.status = 'dev'`. The S0 spec (§1)
-// forbids shipping a personal-OAuth provider layer, so a non-commercial
-// provider is onboarded as `dev` and is invisible unless
-// ROUTER_ALLOW_DEV_PROVIDERS is explicitly set. Enforcement lives here, in SQL,
-// rather than in a comment asking a future release engineer to remember to
-// delete a row — comments do not ship, predicates do.
+// allowDevProviders gates rows with `provider.tier = 'dev'` / `provider.status
+// = 'dev'` (S0 vocabulary until migration 0008). The S0 spec (§1) forbids
+// shipping a personal-OAuth provider layer, so a non-commercial provider is
+// onboarded as `dev` and is invisible unless ROUTER_ALLOW_DEV_PROVIDERS is
+// explicitly set. Enforcement lives here, in SQL, rather than in a comment
+// asking a future release engineer to remember to delete a row — comments do
+// not ship, predicates do. The same predicate is mirrored by the control
+// plane's publish gate (apps/web `publish.ts`, endpoint-surface spec §2.1), so
+// `/v1/models` and the public `/models` page cannot drift.
 type Store struct {
 	pool              *pgxpool.Pool
 	allowDevProviders bool
@@ -52,91 +61,13 @@ func (s *Store) Close() { s.pool.Close() }
 // Ping reports whether the database is actually reachable. The health handler
 // uses it so readiness reflects the dependency the service cannot work without:
 // before this, /health returned {"ok":true} while the DB was down, so an
-// uptime monitor saw a healthy router that could not serve a single request.
+// uptime monitor saw a router that could not serve a single request.
 func (s *Store) Ping(ctx context.Context) error {
 	return s.pool.Ping(ctx)
 }
 
-type APIKeyRow struct {
-	ID        string
-	UserID    string
-	KeyHash   string
-	RevokedAt *time.Time
-	// Limits come from the api_key.limits jsonb written by the admin console:
-	// { rpm: number|null, monthly_cost_micro: string|null }. A nil pointer means
-	// "no limit set". Until now the data plane stored these but never read them,
-	// so every key spent unbounded.
-	RPM              *int
-	MonthlyCostMicro *int64
-}
-
-func (s *Store) LookupAPIKey(ctx context.Context, prefix string) (*APIKeyRow, error) {
-	row := &APIKeyRow{}
-	var rpmRaw, monthlyRaw *string
-	err := s.pool.QueryRow(ctx,
-		`select id, user_id, key_hash, revoked_at,
-		        limits->>'rpm'                as rpm,
-		        limits->>'monthly_cost_micro' as monthly_cost_micro
-		 from api_key where prefix = $1`, prefix,
-	).Scan(&row.ID, &row.UserID, &row.KeyHash, &row.RevokedAt, &rpmRaw, &monthlyRaw)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	if err != nil {
-		return nil, err
-	}
-	if rpmRaw != nil {
-		if n, e := strconv.Atoi(strings.TrimSpace(*rpmRaw)); e == nil && n > 0 {
-			row.RPM = &n
-		}
-	}
-	if monthlyRaw != nil {
-		if n, e := strconv.ParseInt(strings.TrimSpace(*monthlyRaw), 10, 64); e == nil && n > 0 {
-			row.MonthlyCostMicro = &n
-		}
-	}
-	return row, nil
-}
-
-// MonthlyCostMicro sums this key's cost for the current (UTC) month, the counter
-// the per-key `monthly_cost_micro` cap is checked against.
-func (s *Store) MonthlyCostMicro(ctx context.Context, apiKeyID string) (int64, error) {
-	var v int64
-	err := s.pool.QueryRow(ctx,
-		`select coalesce(sum(cost), 0)::bigint from request_log
-		 where api_key_id = $1 and created_at >= date_trunc('month', now())`,
-		apiKeyID,
-	).Scan(&v)
-	return v, err
-}
-
-type ModelRow struct {
-	ModelID     string
-	ProviderID  string
-	Slug        string
-	InputPrice  string
-	OutputPrice string
-	Currency    string
-	BaseURL     string
-	CredEnc     string
-}
-
-func (s *Store) ModelWithProvider(ctx context.Context, slug string) (*ModelRow, error) {
-	row := &ModelRow{}
-	err := s.pool.QueryRow(ctx, `
-		select m.id, m.provider_id, m.slug, m.input_price, m.output_price, m.currency,
-		       p.base_url, p.credentials_enc
-		from model m join provider p on p.id = m.provider_id
-		where m.slug = $1 and m.status = 'active'
-		  and (p.status = 'active' or (p.status = 'dev' and $2))`, slug, s.allowDevProviders,
-	).Scan(&row.ModelID, &row.ProviderID, &row.Slug, &row.InputPrice, &row.OutputPrice,
-		&row.Currency, &row.BaseURL, &row.CredEnc)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	return row, err
-}
-
+// TouchAPIKey records a key's last use. Best-effort telemetry: a failure here
+// never fails a request.
 func (s *Store) TouchAPIKey(ctx context.Context, id string) error {
 	_, err := s.pool.Exec(ctx, `update api_key set last_used_at = now() where id = $1`, id)
 	return err
@@ -148,6 +79,11 @@ func (s *Store) TouchAPIKey(ctx context.Context, id string) error {
 // rotated value is not written back, the stored one is dead the moment the
 // access token expires (which it did — three accounts were lost this way before
 // the refresh path persisted anything).
+//
+// It writes the LEGACY column (spec §4 keeps `provider.credentials_enc` until
+// 0009). Credential ROWS are the new home for secrets; the blob survives for
+// providers whose accounts have not been split yet, and both are read — see
+// LookupAPIKey/Candidates and CredentialSecrets.
 func (s *Store) UpdateProviderCredentials(ctx context.Context, providerID, enc string) error {
 	// NOTE: `provider` has no updated_at column — do not add one here without a
 	// migration, or every refresh silently fails to persist.
@@ -167,55 +103,39 @@ func (s *Store) ProviderCredentials(ctx context.Context, providerID string) (str
 	return enc, err
 }
 
-func (s *Store) InsertRequestLog(ctx context.Context, r *RequestLog) error {
-	if r.ID == "" {
-		r.ID = uuid.Must(uuid.NewV7()).String()
-	}
-	_, err := s.pool.Exec(ctx, `
-		insert into request_log
-		  (id, user_id, api_key_id, model_id, provider_id, tokens_in, tokens_out,
-		   cost, currency, latency_ms, status, error)
-		values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-		r.ID, r.UserID, r.APIKeyID, r.ModelID, r.ProviderID, r.TokensIn, r.TokensOut,
-		r.Cost, r.Currency, r.LatencyMs, r.Status, r.Error)
+// UpdateCredentialSecret rewrites one credential row's secret envelope.
+//
+// The OAuth refresher rotates refresh tokens on every exchange; the rotated
+// value MUST reach durable storage or the credential is dead at its next
+// expiry. This is the row-scoped equivalent of UpdateProviderCredentials.
+func (s *Store) UpdateCredentialSecret(ctx context.Context, credentialID, secretEnc string) error {
+	_, err := s.pool.Exec(ctx,
+		`update credential set secret_enc = $1, updated_at = now() where id = $2`,
+		secretEnc, credentialID)
 	return err
 }
 
-type RequestLog struct {
-	ID         string
-	UserID     string
-	APIKeyID   string
-	ModelID    string
-	ProviderID string
-	TokensIn   int64
-	TokensOut  int64
-	Cost       int64
-	Currency   string
-	LatencyMs  int64
-	Status     string
-	Error      string
+// CredentialSecret returns one credential row's secret envelope, so a writer
+// can merge into the CURRENT state instead of overwriting a stale snapshot
+// (the same rule UpdateProviderCredentials documents for the legacy blob).
+func (s *Store) CredentialSecret(ctx context.Context, credentialID string) (string, error) {
+	var enc string
+	err := s.pool.QueryRow(ctx,
+		`select secret_enc from credential where id = $1`, credentialID).Scan(&enc)
+	return enc, err
 }
 
-type ModelInfo struct{ Slug, Name string }
-
-func (s *Store) ActiveModels(ctx context.Context) ([]ModelInfo, error) {
-	rows, err := s.pool.Query(ctx, `
-		select m.slug, m.name
-		from model m join provider p on p.id = m.provider_id
-		where m.status = 'active'
-		  and (p.status = 'active' or (p.status = 'dev' and $1))
-		order by m.slug`, s.allowDevProviders)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []ModelInfo
-	for rows.Next() {
-		var m ModelInfo
-		if err := rows.Scan(&m.Slug, &m.Name); err != nil {
-			return nil, err
-		}
-		out = append(out, m)
-	}
-	return out, rows.Err()
+// UpdateCredentialState records the outcome a credential just produced, so the
+// candidate query can skip a credential that is cooling down or dead
+// (spec §4 status vocabulary).
+func (s *Store) UpdateCredentialState(ctx context.Context, credentialID, status string, cooldownUntil *time.Time) error {
+	_, err := s.pool.Exec(ctx, `
+		update credential
+		set status = $2,
+		    cooldown_until = $3,
+		    last_error_at = case when $2 in ('auth_failed','invalid','rate_limited','cooldown')
+		                         then now() else last_error_at end,
+		    updated_at = now()
+		where id = $1`, credentialID, status, cooldownUntil)
+	return err
 }

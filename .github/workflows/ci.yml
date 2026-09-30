@@ -58,8 +58,16 @@ jobs:
         # for as long as the file existed: editing DESIGN.md left the mirror
         # stale and nothing failed, because nothing compared the two.
         run: python3 tools/regen_theme.py --check
-      - run: npm run db:migrate --workspace apps/web
-      - run: npm run db:check --workspace apps/web
+      - name: Apply the schema
+        # scripts/migrate.sh is the ONLY migration path (spec §13): it applies
+        # every infra/migrations/*.sql in order and records each in
+        # schema_migration. drizzle-kit migrate knew only 0000-0003 and silently
+        # skipped the hand-written 0004/0005.
+        run: |
+          command -v psql >/dev/null 2>&1 || {
+            sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          }
+          ./scripts/migrate.sh
       - run: npm run check --workspace apps/web
       - run: npm run test --workspace apps/web
       - run: npm run build --workspace apps/web
@@ -109,10 +117,10 @@ jobs:
           command -v psql >/dev/null 2>&1 || {
             sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
           }
-          for file in infra/migrations/*.sql; do
-            echo "applying $file"
-            psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$file"
-          done
+          # Same runner the web job and deploy use (spec §13) — one migration
+          # path, no toolchain skew. The credential-split step self-skips here:
+          # this job has no npm ci, so the `postgres` package is absent.
+          ./scripts/migrate.sh
       - run: go vet ./...
         working-directory: services/router
       - run: go build ./...

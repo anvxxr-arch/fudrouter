@@ -122,11 +122,7 @@
 			var(--glow-color) 92%,
 			var(--primary) 100%
 		);
-		--glow-fill: radial-gradient(
-				ellipse at 50% 50%,
-				var(--glow-color) 0%,
-				transparent 70%
-			);
+		--glow-fill: radial-gradient(ellipse at 50% 50%, var(--glow-color) 0%, transparent 70%);
 
 		position: relative;
 		border-radius: var(--glow-radius-card);
@@ -170,7 +166,9 @@
 			transparent 85%,
 			black 100%
 		);
-		opacity: calc((var(--edge-proximity) - var(--color-sensitivity)) / (100 - var(--color-sensitivity)));
+		opacity: calc(
+			(var(--edge-proximity) - var(--color-sensitivity)) / (100 - var(--color-sensitivity))
+		);
 	}
 
 	.glow::after {

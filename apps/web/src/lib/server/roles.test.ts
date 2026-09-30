@@ -59,6 +59,25 @@ describe('requiredCap', () => {
 		expect(requiredCap('/admin')).toBe('admin.view');
 	});
 
+	it('template and concrete URLs resolve alike', () => {
+		// The hook calls requiredCap with REAL urls while route-gates.test.ts
+		// passes the literal route template. If those two disagree, a route can
+		// pass CI while being ungated at runtime (exactly how /invite/[token]
+		// would have shipped with requireCap returning null for real requests).
+		expect(requiredCap('/invite/[token]')).toBe('member');
+		expect(requiredCap('/invite/abc123def')).toBe('member');
+		expect(requiredCap('/dashboard/projects/[projectId]/keys/[keyId]')).toBe('member');
+		expect(requiredCap('/dashboard/projects/prj_1/keys/key_2')).toBe('member');
+		// A [param] segment never falls back to the parent's weaker cap.
+		expect(requiredCap('/admin/users/[userId]')).toBe(requiredCap('/admin/users'));
+		expect(requiredCap('/admin/users/usr_1')).toBe('admin.users');
+		// PRD §50 admin areas keep their specific cap on deep paths —
+		// /admin/security/audit-log must NOT fall back to admin.view.
+		expect(requiredCap('/admin/security/audit-log')).toBe('admin.audit');
+		expect(requiredCap('/admin/system/valkey')).toBe('admin.ops');
+		expect(requiredCap('/admin/models/mappings')).toBe('admin.models');
+	});
+
 	it('falls back to admin.view for the admin root and unknown admin paths', () => {
 		expect(requiredCap('/admin')).toBe('admin.view');
 		expect(requiredCap('/admin/unknown')).toBe('admin.view');

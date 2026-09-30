@@ -3,27 +3,27 @@ package proxy
 import (
 	"context"
 	"testing"
-
-	"github.com/anvxxr-arch/fudrouter/services/router/internal/store"
 )
 
 // A pool that is never rebuilt keeps serving tokens that were rotated away from
 // outside the process. Rebuilding after the trust window is what lets a
 // maintenance rotation (or an import) take effect without a restart — the
 // failure that made a repaired pool still read as unusable until pm2 restart.
+//
+// Pools are keyed by credential target (spec §4: one pool per credential row /
+// connection), so the key is now an explicit string rather than a model row.
 func TestPoolForReloadsAfterTrustWindow(t *testing.T) {
 	old := poolReloadAfter
 	poolReloadAfter = 0
 	defer func() { poolReloadAfter = old }()
 
 	h := &Handler{refresher: newFakeRefresher()}
-	m := &store.ModelRow{ProviderID: "p1"}
-	first := h.poolFor(m, credentials{Accounts: []account{
+	first := h.poolFor("cred:c1", credentials{Accounts: []account{
 		{Email: "a@x", AccessToken: "tok-1", RefreshToken: "rt-1", Expired: future()},
-	}})
-	second := h.poolFor(m, credentials{Accounts: []account{
+	}}, nil, nil)
+	second := h.poolFor("cred:c1", credentials{Accounts: []account{
 		{Email: "a@x", AccessToken: "tok-2", RefreshToken: "rt-2", Expired: future()},
-	}})
+	}}, nil, nil)
 
 	if first == second {
 		t.Fatal("pool was not rebuilt after the trust window")
@@ -41,28 +41,28 @@ func TestPoolForReloadsAfterTrustWindow(t *testing.T) {
 // throw away refresh state (rotations, cooldowns) faster than it can be used.
 func TestPoolForReusesWithinTrustWindow(t *testing.T) {
 	h := &Handler{refresher: newFakeRefresher()}
-	m := &store.ModelRow{ProviderID: "p1"}
 	cred := credentials{Accounts: []account{
 		{Email: "a@x", AccessToken: "tok-1", Expired: future()},
 	}}
-	if h.poolFor(m, cred) != h.poolFor(m, cred) {
+	if h.poolFor("cred:c1", cred, nil, nil) != h.poolFor("cred:c1", cred, nil, nil) {
 		t.Fatal("pool was rebuilt inside the trust window")
 	}
 }
 
-// Providers are cached independently: reloading one must not disturb another.
-func TestPoolForKeepsProvidersSeparate(t *testing.T) {
+// Credential targets are cached independently: reloading one must not disturb
+// another (spec §4: each connection/row keeps its own secret state).
+func TestPoolForKeepsTargetsSeparate(t *testing.T) {
 	h := &Handler{refresher: newFakeRefresher()}
-	a := h.poolFor(&store.ModelRow{ProviderID: "pa"}, credentials{Accounts: []account{
+	a := h.poolFor("cred:ca", credentials{Accounts: []account{
 		{Email: "a@x", AccessToken: "tok-a", Expired: future()},
-	}})
-	b := h.poolFor(&store.ModelRow{ProviderID: "pb"}, credentials{Accounts: []account{
+	}}, nil, nil)
+	b := h.poolFor("cred:cb", credentials{Accounts: []account{
 		{Email: "b@x", AccessToken: "tok-b", Expired: future()},
-	}})
+	}}, nil, nil)
 	if a == b {
-		t.Fatal("two providers share one pool")
+		t.Fatal("two credential targets share one pool")
 	}
-	if again := h.poolFor(&store.ModelRow{ProviderID: "pa"}, credentials{}); again != a {
-		t.Error("provider pa lost its pool inside the trust window")
+	if again := h.poolFor("cred:ca", credentials{}, nil, nil); again != a {
+		t.Error("target ca lost its pool inside the trust window")
 	}
 }

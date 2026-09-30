@@ -29,16 +29,32 @@ module.exports = {
 			script: 'run.sh',
 			interpreter: 'bash',
 			env: {
-				ROUTER_ADDR: '127.0.0.1:8100',
-				// Spec §1: farmed-account providers are status='dev'. The router
-				// hides them unless this is explicitly set — remove this line in
-				// production and xai-grok disappears from /v1/models.
-				ROUTER_ALLOW_DEV_PROVIDERS: '1'
+				ROUTER_ADDR: '127.0.0.1:8100'
 			},
 			autorestart: true,
 			max_restarts: 10,
 			restart_delay: 2000,
 			kill_timeout: 5000,
+			merge_logs: true,
+			time: true
+		},
+		{
+			// Worker fleet (PRD §75–76): usage/billing aggregation, invoices,
+			// webhook delivery, alerts, provider/credential health, model/pricing
+			// sync, retention cleanup. Shares apps/web/.env via run-workers.sh —
+			// no secrets here. kill_timeout > drain time: SIGTERM lets in-flight
+			// handlers settle their job rows (never abandons one `running`).
+			name: 'fudrouter-workers',
+			cwd: ROOT,
+			script: 'scripts/run-workers.sh',
+			interpreter: 'bash',
+			env: {
+				NODE_ENV: 'production'
+			},
+			autorestart: true,
+			max_restarts: 10,
+			restart_delay: 2000,
+			kill_timeout: 10000,
 			merge_logs: true,
 			time: true
 		}

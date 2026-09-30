@@ -15,22 +15,18 @@
 		TableWrap
 	} from '$lib/ui';
 	import { withPending } from '$lib/forms';
-
 	let { data, form } = $props();
 	let pending = $state(false);
 	const track = withPending((v) => (pending = v));
-
 	let editing = $state<string | null>(null);
 	function toggle(id: string) {
 		editing = editing === id ? null : id;
 	}
 </script>
-
 <PageHeader
 	title="Client API keys"
 	lede="Mint and limit keys on behalf of a client. Limits are stored per key; the data plane does not enforce them yet."
 />
-
 {#if form?.error}<div class="fr-feedback"><Alert tone="danger">{form.error}</Alert></div>{/if}
 {#if form?.created}
 	<div class="fr-feedback">
@@ -40,7 +36,6 @@
 		</Alert>
 	</div>
 {/if}
-
 <Card>
 	<h2 class="first">Mint a key for a client</h2>
 	<form method="POST" action="?/create" use:enhance={track}>
@@ -63,15 +58,14 @@
 		<div class="submit"><Button type="submit" {pending} variant="primary">Create key</Button></div>
 	</form>
 </Card>
-
 <Guide id="admin-keys" />
-
 <TableWrap label="Client keys">
 	<table class="fr">
 		<thead>
 			<tr>
-				<th>Key</th><th>Owner</th><th>Status</th><th>Requests</th><th>Tokens</th><th>Cost</th>
-				<th>Limits</th><th>Actions</th>
+				<th>Key</th><th>Owner</th><th>Workspace</th><th>Project</th><th>Environment</th><th
+					>Status</th
+				><th>Requests</th><th>Tokens</th><th>Cost</th><th>Limits</th><th>Actions</th>
 			</tr>
 		</thead>
 		<tbody>
@@ -79,9 +73,12 @@
 				<tr>
 					<td>{k.name}<br /><code class="muted">sk-ar-{k.prefix}…</code></td>
 					<td>{k.email}</td>
+					<td>{k.workspaceName ?? '—'}</td>
+					<td>{k.projectName ?? '—'}</td>
+					<td>{k.environmentName ?? '—'}</td>
 					<td>
-						<Badge tone={k.revokedAt ? 'danger' : 'success'}>
-							{k.revokedAt ? 'revoked' : 'active'}
+						<Badge tone={k.revokedAt ? 'danger' : k.status === 'active' ? 'success' : 'neutral'}>
+							{k.revokedAt ? 'revoked' : k.status}
 						</Badge>
 					</td>
 					<td class="num">{formatTokens(k.usage.requests)}</td>
@@ -93,6 +90,17 @@
 					<td class="fr-actions">
 						<Button type="button" onclick={() => toggle(k.id)}>Limits</Button>
 						{#if !k.revokedAt}
+							{#if k.status === 'active'}
+								<form method="POST" action="?/disableKey" use:enhance={track} class="fr-inline">
+									<input type="hidden" name="id" value={k.id} />
+									<Button type="submit" {pending} aria-label="Disable key {k.name}">Disable</Button>
+								</form>
+							{:else}
+								<form method="POST" action="?/enableKey" use:enhance={track} class="fr-inline">
+									<input type="hidden" name="id" value={k.id} />
+									<Button type="submit" {pending} aria-label="Enable key {k.name}">Enable</Button>
+								</form>
+							{/if}
 							<form method="POST" action="?/revoke" use:enhance={track} class="fr-inline">
 								<input type="hidden" name="id" value={k.id} />
 								<Button type="submit" {pending} variant="danger" aria-label="Revoke key {k.name}">
@@ -104,7 +112,7 @@
 				</tr>
 				{#if editing === k.id}
 					<tr class="edit-row">
-						<td colspan="8">
+						<td colspan="11">
 							<form method="POST" action="?/updateLimits" use:enhance={track}>
 								<input type="hidden" name="id" value={k.id} />
 								<div class="fr-grid">
@@ -136,12 +144,11 @@
 					</tr>
 				{/if}
 			{:else}
-				<tr><td colspan="8"><EmptyState title="No keys yet" /></td></tr>
+				<tr><td colspan="11"><EmptyState title="No keys yet" /></td></tr>
 			{/each}
 		</tbody>
 	</table>
 </TableWrap>
-
 <style>
 	h2.first {
 		margin-top: 0;

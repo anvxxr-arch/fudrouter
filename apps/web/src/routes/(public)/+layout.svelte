@@ -5,8 +5,10 @@
 	let { data, children } = $props();
 
 	const links = [
-		{ href: '/pricing', label: 'Pricing' },
 		{ href: '/models', label: 'Models' },
+		{ href: '/providers', label: 'Providers' },
+		{ href: '/pricing', label: 'Pricing' },
+		{ href: '/playground', label: 'Playground' },
 		{ href: '/docs', label: 'Docs' },
 		{ href: '/status', label: 'Status' }
 	] as const;
@@ -19,8 +21,12 @@
 	<a class="brand" href={resolve('/')}>fudrouter</a>
 	<nav aria-label="Primary">
 		{#each links as l (l.href)}
+			<!-- Plain hrefs: `paths.relative: false` makes these absolute already, and
+			     the typed `resolve()` overload needs one literal RouteId per call —
+			     a union of hrefs (and /docs since the catch-all landed) cannot
+			     satisfy it. -->
 			<a
-				href={resolve(l.href)}
+				href={l.href}
 				class:active={isActive(l.href)}
 				aria-current={isActive(l.href) ? 'page' : undefined}>{l.label}</a
 			>
@@ -41,6 +47,7 @@
 	<span>© fudrouter — commercial AI router</span>
 	<span class="legal">
 		<a href={resolve('/status')}>Status</a>
+		<a href={resolve('/changelog')}>Changelog</a>
 		<a href={resolve('/legal/terms')}>Terms</a>
 		<a href={resolve('/legal/privacy')}>Privacy</a>
 	</span>

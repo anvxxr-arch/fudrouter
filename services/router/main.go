@@ -13,6 +13,7 @@ import (
 	"github.com/anvxxr-arch/fudrouter/services/router/internal/crypt"
 	"github.com/anvxxr-arch/fudrouter/services/router/internal/proxy"
 	"github.com/anvxxr-arch/fudrouter/services/router/internal/store"
+	"github.com/anvxxr-arch/fudrouter/services/router/internal/vk"
 )
 
 const serviceName = "fudrouter-router"
@@ -55,6 +56,17 @@ func newHealthHandler(db pinger) http.Handler {
 	})
 }
 
+// newMux builds the entire public surface.
+//
+// Delegates to proxy.ServeMux so the entrypoint and the tests agree on ONE route
+// table. The copy that lived here was four mux.Handle lines nothing asserted, so
+// adding a route, renaming one, or letting an exact pattern drift into the `/v1/`
+// catch-all changed the API surface silently. See proxy.ServeMux for why the
+// catch-all makes that worth pinning.
+func newMux(p *proxy.Handler, db pinger) *http.ServeMux {
+	return proxy.ServeMux(p, newHealthHandler(db))
+}
+
 func main() {
 	addr := os.Getenv("ROUTER_ADDR")
 	if addr == "" {
@@ -77,14 +89,17 @@ func main() {
 		log.Fatalf("[%s] crypt init: %v", serviceName, err)
 	}
 
+	// Valkey is the cache/counter layer (spec §12): rate limits, budgets and
+	// circuit state. An absent/empty VALKEY_URL disables it cleanly and the S0
+	// in-process limiter takes over — a configuration, not a failure.
+	c, err := vk.NewFromEnv()
+	if err != nil {
+		log.Fatalf("[%s] valkey init: %v", serviceName, err)
+	}
 	// The OAuth pool needs a refresher; a static-key provider never calls it.
-	p := proxy.New(st, cr, nil, proxy.NewXAIRefresher())
+	p := proxy.New(st, cr, nil, proxy.NewXAIRefresher(), c)
 
-	mux := http.NewServeMux()
-	mux.Handle("GET /health", newHealthHandler(st))
-	mux.Handle("GET /v1/models", http.HandlerFunc(p.ServeModels))
-	mux.Handle("POST /v1/chat/completions", http.HandlerFunc(p.ServeCompletions))
-	mux.Handle("/v1/", http.HandlerFunc(p.ServeGeneric))
+	mux := newMux(p, st)
 
 	// ReadHeaderTimeout bounds the header phase (Slowloris); Read/WriteTimeout
 	// stay 0 because a streaming completion legitimately runs for minutes. The

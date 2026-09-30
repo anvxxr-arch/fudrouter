@@ -33,4 +33,3 @@
 	</Card>
 	<p class="swap muted">Need an account? <a href={resolve('/signup')}>Sign up</a></p>
 </div>
-

@@ -1,9 +1,9 @@
 import { fail } from '@sveltejs/kit';
 import { and, desc, eq } from 'drizzle-orm';
-import { uuidv7 } from 'uuidv7';
 import type { Actions, PageServerLoad } from './$types';
 import { db } from '$lib/server/db';
 import { apiKey } from '$lib/server/db/schema';
+import { ID_PREFIXES, newId } from '$lib/server/id';
 import { generateApiKey } from '$lib/server/keys';
 import { requireCap } from '$lib/server/roles';
 
@@ -38,7 +38,7 @@ export const actions: Actions = {
 		const { key, prefix, keyHash } = generateApiKey();
 
 		await db.insert(apiKey).values({
-			id: uuidv7(),
+			id: newId(ID_PREFIXES.apiKey),
 			userId,
 			name,
 			prefix,

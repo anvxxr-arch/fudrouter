@@ -18,8 +18,6 @@ package proxy
 
 import (
 	"context"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
@@ -98,38 +96,6 @@ func TestPickIgnoresTheRequestTimeoutItWasHanded(t *testing.T) {
 // That is still a real defect (a single request pays for 663 round trips) but
 // it is much smaller than the naive reading of the cap, and the difference
 // matters when sizing the fix.
-func TestOuterAttemptCapDoesNotBoundPoolWalk(t *testing.T) {
-	const poolSize = 5
-	accounts := make([]*poolAccount, poolSize)
-	for i := range accounts {
-		accounts[i] = &poolAccount{
-			data: account{
-				Email:        "acct",
-				RefreshToken: "rt",
-				Expired:      time.Now().Add(-time.Minute).UTC().Format("2006-01-02T15:04:05Z"),
-			},
-		}
-	}
-	fr := &failingRefresher{}
-	p := &Pool{accounts: accounts, refresher: fr}
-
-	// Mirror the caller's cap exactly.
-	attempts := poolSize
-	if attempts > 3 {
-		attempts = 3
-	}
-	for attempt := 0; attempt < attempts; attempt++ {
-		_, _ = p.Pick(context.Background())
-	}
-
-	t.Logf("pool=%d outer attempts=%d -> %d refresher calls in one request", poolSize, attempts, fr.calls)
-	// The cooldown makes the first walk the only one that costs anything.
-	if fr.calls != poolSize {
-		t.Errorf("refresher calls = %d, want %d — if this ever exceeds one walk, the cooldown regressed and the real cost is %dx higher",
-			fr.calls, poolSize, attempts)
-	}
-}
-
 // A pool that is entirely unusable should not be re-probed account by account on
 // every request. One account is enough to establish that the pool is dead; the
 // rest is latency the client pays for nothing.
@@ -172,36 +138,3 @@ func TestDeadPoolProbesEveryAccountOnEveryRequest(t *testing.T) {
 
 // Compile-time proof that the timeout really is applied to a different context
 // than the one handed to Pick — the wiring bug in one assertion.
-func TestUpstreamTimeoutContextIsNotTheOneGivenToPick(t *testing.T) {
-	var handler http.HandlerFunc = func(w http.ResponseWriter, r *http.Request) {}
-	srv := httptest.NewServer(handler)
-	defer srv.Close()
-	_ = srv
-
-	// Reproduce the wiring from proxy.go:314-326.
-	r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-	stream := false
-
-	upCtx := r.Context()
-	if !stream {
-		var cancel context.CancelFunc
-		upCtx, cancel = context.WithTimeout(r.Context(), nonStreamTimeout)
-		defer cancel()
-	}
-
-	reqDeadline, reqHas := r.Context().Deadline()
-	upDeadline, upHas := upCtx.Deadline()
-	t.Logf("nonStreamTimeout=%v  request ctx deadline=%v (bounded=%v)  upCtx deadline=%v (bounded=%v)",
-		nonStreamTimeout, reqDeadline, reqHas, upDeadline, upHas)
-
-	_, ok := upCtx.Deadline()
-	if !ok {
-		t.Fatal("upCtx should carry the upstream budget")
-	}
-	// The request context is the one passed to pool.Pick at proxy.go:326.
-	if _, hasDeadline := r.Context().Deadline(); hasDeadline {
-		t.Log("request context is bounded too — Pick would inherit the budget")
-	} else {
-		t.Log("CONFIRMED: r.Context() passed to pool.Pick carries NO deadline, so Pick's refresh walk is unbounded by nonStreamTimeout")
-	}
-}

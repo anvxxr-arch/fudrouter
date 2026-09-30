@@ -115,19 +115,64 @@ export const ROUTE_CAPS: [string, Capability][] = [
 	['/admin/programs', 'admin.programs'],
 	['/admin/audit', 'admin.audit'],
 	['/admin/settings', 'admin.settings'],
+	// PRD §50's remaining admin areas (Security Center, System, Traffic,
+	// Routing, Incidents, customer workspaces/projects, analytics). Cap choice:
+	// security/audit share one trust boundary (admin.audit); operational
+	// surfaces (system/traffic/routing/incidents) are admin.ops; customer
+	// resource listings are admin.users; read-only analytics is admin.view.
+	['/admin/security', 'admin.audit'],
+	['/admin/incidents', 'admin.ops'],
+	['/admin/system', 'admin.ops'],
+	['/admin/traffic', 'admin.ops'],
+	['/admin/routing', 'admin.ops'],
+	['/admin/health', 'admin.ops'],
+	['/admin/workspaces', 'admin.users'],
+	['/admin/projects', 'admin.users'],
+	['/admin/analytics', 'admin.view'],
 	['/admin', 'admin.view'],
 	['/dashboard', 'member'],
 	['/dashboard/keys', 'member'],
 	['/dashboard/usage', 'member'],
 	['/dashboard/account', 'member'],
-	['/dashboard/billing', 'member']
+	['/dashboard/billing', 'member'],
+	// Not under /dashboard: the signed-in invitation acceptance page (PRD §12).
+	// Entries use SvelteKit route patterns — `[param]` matches any one segment.
+	// `requiredCap` matches SEGMENT-wise (not raw startsWith) because the hook
+	// calls it with REAL urls (/invite/abc123) while route-gates.test.ts passes
+	// the literal template (/invite/[token]): both must resolve to the same cap.
+	// Plain prefix matching made /invite/[token] pass the test while returning
+	// null for the actual request — gated in CI, wide open at runtime.
+	['/invite/[token]', 'member']
 ];
 
+const seg = (p: string): string[] => p.split('/').filter(Boolean);
+
+/** Does `entry` prefix-match `path`? `[param]` = any one segment, `[...x]` = rest. */
+function entryMatches(entry: string[], path: string[]): boolean {
+	for (let i = 0; i < entry.length; i++) {
+		const e = entry[i];
+		if (e.startsWith('[...') && e.endsWith(']')) return true;
+		if (i >= path.length) return false;
+		if (e.startsWith('[') && e.endsWith(']')) continue;
+		if (e !== path[i]) return false;
+	}
+	return true;
+}
+
 export function requiredCap(pathname: string): Capability | null {
-	let best: { prefix: string; cap: Capability } | null = null;
-	for (const [prefix, cap] of ROUTE_CAPS) {
-		if (pathname === prefix || pathname.startsWith(prefix + '/')) {
-			if (!best || prefix.length > best.prefix.length) best = { prefix, cap };
+	const path = seg(pathname);
+	let best: { entry: string[]; cap: Capability } | null = null;
+	for (const [pattern, cap] of ROUTE_CAPS) {
+		const entry = seg(pattern);
+		if (!entryMatches(entry, path)) continue;
+		if (
+			!best ||
+			entry.length > best.entry.length ||
+			(entry.length === best.entry.length &&
+				entry.filter((s) => !s.startsWith('[')).length >
+					best.entry.filter((s) => !s.startsWith('[')).length)
+		) {
+			best = { entry, cap };
 		}
 	}
 	return best?.cap ?? null;

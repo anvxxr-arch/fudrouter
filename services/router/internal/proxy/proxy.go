@@ -1,28 +1,31 @@
-// Package proxy serves the [OI]-compatible hot path.
+// Package proxy serves the [OI]-compatible hot path (PRD §85 request
+// lifecycle).
+//
+// One lifecycle for every endpoint (§85): authenticate → limits → budget →
+// resolve model → route → attempt(s) → record → charge. The two public entry
+// points (ServeCompletions for chat, ServeGeneric for the rest) differ only in
+// body handling and the freebuff dispatch; everything else is shared machinery
+// in lifecycle.go.
 package proxy
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/anvxxr-arch/fudrouter/services/router/internal/cost"
 	"github.com/anvxxr-arch/fudrouter/services/router/internal/crypt"
 	"github.com/anvxxr-arch/fudrouter/services/router/internal/freebuff"
-	"github.com/anvxxr-arch/fudrouter/services/router/internal/keys"
+	"github.com/anvxxr-arch/fudrouter/services/router/internal/limits"
+	"github.com/anvxxr-arch/fudrouter/services/router/internal/routing"
 	"github.com/anvxxr-arch/fudrouter/services/router/internal/store"
+	"github.com/anvxxr-arch/fudrouter/services/router/internal/vk"
 )
 
 type Handler struct {
@@ -32,42 +35,78 @@ type Handler struct {
 	refresher TokenRefresher
 
 	// freebuff drives the native Codebuff/Freebuff protocol for providers whose
-	// credential blob declares protocol="freebuff".
+	// connection config declares protocol="freebuff".
 	freebuff *freebuff.Manager
 
-	// limits enforces api_key.limits (rpm + monthly cost cap), which the admin
-	// console has always written but the data plane never read.
-	limits *limiter
+	// limiter enforces the spec §7 limit chain (Valkey fast path, S0 in-process
+	// fallback, fail-open on a cache outage).
+	limiter *limits.Limiter
 
-	// pools caches one rotation Pool per provider. The pool is the in-memory
-	// source of truth for account state once built, because it is also the
-	// writer of the persisted blob.
-	pools sync.Map // providerID -> *Pool
+	// vk is the cache/counter layer (spec §12): budget counters, circuit state.
+	vk vk.Client
+
+	// breaker holds routing circuit state (spec §9); config comes from the
+	// circuit_breaker table and is refreshed with the routing policy.
+	breaker *routing.CircuitBreaker
+
+	// pools caches one rotation Pool per credential target. The pool is the
+	// in-memory source of truth for account state once built, because it is
+	// also the writer of the persisted secret.
+	pools sync.Map // target key -> *Pool
+
+	// showCostMeta gates the cost metadata response headers (PRD §90). Default
+	// off: pricing is not disclosed per-request unless explicitly enabled.
+	showCostMeta bool
 }
 
 // New builds the hot-path handler. A nil refresher disables token refresh,
 // which is only correct for providers using a static api_key.
-func New(st *store.Store, cr *crypt.Crypt, client *http.Client, refresher TokenRefresher) *Handler {
+func New(st *store.Store, cr *crypt.Crypt, client *http.Client, refresher TokenRefresher, c vk.Client) *Handler {
 	if client == nil {
 		client = newUpstreamClient()
 	}
-	return &Handler{
-		store:     st,
-		crypt:     cr,
-		client:    client,
-		refresher: refresher,
-		freebuff:  freebuff.New(os.Getenv("FREEBUFF_BASE_URL")),
-		limits:    newLimiter(),
+	if c == nil {
+		c = vk.Disabled()
 	}
+	return &Handler{
+		store:        st,
+		crypt:        cr,
+		client:       client,
+		refresher:    refresher,
+		freebuff:     freebuff.New(os.Getenv("FREEBUFF_BASE_URL")),
+		limiter:      limits.New(c),
+		vk:           c,
+		breaker:      routing.NewCircuitBreaker(c, nil),
+		showCostMeta: strings.EqualFold(os.Getenv("ROUTER_COST_HEADERS"), "on"),
+	}
+}
+
+// ServeMux returns the complete public route table for these components.
+//
+// The exact patterns MUST be registered before the catch-all. `/v1/` matches
+// "/v1/models" as a subtree, so dropping the exact pattern silently hands the
+// catalogue to ServeGeneric — which bills and forwards instead of answering.
+//
+// `GET /v1/models/` is the /v1/models/{model} handler (endpoint-surface spec
+// §6 P1): a published slug answers with one model object, anything else 404s
+// truthfully. Public like /v1/models (spec §2.1: the catalogue is not a
+// protected resource).
+func ServeMux(p *Handler, health http.Handler) *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.Handle("GET /health", health)
+	mux.Handle("GET /v1/models", http.HandlerFunc(p.ServeModels))
+	mux.Handle("GET /v1/models/", http.HandlerFunc(p.ServeModel))
+	mux.Handle("POST /v1/chat/completions", http.HandlerFunc(p.ServeCompletions))
+	mux.Handle("/v1/", http.HandlerFunc(p.ServeGeneric))
+	return mux
 }
 
 // newUpstreamClient builds the client used for plain [OI] passthrough.
 //
 // It deliberately carries NO overall Timeout: http.Client.Timeout bounds the
-// whole exchange INCLUDING the response body, so a 120s value cut any streaming
-// completion longer than two minutes mid-answer (the freebuff client uses 15
-// minutes for the same reason). Liveness is bounded per phase instead
-// (dial/TLS/response-header) and per request by the caller's context.
+// whole exchange INCLUDING the response body, so any value cut streaming
+// completions mid-answer. Liveness is bounded per phase (dial/TLS/response
+// header) and per request by the caller's context / routing deadline.
 func newUpstreamClient() *http.Client {
 	// The dial guard is what makes base_url safe to trust: it rejects any
 	// target that resolves into loopback/RFC1918/link-local/CGNAT — including a
@@ -92,103 +131,21 @@ func newUpstreamClient() *http.Client {
 	}
 }
 
-// maxTokensPerRequest bounds the token counts the router will bill from an
-// upstream's reported usage. The router does not count tokens itself — it
-// trusts the upstream's `usage` block — so a hostile or buggy upstream can
-// report a negative count, which makes cost negative and *lowers* the month's
-// accumulated spend, letting a key walk past its monthly_cost_micro cap. The
-// ceiling is a sanity bound (a real single request never approaches it) that
-// also keeps the cost multiply well inside big.Int's comfort zone.
-const maxTokensPerRequest = 100_000_000
-
-// clampTokens forces a reported token count into [0, maxTokensPerRequest].
-func clampTokens(n int64) int64 {
-	if n < 0 {
-		return 0
-	}
-	if n > maxTokensPerRequest {
-		return maxTokensPerRequest
-	}
-	return n
-}
-
-// nonStreamTimeout bounds a non-streaming completion end to end. A stream has no
-// such bound: it is governed by the client's own connection.
-const nonStreamTimeout = 120 * time.Second
-
-// genericTimeout bounds the non-streaming body read on the generic /v1/* path
-// (embeddings, rerank, …), which ServeChat's nonStreamTimeout never covered.
-//
-// Sized like nonStreamTimeout because it plays the same role: a non-streaming
-// upstream answer that has not finished inside two minutes is a dead upstream,
-// not a slow one. A stream is exempt — no timer is armed for it, so a
-// long-lived completion is unaffected.
-//
-// A variable, not a constant, so a test can exercise the closing behaviour
-// without waiting two minutes. Production never reassigns it; tests do, and
-// restore it.
+// genericTimeout bounds the non-streaming body read on the generic /v1/* path.
+// Sized like the chat path's bound: a non-streaming upstream answer that has
+// not finished inside two minutes is a dead upstream, not a slow one. A stream
+// is exempt — no timer is armed for it. A var so a test can shorten it.
 var genericTimeout = 120 * time.Second
 
-// statusForKind maps a freebuff protocol failure to the HTTP status reported
-// when the router cannot fail over to another account.
-func statusForKind(k freebuff.ErrorKind) int {
-	switch k {
-	case freebuff.KindAuthExpired:
-		return http.StatusUnauthorized
-	case freebuff.KindModelUnavailable:
-		return http.StatusNotFound
-	default:
-		return http.StatusBadGateway
-	}
-}
+// nonStreamTimeout bounds a non-streaming completion end to end. A stream has
+// no such bound: it is governed by the client's own connection.
+const nonStreamTimeout = 120 * time.Second
 
-// poolReloadAfter bounds how long a built pool is trusted. The blob can be
-// rewritten from outside this process — an import, a maintenance rotation — and
-// a pool that never reloads keeps serving tokens that were rotated away,
-// refusing every request for that provider until someone restarts it. The
-// reload is cheap: the caller already decrypted the current blob to get here.
-//
-// A var, not a const, so a test can exercise the reload without sleeping.
+// poolReloadAfter bounds how long a built pool is trusted. The stored secret
+// can be rewritten from outside this process — an import, a maintenance
+// rotation — and a pool that never reloads keeps serving tokens that were
+// rotated away. A var so a test can exercise the reload without sleeping.
 var poolReloadAfter = time.Minute
-
-// poolFor returns the rotation pool for a provider: built on first use, rebuilt
-// once its trust window has passed.
-func (h *Handler) poolFor(m *store.ModelRow, cred credentials) *Pool {
-	build := func() *Pool {
-		return newPool(cred, h.refresher,
-			h.crypt.Encrypt,
-			func(ctx context.Context, blob string) error {
-				return h.store.UpdateProviderCredentials(ctx, m.ProviderID, blob)
-			},
-			func(ctx context.Context) (credentials, error) {
-				enc, err := h.store.ProviderCredentials(ctx, m.ProviderID)
-				if err != nil {
-					return credentials{}, err
-				}
-				plain, err := h.crypt.Decrypt(enc)
-				if err != nil {
-					return credentials{}, err
-				}
-				var cur credentials
-				if err := json.Unmarshal([]byte(plain), &cur); err != nil {
-					return credentials{}, err
-				}
-				return cur, nil
-			},
-		)
-	}
-	if v, ok := h.pools.Load(m.ProviderID); ok {
-		p := v.(*Pool)
-		if !p.stale(time.Now(), poolReloadAfter) {
-			return p
-		}
-		fresh := build()
-		h.pools.Store(m.ProviderID, fresh)
-		return fresh
-	}
-	actual, _ := h.pools.LoadOrStore(m.ProviderID, build())
-	return actual.(*Pool)
-}
 
 // headers a stored default_header may never override.
 var reservedHeaders = map[string]bool{
@@ -197,12 +154,9 @@ var reservedHeaders = map[string]bool{
 	"host":          true,
 }
 
-// responseHeadersForwarded is an ALLOWLIST of upstream response headers copied to
-// the client. A blacklist leaks every new header an upstream or its CDN invents;
-// the generic passthrough used to forward all of them, so clients received the
-// upstream's Set-Cookie (__cf_bm, Domain=openrouter.ai), Via, Server, Cf-Ray,
-// X-Unikey-* and its Access-Control-Allow-Origin: *. Content-Length is omitted so
-// Go recomputes it from the body actually written.
+// responseHeadersForwarded is an ALLOWLIST of upstream response headers copied
+// to the client. A blacklist leaks every new header an upstream or its CDN
+// invents; the generic passthrough used to forward all of them.
 var responseHeadersForwarded = map[string]bool{
 	"content-type":  true,
 	"retry-after":   true,
@@ -222,637 +176,140 @@ func copyUpstreamHeaders(w http.ResponseWriter, src http.Header) {
 	}
 }
 
-func (h *Handler) writeErr(w http.ResponseWriter, status int, msg string) {
+// writeErr answers with the normalized [OI] error envelope (PRD §88):
+// {"error":{"message","type","code"}} where code is the taxonomy code. The
+// request id and latency headers are already on w when this runs, so a client
+// can correlate an error with its request_log row.
+func (h *Handler) writeErr(w http.ResponseWriter, e apiError) {
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"message": msg}})
+	w.WriteHeader(e.Status)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"error": map[string]string{"message": e.Message, "type": e.Type, "code": e.Code},
+	})
 }
 
-// authenticate parses + validates the Bearer key against the api_key table.
-func (h *Handler) authenticate(r *http.Request) (*store.APIKeyRow, error) {
-	auth := r.Header.Get("Authorization")
-	if !strings.HasPrefix(auth, "Bearer ") {
-		return nil, errors.New("missing bearer token")
-	}
-	k, ok := keys.Parse(strings.TrimPrefix(auth, "Bearer "))
-	if !ok {
-		return nil, errors.New("malformed api key")
-	}
-	row, err := h.store.LookupAPIKey(r.Context(), k.Prefix)
-	if err != nil {
-		return nil, errors.New("invalid api key")
-	}
-	if !keys.Equal(row.KeyHash, keys.Hash(k.Secret)) {
-		return nil, errors.New("invalid api key")
-	}
-	if row.RevokedAt != nil {
-		return nil, errors.New("api key revoked")
-	}
-	return row, nil
+// writeErrCode is the convenience form: taxonomy code + optional message.
+func (h *Handler) writeErrCode(w http.ResponseWriter, code, message string) {
+	h.writeErr(w, normalize(code, message))
 }
 
-// shouldFailover reports whether ANOTHER pooled account could plausibly turn
-// this upstream status into a success. A 401/403 is a dead credential and a 429
-// is a per-account throttle or quota: both belong to the account that produced
-// them. A 502/503/504 is the upstream itself misbehaving (every account shares
-// it, but a retry can still land on a healthy instance). Everything else
-// (400/404/422...) is request-shaped - another credential changes nothing.
-//
-// Measured before this guard: scratch/route-integrity/run.sh, a pool of
-// [429-account, live-account] returned 429 to the client on attempt 1, and the
-// same for 503, while a live account sat in the pool.
-func shouldFailover(code int) bool {
-	switch code {
-	case http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests,
-		http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
-		return true
-	}
-	return false
-}
-
-// parksAccount reports whether a failoverable status blames THIS account. 401/403
-// (dead credential) and 429 (per-account throttle) do, so the account is parked
-// for failCooldown instead of being re-probed by every later request. 5xx does
-// NOT: the whole pool shares one upstream, and parking every account during a
-// provider-wide outage would empty the pool for five minutes and turn a blip
-// into an outage.
-func parksAccount(code int) bool {
-	return code == http.StatusUnauthorized || code == http.StatusForbidden ||
-		code == http.StatusTooManyRequests
-}
-
+// ServeCompletions is the native chat hot path (PRD §85): full lifecycle with
+// streaming, usage capture and billing on every outcome.
 func (h *Handler) ServeCompletions(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 
-	keyRow, err := h.authenticate(r)
-	if err != nil {
-		h.writeErr(w, http.StatusUnauthorized, err.Error())
-		return
-	}
-	if status, msg := h.checkLimits(r.Context(), keyRow); status != 0 {
-		log.Printf("[proxy] key=%s rejected by limits: %d %s", keyRow.ID, status, msg)
-		h.writeErr(w, status, msg)
-		return
-	}
-
+	// Body first on this path only: chat is a model-addressed endpoint and the
+	// model string drives routing. Validation runs INSIDE begin, after auth —
+	// an invalid key must be 401 regardless of the body (endpoint-surface
+	// spec §3.1: auth is evaluated before path support).
 	body, err := io.ReadAll(io.LimitReader(r.Body, 10<<20))
 	if err != nil {
-		h.writeErr(w, http.StatusBadRequest, "cannot read body")
+		h.writeErrCode(w, routing.ErrCodeInvalidRequest, "cannot read body")
 		return
 	}
 	var req map[string]any
-	if err := json.Unmarshal(body, &req); err != nil {
-		h.writeErr(w, http.StatusBadRequest, "invalid JSON body")
-		return
-	}
-	slug, _ := req["model"].(string)
-	if slug == "" {
-		h.writeErr(w, http.StatusBadRequest, "missing model")
-		return
-	}
-	stream, _ := req["stream"].(bool)
-
-	m, err := h.store.ModelWithProvider(r.Context(), slug)
-	if err != nil {
-		h.writeErr(w, http.StatusNotFound, "unknown model: "+slug)
-		return
+	stream := false
+	validate := func(b []byte) (string, *apiError) {
+		if err := json.Unmarshal(b, &req); err != nil {
+			return "", &apiError{Code: routing.ErrCodeInvalidRequest, Status: 400,
+				Type: "invalid_request_error", Message: "invalid JSON body"}
+		}
+		slug, _ := req["model"].(string)
+		if slug == "" {
+			return "", &apiError{Code: routing.ErrCodeInvalidRequest, Status: 400,
+				Type: "invalid_request_error", Message: "missing model"}
+		}
+		stream, _ = req["stream"].(bool)
+		return slug, nil
 	}
 
-	credJSON, err := h.crypt.Decrypt(m.CredEnc)
-	if err != nil {
-		// Never include the ciphertext or plaintext in errors (Review Focus 4).
-		log.Printf("[proxy] credential decrypt failed for provider %s", m.ProviderID)
-		h.writeErr(w, http.StatusInternalServerError, "provider credentials unavailable")
+	lc, ok := h.begin(w, r, start, "/v1/chat/completions", body, validate)
+	if !ok {
 		return
 	}
-	var cred credentials
-	if err := json.Unmarshal([]byte(credJSON), &cred); err != nil {
-		h.writeErr(w, http.StatusInternalServerError, "provider credentials malformed")
-		return
-	}
-	if cred.APIKey == "" && len(cred.Accounts) == 0 {
-		h.writeErr(w, http.StatusInternalServerError, "provider credentials malformed")
-		return
-	}
+	defer lc.finish()
 
+	// Inject `stream_options.include_usage` so a streamed reply carries the
+	// usage block the bill is computed from (PRD §87).
 	if stream {
 		req["stream_options"] = map[string]any{"include_usage": true}
 	}
 	upBody, _ := json.Marshal(req)
 
-	// One attempt per account, so a rejected credential fails over instead of
-	// failing the request. A single static-key provider simply gets one try.
-	attempts := 1
-	if n := len(cred.Accounts); n > 1 {
-		attempts = n
-		if attempts > 3 {
-			attempts = 3
-		}
-	}
-	pool := h.poolFor(m, cred)
-
-	// A non-streaming completion is bounded end to end; a stream is not, because
-	// http.Client.Timeout would sever it mid-answer (the old 120s client did
-	// exactly that). A stream lives until the client disconnects (r.Context()).
-	// Pick bounds itself (maxPickAttempts + pickBudget) but is also handed the
-	// bounded upstream context, so a credential search can never outlive the
-	// upstream budget it is charged to. It was r.Context() here, which carries
-	// no deadline at all — that is how a single request ended up spending 99.652s
-	// inside a 120s budget.
-	upCtx := r.Context()
-	if !stream {
-		var cancel context.CancelFunc
-		upCtx, cancel = context.WithTimeout(r.Context(), nonStreamTimeout)
-		defer cancel()
-	}
-
-	var resp *http.Response
-	var lastStatus int
-	var lastErr error
-	var servedBy string
-	usedAttempts := 0
-	for attempt := 0; attempt < attempts; attempt++ {
-		picked, err := pool.Pick(upCtx)
-		if err != nil {
-			log.Printf("[proxy] no usable credential for provider %s: %v", m.ProviderID, err)
-			h.logRequest(r.Context(), keyRow, m, 0, 0, start, "error", "no usable credential")
-			h.writeErr(w, http.StatusBadGateway, "no usable upstream credential")
-			return
-		}
-
-		if cred.Protocol == ProtocolFreebuff {
-			// Native Codebuff/Freebuff protocol. The upstream is NOT [OI]: a chat
-			// needs a live session, a root agent run, and codebuff_metadata
-			// injection, so the plain passthrough below cannot be used.
-			resp, err = h.freebuff.Chat(r.Context(), m.BaseURL, picked.Token, m.Slug, upBody)
-			if err != nil {
-				var pe *freebuff.Error
-				if errors.As(err, &pe) {
-					switch pe.Kind {
-					case freebuff.KindAuthExpired, freebuff.KindModelUnavailable:
-						// Bad credential or bad model: fail over to another
-						// account within the same request.
-						pool.MarkFailed(picked.Token)
-						lastStatus = statusForKind(pe.Kind)
-						continue
-					case freebuff.KindWaitingRoom, freebuff.KindRateLimit:
-						// Upstream queue/limit: surface a Retry-After instead of
-						// hammering it.
-						if pe.RetryAfter > 0 {
-							w.Header().Set("Retry-After", strconv.Itoa(pe.RetryAfter))
-						}
-						h.logRequest(r.Context(), keyRow, m, 0, 0, start, "upstream_error", pe.Msg)
-						h.writeErr(w, http.StatusServiceUnavailable, pe.Msg)
-						return
-					}
-				}
-				h.logRequest(r.Context(), keyRow, m, 0, 0, start, "error", err.Error())
-				h.writeErr(w, http.StatusBadGateway, err.Error())
-				return
-			}
-		} else {
-			upReq, err := http.NewRequestWithContext(upCtx, http.MethodPost,
-				strings.TrimRight(m.BaseURL, "/")+"/chat/completions", bytes.NewReader(upBody))
-			if err != nil {
-				h.writeErr(w, http.StatusInternalServerError, "upstream request build failed")
-				return
-			}
-			upReq.Header.Set("Content-Type", "application/json")
-			upReq.Header.Set("Authorization", "Bearer "+picked.Token)
-			for k, v := range cred.DefaultHeaders {
-				if reservedHeaders[strings.ToLower(k)] {
-					continue
-				}
-				upReq.Header.Set(k, v)
-			}
-
-			resp, err = h.client.Do(upReq)
-			if err != nil {
-				// A transport error (timeout, reset, EOF) can be
-				// account-specific: fail over while attempts remain and
-				// surface it only when every account has been tried.
-				lastStatus, lastErr = 0, err
-				if attempt+1 < attempts {
-					continue
-				}
-				h.logRequest(r.Context(), keyRow, m, 0, 0, start, "error", err.Error())
-				h.writeErr(w, http.StatusBadGateway, "upstream request failed")
-				return
-			}
-		}
-		lastStatus = resp.StatusCode
-
-		// Fail over when another account can plausibly turn this into a
-		// success; park the account only when the status blames it.
-		if shouldFailover(resp.StatusCode) {
-			code := resp.StatusCode
-			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
-			_ = resp.Body.Close()
-			resp = nil
-			if parksAccount(code) {
-				pool.MarkFailed(picked.Token)
-			}
-			continue
-		}
-		servedBy = picked.Email
-		usedAttempts = attempt + 1
-		break
-	}
-
-	if resp == nil {
-		reason := fmt.Sprintf("upstream %d on every account", lastStatus)
-		if lastErr != nil {
-			reason = fmt.Sprintf("upstream unreachable on every account: %v", lastErr)
-		}
-		h.logRequest(r.Context(), keyRow, m, 0, 0, start, "upstream_error", reason)
-		h.writeErr(w, http.StatusBadGateway, "upstream rejected every pooled credential")
+	lc.stream = stream
+	upCtx := lc.upstreamContext(r, stream)
+	resp, err := lc.dispatch(upCtx, upBody, r.Method, "", "/chat/completions")
+	if err != nil || resp == nil {
+		lc.fail(err)
 		return
 	}
 	defer resp.Body.Close()
-
-	// Which account served a request is not otherwise observable: the pool is
-	// in-memory and request_log has no account column. Without this line a pool
-	// that silently collapses onto one account looks identical to a healthy one.
-	log.Printf("[proxy] provider=%s model=%s account=%s attempt=%d status=%d",
-		m.ProviderID, m.Slug, servedBy, usedAttempts, resp.StatusCode)
-
-	if resp.StatusCode != http.StatusOK {
-		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-		h.logRequest(r.Context(), keyRow, m, 0, 0, start, "upstream_error",
-			fmt.Sprintf("upstream %d", resp.StatusCode))
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(resp.StatusCode)
-		_, _ = w.Write(errBody)
-		return
-	}
-
-	_ = h.store.TouchAPIKey(r.Context(), keyRow.ID)
+	lc.logTarget(resp.StatusCode)
 
 	if stream {
-		h.streamSSE(w, resp.Body, keyRow, m, start)
+		lc.streamSSE(w, resp.Body)
 		return
 	}
 
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 50<<20))
 	if err != nil {
-		h.logRequest(r.Context(), keyRow, m, 0, 0, start, "error", "read upstream: "+err.Error())
-		h.writeErr(w, http.StatusBadGateway, "upstream read failed")
+		lc.fail(fmt.Errorf("read upstream: %w", err))
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(respBody)
-
-	var parsed struct {
-		Usage *struct {
-			PromptTokens     int64 `json:"prompt_tokens"`
-			CompletionTokens int64 `json:"completion_tokens"`
-		} `json:"usage"`
-	}
-	_ = json.Unmarshal(respBody, &parsed)
-	tin, tout := int64(0), int64(0)
-	if parsed.Usage != nil {
-		tin, tout = parsed.Usage.PromptTokens, parsed.Usage.CompletionTokens
-	}
-	h.logRequest(r.Context(), keyRow, m, tin, tout, start, "success", "")
+	lc.serveBuffered(w, respBody, resp.Header)
 }
 
-// streamSSE copies the upstream SSE to the client line-group by line-group,
-// capturing the usage object from the final data chunk.
-func (h *Handler) streamSSE(w http.ResponseWriter, body io.Reader, keyRow *store.APIKeyRow, m *store.ModelRow, start time.Time) {
-	fl, _ := w.(http.Flusher)
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.WriteHeader(http.StatusOK)
-
-	var tokensIn, tokensOut int64
-	sc := bufio.NewScanner(body)
-	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
-	for sc.Scan() {
-		line := sc.Text()
-		_, _ = fmt.Fprintln(w, line)
-		if fl != nil {
-			fl.Flush()
-		}
-		if strings.HasPrefix(line, "data: ") {
-			payload := strings.TrimPrefix(line, "data: ")
-			if payload != "[DONE]" {
-				var chunk struct {
-					Usage *struct {
-						PromptTokens     int64 `json:"prompt_tokens"`
-						CompletionTokens int64 `json:"completion_tokens"`
-					} `json:"usage"`
-				}
-				if err := json.Unmarshal([]byte(payload), &chunk); err == nil && chunk.Usage != nil {
-					tokensIn = chunk.Usage.PromptTokens
-					tokensOut = chunk.Usage.CompletionTokens
-				}
-			}
-		}
-	}
-	if err := sc.Err(); err != nil {
-		h.logRequest(context.Background(), keyRow, m, tokensIn, tokensOut, start, "error", "stream: "+err.Error())
-		return
-	}
-	h.logRequest(context.Background(), keyRow, m, tokensIn, tokensOut, start, "success", "")
-}
-
-func (h *Handler) logRequest(ctx context.Context, keyRow *store.APIKeyRow, m *store.ModelRow, tin, tout int64, start time.Time, status, errText string) {
-	// Detach from the request context before writing the usage row. A client that
-	// disconnects mid-response cancels r.Context(), and the non-stream path
-	// passed exactly that context here — so a disconnect silently lost the row
-	// (seen live: "request_log insert failed: context canceled"). The ledger must
-	// survive the client. Bounded so a wedged DB cannot leak a goroutine.
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-	defer cancel()
-
-	// Clamp at the single funnel every path bills through, rather than at each
-	// parse site: the token counts come from the upstream's own `usage` block,
-	// which is untrusted. A negative count would make cost negative and lower
-	// the month's total, walking a key past its monthly_cost_micro cap.
-	tin, tout = clampTokens(tin), clampTokens(tout)
-
-	c := cost.Compute(tin, tout, cost.Price(m.InputPrice), cost.Price(m.OutputPrice))
-	if err := h.store.InsertRequestLog(ctx, &store.RequestLog{
-		UserID:     keyRow.UserID,
-		APIKeyID:   keyRow.ID,
-		ModelID:    m.ModelID,
-		ProviderID: m.ProviderID,
-		TokensIn:   tin,
-		TokensOut:  tout,
-		Cost:       c,
-		Currency:   m.Currency,
-		LatencyMs:  time.Since(start).Milliseconds(),
-		Status:     status,
-		Error:      errText,
-	}); err != nil {
-		log.Printf("[proxy] request_log insert failed: %v", err)
+// statusForKind maps a freebuff protocol failure to a taxonomy code.
+func statusForKind(k freebuff.ErrorKind) string {
+	switch k {
+	case freebuff.KindAuthExpired:
+		return routing.ErrCodeUpstreamError
+	case freebuff.KindModelUnavailable:
+		return routing.ErrCodeModelNotFound
+	case freebuff.KindWaitingRoom:
+		return routing.ErrCodeProviderUnavailable
+	case freebuff.KindRateLimit:
+		return routing.ErrCodeRateLimited
+	case freebuff.KindBadRequest:
+		return routing.ErrCodeInvalidRequest
+	default:
+		return routing.ErrCodeUpstreamError
 	}
 }
 
-// ServeGeneric proxies every other /v1/* endpoint (embeddings, rerank, …) to the
-// upstream. Unlike the old passthrough it enforces key limits, fails over across
-// pooled accounts on 401/403, relays only allowlisted response headers, and
-// writes a request_log row — so the call is billed and visible to usage/limits.
+// retryableFreebuff maps a freebuff failure onto the spec §9 retry table.
+func retryableFreebuff(k freebuff.ErrorKind) bool {
+	switch k {
+	case freebuff.KindAuthExpired, freebuff.KindWaitingRoom, freebuff.KindRateLimit, freebuff.KindNetwork:
+		return true // another account or another target can fix it
+	case freebuff.KindModelUnavailable, freebuff.KindBadRequest:
+		return false
+	}
+	return false
+}
+
+// poolFor returns the rotation pool for one credential target: built on first
+// use, rebuilt once its trust window has passed.
 //
-// The upstream exchange is bounded end to end for non-streaming responses.
-// ServeChat can decide this from the request body's `stream` flag, but this
-// handler only learns the response is a stream once the headers arrive, so the
-// bound is applied in two phases: the request and header phase run under
-// genericTimeout, and the deadline is released before the body is read only if
-// the response is an event stream. An event stream therefore still lives until
-// the client disconnects (r.Context()), and a non-streaming response — an
-// upstream that trickles, or never closes the body — is still capped.
-func (h *Handler) ServeGeneric(w http.ResponseWriter, r *http.Request) {
-	start := time.Now()
-
-	keyRow, err := h.authenticate(r)
-	if err != nil {
-		h.writeErr(w, http.StatusUnauthorized, err.Error())
-		return
+// The persist callback depends on where the secret lives: a credential ROW
+// (spec §4) rewrites secret_enc; an unsplit legacy blob rewrites
+// provider.credentials_enc. Both keep the same rotation/merge behaviour.
+func (h *Handler) poolFor(key string, cred credentials, persist func(ctx context.Context, blob string) error, load func(ctx context.Context) (credentials, error)) *Pool {
+	build := func() *Pool {
+		return newPool(cred, h.refresher, h.crypt.Encrypt, persist, load)
 	}
-	if status, msg := h.checkLimits(r.Context(), keyRow); status != 0 {
-		log.Printf("[proxy] key=%s rejected by limits: %d %s", keyRow.ID, status, msg)
-		h.writeErr(w, status, msg)
-		return
-	}
-
-	body, err := io.ReadAll(io.LimitReader(r.Body, 10<<20))
-	if err != nil {
-		h.writeErr(w, http.StatusBadRequest, "cannot read body")
-		return
-	}
-	var req map[string]any
-	if err := json.Unmarshal(body, &req); err != nil {
-		h.writeErr(w, http.StatusBadRequest, "invalid JSON body")
-		return
-	}
-	slug, _ := req["model"].(string)
-	if slug == "" {
-		h.writeErr(w, http.StatusBadRequest, "missing model")
-		return
-	}
-
-	m, err := h.store.ModelWithProvider(r.Context(), slug)
-	if err != nil {
-		h.writeErr(w, http.StatusNotFound, "unknown model: "+slug)
-		return
-	}
-
-	credJSON, err := h.crypt.Decrypt(m.CredEnc)
-	if err != nil {
-		log.Printf("[proxy] credential decrypt failed for provider %s", m.ProviderID)
-		h.writeErr(w, http.StatusInternalServerError, "provider credentials unavailable")
-		return
-	}
-	var cred credentials
-	if err := json.Unmarshal([]byte(credJSON), &cred); err != nil {
-		h.writeErr(w, http.StatusInternalServerError, "provider credentials malformed")
-		return
-	}
-	if cred.APIKey == "" && len(cred.Accounts) == 0 {
-		h.writeErr(w, http.StatusInternalServerError, "provider credentials malformed")
-		return
-	}
-
-	pool := h.poolFor(m, cred)
-	upURL := strings.TrimRight(m.BaseURL, "/") + strings.TrimPrefix(r.URL.Path, "/v1")
-
-	// Fail over across pooled accounts on a rejected credential, exactly as the
-	// chat path does. The old single-Pick version handed a dead token straight to
-	// the client even when healthy accounts remained.
-	attempts := 1
-	if n := len(cred.Accounts); n > 1 {
-		attempts = n
-		if attempts > 3 {
-			attempts = 3
+	if v, ok := h.pools.Load(key); ok {
+		p := v.(*Pool)
+		if !p.stale(time.Now(), poolReloadAfter) {
+			return p
 		}
+		fresh := build()
+		h.pools.Store(key, fresh)
+		return fresh
 	}
-
-	// Bound the non-streaming path. The request context alone is not a bound: it
-	// only ends if the client disconnects, and a client waiting on an upstream
-	// that never answers keeps this goroutine and its connection for as long as
-	// it likes.
-	//
-	// The bound is NOT a context deadline on the upstream request. A deadline
-	// here cannot be released once the response turns out to be a stream, and
-	// releasing it by cancelling would kill the response body it is attached to
-	// — cutting the stream off after the first event, which is the exact
-	// failure the no-Timeout client exists to avoid. So the two phases are
-	// bounded separately:
-	//
-	//   - the header phase by the transport's ResponseHeaderTimeout (120s),
-	//     which already applies to every upstream call, and
-	//   - the non-streaming body by a timer that closes the body, below.
-	//
-	// A stream is therefore governed by the client's connection, as intended.
-	pickCtx, cancelPick := context.WithTimeout(r.Context(), pickBudget)
-	defer cancelPick()
-
-	var resp *http.Response
-	var lastStatus int
-	var lastErr error
-	var servedBy string
-	usedAttempts := 0
-	for attempt := 0; attempt < attempts; attempt++ {
-		picked, err := pool.Pick(pickCtx)
-		if err != nil {
-			log.Printf("[proxy] no usable credential for provider %s: %v", m.ProviderID, err)
-			h.logRequest(r.Context(), keyRow, m, 0, 0, start, "error", "no usable credential")
-			h.writeErr(w, http.StatusBadGateway, "no usable upstream credential")
-			return
-		}
-
-		// The request context is correct here and must stay that way: the
-		// transport's ResponseHeaderTimeout bounds the header phase, and a
-		// deadline on this request could not be dropped later without killing
-		// resp.Body if the response is a stream.
-		upReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost, upURL, bytes.NewReader(body))
-		if err != nil {
-			h.writeErr(w, http.StatusInternalServerError, "upstream request build failed")
-			return
-		}
-		upReq.Header.Set("Content-Type", "application/json")
-		upReq.Header.Set("Authorization", "Bearer "+picked.Token)
-		for k, v := range cred.DefaultHeaders {
-			if reservedHeaders[strings.ToLower(k)] {
-				continue
-			}
-			upReq.Header.Set(k, v)
-		}
-
-		resp, err = h.client.Do(upReq)
-		if err != nil {
-			// A transport error (timeout, reset, EOF) can be
-			// account-specific: fail over while attempts remain and
-			// surface it only when every account has been tried.
-			lastStatus, lastErr = 0, err
-			if attempt+1 < attempts {
-				continue
-			}
-			h.logRequest(r.Context(), keyRow, m, 0, 0, start, "error", err.Error())
-			h.writeErr(w, http.StatusBadGateway, "upstream request failed")
-			return
-		}
-		lastStatus = resp.StatusCode
-
-		if shouldFailover(resp.StatusCode) {
-			code := resp.StatusCode
-			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
-			_ = resp.Body.Close()
-			resp = nil
-			if parksAccount(code) {
-				pool.MarkFailed(picked.Token)
-			}
-			continue
-		}
-		servedBy = picked.Email
-		usedAttempts = attempt + 1
-		break
-	}
-
-	if resp == nil {
-		reason := fmt.Sprintf("upstream %d on every account", lastStatus)
-		if lastErr != nil {
-			reason = fmt.Sprintf("upstream unreachable on every account: %v", lastErr)
-		}
-		h.logRequest(r.Context(), keyRow, m, 0, 0, start, "upstream_error", reason)
-		h.writeErr(w, http.StatusBadGateway, "upstream rejected every pooled credential")
-		return
-	}
-	defer resp.Body.Close()
-
-	log.Printf("[proxy] provider=%s path=%s account=%s attempt=%d status=%d",
-		m.ProviderID, r.URL.Path, servedBy, usedAttempts, resp.StatusCode)
-
-	if resp.StatusCode != http.StatusOK {
-		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-		h.logRequest(r.Context(), keyRow, m, 0, 0, start, "upstream_error",
-			fmt.Sprintf("upstream %d", resp.StatusCode))
-		copyUpstreamHeaders(w, resp.Header)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(resp.StatusCode)
-		_, _ = w.Write(errBody)
-		return
-	}
-
-	// Streaming upstreams (rare on this path) must not be buffered. No timer is
-	// armed for this branch: a stream lives until the client disconnects, which
-	// r.Context() already covers, and http.Client carries no overall Timeout for
-	// exactly this reason.
-	if strings.Contains(resp.Header.Get("Content-Type"), "event-stream") {
-		_ = h.store.TouchAPIKey(r.Context(), keyRow.ID)
-		h.streamSSE(w, resp.Body, keyRow, m, start)
-		return
-	}
-
-	// Non-streaming: bound the body read with a timer that CLOSES the body when
-	// it fires. Closing is the only lever that stops a stalled read without
-	// cancelling a context the response depends on. The size cap is separate and
-	// already in place via LimitReader.
-	bodyTimer := time.AfterFunc(genericTimeout, func() {
-		log.Printf("[proxy] generic path: upstream body exceeded %v, closing", genericTimeout)
-		_ = resp.Body.Close()
-	})
-	defer bodyTimer.Stop()
-
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 50<<20))
-	if err != nil {
-		h.logRequest(r.Context(), keyRow, m, 0, 0, start, "error", "read upstream: "+err.Error())
-		h.writeErr(w, http.StatusBadGateway, "upstream read failed")
-		return
-	}
-	_ = h.store.TouchAPIKey(r.Context(), keyRow.ID)
-
-	// Only allowlisted headers are relayed; Content-Length is left to Go.
-	copyUpstreamHeaders(w, resp.Header)
-	if w.Header().Get("Content-Type") == "" {
-		w.Header().Set("Content-Type", "application/json")
-	}
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(respBody)
-
-	tin, tout := usageFromBody(respBody)
-	h.logRequest(r.Context(), keyRow, m, tin, tout, start, "success", "")
+	actual, _ := h.pools.LoadOrStore(key, build())
+	return actual.(*Pool)
 }
 
-// usageFromBody pulls prompt/completion tokens out of a JSON response, tolerating
-// both the [OI] `usage` shape and the `input_tokens`/`output_tokens` variant.
-func usageFromBody(b []byte) (int64, int64) {
-	var parsed struct {
-		Usage *struct {
-			PromptTokens     int64 `json:"prompt_tokens"`
-			CompletionTokens int64 `json:"completion_tokens"`
-			InputTokens      int64 `json:"input_tokens"`
-			OutputTokens     int64 `json:"output_tokens"`
-		} `json:"usage"`
-	}
-	if err := json.Unmarshal(b, &parsed); err != nil || parsed.Usage == nil {
-		return 0, 0
-	}
-	tin, tout := parsed.Usage.PromptTokens, parsed.Usage.CompletionTokens
-	if tin == 0 {
-		tin = parsed.Usage.InputTokens
-	}
-	if tout == 0 {
-		tout = parsed.Usage.OutputTokens
-	}
-	return tin, tout
-}
-
-func (h *Handler) ServeModels(w http.ResponseWriter, r *http.Request) {
-	models, err := h.store.ActiveModels(r.Context())
-	if err != nil {
-		h.writeErr(w, http.StatusInternalServerError, "database error")
-		return
-	}
-	data := make([]map[string]any, 0, len(models))
-	for _, m := range models {
-		data = append(data, map[string]any{"id": m.Slug, "object": "model", "owned_by": "fudrouter"})
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"object": "list",
-		"data":   data,
-	})
-}
+// healthHealth is a tiny helper used by the health endpoint in main.go via the
+// store's Ping; kept here so the file count stays flat.

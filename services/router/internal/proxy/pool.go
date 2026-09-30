@@ -62,6 +62,9 @@ type account struct {
 	RefreshToken string `json:"refresh_token"`
 	IDToken      string `json:"id_token"`
 	Expired      string `json:"expired"`
+	// CredID names the credential ROW this account was loaded from (spec §4).
+	// It is transport metadata, not secret state: never serialized.
+	CredID string `json:"-"`
 }
 
 // credentials is the decrypted provider credential blob.
@@ -103,6 +106,10 @@ type poolAccount struct {
 	data      account
 	expiresAt time.Time
 	deadUntil time.Time
+	// credID identifies the credential ROW this account was loaded from
+	// (spec §4: one account = one credential row). Empty for accounts that came
+	// from an unsplit legacy blob, which persist as one blob.
+	credID string
 }
 
 // Pool round-robins a provider's accounts and keeps their tokens fresh.
@@ -122,6 +129,11 @@ type Pool struct {
 	refresher      TokenRefresher
 	encrypt        func(plaintext string) (string, error)
 	persist        func(ctx context.Context, blob string) error
+
+	// persistAccount writes ONE account back to the credential row it came
+	// from (spec §4). When set, save() uses it for accounts with a credID and
+	// only falls back to `persist` for legacy-blob accounts.
+	persistAccount func(ctx context.Context, credID, plaintext string) error
 
 	// load re-reads the provider's credential blob, so save can merge into the
 	// CURRENT state instead of overwriting it — see the note on save. Nil means
@@ -155,9 +167,16 @@ func newPool(
 		persist:        persist,
 	}
 	for _, a := range cred.Accounts {
-		p.accounts = append(p.accounts, &poolAccount{data: a, expiresAt: parseExpiry(a.Expired)})
+		p.accounts = append(p.accounts, &poolAccount{data: a, expiresAt: parseExpiry(a.Expired), credID: a.CredID})
 	}
 	return p
+}
+
+// setPersistAccount installs the per-row writer (spec §4: a rotated token is
+// written back to the credential row it came from). Set after construction so
+// the pool's build signature stays the S0 one.
+func (p *Pool) setPersistAccount(fn func(ctx context.Context, credID, plaintext string) error) {
+	p.persistAccount = fn
 }
 
 // parseExpiry reads the blob's `expired` field. A missing or unparseable value
@@ -178,10 +197,13 @@ func parseExpiry(s string) time.Time {
 	return time.Time{}
 }
 
-// Picked is one credential selection.
+// Picked is one credential selection. CredID identifies the credential row the
+// token came from ("" for a legacy-blob account), so the caller can park or
+// persist the RIGHT secret when the upstream rejects it.
 type Picked struct {
-	Token string
-	Email string
+	Token  string
+	Email  string
+	CredID string
 }
 
 // Pick returns a usable credential, refreshing it when needed. Accounts are
@@ -254,7 +276,7 @@ func (p *Pool) Pick(ctx context.Context) (Picked, error) {
 				log.Printf("[proxy] persisting rotated credentials failed: %v", err)
 			}
 		}
-		return Picked{Token: tok, Email: a.data.Email}, nil
+		return Picked{Token: tok, Email: a.data.Email, CredID: a.credID}, nil
 	}
 	if lastErr == nil {
 		lastErr = errors.New("no usable account")
@@ -386,19 +408,47 @@ func (p *Pool) stale(now time.Time, ttl time.Duration) bool {
 // overwriting it. Two writers persist this column — the router's on-demand
 // refresh and a maintenance rotation — and a blind overwrite drops whichever
 // rotation landed first, which is how an account loses its live refresh chain.
+//
+// With persistAccount set (credential rows, spec §4), each rotated account is
+// written back to ITS OWN row; the legacy blob persists as one merged blob.
 func (p *Pool) save(ctx context.Context) error {
-	if p.persist == nil || p.encrypt == nil {
+	// Per-row persistence (credential rows, spec §4) is independent of the
+	// legacy blob writer and does not use `encrypt` — the caller encrypts.
+	if p.persistAccount == nil && (p.persist == nil || p.encrypt == nil) {
 		return nil
 	}
 	p.mu.Lock()
 	snap := make([]account, 0, len(p.accounts))
+	credIDs := make(map[string]string, len(p.accounts))
 	for _, a := range p.accounts {
 		a.mu.Lock()
 		snap = append(snap, a.data)
+		if a.credID != "" {
+			credIDs[a.data.Email] = a.credID
+		}
 		a.mu.Unlock()
 	}
 	p.mu.Unlock()
 
+	// Per-row persistence: the merge rule is the row itself (one account).
+	if p.persistAccount != nil {
+		for _, a := range snap {
+			credID := credIDs[a.Email]
+			if credID == "" {
+				continue
+			}
+			plain, err := p.marshalAccount(a)
+			if err != nil {
+				return err
+			}
+			if err := p.persistAccount(ctx, credID, plain); err != nil {
+				return err
+			}
+		}
+	}
+	if p.persist == nil || p.encrypt == nil {
+		return nil
+	}
 	if p.load != nil {
 		cur, err := p.load(ctx)
 		if err != nil {
@@ -429,6 +479,24 @@ func (p *Pool) save(ctx context.Context) error {
 		return err
 	}
 	return p.persist(ctx, blob)
+}
+
+// marshalAccount renders one account as the credential-row secret shape
+// (spec §4: {"email","access_token","refresh_token","id_token","expired"} or
+// {"api_key"}), which is what credentialsFromSecret reads back.
+func (p *Pool) marshalAccount(a account) (string, error) {
+	if a.AccessToken == "" && a.RefreshToken == "" {
+		blob, err := json.Marshal(map[string]string{"api_key": p.fallbackAPIKey})
+		return string(blob), err
+	}
+	blob, err := json.Marshal(map[string]string{
+		"email":         a.Email,
+		"access_token":  a.AccessToken,
+		"refresh_token": a.RefreshToken,
+		"id_token":      a.IDToken,
+		"expired":       a.Expired,
+	})
+	return string(blob), err
 }
 
 // MarkFailed parks the account holding this access token. Called when the

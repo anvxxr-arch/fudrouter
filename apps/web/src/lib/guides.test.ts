@@ -83,7 +83,10 @@ describe('page guides', () => {
 			const sections = guideFor('home').sections;
 			expect(sections, 'the landing carries more than one block of prose').toHaveLength(1);
 			const words = wordsOf('home');
-			expect(words, `the landing guide is ${words} words — it should orient, not explain`).toBeLessThan(60);
+			expect(
+				words,
+				`the landing guide is ${words} words — it should orient, not explain`
+			).toBeLessThan(60);
 		});
 
 		it('has no public paragraph longer than a sentence or two', () => {

@@ -91,12 +91,7 @@ describe('no atom re-declares a shared style', () => {
 	 * duplication — `Badge` using `--radius-pill` is a component consuming the
 	 * design system, which is the point of having tokens at all.
 	 */
-	const shared = [
-		'--control-h-md',
-		'--control-h-sm',
-		'--control-h-lg',
-		'letter-spacing: 0.04em'
-	];
+	const shared = ['--control-h-md', '--control-h-sm', '--control-h-lg', 'letter-spacing: 0.04em'];
 
 	it.each(atomNames)('%s does not duplicate the shared shell', (name) => {
 		const src = atoms.get(name)!;

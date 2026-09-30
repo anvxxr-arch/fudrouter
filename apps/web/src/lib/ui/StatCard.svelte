@@ -34,6 +34,9 @@
 	.success {
 		color: var(--color-success);
 	}
+	.warning {
+		color: var(--warning);
+	}
 	.danger {
 		color: var(--color-danger);
 	}

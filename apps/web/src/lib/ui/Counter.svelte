@@ -136,6 +136,10 @@
 			}
 		};
 	}
+	// The ten digit faces a roll cycles through. A constant rather than
+	// `{length: 10}`: the only thing the body renders is the face itself, so the
+	// iteration needs no unused first binding to carry.
+	const digits = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 </script>
 
 <span
@@ -154,8 +158,8 @@
 					style="--roll: {offset(digitFor(place))}"
 					use:roll={digitFor(place)}
 				>
-					{#each { length: 10 } as _, i (i)}
-						<span class="digit">{i}</span>
+					{#each digits as digit (digit)}
+						<span class="digit">{digit}</span>
 					{/each}
 				</em>
 			</span>
@@ -165,14 +169,14 @@
 			{#each fractionSlots as place (place)}
 				<span class="place">
 					<em
-					class="roll"
-					data-place={place}
-					data-current={digitFor(place)}
-					style="--roll: {offset(digitFor(place))}"
-					use:roll={digitFor(place)}
-				>
-						{#each { length: 10 } as _, i (i)}
-							<span class="digit">{i}</span>
+						class="roll"
+						data-place={place}
+						data-current={digitFor(place)}
+						style="--roll: {offset(digitFor(place))}"
+						use:roll={digitFor(place)}
+					>
+						{#each digits as digit (digit)}
+							<span class="digit">{digit}</span>
 						{/each}
 					</em>
 				</span>

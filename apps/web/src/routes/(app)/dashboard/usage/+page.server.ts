@@ -1,43 +1,96 @@
-import { desc, eq, sql } from 'drizzle-orm';
 import type { PageServerLoad } from './$types';
 import { db } from '$lib/server/db';
-import { model, requestLog } from '$lib/server/db/schema';
 import { requireCap } from '$lib/server/roles';
+import { observeWorkspaceGate } from '$lib/server/observe/scope';
+import { creditsCharged, usageBreakdowns, usageTotals } from '$lib/server/observe/usage-queries';
 
-export const load: PageServerLoad = async ({ locals }) => {
+/**
+ * Usage (PRD §37): workspace-wide usage over a window — requests, the token
+ * splits, cost and credits — broken down by project / environment / API key /
+ * model / provider / day. Long ranges read the `usage_daily` rollup, short
+ * ranges the raw `request_log` (PRD §96); `source` says which answered, so a
+ * rollup gap is labelled instead of shown as confident zeros.
+ */
+const DAY = 86_400_000;
+
+export const load: PageServerLoad = async ({ locals, url }) => {
 	requireCap(locals, 'member');
-	const userId = locals.user!.id;
+	const gate = await observeWorkspaceGate(locals, 'usage.read');
+	const days = pickDays(url.searchParams.get('days'));
+	if (gate.denied) return { denied: true, queryError: null, range: { days }, totals: null, breakdowns: null };
 
-	// Aggregated in SQL, not in JS: request_log is the highest-volume table and
-	// this must not pull every row into the app to add them up.
-	const [totals] = await db
-		.select({
-			requests: sql<number>`count(*)::int`,
-			tokensIn: sql<number>`coalesce(sum(${requestLog.tokensIn}), 0)::int`,
-			tokensOut: sql<number>`coalesce(sum(${requestLog.tokensOut}), 0)::int`,
-			cost: sql<string>`coalesce(sum(${requestLog.cost}), 0)::text`
-		})
-		.from(requestLog)
-		.where(eq(requestLog.userId, userId));
-
-	const recent = await db
-		.select({
-			id: requestLog.id,
-			modelSlug: model.slug,
-			tokensIn: requestLog.tokensIn,
-			tokensOut: requestLog.tokensOut,
-			cost: requestLog.cost,
-			currency: requestLog.currency,
-			latencyMs: requestLog.latencyMs,
-			status: requestLog.status,
-			error: requestLog.error,
-			createdAt: requestLog.createdAt
-		})
-		.from(requestLog)
-		.leftJoin(model, eq(model.id, requestLog.modelId))
-		.where(eq(requestLog.userId, userId))
-		.orderBy(desc(requestLog.createdAt))
-		.limit(50);
-
-	return { totals, recent };
+	const to = new Date();
+	const from = new Date(to.getTime() - days * DAY);
+	try {
+		const [{ totals, source }, credits, breakdowns] = await (async () => {
+			const totalsResult = await usageTotals(db, { workspaceId: gate.workspaceId }, from, to);
+			// Breakdowns read the SAME source the totals came from (PRD §96): raw
+			// rows for short windows, `usage_daily` for rolled-up long windows. A
+			// rollup gap was already resolved into `source: 'raw'` above, so the
+			// page can never show partial aggregates as complete.
+			const [credits, breakdowns] = await Promise.all([
+				creditsCharged(db, { workspaceId: gate.workspaceId }, from, to),
+				usageBreakdowns(
+					db,
+					{ workspaceId: gate.workspaceId },
+					from,
+					to,
+					totalsResult.source
+				)
+			]);
+			return [totalsResult, credits, breakdowns] as const;
+		})();
+		return {
+			denied: false,
+			queryError: null,
+			range: {
+				days,
+				from: from.toISOString(),
+				to: to.toISOString(),
+				source
+			},
+			totals: {
+				requests: totals.requests,
+				tokensIn: totals.tokensIn,
+				cachedInputTokens: totals.cachedInputTokens,
+				tokensOut: totals.tokensOut,
+				reasoningTokens: totals.reasoningTokens,
+				totalTokens: totals.totalTokens,
+				costMicro: totals.costMicro.toString(),
+				creditsMicro: credits.toString()
+			},
+			// Breakdowns follow the same source as the totals: aggregates for
+			// rolled-up long ranges, raw rows otherwise.
+			breakdowns: breakdowns && {
+				byProject: breakdowns.byProject.map(breakRow),
+				byEnvironment: breakdowns.byEnvironment.map(breakRow),
+				byApiKey: breakdowns.byApiKey.map(breakRow),
+				byModel: breakdowns.byModel.map(breakRow),
+				byProvider: breakdowns.byProvider.map(breakRow),
+				byDay: breakdowns.byDay.map(breakRow)
+			}
+		};
+	} catch (err) {
+		console.error('[usage] load failed', err);
+		return {
+			denied: false,
+			queryError: 'Usage could not be loaded.',
+			range: { days, from: from.toISOString(), to: to.toISOString(), source: 'raw' },
+			totals: null,
+			breakdowns: null
+		};
+	}
 };
+
+const breakRow = (b: { key: string; label: string; requests: number; totalTokens: number; costMicro: bigint }) => ({
+	key: b.key,
+	label: b.label || 'Unresolved',
+	requests: b.requests,
+	totalTokens: b.totalTokens,
+	costMicro: b.costMicro.toString()
+});
+
+function pickDays(raw: string | null): number {
+	const n = Number(raw);
+	return [1, 7, 30, 90].includes(n) ? n : 30;
+}

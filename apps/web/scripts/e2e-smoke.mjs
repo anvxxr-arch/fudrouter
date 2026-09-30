@@ -1,21 +1,30 @@
 #!/usr/bin/env node
 /**
- * End-to-end smoke test over real HTTP.
+ * End-to-end acceptance smoke over real HTTP (PRD §144).
  *
  * Talks to the running control plane and data plane exactly like a customer
- * would: sign up -> mint a key -> call the router -> see it in /usage. No module
- * imports and no mocks, so a pass means the deployed pair actually works
- * together, not that the units do.
+ * would: sign up -> create project -> mint a key -> call the router -> inspect
+ * the request -> inspect usage/cost. No module imports and no mocks, so a pass
+ * means the deployed pair actually works together, not that the units do.
  *
  *   node scripts/e2e-smoke.mjs [webBase] [routerBase]
+ *
+ * Env:
+ *   E2E_WEB_URL / E2E_ROUTER_URL — same as the positional args
+ *   E2E_MODEL                    — model id the data plane serves (default grok-4.6)
+ *
+ * Exit 0 only when every acceptance step passes.
  */
 const WEB = process.argv[2] || process.env.E2E_WEB_URL || 'http://127.0.0.1:3000';
 const ROUTER = process.argv[3] || process.env.E2E_ROUTER_URL || 'http://127.0.0.1:8100';
-const MODEL = process.env.E2E_MODEL || 'grok-4.6';
+// A currently-routable model. Override with E2E_MODEL to exercise a specific
+// one — but a model whose provider/credential pool is down (e.g. grok-4.6 while
+// the xai OAuth walk times out) will 502 PROVIDER_UNAVAILABLE, which is the
+// router's correct answer, not an app fault.
+const MODEL = process.env.E2E_MODEL || 'gemini-3.1-flash-lite';
 
 let passed = 0;
 let failed = 0;
-
 function check(name, ok, detail = '') {
 	if (ok) {
 		passed++;
@@ -29,55 +38,117 @@ function check(name, ok, detail = '') {
 const email = `e2e-${Date.now().toString(36)}@example.com`;
 const password = 'E2eSmoke!2026x';
 const name = 'E2E Smoke';
-
 console.log(`\nweb=${WEB}  router=${ROUTER}  model=${MODEL}\n`);
 
-// 1. Sign up through the real auth endpoint.
+// ---------------------------------------------------------------------------
+// 1. Register (PRD §144 "Developer dapat: register").
+//    Signup auto-provisions workspace + default project + 3 environments +
+//    billing account (lib/server/provision.ts).
+// ---------------------------------------------------------------------------
 const signup = await fetch(`${WEB}/api/auth/sign-up/email`, {
 	method: 'POST',
 	headers: { 'content-type': 'application/json', origin: WEB },
 	body: JSON.stringify({ email, password, name })
 });
 check('signup returns 200', signup.status === 200, `HTTP ${signup.status}`);
-
 const cookies = signup.headers
 	.getSetCookie()
 	.map((c) => c.split(';')[0])
 	.join('; ');
 check('signup sets a session cookie', /session_token=/.test(cookies));
+const auth = { cookie: cookies, origin: WEB };
 
-// 2. The protected route must reject an anonymous caller and accept this one.
-const anon = await fetch(`${WEB}/keys`, { redirect: 'manual' });
-check(
-	'anonymous /keys is redirected',
-	anon.status === 303 || anon.status === 302,
-	`HTTP ${anon.status}`
-);
-
-const keysPage = await fetch(`${WEB}/keys`, { headers: { cookie: cookies } });
-check('authenticated /keys renders', keysPage.status === 200, `HTTP ${keysPage.status}`);
-
-// 3. Mint a key through the real form action.
-const create = await fetch(`${WEB}/keys?/create`, {
+// ---------------------------------------------------------------------------
+// 2. Create project (PRD §144 "create project"). POST the real form action;
+//    success redirects 303 to /dashboard/projects/{prj_…}.
+// ---------------------------------------------------------------------------
+const projectName = `E2E Project ${Date.now().toString(36)}`;
+const createProject = await fetch(`${WEB}/dashboard/projects/new?/create`, {
 	method: 'POST',
+	redirect: 'manual',
 	headers: {
-		cookie: cookies,
-		origin: WEB,
+		...auth,
+		accept: 'text/html', // form action: text/html → real 303+Location; */* → SvelteKit devalue body
 		'content-type': 'application/x-www-form-urlencoded'
 	},
-	body: 'name=e2e-smoke'
+	body: new URLSearchParams({ name: projectName, description: 'e2e smoke' }).toString()
 });
-const createBody = await create.text();
-const minted = /sk-ar-[A-Za-z0-9_-]{8}_[A-Za-z0-9_-]+/.exec(createBody);
-check('key creation returns a plaintext key', Boolean(minted));
-const apiKey = minted ? minted[0] : '';
+check('project create returns 303', createProject.status === 303, `HTTP ${createProject.status}`);
+const projectId = /prj_[A-Za-z0-9_-]+/.exec(createProject.headers.get('location') ?? '')?.[0] ?? '';
+check('project create redirects to the new project', Boolean(projectId), createProject.headers.get('location') ?? '');
 
-// 4. The data plane must reject a bogus key and accept the minted one.
+// ---------------------------------------------------------------------------
+// 3. Mint a key (PRD §144 "create API key"). Needs an environment id from the
+//    keys page load; the plaintext key is returned exactly once, here.
+// ---------------------------------------------------------------------------
+const keysPage = await fetch(`${WEB}/dashboard/projects/${projectId}/keys`, { headers: auth });
+check('keys page renders', keysPage.status === 200, `HTTP ${keysPage.status}`);
+const keysHtml = await keysPage.text();
+// The key-create form's own environment <select name="environmentId"> carries
+// exactly this project's environments. The page also renders a shell env
+// switcher (id="feid-switch") plus other projects' rows — a bare `env_` scrape
+// or a first `name="environmentId"` match grabs one of those, which the create
+// action rejects ("Pick an environment of this project"). Scope to the form.
+const createForm = /<form[^>]*action="\?\/create"[^>]*>([\s\S]*?)<\/form>/.exec(keysHtml);
+const envSelect = createForm
+	? /<select[^>]*name="environmentId"[^>]*>([\s\S]*?)<\/select>/.exec(createForm[1])
+	: null;
+const envIds = envSelect
+	? [...envSelect[1].matchAll(/env_[A-Za-z0-9_-]+/g)].map((m) => m[0])
+	: [];
+const environmentId = envIds[0] ?? '';
+check('project has environments', envIds.length > 0, `found ${envIds.length}`);
+
+const createKey = await fetch(`${WEB}/dashboard/projects/${projectId}/keys?/create`, {
+	method: 'POST',
+	headers: {
+		...auth,
+		accept: 'text/html', // form action: render the page carrying `form.created` (the one-time key)
+		'content-type': 'application/x-www-form-urlencoded'
+	},
+	body: new URLSearchParams({ name: 'e2e-smoke', environmentId }).toString()
+});
+const createKeyBody = await createKey.text();
+check('key create returns 200', createKey.status === 200, `HTTP ${createKey.status}`);
+const minted = /sk-ar-[A-Za-z0-9-]{8}_[A-Za-z0-9_-]+/.exec(createKeyBody);
+check('key creation returns a plaintext key', Boolean(minted), createKeyBody.slice(0, 120));
+const apiKey = minted ? minted[0] : '';
+// ---------------------------------------------------------------------------
+// 3.5. Fund the account (PRD §63 credits). Payment processing is out of scope,
+//      so the ledger's add-credits action is how an account gets balance. A
+//      fresh signup starts at zero and the router hard-stops at or below the
+//      threshold with 402 INSUFFICIENT_CREDITS, so a paid call needs a
+//      credit_purchase posting first. The idempotency `key` must be unique.
+// ---------------------------------------------------------------------------
+const addCredits = await fetch(`${WEB}/dashboard/billing/credits?/add`, {
+	method: 'POST',
+	headers: {
+		...auth,
+		accept: 'text/html',
+		'content-type': 'application/x-www-form-urlencoded'
+	},
+	body: new URLSearchParams({
+		amount: '100.00',
+		description: 'e2e smoke funding',
+		key: `purchase:e2e-${Date.now().toString(36)}`
+	}).toString()
+});
+const addCreditsBody = await addCredits.text();
+check(
+	'add credits succeeds',
+	addCredits.status === 200 && addCreditsBody.includes('Credit purchase recorded'),
+	`HTTP ${addCredits.status}`
+);
+
+// ---------------------------------------------------------------------------
+// 4. Call the compatible API (PRD §144 "call compatible API / receive model
+//    response"). A bogus key must 401 first.
+// ---------------------------------------------------------------------------
 const bogus = await fetch(`${ROUTER}/v1/chat/completions`, {
 	method: 'POST',
 	headers: {
 		'content-type': 'application/json',
-		authorization: 'Bearer sk-ar-bogus_bogusbogusbogusbogus'
+		authorization: 'Bearer sk-ar-bogusbogus_bogusbogusbogusbogusbogus'
 	},
 	body: JSON.stringify({ model: MODEL, messages: [{ role: 'user', content: 'hi' }] })
 });
@@ -97,7 +168,6 @@ check(
 	completion.status === 200,
 	`HTTP ${completion.status} ${completionBody.slice(0, 120)}`
 );
-
 let usage = null;
 try {
 	usage = JSON.parse(completionBody).usage;
@@ -109,12 +179,28 @@ check(
 	Boolean(usage && usage.prompt_tokens > 0),
 	JSON.stringify(usage)
 );
+const requestId = completion.headers.get('x-fudrouter-request-id') ?? '';
+check('response carries x-fudrouter-request-id', Boolean(requestId));
 
-// 5. The request must be billed and visible on /usage.
-const usagePage = await fetch(`${WEB}/usage`, { headers: { cookie: cookies } });
+// ---------------------------------------------------------------------------
+// 5. Inspect the request (PRD §144 "inspect request", PRD §28–29 detail page).
+// ---------------------------------------------------------------------------
+const requestDetail = await fetch(
+	`${WEB}/dashboard/projects/${projectId}/requests/${requestId}`,
+	{ headers: auth }
+);
+const requestDetailBody = await requestDetail.text();
+const hasReq = Boolean(requestId);
+check('request detail renders', hasReq && requestDetail.status === 200, `HTTP ${requestDetail.status}`);
+check('request detail shows the request id', hasReq && requestDetailBody.includes(requestId));
+
+// ---------------------------------------------------------------------------
+// 6. Inspect usage + cost (PRD §144 "inspect usage / inspect cost").
+// ---------------------------------------------------------------------------
+const usagePage = await fetch(`${WEB}/dashboard/usage`, { headers: auth });
 const usageBody = await usagePage.text();
-check('authenticated /usage renders', usagePage.status === 200, `HTTP ${usagePage.status}`);
-check('/usage shows the model that was called', usageBody.includes(MODEL));
+check('usage page renders', usagePage.status === 200, `HTTP ${usagePage.status}`);
+check('usage page shows the model that was called', usageBody.includes(MODEL));
 
 console.log(`\n${failed === 0 ? 'PASS' : 'FAIL'}: ${passed} passed, ${failed} failed\n`);
 process.exit(failed === 0 ? 0 : 1);

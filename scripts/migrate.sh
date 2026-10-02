@@ -51,6 +51,18 @@ for file in "$MIGRATIONS"/[0-9][0-9][0-9][0-9]_*.sql; do
 	if grep -qxF "$name" <<<"$applied"; then
 		continue
 	fi
+	# GATED: a migration whose header carries `-- gated:` is staged in the tree
+	# but MUST NOT be applied until its writer/predicate cutover lands in the
+	# same commit (spec 2026-09-30-platform-schema §0010). This runner applies
+	# every pending file, so without this check a push fires the half-cutover
+	# against CI and every live database — the CHECK narrows while the writers
+	# still emit the old literals, and every DB-backed test/daemon dies on
+	# `check_violation`. The live DB already skipped 0010 for exactly this
+	# reason; the gate makes that explicit and reproducible.
+	if grep -qiE '^--[[:space:]]*gated:' "$file"; then
+		[[ "$MODE" == "status" ]] && echo "gated    $name"
+		continue
+	fi
 	if [[ "$MODE" == "status" ]]; then
 		echo "pending  $name"
 		continue

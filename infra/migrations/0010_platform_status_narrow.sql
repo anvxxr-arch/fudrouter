@@ -1,5 +1,14 @@
 -- 0010_platform_status_narrow — narrow status vocabularies to the PRD sets + migrate values.
 --
+-- gated: `scripts/migrate.sh` SKIPS this file. It applies only in the commit
+-- that flips every writer of these values (the "0010 sweep": router + web
+-- status writers, the publish.ts/store reachability predicates, the 27
+-- onboarding/verify scripts, and the tests pinning the old literals — spec
+-- §0010). Until that lands, applying this file narrows the CHECKs while the
+-- writers still emit `active`/`dev`/`inactive`, so every live insert dies on
+-- `check_violation` and the public catalog goes dark. Remove the `gated:` line
+-- to un-gate it in the sweep commit.
+--
 -- DANGER: this migration is only HALF the cutover. It MUST land in the SAME
 -- commit that flips every writer of these values and the `publish.ts`
 -- reachability predicate + the mirrored SQL in

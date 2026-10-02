@@ -48,7 +48,15 @@ export default defineConfig({
 					name: 'server',
 					environment: 'node',
 					include: ['src/**/*.{test,spec}.{js,ts}'],
-					exclude: ['src/**/*.svelte.{test,spec}.{js,ts}']
+					exclude: ['src/**/*.svelte.{test,spec}.{js,ts}'],
+					// The server tests share one `fudrouter_test` database, and two
+					// of them drive the `job` table from both ends: `jobs.test.ts`
+					// claims by type, `scheduler.test.ts` enqueues by type. Run in
+					// parallel, one file's cleanup (`delete from job where id like
+					// 'job\_%'`) and the other's `claimJobs` race on the same rows,
+					// so a pass/fail depends on scheduling order. Serialising the
+					// project costs ~13s and removes the whole class of flake.
+					fileParallelism: false
 				}
 			}
 		]

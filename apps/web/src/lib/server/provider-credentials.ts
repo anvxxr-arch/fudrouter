@@ -7,12 +7,19 @@
  * here so that invariant has one home instead of being re-derived at each call
  * site.
  *
- * The blob is not a fixed shape: a single-key provider carries `api_key`, a
- * multi-credential (pooled) provider carries `accounts[]` where each entry has
- * either `access_token` (OAuth, refreshed by the data plane) or `api_key`
- * (static). The data plane's own reader is
- * `services/router/internal/proxy/pool.go`; these helpers mirror just enough of
- * it for the console to talk to an upstream the same way the router would.
+ * The blob is not a fixed shape. A single-key provider carries `api_key`. A
+ * pooled provider carries `accounts[]`. But the common case in this table is a
+ * ONE-ACCOUNT blob stored FLAT at the top level —
+ * `{email,access_token,refresh_token,id_token,expired}` — because spec §4
+ * defines one account = one credential row, and that flat form is exactly what
+ * the data plane writes (`pool.go` `marshalAccount`) and reads back
+ * (`targets.go` `accountFromSecret`). Every reader here must therefore accept
+ * both the flat and the pooled form; a reader that only understands
+ * `accounts[]` silently produces an empty token for the entire table.
+ *
+ * The data plane's own reader is `services/router/internal/proxy/pool.go`;
+ * these helpers mirror just enough of it for the console to talk to an upstream
+ * the same way the router would.
  */
 import type { Credentials } from '$lib/server/credentials';
 
@@ -33,7 +40,12 @@ export interface Account {
  */
 export function credentialLabels(cred: Credentials): { label: string; index: number }[] {
 	const accounts = Array.isArray(cred.accounts) ? (cred.accounts as Account[]) : [];
-	if (accounts.length === 0) return [{ label: 'single key', index: 0 }];
+	if (accounts.length === 0) {
+		// A one-account row is stored flat, so its identity is the top-level
+		// email; "single key" is only right for a blob with nothing but `api_key`.
+		const email = cred.email;
+		return [{ label: email ? String(email) : 'single key', index: 0 }];
+	}
 	return accounts.map((a, i) => ({ label: String(a.email ?? `key #${i + 1}`), index: i }));
 }
 
@@ -47,7 +59,31 @@ export function credentialLabels(cred: Credentials): { label: string; index: num
 export function tokenAt(cred: Credentials, index: number): string {
 	const accounts = Array.isArray(cred.accounts) ? (cred.accounts as Account[]) : [];
 	const account = accounts[index];
-	return String(account?.access_token || account?.api_key || cred.api_key || '');
+	// A credential row is ONE account stored FLAT — spec §4
+	// {email,access_token,refresh_token,id_token,expired} — which is what the data
+	// plane writes (pool.go marshalAccount) and reads back (targets.go
+	// accountFromSecret). Reading only `accounts[]` returned an empty token for
+	// every row in this table, so the console test, the catalog fetch and the
+	// credential probe all sent NO Authorization header. A pooled blob still wins
+	// when the index exists; the flat fields are the fallback.
+	return String(account?.access_token || account?.api_key || cred.access_token || cred.api_key || '');
+}
+
+/**
+ * True when the blob is an OAuth account whose access token is past its expiry.
+ *
+ * A probe cannot judge such a credential: the data plane refreshes it from
+ * `refresh_token` on demand (see `poolAccount.token` in
+ * `services/router/internal/proxy/pool.go`), so a 401 here means "the stale
+ * access token was rejected", not "the account is dead". Recording that as
+ * `auth_failed` is a false negative — and anything that skips parked
+ * credentials would then skip a perfectly live account.
+ */
+export function isExpiredOAuth(cred: Credentials): boolean {
+	const refresh = cred.refresh_token;
+	if (!refresh) return false;
+	const at = Date.parse(String(cred.expired ?? ''));
+	return Number.isFinite(at) && at < Date.now();
 }
 
 /**

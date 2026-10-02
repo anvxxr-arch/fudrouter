@@ -30,7 +30,7 @@ import { deliverWebhook, pendingDeliveriesReady } from '$lib/server/webhooks';
 import { getSetting } from '$lib/server/settings';
 import { newId } from '$lib/server/id';
 import { decryptCredentials, type Credentials } from '$lib/server/credentials';
-import { headersFor, tokenAt } from '$lib/server/provider-credentials';
+import { headersFor, isExpiredOAuth, tokenAt } from '$lib/server/provider-credentials';
 import {
 	fetchUpstreamCatalog,
 	getProvider,
@@ -415,6 +415,28 @@ const credentialValidation: JobHandler = async (dbtx, payload) => {
 				)
 		).map((c) => [c.id, c])
 	);
+	// Memoised per connection, because a 2xx from /models is not evidence on its
+	// own: some providers serve it publicly (openrouter, kiraai), so the same 200
+	// comes back for a valid key, an invalid key, and no key at all. Asking once
+	// per connection per run keeps the verdict honest for the price of one extra
+	// request, instead of one extra request per credential.
+	const publicModels = new Map<string, boolean>();
+	const servesModelsAnonymously = async (conn: {
+		id: string;
+		baseUrl: string;
+		timeoutMs: number | null;
+	}) => {
+		const cached = publicModels.get(conn.id);
+		if (cached !== undefined) return cached;
+		const anon = await guardedUpstreamFetch(conn.baseUrl, allowPrivateUpstreams(), '/models', {
+			method: 'GET',
+			timeoutMs: Math.min(conn.timeoutMs || UPSTREAM_TIMEOUT_MS, UPSTREAM_TIMEOUT_MS)
+		});
+		const isPublic = anon.ok && anon.response.status < 300;
+		if (anon.ok) await anon.response.text().catch(() => '');
+		publicModels.set(conn.id, isPublic);
+		return isPublic;
+	};
 	for (const cred of rows) {
 		const conn = conns.get(cred.connectionId);
 		if (!conn) continue;
@@ -456,8 +478,22 @@ const credentialValidation: JobHandler = async (dbtx, payload) => {
 							: code === 400 || code === 404
 								? 'invalid'
 								: 'unknown';
+			// A 2xx here only means something if /models actually requires auth;
+			// see `servesModelsAnonymously`.
+			if (status === 'healthy' && (await servesModelsAnonymously(conn))) {
+				status = 'unknown';
+				detail.note = 'the provider serves /models without auth, so a 200 cannot confirm the credential';
+			}
 		} else {
 			detail.error = probed.message;
+		}
+		// An OAuth account whose access token has expired cannot be judged by a
+		// probe: the data plane refreshes it from `refresh_token` on demand, so a
+		// 401 here is the stale token, not a dead account. Recording it as
+		// `auth_failed` would be a false negative on a live credential.
+		if (isExpiredOAuth(plain)) {
+			status = 'unknown';
+			detail.note = 'access token expired; the data plane refreshes it from refresh_token';
 		}
 		const now = new Date();
 		await dbtx

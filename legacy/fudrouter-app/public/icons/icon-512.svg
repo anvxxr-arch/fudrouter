@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="40%" r="65%">
+      <stop offset="0%" stop-color="#2a2a4a"/>
+      <stop offset="100%" stop-color="#0f0f23"/>
+    </radialGradient>
+    <radialGradient id="head" cx="50%" cy="40%" r="70%">
+      <stop offset="0%" stop-color="#ffecd2"/>
+      <stop offset="60%" stop-color="#e8a87c"/>
+      <stop offset="100%" stop-color="#d4956b"/>
+    </radialGradient>
+    <linearGradient id="earL" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#d4956b"/>
+      <stop offset="100%" stop-color="#b8733a"/>
+    </linearGradient>
+    <linearGradient id="earR" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#d4956b"/>
+      <stop offset="100%" stop-color="#b8733a"/>
+    </linearGradient>
+    <radialGradient id="snout" cx="50%" cy="50%" r="60%">
+      <stop offset="0%" stop-color="#fff5e6"/>
+      <stop offset="100%" stop-color="#ffecd2"/>
+    </radialGradient>
+    <radialGradient id="irisL" cx="50%" cy="50%" r="60%">
+      <stop offset="0%" stop-color="#4a9eff"/>
+      <stop offset="60%" stop-color="#2563eb"/>
+      <stop offset="100%" stop-color="#1e40af"/>
+    </radialGradient>
+    <radialGradient id="irisR" cx="50%" cy="50%" r="60%">
+      <stop offset="0%" stop-color="#4a9eff"/>
+      <stop offset="60%" stop-color="#2563eb"/>
+      <stop offset="100%" stop-color="#1e40af"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="512" height="512" fill="url(#bg)" rx="120"/>
+  
+  <!-- Left ear -->
+  <path d="M 130 190 L 80 65 L 215 145 Z" fill="url(#earL)" />
+  <path d="M 140 178 L 98 90 L 198 150 Z" fill="#f0c8a0" opacity="0.6"/>
+  <path d="M 148 168 L 115 108 L 185 152 Z" fill="#ffecd2" opacity="0.4"/>
+  
+  <!-- Right ear -->
+  <path d="M 382 190 L 432 65 L 297 145 Z" fill="url(#earR)" />
+  <path d="M 372 178 L 414 90 L 314 150 Z" fill="#f0c8a0" opacity="0.6"/>
+  <path d="M 364 168 L 397 108 L 327 152 Z" fill="#ffecd2" opacity="0.4"/>
+  
+  <!-- Head -->
+  <path d="M 130 190 Q 130 120 256 120 Q 382 120 382 190 L 382 310 Q 382 380 256 380 Q 130 380 130 310 Z" fill="url(#head)" />
+  
+  <!-- Inner ear shadow -->
+  <path d="M 160 165 L 140 115 L 180 155 Z" fill="#2d2d44" opacity="0.15"/>
+  <path d="M 352 165 L 372 115 L 332 155 Z" fill="#2d2d44" opacity="0.15"/>
+  
+  <!-- Snout -->
+  <ellipse cx="256" cy="315" rx="62" ry="42" fill="url(#snout)" />
+  <ellipse cx="256" cy="315" rx="54" ry="34" fill="#fff5e6" opacity="0.7"/>
+  
+  <!-- Nose -->
+  <ellipse cx="256" cy="315" rx="15" ry="11" fill="#2d2d44" />
+  <ellipse cx="256" cy="312" rx="6" ry="4" fill="#5a5a78" opacity="0.6" />
+  
+  <!-- Mouth -->
+  <path d="M 256 326 L 256 340" stroke="#2d2d44" stroke-width="2.5" fill="none" stroke-linecap="round" />
+  <path d="M 238 345 Q 256 355 274 345" stroke="#2d2d44" stroke-width="2.5" fill="none" stroke-linecap="round" />
+  
+  <!-- Left eye -->
+  <ellipse cx="198" cy="255" rx="22" ry="28" fill="#1a1a2e" />
+  <ellipse cx="198" cy="255" rx="16" ry="22" fill="#2d2d44" />
+  <ellipse cx="198" cy="255" rx="11" ry="15" fill="url(#irisL)" />
+  <ellipse cx="198" cy="255" rx="6" ry="8" fill="#1a1a2e" />
+  <ellipse cx="193" cy="249" rx="5" ry="6" fill="#ffffff" opacity="0.85" />
+  <ellipse cx="203" cy="260" rx="2" ry="3" fill="#ffffff" opacity="0.4"/>
+  
+  <!-- Right eye -->
+  <ellipse cx="314" cy="255" rx="22" ry="28" fill="#1a1a2e" />
+  <ellipse cx="314" cy="255" rx="16" ry="22" fill="#2d2d44" />
+  <ellipse cx="314" cy="255" rx="11" ry="15" fill="url(#irisR)" />
+  <ellipse cx="314" cy="255" rx="6" ry="8" fill="#1a1a2e" />
+  <ellipse cx="309" cy="249" rx="5" ry="6" fill="#ffffff" opacity="0.85" />
+  <ellipse cx="319" cy="260" rx="2" ry="3" fill="#ffffff" opacity="0.4"/>
+  
+  <!-- Eyebrow fur -->
+  <path d="M 175 220 Q 198 212 220 222" stroke="#ffffff" stroke-width="3" fill="none" opacity="0.2"/>
+  <path d="M 292 222 Q 314 212 337 220" stroke="#ffffff" stroke-width="3" fill="none" opacity="0.2"/>
+  
+  <!-- Cheek fluff -->
+  <ellipse cx="170" cy="295" rx="28" ry="18" fill="#ffffff" opacity="0.25" />
+  <ellipse cx="342" cy="295" rx="28" ry="18" fill="#ffffff" opacity="0.25" />
+  
+  <!-- Whiskers left -->
+  <line x1="150" y1="305" x2="95" y2="300" stroke="#ffffff" stroke-width="1.5" opacity="0.4"/>
+  <line x1="150" y1="315" x2="90" y2="315" stroke="#ffffff" stroke-width="1.5" opacity="0.4"/>
+  <line x1="150" y1="325" x2="95" y2="330" stroke="#ffffff" stroke-width="1.5" opacity="0.4"/>
+  
+  <!-- Whiskers right -->
+  <line x1="362" y1="305" x2="417" y2="300" stroke="#ffffff" stroke-width="1.5" opacity="0.4"/>
+  <line x1="362" y1="315" x2="422" y2="315" stroke="#ffffff" stroke-width="1.5" opacity="0.4"/>
+  <line x1="362" y1="325" x2="417" y2="330" stroke="#ffffff" stroke-width="1.5" opacity="0.4"/>
+  
+  <!-- Small accent: router signal waves in background -->
+  <path d="M 45 45 Q 80 20 115 45" stroke="#4a9eff" stroke-width="3" fill="none" opacity="0.15"/>
+  <path d="M 30 60 Q 70 25 110 60" stroke="#4a9eff" stroke-width="3" fill="none" opacity="0.1"/>
+  <path d="M 400 45 Q 435 20 470 45" stroke="#4a9eff" stroke-width="3" fill="none" opacity="0.15"/>
+  <path d="M 395 60 Q 435 25 475 60" stroke="#4a9eff" stroke-width="3" fill="none" opacity="0.1"/>
+</svg>

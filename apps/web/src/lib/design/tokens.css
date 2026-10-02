@@ -383,8 +383,18 @@ table.fr tbody tr:hover {
  * Putting `overflow-x: auto` + `display: block` on the <table> itself is the
  * tempting one-liner but it makes the browser shrink-to-fit — columns get crushed
  * and timestamps wrap onto three lines instead of the table scrolling sideways.
+ *
+ * `position: relative` is load-bearing, not decoration: it makes this box the
+ * containing block for absolutely positioned descendants. `.sr-only` is
+ * `position: absolute` (and `clip-path` hides it visually but still contributes
+ * to scrollable overflow), so with no positioned ancestor its containing block
+ * was the viewport — a `.sr-only` in a cell past this wrapper's right edge was
+ * laid out at the table's full width and, sitting outside the scroll container's
+ * containing-block chain, escaped the clip and gave the whole document a ~510px
+ * horizontal scroll on /models. Measured, not guessed.
  */
 .table-wrap {
+	position: relative;
 	overflow-x: auto;
 	-webkit-overflow-scrolling: touch;
 }

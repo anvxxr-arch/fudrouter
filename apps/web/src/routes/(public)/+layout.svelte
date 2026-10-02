@@ -79,8 +79,15 @@
 	.brand:hover {
 		text-decoration: none;
 	}
+	/*
+	 * Six links are wider than a phone. Without this the nav measured 387px in a
+	 * 342px content box and pushed 45px of horizontal scroll onto every public
+	 * page — the header could not wrap them because the wrap lives on `.pub`,
+	 * and a flex item does not wrap its own children.
+	 */
 	.pub nav {
 		display: flex;
+		flex-wrap: wrap;
 		gap: var(--space-md);
 	}
 	.pub nav a {
@@ -112,8 +119,14 @@
 		background: var(--primary-hover);
 		text-decoration: none;
 	}
+	/*
+	 * The copyright line and the legal links together are wider than a phone, and
+	 * `space-between` with no wrap pushed 3px of horizontal scroll. Wrapping lets
+	 * the legal row fall onto its own line instead.
+	 */
 	footer {
 		display: flex;
+		flex-wrap: wrap;
 		justify-content: space-between;
 		gap: var(--space-md);
 		margin-top: var(--space-2xl);

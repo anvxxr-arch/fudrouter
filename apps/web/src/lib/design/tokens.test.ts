@@ -240,6 +240,26 @@ describe('numeric scales', () => {
 			`components must read the semantic tier for a brand hue: ${leaked.join(', ')}`
 		).toEqual([]);
 	});
+
+	it('contains the absolutely positioned descendants it scrolls', () => {
+		// `.sr-only` is `position: absolute`, and `clip-path` hides it visually but
+		// it still contributes to scrollable overflow. With no positioned ancestor
+		// its containing block is the viewport, so a `.sr-only` in a cell past the
+		// wrapper's right edge was laid out at the table's full width and — sitting
+		// outside the scroll container's containing-block chain — escaped the clip
+		// entirely: the wrapper scrolled correctly while the whole document picked
+		// up a ~510px horizontal scroll on /models. Measured in the browser, not
+		// inferred. A `position` declaration on the wrapper is the entire fix, and
+		// it is exactly the kind of line a refactor deletes because nothing in the
+		// file explains why it is there.
+		const rule = css.match(/\.table-wrap\s*\{([^}]*)\}/);
+		expect(rule, '.table-wrap rule not found in tokens.css').not.toBeNull();
+		expect(
+			/position:\s*(relative|absolute|fixed|sticky)/.test(rule![1]),
+			'.table-wrap must establish a containing block (position: relative) so an ' +
+				'absolutely positioned .sr-only inside a wide table cannot escape its clip'
+		).toBe(true);
+	});
 });
 
 describe('typography', () => {

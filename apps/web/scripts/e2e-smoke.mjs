@@ -11,7 +11,9 @@
  *
  * Env:
  *   E2E_WEB_URL / E2E_ROUTER_URL — same as the positional args
- *   E2E_MODEL                    — model id the data plane serves (default grok-4.6)
+ *   E2E_MODEL                    — model id the data plane serves (default gemini-3.1-flash-lite)
+ *   E2E_ORIGIN                   — Origin header to claim (see "0." below; usually
+ *                                  auto-detected, so you rarely need to set it)
  *
  * Exit 0 only when every acceptance step passes.
  */
@@ -22,6 +24,68 @@ const ROUTER = process.argv[3] || process.env.E2E_ROUTER_URL || 'http://127.0.0.
 // the xai OAuth walk times out) will 502 PROVIDER_UNAVAILABLE, which is the
 // router's correct answer, not an app fault.
 const MODEL = process.env.E2E_MODEL || 'gemini-3.1-flash-lite';
+
+// ---------------------------------------------------------------------------
+// 0. Discover which Origin the control plane trusts.
+//
+// better-auth's CSRF guard compares the request's Origin header against the
+// server's configured baseURL (auth.ts also empties trustedOrigins in
+// production, so nothing else is accepted there). Connecting to 127.0.0.1 while
+// the server's baseURL is the public origin therefore fails EVERY control-plane
+// POST with 403 "Cross-site POST form submissions are forbidden" — a harness
+// artefact, not a product fault: a real customer's browser posts from the public
+// origin, and that path is fine.
+//
+// So "where we connect" and "which Origin we claim" are separate concerns. We
+// probe candidates with a request that has no side effects — a sign-in whose
+// credentials cannot succeed (403 = the CSRF guard rejected the Origin; any
+// other status = it got past the guard and was judged on its credentials, which
+// is all we asked) — and claim the first trusted one while still connecting to
+// WEB.
+// ---------------------------------------------------------------------------
+// The app emits its own baseURL as every page's canonical/og:url, so the served
+// HTML reveals the origin the CSRF guard trusts even when this script runs
+// without the app's .env loaded.
+async function discoverOrigin() {
+	try {
+		const res = await fetch(`${WEB}/`);
+		if (!res.ok) return null;
+		const html = await res.text();
+		const m =
+			/<link[^>]+rel="canonical"[^>]+href="(https?:\/\/[^/"]+)/i.exec(html) ??
+			/<meta[^>]+property="og:url"[^>]+content="(https?:\/\/[^/"]+)/i.exec(html);
+		return m ? m[1] : null;
+	} catch {
+		return null;
+	}
+}
+
+const ORIGIN_CANDIDATES = [
+	process.env.E2E_ORIGIN,
+	process.env.ORIGIN,
+	await discoverOrigin(),
+	WEB
+].filter((v, i, a) => v && a.indexOf(v) === i);
+
+async function trustedOrigin() {
+	for (const candidate of ORIGIN_CANDIDATES) {
+		try {
+			const res = await fetch(`${WEB}/api/auth/sign-in/email`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json', origin: candidate },
+				body: JSON.stringify({
+					email: `origin-probe-${Date.now().toString(36)}@example.com`,
+					password: 'not-a-real-password'
+				})
+			});
+			if (res.status !== 403) return { origin: candidate, status: res.status };
+		} catch {
+			/* unreachable candidate — try the next */
+		}
+	}
+	return { origin: WEB, status: 0 };
+}
+const { origin: CSRF_ORIGIN, status: originProbeStatus } = await trustedOrigin();
 
 let passed = 0;
 let failed = 0;
@@ -38,7 +102,32 @@ function check(name, ok, detail = '') {
 const email = `e2e-${Date.now().toString(36)}@example.com`;
 const password = 'E2eSmoke!2026x';
 const name = 'E2E Smoke';
-console.log(`\nweb=${WEB}  router=${ROUTER}  model=${MODEL}\n`);
+console.log(`\nweb=${WEB}  router=${ROUTER}  model=${MODEL}  origin=${CSRF_ORIGIN}\n`);
+if (CSRF_ORIGIN !== WEB) {
+	console.log(
+		`  note: control plane trusts Origin ${CSRF_ORIGIN}, not ${WEB} (probe HTTP ${originProbeStatus}) —\n` +
+			`        claiming ${CSRF_ORIGIN} for control-plane POSTs while connecting to ${WEB}.\n`
+	);
+}
+
+// Fail fast and legibly: without this, an unreachable plane surfaces as an
+// unhandled fetch rejection and buries the cause in a stack trace.
+for (const [label, base] of [
+	['control plane', WEB],
+	['data plane', ROUTER]
+]) {
+	try {
+		await fetch(`${base}/`, { method: 'HEAD' });
+	} catch (err) {
+		// Node wraps a connection refusal in an AggregateError (one entry per
+		// resolved address), so the useful code lives one level deeper than
+		// err.cause.code on its own.
+		const code =
+			err.cause?.code ?? err.cause?.errors?.[0]?.code ?? err.cause?.message ?? err.message;
+		console.error(`\nFAIL: ${label} ${base} is unreachable — ${code}\n`);
+		process.exit(1);
+	}
+}
 
 // ---------------------------------------------------------------------------
 // 1. Register (PRD §144 "Developer dapat: register").
@@ -47,16 +136,22 @@ console.log(`\nweb=${WEB}  router=${ROUTER}  model=${MODEL}\n`);
 // ---------------------------------------------------------------------------
 const signup = await fetch(`${WEB}/api/auth/sign-up/email`, {
 	method: 'POST',
-	headers: { 'content-type': 'application/json', origin: WEB },
+	headers: { 'content-type': 'application/json', origin: CSRF_ORIGIN },
 	body: JSON.stringify({ email, password, name })
 });
-check('signup returns 200', signup.status === 200, `HTTP ${signup.status}`);
+check(
+	'signup returns 200',
+	signup.status === 200,
+	signup.status === 403
+		? `HTTP 403 — control plane rejected Origin ${CSRF_ORIGIN}; set E2E_ORIGIN to the origin it trusts (its ORIGIN / baseURL)`
+		: `HTTP ${signup.status}`
+);
 const cookies = signup.headers
 	.getSetCookie()
 	.map((c) => c.split(';')[0])
 	.join('; ');
 check('signup sets a session cookie', /session_token=/.test(cookies));
-const auth = { cookie: cookies, origin: WEB };
+const auth = { cookie: cookies, origin: CSRF_ORIGIN };
 
 // ---------------------------------------------------------------------------
 // 2. Create project (PRD §144 "create project"). POST the real form action;

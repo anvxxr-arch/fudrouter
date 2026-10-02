@@ -64,3 +64,18 @@
 All acceptance checks passed: old service retired (PM2, hosts, ports,
 capability), tunnel intact with Zura ingress, dev stack healthy,
 web + router build and test green, backups verified restorable.
+
+## Folded into the monorepo (2026-10-02)
+
+Spec §4 planned to **delete** `fudrouter-app` outright (Phase C, after the S0-C
+lift). Instead the source was folded into this repository at
+`legacy/fudrouter-app/` with `git subtree add` — history preserved, all 5
+commits — and the standalone repository was retired. The product is a monorepo;
+the retired generation belongs in the same history rather than in a stray second
+repo.
+
+Nothing under `legacy/` is built or deployed: CI is scoped to `apps/web` and
+`services/router`, and the root npm workspaces cover only `apps/*` and
+`packages/*`. The tarball backup above is untouched and remains the rollback
+source.
+

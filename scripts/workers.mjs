@@ -17,52 +17,15 @@
 // Lifecycle: SIGTERM/SIGINT stops claiming, waits for in-flight handlers to
 // settle their job rows (a job is never abandoned `running`), then closes the
 // PostgreSQL pool so the process exits.
-import { readFileSync } from 'node:fs';
-import { registerHooks, stripTypeScriptTypes } from 'node:module';
-import { pathToFileURL, fileURLToPath } from 'node:url';
-import { dirname, join, resolve as resolvePath } from 'node:path';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { installTsHooks, libUrl } from './ts-hooks.mjs';
 
 const scriptRoot = dirname(fileURLToPath(import.meta.url));
-const webRoot = resolvePath(scriptRoot, '..', 'apps', 'web');
-const libRoot = join(webRoot, 'src', 'lib');
-
-registerHooks({
-	resolve(specifier, context, nextResolve) {
-		let spec = specifier;
-		if (spec.startsWith('$lib/')) spec = pathToFileURL(join(libRoot, spec.slice(5))).href;
-		else if (spec === '$lib') spec = pathToFileURL(libRoot).href;
-		else if (spec.startsWith('$app/')) {
-			// The job handlers never touch SvelteKit app modules, but a transitive
-			// import might; answering with an empty module keeps the fleet alive.
-			spec = pathToFileURL(join(scriptRoot, 'app-shim.mjs')).href;
-		} else if (spec.startsWith('$env/')) {
-			spec = pathToFileURL(join(scriptRoot, 'env-shim.mjs')).href;
-		}
-		try {
-			return nextResolve(spec, context);
-		} catch (err) {
-			// Extension-less relative/absolute TS imports (`./jobs`, `$lib/server/db`).
-			if (/\.(ts|js)$/.test(spec) || spec.includes('node:')) throw err;
-			for (const ext of ['.ts', '/index.ts', '.js', '/index.js']) {
-				try {
-					return nextResolve(spec + ext, context);
-				} catch {
-					// keep trying
-				}
-			}
-			throw err;
-		}
-	},
-	load(url, context, nextLoad) {
-		if (url.endsWith('.ts')) {
-			const source = stripTypeScriptTypes(readFileSync(fileURLToPath(url), 'utf8'), {
-				mode: 'strip'
-			});
-			return { format: 'module', source, shortCircuit: true };
-		}
-		return nextLoad(url, context);
-	}
-});
+// The resolver hooks live in ts-hooks.mjs, shared with scripts/scheduler.mjs —
+// one copy, so a new `$lib` alias cannot be learned by one entrypoint and not
+// the other. They must be installed before the TS graph is imported below.
+const { libRoot } = installTsHooks(scriptRoot);
 
 if (!process.env.DATABASE_URL) {
 	console.error('missing env: DATABASE_URL');
@@ -74,9 +37,9 @@ const types = (process.env.WORKER_TYPES ?? '')
 	.map((t) => t.trim())
 	.filter(Boolean);
 const { createWorker } = await import(
-	pathToFileURL(join(webRoot, 'src', 'lib', 'server', 'workers.ts')).href
+	libUrl(libRoot, 'server/workers.ts')
 );
-const { db } = await import(pathToFileURL(join(webRoot, 'src', 'lib', 'server', 'db', 'index.ts')).href);
+const { db } = await import(libUrl(libRoot, 'server/db/index.ts'));
 
 const worker = createWorker({
 	types: types.length > 0 ? types : undefined,

@@ -349,10 +349,31 @@ const providerHealthCheck: JobHandler = async (dbtx, payload) => {
 };
 
 /**
+ * How many credentials one `credential_validation` run probes.
+ *
+ * The table holds ~12k credentials and each probe is an upstream HTTP request,
+ * so "validate everything" is not a job — it is an outage. Combined with the
+ * per-connection fan-out in the scheduler, this bounds one run to
+ * `batch × connections` requests instead of the whole population.
+ *
+ * The batch is paired with an `order by last_used_at asc nulls first` in the
+ * query below, which makes the ordering a CURSOR: a probe stamps `lastUsedAt`,
+ * so the next run naturally starts on the credentials this one did not reach.
+ * No cursor state to persist, and never-validated rows (`null`) always go
+ * first, so a cold table converges instead of starving.
+ */
+const CREDENTIAL_VALIDATION_BATCH = 250;
+
+/**
  * `credential_validation`: decrypt one credential (spec §4 envelope) and probe
  * its connection with the credential's own auth headers; map the response onto
  * the `credential.status` vocabulary and record the transition in a
  * `system_event`. Same "event only on change" rule as health checks.
+ *
+ * Payload: `{connectionId?, credentialId?}`. The scheduler enqueues one run per
+ * enabled connection; the un-scoped form still works for a manual full sweep
+ * but is bounded by `CREDENTIAL_VALIDATION_BATCH` per run, so it can no longer
+ * hold the fleet behind a 12k-request loop.
  */
 const credentialValidation: JobHandler = async (dbtx, payload) => {
 	const rows = await dbtx
@@ -365,8 +386,19 @@ const credentialValidation: JobHandler = async (dbtx, payload) => {
 		})
 		.from(credential)
 		.where(
-			payload.credentialId ? eq(credential.id, String(payload.credentialId)) : sql`true`
-		);
+			and(
+				payload.credentialId
+					? eq(credential.id, String(payload.credentialId))
+					: sql`true`,
+				payload.connectionId
+					? eq(credential.connectionId, String(payload.connectionId))
+					: sql`true`
+			)
+		)
+		// Least-recently-validated first: because a probe stamps `lastUsedAt`,
+		// this ordering doubles as the cursor that carries progress across runs.
+		.orderBy(sql`${credential.lastUsedAt} asc nulls first`, credential.id)
+		.limit(CREDENTIAL_VALIDATION_BATCH);
 	const conns = new Map(
 		(
 			await dbtx
@@ -376,6 +408,11 @@ const credentialValidation: JobHandler = async (dbtx, payload) => {
 					timeoutMs: connection.timeoutMs
 				})
 				.from(connection)
+				.where(
+					payload.connectionId
+						? eq(connection.id, String(payload.connectionId))
+						: sql`true`
+				)
 		).map((c) => [c.id, c])
 	);
 	for (const cred of rows) {

@@ -35,6 +35,7 @@
 			label: 'BUILD',
 			items: [
 				{ href: '/dashboard/playground', label: 'Playground' },
+				{ href: '/dashboard/cli-tools', label: 'Connect a client' },
 				{ href: '/dashboard/projects/[projectId]/keys', label: 'API Keys' },
 				{ href: '/dashboard/projects/[projectId]/routing', label: 'Routing' }
 			]

@@ -628,5 +628,43 @@ export const MEMBER_GUIDES = {
 				]
 			}
 		]
+	},
+	'cli-tools': {
+		audience: 'member',
+		sections: [
+			{
+				title: 'What this page is',
+				lede: 'Configuration, not a client. Pick a model, copy the block for your tool.',
+				paragraphs: [
+					'The router serves the [OI] chat-completions API and the Anthropic Messages API directly, so a client needs a base URL, a key and a model slug — no translator in front.',
+					'Each block below is generated from the values you pick above it. Nothing on this page calls the router.'
+				]
+			},
+			{
+				title: 'Reading the snippets',
+				facts: [
+					{
+						term: 'Base URL',
+						detail:
+							'[OI]-shaped tools take the base ending in /v1. An Anthropic client appends /v1/messages itself, so it gets the bare origin.'
+					},
+					{
+						term: 'Model',
+						detail:
+							'Any slug from the catalogue. An alias works too — it resolves to its targets at request time.'
+					},
+					{
+						term: 'Key',
+						detail:
+							'Shown once at creation and stored hashed, so a snippet carries only the prefix. Paste the secret in its place.'
+					},
+					{
+						term: 'Verify',
+						detail:
+							'A green check in the tool means a real completion ran — the same auth, routing and billing as production.'
+					}
+				]
+			}
+		]
 	}
 } as const satisfies Record<string, Guide>;

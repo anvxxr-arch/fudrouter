@@ -278,6 +278,110 @@ const requestId = completion.headers.get('x-fudrouter-request-id') ?? '';
 check('response carries x-fudrouter-request-id', Boolean(requestId));
 
 // ---------------------------------------------------------------------------
+// 4.5. Call the Anthropic Messages surface (POST /v1/messages).
+//
+// The router serves the Anthropic Messages API natively — same auth, routing,
+// limits and billing, different wire shape — so an Anthropic client (e.g. the
+// [CC] CLI) needs no translator in front. This asserts the inbound surface
+// really answers a native request, not just that the handler compiles.
+// ---------------------------------------------------------------------------
+const anthropicUnauth = await fetch(`${ROUTER}/v1/messages`, {
+	method: 'POST',
+	headers: { 'content-type': 'application/json', 'anthropic-version': '2023-06-01' },
+	body: JSON.stringify({
+		model: MODEL,
+		max_tokens: 16,
+		messages: [{ role: 'user', content: 'Reply with exactly: E2E' }]
+	})
+});
+const anthropicUnauthBody = await anthropicUnauth.text();
+let anthropicErr = null;
+try {
+	anthropicErr = JSON.parse(anthropicUnauthBody);
+} catch {
+	/* not json */
+}
+check(
+	'/v1/messages rejects a missing key',
+	anthropicUnauth.status === 401,
+	`HTTP ${anthropicUnauth.status}`
+);
+check(
+	'/v1/messages error is Anthropic-shaped',
+	anthropicErr?.type === 'error' && anthropicErr?.error?.type === 'authentication_error',
+	anthropicUnauthBody.slice(0, 120)
+);
+
+const messages = await fetch(`${ROUTER}/v1/messages`, {
+	method: 'POST',
+	headers: {
+		'content-type': 'application/json',
+		'anthropic-version': '2023-06-01',
+		'x-api-key': apiKey
+	},
+	body: JSON.stringify({
+		model: MODEL,
+		max_tokens: 32,
+		messages: [{ role: 'user', content: 'Reply with exactly: E2E' }]
+	})
+});
+const messagesBody = await messages.text();
+check(
+	'/v1/messages accepts the minted key',
+	messages.status === 200,
+	`HTTP ${messages.status} ${messagesBody.slice(0, 160)}`
+);
+let message = null;
+try {
+	message = JSON.parse(messagesBody);
+} catch {
+	/* not json */
+}
+check(
+	'/v1/messages answers in Anthropic shape',
+	message?.type === 'message' &&
+		Array.isArray(message?.content) &&
+		message.content.some((b) => b.type === 'text'),
+	JSON.stringify(message?.content)?.slice(0, 160) ?? messagesBody.slice(0, 160)
+);
+check(
+	'/v1/messages reports usage',
+	Boolean(message?.usage?.input_tokens >= 0 && message?.usage?.output_tokens > 0),
+	JSON.stringify(message?.usage)
+);
+check(
+	'/v1/messages carries x-fudrouter-request-id',
+	Boolean(messages.headers.get('x-fudrouter-request-id'))
+);
+
+// count_tokens: the Anthropic tokeniser endpoint. It must answer without a
+// provider round-trip and never bill.
+const countTokens = await fetch(`${ROUTER}/v1/messages/count_tokens`, {
+	method: 'POST',
+	headers: {
+		'content-type': 'application/json',
+		'anthropic-version': '2023-06-01',
+		'x-api-key': apiKey
+	},
+	body: JSON.stringify({
+		model: MODEL,
+		messages: [{ role: 'user', content: 'Count these tokens please.' }]
+	})
+});
+const countTokensBody = await countTokens.text();
+let counted = null;
+try {
+	counted = JSON.parse(countTokensBody);
+} catch {
+	/* not json */
+}
+check(
+	'/v1/messages/count_tokens returns a positive count',
+	countTokens.status === 200 && counted?.input_tokens > 0,
+	`HTTP ${countTokens.status} ${countTokensBody.slice(0, 120)}`
+);
+
+// ---------------------------------------------------------------------------
 // 5. Inspect the request (PRD §144 "inspect request", PRD §28–29 detail page).
 // ---------------------------------------------------------------------------
 const requestDetail = await fetch(

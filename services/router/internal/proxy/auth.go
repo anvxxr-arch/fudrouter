@@ -19,15 +19,21 @@ import (
 // authenticates independently, so a compromised control plane cannot mint
 // traffic the router accepts.
 
-// authenticate parses + validates the Bearer key against the api_key table.
+// authenticate parses + validates the key against the api_key table.
 // Errors here surface as 401 AUTHENTICATION_ERROR; the unknown-prefix and
 // wrong-secret cases are deliberately indistinguishable (no key oracle).
+//
+// Two credential carriers are accepted because the router serves two inbound
+// wire protocols: [OI]-shaped clients send `Authorization: Bearer <key>`, while
+// an Anthropic-native client (the Messages API) sends `x-api-key: <key>` and no
+// Authorization header. Accepting only one would make the Anthropic surface
+// unusable by the very clients it exists for.
 func (h *Handler) authenticate(r *http.Request) (*store.APIKeyRow, error) {
-	auth := r.Header.Get("Authorization")
-	if !strings.HasPrefix(auth, "Bearer ") {
-		return nil, errors.New("missing bearer token")
+	raw, err := bearerOrAPIKey(r)
+	if err != nil {
+		return nil, err
 	}
-	k, ok := keys.Parse(strings.TrimPrefix(auth, "Bearer "))
+	k, ok := keys.Parse(raw)
 	if !ok {
 		return nil, errors.New("malformed api key")
 	}
@@ -55,6 +61,24 @@ func (h *Handler) authenticate(r *http.Request) (*store.APIKeyRow, error) {
 		return nil, errors.New("invalid api key")
 	}
 	return row, nil
+}
+
+// bearerOrAPIKey extracts the raw key from whichever carrier the client used.
+// `Authorization: Bearer <key>` wins when present (the [OI] convention); a bare
+// `x-api-key: <key>` is the Anthropic convention. A missing/blank pair is the
+// only case that reports "missing bearer token" so the 401 body stays stable
+// for clients that only ever send one of them.
+func bearerOrAPIKey(r *http.Request) (string, error) {
+	if auth := r.Header.Get("Authorization"); auth != "" {
+		if !strings.HasPrefix(auth, "Bearer ") {
+			return "", errors.New("missing bearer token")
+		}
+		return strings.TrimPrefix(auth, "Bearer "), nil
+	}
+	if k := r.Header.Get("x-api-key"); k != "" {
+		return k, nil
+	}
+	return "", errors.New("missing bearer token")
 }
 
 // shouldFailover reports whether ANOTHER pooled account could plausibly turn

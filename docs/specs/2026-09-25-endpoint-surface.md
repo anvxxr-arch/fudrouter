@@ -15,15 +15,18 @@ code alone.
 ## 1. Why this document exists
 
 `fudrouter` is a commercial AI router. Customers point an [OI]-compatible client
-at a base URL and expect the [OI] surface. Today the router registers **four**
+at a base URL and expect the [OI] surface. Today the router registers **seven**
 routes and lets a catch-all absorb everything else:
 
 ```go
-// services/router/main.go:59-62
-mux.Handle("GET /health",              newHealthHandler())
-mux.Handle("GET /v1/models",           http.HandlerFunc(p.ServeModels))
+// services/router/internal/proxy/proxy.go:96-106
+mux.Handle("GET /health",               health)
+mux.Handle("GET /v1/models",            http.HandlerFunc(p.ServeModels))
+mux.Handle("GET /v1/models/",           http.HandlerFunc(p.ServeModel))
 mux.Handle("POST /v1/chat/completions", http.HandlerFunc(p.ServeCompletions))
-mux.Handle("/v1/",                     http.HandlerFunc(p.ServeGeneric))  // catch-all
+mux.Handle("POST /v1/messages",             http.HandlerFunc(p.ServeMessages))
+mux.Handle("POST /v1/messages/count_tokens", http.HandlerFunc(p.ServeCountTokens))
+mux.Handle("/v1/",                      http.HandlerFunc(p.ServeGeneric))  // catch-all
 ```
 
 Because `/v1/` matches every path, a client asking for an endpoint we do not
@@ -40,7 +43,10 @@ it would take to close the gap.
 |---|---|---|---|
 | `GET` | `/health` | `newHealthHandler` | Pings the DB and returns `503` when it is unreachable (audit H5, fixed 2026-09-26). |
 | `GET` | `/v1/models` | `ServeModels` | **Native, unauthenticated.** Confirmed 2026-09-26 to be a deliberate status quo: the same catalog is already public at `GET /models` and `GET /pricing`. |
+| `GET` | `/v1/models/{model}` | `ServeModel` | **Native, unauthenticated.** One published slug; `404` for an unknown/unpublished one. |
 | `POST` | `/v1/chat/completions` | `ServeCompletions` | **Native and complete.** Auth, limits, `stream_options.include_usage` injection, ≤3-account failover, SSE, billing on every outcome. |
+| `POST` | `/v1/messages` | `ServeMessages` | **Native and complete (added 2026-10-03).** The Anthropic Messages surface: native inbound translation, same auth/limits/routing/billing as chat, SSE. See §2.2. |
+| `POST` | `/v1/messages/count_tokens` | `ServeCountTokens` | **Native (added 2026-10-03).** Local estimate, no upstream round-trip, never billed. |
 | any | `/v1/*` | `ServeGeneric` | **Generic passthrough.** Authenticates, enforces limits, fails over, bills — but forwards the request incorrectly (see §4). |
 
 That is the whole surface. Everything else is the catch-all.
@@ -72,6 +78,54 @@ One consequence to keep in mind: the slug prefix is a provider label (`ag/`,
 `crypto/`, `openai/`), so the public catalogue discloses which upstreams are
 carried. That is a disclosure decision, and it is a product one — see the audit's
 open findings — not a defect in the endpoint.
+
+---
+
+## 2.2 The Anthropic Messages surface (added 2026-10-03)
+
+The router now serves the **Anthropic Messages API** natively, so an
+Anthropic-shaped client (the [CC] CLI, an Anthropic SDK, any tool that speaks
+`/v1/messages`) points at the router with no translator in front.
+
+**Routes.** `POST /v1/messages` and `POST /v1/messages/count_tokens`. Both are
+registered ahead of the catch-all, so the catch-all's `401`-for-everything
+behaviour no longer masks them.
+
+**Credential carriers.** Two are accepted, because the two inbound protocols use
+different conventions:
+
+| Carrier | Protocol | Notes |
+|---|---|---|
+| `Authorization: Bearer sk-ar-…` | [OI] | Wins when both are present. |
+| `x-api-key: sk-ar-…` | Anthropic | The native Anthropic convention; no `Authorization` header. |
+
+`authenticate` (`internal/proxy/auth.go`) resolves either carrier before
+`keys.Parse`, so a client only ever needs the one header its protocol uses.
+Sending neither — or an `Authorization` that is not `Bearer` — is the only case
+that still reports `missing bearer token`.
+
+**Shape.** A native request is translated inbound to the router's internal
+chat-completions shape (system prompt, tool definitions, tool choice, images,
+`max_tokens` → `max_output_tokens`), routed like any other call, and the
+response is translated back out: `{"type":"message","content":[{"type":"text",…}],"usage":{…}}`,
+with `input_tokens`/`output_tokens` mirroring the chat path's
+`prompt_tokens`/`completion_tokens`. Streaming is SSE in the Anthropic event
+grammar (`message_start`, `content_block_delta`, `message_delta`, `message_stop`).
+
+**Errors.** The error body is Anthropic-shaped — `{"type":"error","error":{"type":…,"message":…}}` —
+so an Anthropic client parses it without a shim. The `error.type` values map
+from the router's `routing.ErrCode*` constants (`AUTHENTICATION_ERROR` →
+`authentication_error`, `RATE_LIMITED` → `rate_limit_error`, …).
+
+**Billing.** Identical to chat: the same `request_log` row, the same limit
+enforcement, the same ≤3-account failover. `count_tokens` is a local estimate
+and writes no billable usage.
+
+**Evidence.** The `apps/web/scripts/e2e-smoke.mjs` acceptance run exercises the
+surface end to end over real HTTP — an unauthenticated `401` in Anthropic shape,
+an authenticated `200` with Anthropic content blocks and usage, and a positive
+`count_tokens` — and passes as part of the standard smoke (`24 passed, 0 failed`
+on 2026-10-03).
 
 ---
 
@@ -240,6 +294,11 @@ gap is closed**, or a release will run new code against an old schema.
   Add a table-driven test in `services/router` that hits every path in §3 with a
   seeded key and asserts the expected status — so adding a route without updating
   this spec fails CI.
+- **Both credential carriers work on the Anthropic surface.** `x-api-key` and
+  `Authorization: Bearer` must each authenticate a `/v1/messages` call, and an
+  unauthenticated one must return an Anthropic-shaped `401`. Pinned by
+  `TestBearerOrAPIKey` (unit) and the `/v1/messages` steps in `e2e-smoke.mjs`
+  (live).
 
 ---
 

@@ -67,6 +67,12 @@ type lifecycle struct {
 	rawErr    string // raw upstream text: request_log.error only (spec §8)
 	httpStat  int
 
+	// anthropic makes the error envelope the Anthropic shape
+	// ({"type":"error","error":{…}}) instead of the [OI] one — the /v1/messages
+	// surface (anthropic.go) sets it so a rejection is parseable by an
+	// Anthropic client. Success bodies are translated by anthropic.go.
+	anthropic bool
+
 	finished bool
 }
 
@@ -90,8 +96,8 @@ type validateFunc func(body []byte) (slug string, reject *apiError)
 
 // begin runs the admission half of the lifecycle. It answers the client itself
 // on every rejection and returns ok=false there; on success the caller MUST
-// call finish (defer it).
-func (h *Handler) begin(w http.ResponseWriter, r *http.Request, start time.Time, endpoint string, body []byte, validate validateFunc) (*lifecycle, bool) {
+// call finish (defer it). `anthropic` shapes rejections like the Anthropic API.
+func (h *Handler) begin(w http.ResponseWriter, r *http.Request, start time.Time, endpoint string, body []byte, validate validateFunc, anthropic bool) (*lifecycle, bool) {
 	lc := &lifecycle{
 		h:         h,
 		r:         r,
@@ -100,6 +106,7 @@ func (h *Handler) begin(w http.ResponseWriter, r *http.Request, start time.Time,
 		requestID: ids.New("req"),
 		endpoint:  endpoint,
 		timing:    map[string]int64{},
+		anthropic: anthropic,
 	}
 	// The request id is on EVERY response, success or failure (PRD §90), so a
 	// client can correlate an error with its request_log row.
@@ -337,9 +344,20 @@ func (lc *lifecycle) reject(code, message, status string, httpStatus int) {
 	lc.setResponseHeaders()
 	lc.w.Header().Set("Content-Type", "application/json")
 	lc.w.WriteHeader(e.Status)
-	_ = json.NewEncoder(lc.w).Encode(map[string]any{
-		"error": map[string]string{"message": e.Message, "type": e.Type, "code": e.Code},
-	})
+	if lc.anthropic {
+		// The /v1/messages surface answers in the Anthropic error envelope
+		// (anthropic.go), so a rejection is parseable by an Anthropic client.
+		_ = json.NewEncoder(lc.w).Encode(map[string]any{
+			"type": "error",
+			"error": map[string]string{
+				"type": anthropicErrorType(e.Code), "message": e.Message,
+			},
+		})
+	} else {
+		_ = json.NewEncoder(lc.w).Encode(map[string]any{
+			"error": map[string]string{"message": e.Message, "type": e.Type, "code": e.Code},
+		})
+	}
 	// A rejected request is still a ledger row (spec §8: metadata always).
 	lc.finish()
 }
@@ -486,9 +504,19 @@ func (lc *lifecycle) fail(err error) {
 		status = e.Status
 	}
 	lc.w.WriteHeader(status)
-	_ = json.NewEncoder(lc.w).Encode(map[string]any{
-		"error": map[string]string{"message": e.Message, "type": e.Type, "code": e.Code},
-	})
+	if lc.anthropic {
+		// The /v1/messages surface answers in the Anthropic error envelope.
+		_ = json.NewEncoder(lc.w).Encode(map[string]any{
+			"type": "error",
+			"error": map[string]string{
+				"type": anthropicErrorType(e.Code), "message": e.Message,
+			},
+		})
+	} else {
+		_ = json.NewEncoder(lc.w).Encode(map[string]any{
+			"error": map[string]string{"message": e.Message, "type": e.Type, "code": e.Code},
+		})
+	}
 	lc.finish()
 }
 

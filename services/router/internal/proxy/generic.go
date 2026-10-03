@@ -130,7 +130,7 @@ func (h *Handler) ServeGeneric(w http.ResponseWriter, r *http.Request) {
 	// auth). A lookup failure means the hatch is DOWN: honesty is the default.
 	passthrough = h.store.GenericPassthrough(r.Context())
 
-	lc, ok := h.begin(w, r, start, path, body, validate)
+	lc, ok := h.begin(w, r, start, path, body, validate, false)
 	if !ok {
 		return
 	}

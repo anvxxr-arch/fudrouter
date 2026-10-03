@@ -97,6 +97,12 @@ func ServeMux(p *Handler, health http.Handler) *http.ServeMux {
 	mux.Handle("GET /v1/models", http.HandlerFunc(p.ServeModels))
 	mux.Handle("GET /v1/models/", http.HandlerFunc(p.ServeModel))
 	mux.Handle("POST /v1/chat/completions", http.HandlerFunc(p.ServeCompletions))
+	// The Anthropic Messages API as a native surface (anthropic.go): an
+	// Anthropic-shaped client — [CC], the SDKs, Cursor's Anthropic mode — can
+	// point at the router unchanged. Registered before the /v1/ catch-all for
+	// the same reason as the chat route above.
+	mux.Handle("POST /v1/messages", http.HandlerFunc(p.ServeMessages))
+	mux.Handle("POST /v1/messages/count_tokens", http.HandlerFunc(p.ServeCountTokens))
 	mux.Handle("/v1/", http.HandlerFunc(p.ServeGeneric))
 	return mux
 }
@@ -223,7 +229,7 @@ func (h *Handler) ServeCompletions(w http.ResponseWriter, r *http.Request) {
 		return slug, nil
 	}
 
-	lc, ok := h.begin(w, r, start, "/v1/chat/completions", body, validate)
+	lc, ok := h.begin(w, r, start, "/v1/chat/completions", body, validate, false)
 	if !ok {
 		return
 	}

@@ -12,7 +12,12 @@ import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
 const KEYS_FILE = process.argv[2] || '/home/dwizzy/gonka24-automator/gonka24_keys.json';
-const PROVIDER_ID = 'gonka24';
+// spec §1 (0007_platform_backfill) wraps legacy ids as `prv_<legacy>`, so a bare
+// lookup by 'gonka24' matches no row: the merge aborted on every tick while the
+// pool silently stopped growing. Resolve the wrapped id, keep the bare id as a
+// fallback for a database that has not been backfilled yet.
+const LEGACY_PROVIDER_ID = 'gonka24';
+const PROVIDER_ID_CANDIDATES = ['prv_' + LEGACY_PROVIDER_ID, LEGACY_PROVIDER_ID];
 
 const master = Buffer.from(process.env.CREDENTIALS_MASTER_KEY, 'base64');
 const sql = postgres(process.env.DATABASE_URL);
@@ -41,12 +46,16 @@ try {
 	// `for update` serialises them (the Go pool's save() merges for the same
 	// reason, see references/pool-maintenance.md).
 	await sql.begin(async (tx) => {
-		const [row] =
-			await tx`select credentials_enc from provider where id = ${PROVIDER_ID} for update`;
-		if (!row) {
-			console.error(`provider ${PROVIDER_ID} not found — run onboard-gonka24.mjs first`);
+		const [prov] = await tx`select id from provider where id in ${tx(PROVIDER_ID_CANDIDATES)} limit 1`;
+		if (!prov) {
+			console.error(
+				`provider ${LEGACY_PROVIDER_ID} not found (tried ${PROVIDER_ID_CANDIDATES.join(', ')}) — run onboard-gonka24.mjs first`
+			);
 			process.exit(1);
 		}
+		const PROVIDER_ID = prov.id;
+		const [row] =
+			await tx`select credentials_enc from provider where id = ${PROVIDER_ID} for update`;
 
 		const cred = decrypt(row.credentials_enc);
 		const seen = new Set(cred.accounts.map((a) => a.api_key));

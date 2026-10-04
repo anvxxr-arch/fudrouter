@@ -11,7 +11,10 @@ if (!KEYS_FILE) {
 	console.error('usage: merge-unikey-keys.mjs <keys-file>');
 	process.exit(1);
 }
-const PROVIDER_ID = 'unikey';
+// spec §1 (0007_platform_backfill) wraps legacy ids as `prv_<legacy>`; the bare id
+// matches no row, so the merge threw "provider unikey not found" every run.
+const LEGACY_PROVIDER_ID = 'unikey';
+const PROVIDER_ID_CANDIDATES = ['prv_' + LEGACY_PROVIDER_ID, LEGACY_PROVIDER_ID];
 
 const master = Buffer.from(process.env.CREDENTIALS_MASTER_KEY, 'base64');
 if (master.length !== 32) throw new Error('CREDENTIALS_MASTER_KEY must be base64 of 32 bytes');
@@ -35,8 +38,11 @@ function decrypt(enc) {
 
 const sql = postgres(process.env.DATABASE_URL);
 try {
+	const [prov] = await sql`select id from provider where id in ${sql(PROVIDER_ID_CANDIDATES)} limit 1`;
+	if (!prov)
+		throw new Error(`provider ${LEGACY_PROVIDER_ID} not found (tried ${PROVIDER_ID_CANDIDATES.join(', ')})`);
+	const PROVIDER_ID = prov.id;
 	const [row] = await sql`select credentials_enc from provider where id = ${PROVIDER_ID}`;
-	if (!row) throw new Error(`provider ${PROVIDER_ID} not found`);
 
 	const cred = decrypt(row.credentials_enc);
 	const accounts = Array.isArray(cred.accounts) ? cred.accounts : [];

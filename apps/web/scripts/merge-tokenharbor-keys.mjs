@@ -10,7 +10,10 @@ import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
 const KEY_FILE = process.argv[2] || '/home/dwizzy/th-bot/th_probe_live.txt';
-const PROVIDER_ID = 'tokenharbor';
+// spec §1 (0007_platform_backfill) wraps legacy ids as `prv_<legacy>`; the bare id
+// matches no row, so the merge aborted on every run.
+const LEGACY_PROVIDER_ID = 'tokenharbor';
+const PROVIDER_ID_CANDIDATES = ['prv_' + LEGACY_PROVIDER_ID, LEGACY_PROVIDER_ID];
 
 const master = Buffer.from(process.env.CREDENTIALS_MASTER_KEY, 'base64');
 const sql = postgres(process.env.DATABASE_URL);
@@ -36,11 +39,13 @@ const incoming = readFileSync(KEY_FILE, 'utf8')
 console.log(`incoming keys: ${incoming.length}`);
 
 try {
-	const [row] = await sql`select credentials_enc from provider where id = ${PROVIDER_ID}`;
-	if (!row) {
-		console.error(`provider ${PROVIDER_ID} not found`);
+	const [prov] = await sql`select id from provider where id in ${sql(PROVIDER_ID_CANDIDATES)} limit 1`;
+	if (!prov) {
+		console.error(`provider ${LEGACY_PROVIDER_ID} not found (tried ${PROVIDER_ID_CANDIDATES.join(', ')})`);
 		process.exit(1);
 	}
+	const PROVIDER_ID = prov.id;
+	const [row] = await sql`select credentials_enc from provider where id = ${PROVIDER_ID}`;
 
 	const cred = decrypt(row.credentials_enc);
 	const existing = new Set(cred.accounts.map((a) => a.api_key));

@@ -34,7 +34,7 @@ const TITLES: Record<string, string> = {
 	'/dashboard': 'Dashboard',
 	'/dashboard/keys': 'API Keys',
 	'/dashboard/playground': 'Playground',
-	'/dashboard/cli-tools': 'Connect a client',
+	'/dashboard/connect': 'Connect a client',
 	'/dashboard/usage': 'Usage',
 	'/dashboard/account': 'Account',
 	'/dashboard/billing': 'Billing',

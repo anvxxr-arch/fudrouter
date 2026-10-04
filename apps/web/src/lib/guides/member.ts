@@ -629,7 +629,7 @@ export const MEMBER_GUIDES = {
 			}
 		]
 	},
-	'cli-tools': {
+	'connect': {
 		audience: 'member',
 		sections: [
 			{

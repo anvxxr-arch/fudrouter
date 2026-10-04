@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$app/paths';
 	import { CLI_TOOLS, API_KEY_PLACEHOLDER, type CliTarget } from '$lib/cli-tools';
 	import { Card, CodeBlock, Guide, PageHeader, Section, Select } from '$lib/ui';
 
@@ -27,7 +28,7 @@
 <Card>
 	<Section
 		title="Your target"
-		lede="Pick a model and, optionally, one of your keys. The snippets below update to match."
+		lede="Pick a model and, optionally, one of your personal API keys. The snippets below update to match."
 	>
 		<div class="target">
 			<label>
@@ -39,7 +40,7 @@
 				</Select>
 			</label>
 			<label>
-				<span>Key (optional)</span>
+				<span>Personal API key (optional)</span>
 				<Select bind:value={keyPrefix}>
 					<option value="">— use a placeholder —</option>
 					{#each data.keys as k (k.id)}
@@ -48,6 +49,11 @@
 				</Select>
 			</label>
 		</div>
+		<p class="hint">
+			These are your personal keys — the same ones listed on
+			<a href="{base}/dashboard/keys">API Keys</a>. Project and environment keys belong to that
+			project and are not listed here.
+		</p>
 		<p class="hint">
 			Key secrets are shown once at creation and stored hashed, so a snippet can only carry the
 			prefix. Paste the secret you saved in place of the placeholder.
@@ -81,7 +87,7 @@
 	</Card>
 {/each}
 
-<Guide id="cli-tools" />
+<Guide id="connect" />
 
 <style>
 	.target {

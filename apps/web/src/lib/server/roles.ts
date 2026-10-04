@@ -135,7 +135,7 @@ export const ROUTE_CAPS: [string, Capability][] = [
 	['/dashboard/usage', 'member'],
 	['/dashboard/account', 'member'],
 	['/dashboard/billing', 'member'],
-	['/dashboard/cli-tools', 'member'],
+	['/dashboard/connect', 'member'],
 	// Not under /dashboard: the signed-in invitation acceptance page (PRD §12).
 	// Entries use SvelteKit route patterns — `[param]` matches any one segment.
 	// `requiredCap` matches SEGMENT-wise (not raw startsWith) because the hook

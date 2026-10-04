@@ -195,7 +195,11 @@ try {
 			process.exit(1);
 		}
 	}
-	console.log(`${models.length} models + ${models.length} provider_model rows upserted\n✅ free.ai onboarded.`);
+	const [{ n }] = await sql`select count(*)::int as n from provider_model where provider_id = ${PROVIDER_ID} and enabled`;
+	console.log(
+		`${n} routable models + ${n} provider_model rows live for ${PROVIDER_ID}` +
+			` (probed ${models.length}, rest skipped: slug owned elsewhere)\n✅ free.ai onboarded.`
+	);
 } finally {
 	await sql.end();
 }

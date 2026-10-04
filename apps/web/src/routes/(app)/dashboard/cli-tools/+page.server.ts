@@ -1,9 +1,10 @@
 import { error } from '@sveltejs/kit';
-import { and, eq, isNull, ne } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { env } from '$env/dynamic/private';
 import type { PageServerLoad } from './$types';
 import { db } from '$lib/server/db';
-import { apiKey, model } from '$lib/server/db/schema';
+import { apiKey } from '$lib/server/db/schema';
+import { servedModels } from '$lib/server/public-catalog';
 import { requireCap } from '$lib/server/roles';
 import { currentWorkspaceId } from '$lib/server/rbac';
 
@@ -24,11 +25,14 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const workspaceId = await currentWorkspaceId(locals);
 	if (!workspaceId) error(403, 'No workspace selected');
 
-	const models = await db
-		.select({ slug: model.slug, name: model.name, developer: model.developer })
-		.from(model)
-		.where(ne(model.status, 'disabled'))
-		.orderBy(model.slug);
+	// The picker must offer exactly what the data plane serves. Reuse the public
+	// catalog's publish gate rather than a loose status filter, or the page
+	// advertises slugs that answer 404 at the router.
+	const models = (await servedModels()).map((m) => ({
+		slug: m.slug,
+		name: m.name,
+		developer: m.developer
+	}));
 
 	const keys = await db
 		.select({ id: apiKey.id, name: apiKey.name, prefix: apiKey.prefix })

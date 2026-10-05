@@ -156,6 +156,13 @@ type ModelResolution struct {
 	RequiredCapabilities map[string]bool
 }
 
+// chatOnly is the capability every virtual requires: these names serve
+// /v1/chat/completions, so an image, video, audio or embedding model must
+// never resolve into one (spec §5). `model.capabilities.chat` is populated by
+// migration 0012; CapabilitySatisfied eliminates a model only on an explicit
+// `false`, which is why the claim has to exist on every row.
+var chatOnly = map[string]bool{"chat": true}
+
 // Global virtual model names (PRD §36, spec §5). The `model_alias` rows exist
 // so the catalogue can describe them; the router resolves their target sets
 // from the active strategy.
@@ -163,13 +170,13 @@ var virtualModels = map[string]struct {
 	strategy string
 	caps     map[string]bool
 }{
-	"fudrouter/auto":      {},
-	"fudrouter/fast":      {strategy: "lowest_latency"},
-	"fudrouter/cheap":     {strategy: "lowest_cost"},
-	"fudrouter/balanced":  {strategy: "balanced"},
-	"fudrouter/reliable":  {strategy: "highest_reliability"},
-	"fudrouter/reasoning": {caps: map[string]bool{"reasoning": true}},
-	"fudrouter/coding":    {},
+	"fudrouter/auto":      {caps: chatOnly},
+	"fudrouter/fast":      {strategy: "lowest_latency", caps: chatOnly},
+	"fudrouter/cheap":     {strategy: "lowest_cost", caps: chatOnly},
+	"fudrouter/balanced":  {strategy: "balanced", caps: chatOnly},
+	"fudrouter/reliable":  {strategy: "highest_reliability", caps: chatOnly},
+	"fudrouter/reasoning": {caps: map[string]bool{"chat": true, "reasoning": true}},
+	"fudrouter/coding":    {caps: chatOnly},
 }
 
 // ResolveModel maps a request's `model` string onto a model set.
@@ -378,6 +385,7 @@ func (s *Store) Candidates(ctx context.Context, modelID string, requiredCaps map
 		  and pm.enabled
 		  and pm.status not in ('disabled', 'unavailable')
 		  and (c.id is null or c.enabled)
+		  and (c.id is null or c.health_status is distinct from 'unhealthy')
 		  and `+s.providerServableSQL()+`
 		order by p.priority asc, pm.id`, modelID)
 	if err != nil {

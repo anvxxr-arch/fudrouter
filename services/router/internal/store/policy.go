@@ -52,6 +52,12 @@ func DefaultRoutingPolicy() *RoutingPolicy {
 func (s *Store) RoutingPolicyFor(ctx context.Context, k *APIKeyRow) (*RoutingPolicy, error) {
 	// The most specific binding wins: environment.routing_policy_id, then a
 	// policy row scoped to the project, then to the workspace.
+	//
+	// The trailing `''` matters: with no binding at any level every subquery is
+	// NULL and a bare coalesce() yields NULL, which cannot scan into a string.
+	// That error made RoutingPolicyFor fail for every unscoped key, so the
+	// proxy silently fell back to DefaultRoutingPolicy() and the stored policy
+	// (max_attempts, weights, constraints, strategy) was never applied.
 	var policyID string
 	err := s.pool.QueryRow(ctx, `
 		select coalesce(
@@ -61,7 +67,8 @@ func (s *Store) RoutingPolicyFor(ctx context.Context, k *APIKeyRow) (*RoutingPol
 			 order by rp.id limit 1),
 			(select rp.id from routing_policy rp
 			 where rp.enabled and rp.workspace_id = $3 and rp.project_id is null and rp.environment_id is null
-			 order by rp.id limit 1)
+			 order by rp.id limit 1),
+			''
 		)`, k.EnvironmentID, k.ProjectID, k.WorkspaceID,
 	).Scan(&policyID)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {

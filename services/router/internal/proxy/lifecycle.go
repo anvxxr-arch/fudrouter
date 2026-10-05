@@ -945,6 +945,14 @@ func (lc *lifecycle) exchange(ctx context.Context, cand *routing.Candidate, n in
 		return a
 	}
 
+	// The upstream must see the provider's OWN model id, never the name the
+	// client asked for: a virtual (`fudrouter/auto`) or an alias resolves to a
+	// concrete canonical model, and even a canonical slug can be served under a
+	// different upstream id (provider_model.provider_model_id). Sending the
+	// client's string verbatim made every virtual fail upstream with "model not
+	// found" while the same slug called directly worked.
+	upBody = rewriteModelField(upBody, cand.Store.UpstreamModel)
+
 	upURL := strings.TrimRight(cand.Store.BaseURL, "/") + upstreamPath
 	if rawQuery != "" {
 		upURL += "?" + rawQuery
@@ -1009,6 +1017,33 @@ func (lc *lifecycle) exchange(ctx context.Context, cand *routing.Candidate, n in
 		a.Payload = &errorBody{status: resp.StatusCode, body: body}
 	}
 	return a
+}
+
+// rewriteModelField returns body with its top-level "model" set to name. It is
+// how a resolved candidate's upstream id reaches the provider. Bodies that are
+// not JSON objects, or that carry no "model" key, pass through untouched, so a
+// non-model endpoint is never rewritten.
+func rewriteModelField(body []byte, name string) []byte {
+	if name == "" {
+		return body
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(body, &m); err != nil {
+		return body
+	}
+	if _, ok := m["model"]; !ok {
+		return body
+	}
+	enc, err := json.Marshal(name)
+	if err != nil {
+		return body
+	}
+	m["model"] = enc
+	out, err := json.Marshal(m)
+	if err != nil {
+		return body
+	}
+	return out
 }
 
 // errorBody carries a non-retryable upstream failure's body so the client can

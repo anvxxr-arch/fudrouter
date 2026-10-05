@@ -69,6 +69,10 @@ curl https://ai.karepmuwes.my.id/v1/chat/completions \\
 The response body is the chat-completion shape your SDK expects, including a
 \`usage\` block. Model slugs are listed on [/models](/models).
 
+Rather than writing the wiring by hand, [/dashboard/connect](/dashboard/connect)
+generates the config for a coding agent or editor — base URL, key and model
+already filled in.
+
 ## 5. View request logs
 
 Every call writes one ledger row. Open
@@ -264,7 +268,10 @@ work:
 
 Whatever identifier you send, the response and the request log tell you what
 actually ran: \`x-fudrouter-model\` on the response and the request log's model
-fields record the resolved slug, not the alias you asked for.`;
+fields record the resolved slug, not the alias you asked for.
+
+To generate a ready-to-paste config for your tool using any of these
+identifiers, open [/dashboard/connect](/dashboard/connect).`;
 
 const ROUTING_ROUTING = `Routing picks one route per request. The candidates are the reachable
 connections serving the requested model; each is scored on price, latency,
@@ -496,7 +503,11 @@ export const DOC_CATEGORIES: DocCategory[] = [
 		slug: 'compatibility',
 		title: 'Compatibility',
 		pages: [
-			{ slug: 'openai-compatibility', title: 'OpenAI compatibility', markdown: COMPATIBILITY_COMPAT }
+			{
+				slug: 'openai-compatibility',
+				title: 'OpenAI compatibility',
+				markdown: COMPATIBILITY_COMPAT
+			}
 		]
 	},
 	{

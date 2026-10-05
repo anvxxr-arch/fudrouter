@@ -1,14 +1,16 @@
 <script lang="ts">
 	import { base } from '$app/paths';
 	import { CLI_TOOLS, API_KEY_PLACEHOLDER, type CliTarget } from '$lib/cli-tools';
-	import { Card, CodeBlock, Guide, PageHeader, Section, Select } from '$lib/ui';
+	import { Card, CodeBlock, EmptyState, Guide, PageHeader, Section, Select } from '$lib/ui';
 
 	let { data } = $props();
 
 	// The two inputs a snippet depends on. The key is never rendered as a
 	// secret: the page only knows the prefix, so the snippet carries a
 	// placeholder the user replaces with the key they saved at creation time.
-	let model = $state(data.models[0]?.slug ?? '');
+	// Default to a canonical slug; fall back to an alias when the catalogue is
+	// empty so the first snippet still carries a callable identifier.
+	let model = $state(data.models[0]?.slug ?? data.aliases[0]?.name ?? '');
 	let keyPrefix = $state('');
 
 	const target = $derived<CliTarget>({
@@ -32,11 +34,20 @@
 	>
 		<div class="target">
 			<label>
-				<span>Model</span>
+				<span>Model or alias</span>
 				<Select bind:value={model}>
-					{#each data.models as m (m.slug)}
-						<option value={m.slug}>{m.slug}{m.developer ? ` — ${m.developer}` : ''}</option>
-					{/each}
+					<optgroup label="Models">
+						{#each data.models as m (m.slug)}
+							<option value={m.slug}>{m.slug}{m.developer ? ` — ${m.developer}` : ''}</option>
+						{/each}
+					</optgroup>
+					{#if data.aliases.length}
+						<optgroup label="Aliases and virtual models">
+							{#each data.aliases as a (a.name)}
+								<option value={a.name}>{a.name}</option>
+							{/each}
+						</optgroup>
+					{/if}
 				</Select>
 			</label>
 			<label>
@@ -61,31 +72,46 @@
 		<p class="hint">
 			Base URL: <code>{data.baseUrl}</code>
 		</p>
+		<p class="hint">
+			Full API reference: <a href="{base}/docs">docs</a> — including
+			<a href="{base}/docs/models/identifiers">model identifiers</a>, which covers aliases and the
+			<code>fudrouter/*</code> virtual models.
+		</p>
 	</Section>
 </Card>
 
-{#each rendered as { tool, snippets } (tool.id)}
-	<Card>
-		<Section title={tool.name} lede={tool.summary}>
-			<ol class="steps">
-				{#each tool.steps as step, i (i)}
-					<li>{step}</li>
+{#if model}
+	{#each rendered as { tool, snippets } (tool.id)}
+		<Card>
+			<Section title={tool.name} lede={tool.summary}>
+				<ol class="steps">
+					{#each tool.steps as step, i (i)}
+						<li>{step}</li>
+					{/each}
+				</ol>
+				{#if tool.install}
+					<CodeBlock label="install" code={tool.install} />
+				{/if}
+				{#each snippets as snippet (snippet.label)}
+					<CodeBlock label={snippet.label} code={snippet.code} />
 				{/each}
-			</ol>
-			{#if tool.install}
-				<CodeBlock label="install" code={tool.install} />
-			{/if}
-			{#each snippets as snippet (snippet.label)}
-				<CodeBlock label={snippet.label} code={snippet.code} />
-			{/each}
-			{#if tool.docsUrl}
-				<p class="hint">
-					Docs: <a href={tool.docsUrl} rel="noreferrer noopener" target="_blank">{tool.docsUrl}</a>
-				</p>
-			{/if}
-		</Section>
+				{#if tool.docsUrl}
+					<p class="hint">
+						Docs: <a href={tool.docsUrl} rel="noreferrer noopener" target="_blank">{tool.docsUrl}</a
+						>
+					</p>
+				{/if}
+			</Section>
+		</Card>
+	{/each}
+{:else}
+	<Card>
+		<EmptyState
+			title="Nothing to point a client at yet"
+			hint="No published model and no alias in this workspace, so a snippet would carry an empty model. Publish a model, then reload."
+		/>
 	</Card>
-{/each}
+{/if}
 
 <Guide id="connect" />
 

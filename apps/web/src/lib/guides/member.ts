@@ -86,8 +86,7 @@ export const MEMBER_GUIDES = {
 					},
 					{
 						term: 'Cost',
-						detail:
-							'What customers were charged across the window. It is not a wallet balance.'
+						detail: 'What customers were charged across the window. It is not a wallet balance.'
 					},
 					{
 						term: 'Credits charged',
@@ -237,11 +236,13 @@ export const MEMBER_GUIDES = {
 					},
 					{
 						term: 'Status',
-						detail: 'draft, open, paid, void or uncollectible. Mark paid attests an offline payment; void cancels collection.'
+						detail:
+							'draft, open, paid, void or uncollectible. Mark paid attests an offline payment; void cancels collection.'
 					},
 					{
 						term: 'Amount',
-						detail: 'What the ledger billed in the invoice period — usage charges, not credit purchases.'
+						detail:
+							'What the ledger billed in the invoice period — usage charges, not credit purchases.'
 					}
 				]
 			}
@@ -305,7 +306,8 @@ export const MEMBER_GUIDES = {
 					},
 					{
 						term: 'Slug',
-						detail: 'Set at creation from the name, uniqued inside the workspace, stable afterwards.'
+						detail:
+							'Set at creation from the name, uniqued inside the workspace, stable afterwards.'
 					},
 					{
 						term: 'Environments',
@@ -339,7 +341,10 @@ export const MEMBER_GUIDES = {
 						detail:
 							'Environments, API keys, playground, model aliases and routing policy all hang off this project.'
 					},
-					{ term: 'Created', detail: 'The creation date. Creation and every change are in the audit log.' }
+					{
+						term: 'Created',
+						detail: 'The creation date. Creation and every change are in the audit log.'
+					}
 				]
 			},
 			{
@@ -371,7 +376,8 @@ export const MEMBER_GUIDES = {
 				facts: [
 					{
 						term: 'Routing policy',
-						detail: 'The policy this environment routes with. Empty inherits the project or platform default.'
+						detail:
+							'The policy this environment routes with. Empty inherits the project or platform default.'
 					},
 					{
 						term: 'Monthly budget',
@@ -393,13 +399,20 @@ export const MEMBER_GUIDES = {
 			{
 				title: 'Reading a key',
 				facts: [
-					{ term: 'Prefix', detail: 'The public part of the key, shown as sk-ar-<prefix>. Identifies the key in logs and support.' },
+					{
+						term: 'Prefix',
+						detail:
+							'The public part of the key, shown as sk-ar-<prefix>. Identifies the key in logs and support.'
+					},
 					{
 						term: 'Status',
 						detail:
 							'Active, disabled or revoked. Disabled keys resume when enabled again; revoked keys never do.'
 					},
-					{ term: 'Expires', detail: 'When the key stops working on its own. Empty means it does not.' },
+					{
+						term: 'Expires',
+						detail: 'When the key stops working on its own. Empty means it does not.'
+					},
 					{ term: 'Last used', detail: 'The most recent request that authenticated with this key.' }
 				]
 			},
@@ -412,7 +425,10 @@ export const MEMBER_GUIDES = {
 			{
 				title: 'Usage',
 				facts: [
-					{ term: 'Requests', detail: 'Every logged call with this key, successes and failures together.' },
+					{
+						term: 'Requests',
+						detail: 'Every logged call with this key, successes and failures together.'
+					},
 					{ term: 'Tokens', detail: 'Input and output tokens summed over the key’s requests.' },
 					{ term: 'Spend', detail: 'Sum of the customer charge in micro-units, shown as USD.' }
 				]
@@ -483,20 +499,40 @@ export const MEMBER_GUIDES = {
 				title: 'What this is',
 				lede: 'A real request through the router — same auth, limits, routing and billing as production.',
 				facts: [
-					{ term: 'Model', detail: 'A canonical slug or one of your aliases. fudrouter/* virtuals work here too.' },
-					{ term: 'Strategy override', detail: 'Picks the routing strategy for this run only. Policy default uses the bound routing policy.' },
-					{ term: 'Run key', detail: 'Each run mints a short-lived key in your chosen key’s context and revokes it right after. The secret never leaves the server.' },
-					{ term: 'Streaming', detail: 'Relays the SSE as it arrives; the metrics panel fills in when the stream ends.' }
+					{
+						term: 'Model',
+						detail: 'A canonical slug or one of your aliases. fudrouter/* virtuals work here too.'
+					},
+					{
+						term: 'Strategy override',
+						detail:
+							'Picks the routing strategy for this run only. Policy default uses the bound routing policy.'
+					},
+					{
+						term: 'Run key',
+						detail:
+							'Each run mints a short-lived key in your chosen key’s context and revokes it right after. The secret never leaves the server.'
+					},
+					{
+						term: 'Streaming',
+						detail: 'Relays the SSE as it arrives; the metrics panel fills in when the stream ends.'
+					}
 				]
 			},
 			{
 				title: 'How to read the metrics',
 				facts: [
-					{ term: 'Provider / connection / model', detail: 'What actually served — not what you asked for.' },
+					{
+						term: 'Provider / connection / model',
+						detail: 'What actually served — not what you asked for.'
+					},
 					{ term: 'Tokens', detail: 'Input, output and total as the provider reported them.' },
 					{ term: 'TTFT / latency', detail: 'Time to first token (streaming) and total time.' },
 					{ term: 'Cost', detail: 'Customer charge in micro-units, shown as USD.' },
-					{ term: 'Fallback / attempts', detail: 'Whether a fallback route was used and how many routing attempts it took.' },
+					{
+						term: 'Fallback / attempts',
+						detail: 'Whether a fallback route was used and how many routing attempts it took.'
+					},
 					{ term: 'Request ID', detail: 'The req_… ledger row behind this run — also in Usage.' }
 				]
 			}
@@ -512,10 +548,24 @@ export const MEMBER_GUIDES = {
 					'Swap the models behind an alias without touching the application — no redeploy, no config change on your side. The next request resolves through the new target list.'
 				],
 				facts: [
-					{ term: 'Primary + fallbacks', detail: 'Ordered target list, position 1..N. The router walks it in order.' },
-					{ term: 'Scope', detail: 'Project aliases win over workspace aliases; the fudrouter/* virtuals are global and read-only.' },
-					{ term: 'Resolution order', detail: 'Project alias → workspace alias → global virtual → literal model slug.' },
-					{ term: 'Deprecated target', detail: 'A target on a deprecated or sunset model is flagged — move the traffic before it disappears.' }
+					{
+						term: 'Primary + fallbacks',
+						detail: 'Ordered target list, position 1..N. The router walks it in order.'
+					},
+					{
+						term: 'Scope',
+						detail:
+							'Project aliases win over workspace aliases; the fudrouter/* virtuals are global and read-only.'
+					},
+					{
+						term: 'Resolution order',
+						detail: 'Project alias → workspace alias → global virtual → literal model slug.'
+					},
+					{
+						term: 'Deprecated target',
+						detail:
+							'A target on a deprecated or sunset model is flagged — move the traffic before it disappears.'
+					}
 				]
 			}
 		]
@@ -527,13 +577,30 @@ export const MEMBER_GUIDES = {
 				title: 'Strategies',
 				lede: 'Each policy picks how candidates are scored and ordered.',
 				facts: [
-					{ term: 'Balanced', detail: 'Normalizes price, latency, reliability and capacity signals and blends them with your weights. The formula is internal and may change without breaking the API.' },
-					{ term: 'Lowest cost / latency / reliability', detail: 'Single-signal strategies: cheapest, fastest, or most reliable candidate wins.' },
-					{ term: 'Provider Priority / Weighted', detail: 'Your provider_preferences.order decides; weighted spreads load across it.' },
+					{
+						term: 'Balanced',
+						detail:
+							'Normalizes price, latency, reliability and capacity signals and blends them with your weights. The formula is internal and may change without breaking the API.'
+					},
+					{
+						term: 'Lowest cost / latency / reliability',
+						detail: 'Single-signal strategies: cheapest, fastest, or most reliable candidate wins.'
+					},
+					{
+						term: 'Provider Priority / Weighted',
+						detail: 'Your provider_preferences.order decides; weighted spreads load across it.'
+					},
 					{ term: 'Round Robin / Random', detail: 'Rotation across the candidate set.' },
 					{ term: 'Smart', detail: 'Learns from outcomes — coming soon, shown disabled.' },
-					{ term: 'Constraints', detail: 'Hard filters applied before scoring: max price, max P95 latency, min availability, allowed/blocked providers, region preference.' },
-					{ term: 'Weights', detail: 'Price/latency/reliability/capacity, 0-100 each, used by Balanced.' }
+					{
+						term: 'Constraints',
+						detail:
+							'Hard filters applied before scoring: max price, max P95 latency, min availability, allowed/blocked providers, region preference.'
+					},
+					{
+						term: 'Weights',
+						detail: 'Price/latency/reliability/capacity, 0-100 each, used by Balanced.'
+					}
 				]
 			},
 			{
@@ -551,10 +618,24 @@ export const MEMBER_GUIDES = {
 				title: 'How to read a request log',
 				facts: [
 					{ term: 'Timestamp', detail: 'When the router accepted the call, UTC. Newest first.' },
-					{ term: 'Status', detail: 'The taxonomy value, or its legacy spelling mapped to it: error reads internal_error, upstream_error reads provider_error.' },
-					{ term: 'Tokens', detail: 'Input plus cached, output and reasoning counted apart on the detail page.' },
-					{ term: 'Cost', detail: 'What the customer was charged for the call, in micro-units shown as USD.' },
-					{ term: 'Cursor', detail: 'Pages walk newest-to-oldest by keyset, so rows never repeat or skip between pages.' }
+					{
+						term: 'Status',
+						detail:
+							'The taxonomy value, or its legacy spelling mapped to it: error reads internal_error, upstream_error reads provider_error.'
+					},
+					{
+						term: 'Tokens',
+						detail: 'Input plus cached, output and reasoning counted apart on the detail page.'
+					},
+					{
+						term: 'Cost',
+						detail: 'What the customer was charged for the call, in micro-units shown as USD.'
+					},
+					{
+						term: 'Cursor',
+						detail:
+							'Pages walk newest-to-oldest by keyset, so rows never repeat or skip between pages.'
+					}
 				]
 			}
 		]
@@ -565,12 +646,35 @@ export const MEMBER_GUIDES = {
 			{
 				title: 'What a request shows',
 				facts: [
-					{ term: 'Metadata', detail: 'Identity of the call: id, endpoint, project, environment, key. IP is not recorded on rows written before the client-address column existed.' },
-					{ term: 'Model', detail: 'What you asked for versus what served it, and which connection carried it.' },
-					{ term: 'Timing', detail: 'Every stage the router measured: auth, rate limit, routing, queue, connection, TTFT, generation.' },
-					{ term: 'Attempts', detail: 'Each routing attempt in order, with its outcome. A retry appears here before the request as a whole resolved.' },
-					{ term: 'Error', detail: 'The normalized code and HTTP status, plus the raw upstream text when one was stored.' },
-					{ term: 'Prompt and response', detail: 'Rendered only while content retention allows; otherwise the block says so instead of hiding.' }
+					{
+						term: 'Metadata',
+						detail:
+							'Identity of the call: id, endpoint, project, environment, key. IP is not recorded on rows written before the client-address column existed.'
+					},
+					{
+						term: 'Model',
+						detail: 'What you asked for versus what served it, and which connection carried it.'
+					},
+					{
+						term: 'Timing',
+						detail:
+							'Every stage the router measured: auth, rate limit, routing, queue, connection, TTFT, generation.'
+					},
+					{
+						term: 'Attempts',
+						detail:
+							'Each routing attempt in order, with its outcome. A retry appears here before the request as a whole resolved.'
+					},
+					{
+						term: 'Error',
+						detail:
+							'The normalized code and HTTP status, plus the raw upstream text when one was stored.'
+					},
+					{
+						term: 'Prompt and response',
+						detail:
+							'Rendered only while content retention allows; otherwise the block says so instead of hiding.'
+					}
 				]
 			}
 		]
@@ -581,11 +685,25 @@ export const MEMBER_GUIDES = {
 			{
 				title: 'How the rates are computed',
 				facts: [
-					{ term: 'Success rate', detail: 'Successful requests over total requests in the window.' },
-					{ term: 'Percentiles', detail: 'Latency P50/P95/P99. On rolled-up ranges these are bucket estimates and are labelled as such.' },
+					{
+						term: 'Success rate',
+						detail: 'Successful requests over total requests in the window.'
+					},
+					{
+						term: 'Percentiles',
+						detail:
+							'Latency P50/P95/P99. On rolled-up ranges these are bucket estimates and are labelled as such.'
+					},
 					{ term: 'TTFT', detail: 'Mean time to first token over requests that reported one.' },
-					{ term: 'Fallback/retry', detail: 'Requests that needed another candidate over all requests.' },
-					{ term: 'Savings', detail: 'Not shown: there is no baseline price to compute it from, and this page does not print numbers it cannot derive.' }
+					{
+						term: 'Fallback/retry',
+						detail: 'Requests that needed another candidate over all requests.'
+					},
+					{
+						term: 'Savings',
+						detail:
+							'Not shown: there is no baseline price to compute it from, and this page does not print numbers it cannot derive.'
+					}
 				]
 			}
 		]
@@ -596,8 +714,15 @@ export const MEMBER_GUIDES = {
 			{
 				title: 'Budget periods',
 				facts: [
-					{ term: 'Daily / Weekly / Monthly', detail: 'Windows are UTC: midnight, Monday 00:00, the 1st of the month.' },
-					{ term: 'Thresholds', detail: 'Warning and critical fire at the configured percentages; the 100% action is notify, restrict or block.' },
+					{
+						term: 'Daily / Weekly / Monthly',
+						detail: 'Windows are UTC: midnight, Monday 00:00, the 1st of the month.'
+					},
+					{
+						term: 'Thresholds',
+						detail:
+							'Warning and critical fire at the configured percentages; the 100% action is notify, restrict or block.'
+					},
 					{ term: 'Consumption', detail: 'Spent within the current window against the amount.' }
 				]
 			}
@@ -609,9 +734,19 @@ export const MEMBER_GUIDES = {
 			{
 				title: 'The limit chain',
 				facts: [
-					{ term: 'Effective limit', detail: 'The smallest configured value across platform default, workspace, project, environment and API key. A level may tighten, never loosen the platform hard limit.' },
-					{ term: 'Binds at', detail: 'The most specific level holding the effective value — edit there to change it.' },
-					{ term: 'Empty cell', detail: 'No limit at that level: it inherits rather than counting as zero.' }
+					{
+						term: 'Effective limit',
+						detail:
+							'The smallest configured value across platform default, workspace, project, environment and API key. A level may tighten, never loosen the platform hard limit.'
+					},
+					{
+						term: 'Binds at',
+						detail: 'The most specific level holding the effective value — edit there to change it.'
+					},
+					{
+						term: 'Empty cell',
+						detail: 'No limit at that level: it inherits rather than counting as zero.'
+					}
 				]
 			}
 		]
@@ -622,14 +757,21 @@ export const MEMBER_GUIDES = {
 			{
 				title: 'Alerts and their history',
 				facts: [
-					{ term: 'Condition', detail: 'What to watch — error rate, latency, budget threshold, and friends — with its threshold and window.' },
+					{
+						term: 'Condition',
+						detail:
+							'What to watch — error rate, latency, budget threshold, and friends — with its threshold and window.'
+					},
 					{ term: 'Channel', detail: 'Where the event goes while integrations stay internal.' },
-					{ term: 'Events', detail: 'Every trigger, its measured value, and whether it is still firing or resolved.' }
+					{
+						term: 'Events',
+						detail: 'Every trigger, its measured value, and whether it is still firing or resolved.'
+					}
 				]
 			}
 		]
 	},
-	'connect': {
+	connect: {
 		audience: 'member',
 		sections: [
 			{
@@ -651,7 +793,7 @@ export const MEMBER_GUIDES = {
 					{
 						term: 'Model',
 						detail:
-							'Any slug from the catalogue. An alias works too — it resolves to its targets at request time.'
+							'Any slug from the catalogue, an alias, or a fudrouter/* virtual. The router resolves each in turn at request time.'
 					},
 					{
 						term: 'Key',

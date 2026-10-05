@@ -289,6 +289,18 @@ const alertEvaluation: JobHandler = async () => {
 	await evaluateAlerts();
 };
 
+// looksLikeModelsJSON reports whether a /models probe body is the JSON model
+// listing an [OI]-compatible API returns. A 2xx HTML body means base_url points
+// at a website, not an API.
+function looksLikeModelsJSON(body: string): boolean {
+	try {
+		const parsed = JSON.parse(body);
+		return typeof parsed === 'object' && parsed !== null;
+	} catch {
+		return false;
+	}
+}
+
 /**
  * `provider_health_check`: probe each enabled connection's `base_url` (SSRF
  * guarded, PRD §121) and refresh `connection.health_status`, writing a
@@ -321,8 +333,20 @@ const providerHealthCheck: JobHandler = async (dbtx, payload) => {
 		let detail: Record<string, unknown> = {};
 		if (probed.ok) {
 			const code = probed.response.status;
-			await probed.response.text().catch(() => '');
-			status = code < 500 ? (code === 429 ? 'degraded' : 'healthy') : 'unhealthy';
+			const bodyText = await probed.response.text().catch(() => '');
+			if (code >= 500) {
+				status = 'unhealthy';
+			} else if (code === 429) {
+				status = 'degraded';
+			} else if (code >= 200 && code < 300 && !looksLikeModelsJSON(bodyText)) {
+				// A 2xx that is not the JSON model listing means base_url answers
+				// with an HTML page (a marketing site or SPA fallback), so the
+				// chat call cannot work either. Unhealthy keeps it out of the
+				// candidate set instead of burning fallback attempts on it.
+				status = 'unhealthy';
+			} else {
+				status = 'healthy';
+			}
 			detail = { httpStatus: code };
 		} else {
 			detail = { error: probed.message };

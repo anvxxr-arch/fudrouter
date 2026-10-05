@@ -217,11 +217,22 @@ func (s *Store) ResolveModel(ctx context.Context, k *APIKeyRow, name string) (*M
 		if err := rows.Err(); err != nil {
 			return nil, err
 		}
-		if len(res.ModelIDs) == 0 {
+		if len(res.ModelIDs) > 0 {
+			res.Kind = "alias"
+			return res, nil
+		}
+		// A global row with no targets is a `fudrouter/*` virtual descriptor:
+		// the row exists so the catalogue can describe the name, and its
+		// candidate set is strategy-resolved below rather than pinned. Only a
+		// non-virtual empty alias is unroutable — returning early here made
+		// every `fudrouter/*` name a 404.
+		if kind != "global" {
 			return nil, ErrNotFound // an alias with no targets is not routable
 		}
-		res.Kind = "alias"
-		return res, nil
+		if _, ok := virtualModels[name]; !ok {
+			return nil, ErrNotFound
+		}
+		// fall through to the virtual branch (3)
 	case errors.Is(err, pgx.ErrNoRows):
 		// fall through
 	default:

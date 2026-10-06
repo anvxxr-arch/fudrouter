@@ -19,9 +19,9 @@
 //   node scripts/probe-credentials.mjs prv-tokenharbor # one provider, 6 rows
 //   PER_CONN=10 node scripts/probe-credentials.mjs     # widen the sample
 //
-// Run it with apps/web's .env loaded (it reads DATABASE_URL and
+// Run it with the root .env loaded (it reads DATABASE_URL and
 // CREDENTIALS_MASTER_KEY):
-//   set -a && . apps/web/.env && set +a && node scripts/probe-credentials.mjs
+//   set -a && . .env && set +a && node scripts/probe-credentials.mjs
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { installTsHooks, libUrl } from './ts-hooks.mjs';

@@ -7,7 +7,7 @@
 // `scripts/verify-*.mjs`, which imports `credentials.ts` through Node's type
 // stripping. Here we register synchronous module hooks so the whole `$lib/*`
 // graph resolves and strips (the `$lib` alias and `$app/*` shims are needed
-// because those modules were written for the SvelteKit/Vite resolver).
+// because those modules predate the shared/control-lib move).
 //
 // Usage: node --env-file=.env scripts/workers.mjs
 //   WORKER_TYPES=usage_aggregation,alert_evaluation   # subset of job types

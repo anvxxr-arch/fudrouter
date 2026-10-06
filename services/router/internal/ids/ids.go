@@ -3,7 +3,7 @@
 // Format (docs/specs/2026-09-30-platform-schema.md §1): `<prefix>_<uuidv7>` —
 // roughly time-ordered, non-sequential, safe to show in URLs and logs. App-side
 // generated, never `serial`, and byte-compatible with the TS control plane
-// (`apps/web/src/lib/server/id.ts` `newId`), which formats the same way from the
+// (`shared/control-lib/server/id.ts` `newId`), which formats the same way from the
 // `uuidv7` package.
 //
 // Prefix strip is "split on the first `_`" (spec §1), which is what makes

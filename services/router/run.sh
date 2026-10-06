@@ -7,7 +7,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 set -a
-. ../../apps/web/.env
+. ../../.env
 set +a
 
 exec ./bin/fudrouter-router

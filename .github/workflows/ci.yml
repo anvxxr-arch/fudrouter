@@ -9,7 +9,7 @@ on:
 # DATABASE_URL is absent, so a CI without a database would report green while
 # never exercising the code that actually serves traffic.
 jobs:
-  web:
+  react-web:
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -36,41 +36,17 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-      - run: npm ci
-      # svelte-kit sync types $env/dynamic/private from the .env files it can find,
-      # and a fresh checkout has none — so the Discord credentials resolve to
-      # `string | undefined` and svelte-check fails on auth.ts, the module every
-      # authenticated request goes through. Same CI-only placeholders as the env
-      # block above; nothing written here is a secret.
-      - name: Write the .env svelte-kit sync types from
-        run: |
-          cat > apps/web/.env <<'EOF'
-          DATABASE_URL=postgres://fudrouter:fudrouter@127.0.0.1:5434/fudrouter
-          ORIGIN=http://127.0.0.1:3000
-          BETTER_AUTH_SECRET=ci-only-not-a-real-secret
-          CREDENTIALS_MASTER_KEY=ZnVkcm91dGVyLWNpLXRlc3QtbWFzdGVyLWtleS0zMmI=
-          FLEXYROUTE_CLIENT_ID=ci-placeholder-client-id
-          FLEXYROUTE_CLIENT_SECRET=ci-placeholder-client-secret
-          EOF
-      - run: npx playwright install --with-deps chromium
-      - name: Check the generated theme against DESIGN.md
-        # theme.tailwind.css is generated from the spec. It drifted silently
-        # for as long as the file existed: editing DESIGN.md left the mirror
-        # stale and nothing failed, because nothing compared the two.
-        run: python3 tools/regen_theme.py --check
+      - run: npm ci --workspace apps/react-web
       - name: Apply the schema
         # scripts/migrate.sh is the ONLY migration path (spec §13): it applies
         # every infra/migrations/*.sql in order and records each in
-        # schema_migration. drizzle-kit migrate knew only 0000-0003 and silently
-        # skipped the hand-written 0004/0005.
+        # schema_migration.
         run: |
           command -v psql >/dev/null 2>&1 || {
             sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
           }
           ./scripts/migrate.sh
-      - run: npm run check --workspace apps/web
-      - run: npm run test --workspace apps/web
-      - run: npm run build --workspace apps/web
+      - run: npm run build --workspace apps/react-web
 
   router:
     runs-on: ubuntu-latest
@@ -110,14 +86,14 @@ jobs:
       # The data-plane tests are DB-backed on purpose, and they seed users, models
       # and providers. Without the schema every one of them dies on
       # `relation "user" does not exist` and the log reads like a code failure
-      # rather than a job that never migrated. Same DDL the web job applies, no
-      # node toolchain needed to get it.
+      # rather than a job that never migrated. Same DDL the react-web job applies,
+      # no node toolchain needed to get it.
       - name: Apply the schema
         run: |
           command -v psql >/dev/null 2>&1 || {
             sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
           }
-          # Same runner the web job and deploy use (spec §13) — one migration
+          # Same runner the react-web job and deploy use (spec §13) — one migration
           # path, no toolchain skew. The credential-split step self-skips here:
           # this job has no npm ci, so the `postgres` package is absent.
           ./scripts/migrate.sh

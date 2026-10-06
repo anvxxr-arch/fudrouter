@@ -1,0 +1,188 @@
+@import 'tailwindcss';
+
+/* Self-hosted webfonts fall back to system stacks when not bundled. */
+
+/*
+ * Design tokens: Tier 1 (primitives) + Tier 2 (semantic tokens).
+ * Tier 1 (primitives) + Tier 2 (semantic tokens). Components consume tier 2 only.
+ */
+:root {
+  color-scheme: dark;
+  /* ---- 1. primitives: brand ---- */
+  --color-orange: #ff6c11;
+  --color-orange-hover: #ff8a3d;
+  --color-amber: #ffaa2b;
+  --color-cream: #ffe2ae;
+  /* ---- 1. primitives: surfaces ---- */
+  --color-bg: #090b0f;
+  --color-surface: #151922;
+  --color-surface-raised: #1e2430;
+  --color-border: #2a3040;
+  --color-border-strong: #3d4660;
+  /* ---- 1. primitives: text ---- */
+  --color-text: #f5f6f8;
+  --color-text-muted: #8b94a3;
+  /* ---- 1. primitives: status ---- */
+  --color-success: #10b981;
+  --color-danger: #f87171;
+  --color-info: #38bdf8;
+  /* ---- 1. primitives: type ---- */
+  --font-ui: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* ---- 1. primitives: shape ---- */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-pill: 999px;
+  --control-h-sm: 32px;
+  --control-h-md: 40px;
+  --control-h-lg: 48px;
+  /* ---- 1. primitives: space (4px rhythm) ---- */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-card: 20px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+  --space-3xl: 80px;
+  /* ---- 1. primitives: type sizes ---- */
+  --text-caption: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-h5: 1.25rem;
+  --text-h4: clamp(1.5rem, 1.48rem + 0.1vw, 1.5625rem);
+  --text-h3: clamp(1.75rem, 1.66rem + 0.4vw, 2rem);
+  --text-h2: clamp(2.25rem, 2.07rem + 0.8vw, 2.75rem);
+  --text-h1: clamp(2.75rem, 2.48rem + 1.2vw, 3.5rem);
+  --text-display: clamp(3.5rem, 3.05rem + 2vw, 4.75rem);
+  --lh-display: 1.1;
+  --lh-body: 1.47;
+  --tracking-display: -0.02em;
+  --tracking-body: -0.00374em;
+  /* ---- 1. primitives: motion ---- */
+  --duration-fast: 120ms;
+  --duration-med: 320ms;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --focus-ring: 2px solid var(--primary);
+  /* ---- 2. semantic tokens ---- */
+  --primary: var(--color-orange);
+  --primary-hover: var(--color-orange-hover);
+  --on-primary: var(--color-bg);
+  --warning: var(--color-amber);
+  --glow:
+    radial-gradient(
+      55% 60% at 30% 0%,
+      color-mix(in srgb, var(--color-orange) 18%, transparent),
+      transparent 60%
+    ),
+    radial-gradient(
+      55% 60% at 70% 0%,
+      color-mix(in srgb, var(--color-amber) 13%, transparent),
+      transparent 60%
+    );
+}
+
+/* Tailwind v4 theme mirror so utilities match tokens. */
+@theme {
+  --color-orange: #ff6c11;
+  --color-orangeHover: #ff8a3d;
+  --color-amber: #ffaa2b;
+  --color-cream: #ffe2ae;
+  --color-bg: #090b0f;
+  --color-surface: #151922;
+  --color-surfaceRaised: #1e2430;
+  --color-border: #2a3040;
+  --color-borderStrong: #3d4660;
+  --color-text: #f5f6f8;
+  --color-textMuted: #8b94a3;
+  --color-success: #10b981;
+  --color-danger: #f87171;
+  --color-info: #38bdf8;
+  --font-sans: 'Plus Jakarta Sans', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --text-display: clamp(3.5rem, 3.05rem + 2vw, 4.75rem);
+  --text-h1: clamp(2.75rem, 2.48rem + 1.2vw, 3.5rem);
+  --text-h2: clamp(2.25rem, 2.07rem + 0.8vw, 2.75rem);
+  --text-h3: clamp(1.75rem, 1.66rem + 0.4vw, 2rem);
+  --text-h4: clamp(1.5rem, 1.48rem + 0.1vw, 1.5625rem);
+  --text-h5: 1.25rem;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-pill: 999px;
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-card: 20px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+  --spacing-2xl: 48px;
+  --spacing-3xl: 80px;
+}
+
+/* ---- base ---- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  line-height: var(--lh-body);
+  letter-spacing: var(--tracking-body);
+  -webkit-font-smoothing: antialiased;
+}
+h1 { margin: 0 0 var(--space-md); font-size: var(--text-h4); font-weight: 700; letter-spacing: -0.01em; line-height: 1.2; }
+h2 { margin: var(--space-lg) 0 var(--space-sm); font-size: var(--text-h5); font-weight: 600; line-height: 1.3; }
+h3 { margin: var(--space-lg) 0 var(--space-sm); font-size: var(--text-lg); font-weight: 600; line-height: 1.3; }
+a { color: var(--color-info); text-decoration: none; }
+a:hover { text-decoration: underline; }
+p a, li a, dd a, dt a, td a, .lede a {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
+}
+.skip-link {
+  position: absolute; left: var(--space-md); top: -4rem; z-index: 200;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--primary); color: var(--on-primary);
+  border-radius: var(--radius-md); font-size: var(--text-sm); font-weight: 600;
+}
+.skip-link:focus { top: var(--space-md); }
+code, pre { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+pre {
+  margin: 0; padding: var(--space-md);
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius-md); overflow-x: auto;
+  font-size: var(--text-sm); line-height: 1.6;
+}
+table.fr { width: 100%; border-collapse: collapse; }
+table.fr th { padding: var(--space-sm); border-bottom: 1px solid var(--color-border-strong); text-align: left; }
+table.fr td { padding: var(--space-sm); border-bottom: 1px solid var(--color-border); text-align: left; vertical-align: middle; }
+table.fr tbody tr:hover { background: var(--color-surface); }
+.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.muted { color: var(--color-text-muted); }
+.row { display: flex; align-items: center; gap: var(--space-sm); }
+.stack { display: grid; gap: var(--space-md); }
+.stack > * { min-width: 0; }
+.table-wrap { position: relative; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

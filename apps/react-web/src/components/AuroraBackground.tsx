@@ -1,0 +1,42 @@
+import { useEffect, useRef } from 'react';
+import anime from 'animejs';
+
+/**
+ * ReactBits-style animated aurora background: brand-hued blobs drifting on
+ * the hero glow tokens, staggered entrance via anime.js. Pure CSS fallback
+ * keeps the glow when JS motion is reduced or unavailable.
+ */
+export function AuroraBackground() {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!ref.current) return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const anim = anime({
+      targets: ref.current.querySelectorAll('.aurora-blob'),
+      translateX: ['-6%', '6%', '-6%'],
+      translateY: ['-4%', '5%', '-4%'],
+      scale: [1, 1.12, 1],
+      duration: 9000,
+      delay: anime.stagger(1200),
+      loop: true,
+      easing: 'easeInOutSine',
+    });
+    return () => anim.pause();
+  }, []);
+
+  return (
+    <div ref={ref} className="aurora" aria-hidden="true">
+      <div className="aurora-blob a" />
+      <div className="aurora-blob b" />
+      <div className="aurora-blob c" />
+      <style>{`
+        .aurora { position: absolute; inset: 0; overflow: hidden; pointer-events: none; background: var(--glow); }
+        .aurora-blob { position: absolute; width: 42vmax; height: 42vmax; border-radius: 50%; filter: blur(90px); opacity: 0.5; }
+        .aurora-blob.a { left: -10vmax; top: -14vmax; background: color-mix(in srgb, var(--color-orange) 26%, transparent); }
+        .aurora-blob.b { right: -12vmax; top: -10vmax; background: color-mix(in srgb, var(--color-amber) 22%, transparent); }
+        .aurora-blob.c { left: 22%; bottom: -20vmax; background: color-mix(in srgb, var(--color-cream) 12%, transparent); }
+      `}</style>
+    </div>
+  );
+}

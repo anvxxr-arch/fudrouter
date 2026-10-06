@@ -27,7 +27,7 @@ type ModelInfo struct {
 // ActiveModels lists the published catalogue.
 //
 // The gate is the same rule the control plane's publish gate implements
-// (`apps/web/src/lib/publish.ts`, endpoint-surface spec §2.1): canonical model
+// (`shared/control-lib/publish.ts`, endpoint-surface spec §2.1): canonical model
 // active AND provider servable. Two views of one catalogue must not drift.
 func (s *Store) ActiveModels(ctx context.Context) ([]ModelInfo, error) {
 	rows, err := s.pool.Query(ctx, `

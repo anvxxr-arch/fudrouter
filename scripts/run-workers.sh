@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # PM2 entrypoint for the worker fleet (PRD §75–76).
 #
-# Same secret-handling rule as apps/web/run.sh: source apps/web/.env at every
+# Same secret-handling rule: source the root .env at every
 # start so credentials are never copied into ecosystem.config.cjs or snapshotted
 # into ~/.pm2/dump.pm2. workers.mjs resolves its own $lib graph, so any cwd works.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 set -a
-. ./apps/web/.env
+. ./.env
 set +a
 
 # node --experimental-strip-types is not required: workers.mjs installs module

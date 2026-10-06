@@ -27,7 +27,7 @@ chmod 700 "$BACKUP_DIR"
 # --clean --if-exists makes the dump restorable onto a fresh database, and
 # --no-owner/--no-acl keep it restorable by a different role than the one that
 # made it. The credentials inside are ciphertext; the master key that opens them
-# lives in apps/web/.env and is NOT in this dump — back that file up separately.
+# lives in .env and is NOT in this dump — back that file up separately.
 docker exec postgres-hardened \
   pg_dump -U postgres -d "$DB_NAME" \
   --clean --if-exists --no-owner --no-acl --format=plain \
@@ -60,8 +60,8 @@ echo "$STAMP  $SIZE  ${TABLES} tables  $OUT.gz"
 # ciphertext. A dump without it restores into a database where every provider
 # decrypt fails, which looks exactly like a corrupt backup. Copy it alongside,
 # mode 600, and say so in the filename so nobody ships it to a shared box.
-if [ -f /home/dwizzy/fudrouter/apps/web/.env ]; then
+if [ -f /home/dwizzy/fudrouter/.env ]; then
   KEYOUT="$BACKUP_DIR/fudrouter-$STAMP.env"
-  install -m 600 /home/dwizzy/fudrouter/apps/web/.env "$KEYOUT"
+  install -m 600 /home/dwizzy/fudrouter/.env "$KEYOUT"
   echo "  master key -> $KEYOUT (mode 600, KEEP THIS OFF-SITE AND OFF-GIT)"
 fi

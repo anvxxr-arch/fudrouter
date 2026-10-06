@@ -2,7 +2,7 @@
 
 The Go data plane. Serves the `/v1/*` hot path and is the only component that
 talks to upstream model providers. See the [root README](../../README.md) for how
-this fits with the SvelteKit control plane.
+this fits with the React control plane.
 
 ## Package map
 
@@ -75,7 +75,7 @@ go test ./... -race
 `tests/helpers.go` **refuses** to run against a database named `fudrouter` —
 the application database — unless `FUDROUTER_ALLOW_PROD_TESTS=1` is set
 explicitly. That guard exists because the documented local workflow sources
-`apps/web/.env`, whose `DATABASE_URL` points at production; one run used to
+`./.env`, whose `DATABASE_URL` points at production; one run used to
 churn the live `request_log` ledger.
 
 Set `FUDROUTER_SLOW_POOL_TESTS=1` for the pool-walk bounds tests. One of them
@@ -85,7 +85,7 @@ trimmed.
 
 ## Deployment
 
-`run.sh` sources `../../apps/web/.env` and execs `./bin/fudrouter-router`. PM2
+`run.sh` sources `../../.env` and execs `./bin/fudrouter-router`. PM2
 (`ecosystem.config.cjs`) is the supervisor. `tools/prod-router-drill.sh` is the
 end-to-end drill: fresh database, migrations, build to a scratch path, boot twice
 with and without `ROUTER_ALLOW_DEV_PROVIDERS`, and always drop the scratch

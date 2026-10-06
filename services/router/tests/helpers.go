@@ -30,7 +30,7 @@ import (
 
 // allowProdEnv is the deliberate override for running the suite against a real
 // database. It must never be set by accident, and it is never set by the
-// documented workflow — `set -a; source apps/web/.env` sources the production
+// documented workflow — `set -a; source .env` sources the production
 // DSN, which is exactly the trap the guard below closes.
 const allowProdEnv = "FUDROUTER_ALLOW_PROD_TESTS"
 
@@ -79,7 +79,7 @@ func databaseName(dsn string) string {
 //
 // It also REFUSES the application database. The suite writes to and deletes
 // from whatever DATABASE_URL names, and the documented local workflow
-// (`set -a; source apps/web/.env`) points that variable at the live app
+// (`set -a; source .env`) points that variable at the live app
 // database. A plain run therefore used to insert and delete real usage rows and
 // provider rows in production. Point DATABASE_URL at a throwaway database, or
 // set FUDROUTER_ALLOW_PROD_TESTS=1 to accept the risk explicitly.

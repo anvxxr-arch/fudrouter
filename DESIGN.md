@@ -362,7 +362,7 @@ The design system defines these atoms in `$lib/ui/`:
 
 ### Import from the barrel
 
-`import { Button, Card } from '$lib/ui'` — not `'$lib/ui/Button.svelte'`.
+`import { Button, Card } from '$lib/ui'` — not per-file deep imports.
 
 ## Cards
 
@@ -440,7 +440,7 @@ Render rules:
 
 A table is a `TableWrap` around a plain `table.fr`:
 
-```svelte
+```tsx
 <TableWrap label="Recent requests">
   <table class="fr">
     <thead>…</thead>
@@ -451,7 +451,7 @@ A table is a `TableWrap` around a plain `table.fr`:
 
 `TableWrap` exists for one reason: `.table-wrap` scrolls horizontally, so it must be keyboard focusable — otherwise a keyboard user cannot reach the columns that scrolled off (axe: `scrollable-region-focusable`, serious). It sets `tabindex="0"` and `role="region"` and names the region from the `label` you pass. The wrapper scrolls; the table keeps its natural width.
 
-A `{@render}` slot **can** carry a `<table>` — the earlier claim here that it cannot was wrong, and it is why this shipped as raw markup with the a11y gap for so long. Svelte's `a11y_no_noninteractive_tabindex` warning on the wrapper is a false positive (it cannot see that the element scrolls); it is suppressed in the component with a comment.
+A `{@render}` slot **can** carry a `<table>` — the earlier claim here that it cannot was wrong, and it is why this shipped as raw markup with the a11y gap for so long. the wrapper's `tabindex` a11y warning is a false positive (the linter cannot see that the element scrolls); it is suppressed in the component with a comment.
 
 ## Do's and Don'ts
 

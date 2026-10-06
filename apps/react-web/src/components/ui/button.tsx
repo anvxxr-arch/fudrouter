@@ -1,98 +1,48 @@
 import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
-import { cva, type VariantProps } from "class-variance-authority";
-
-import { cn } from "@/lib/utils";
-
-const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
-  {
-    variants: {
-      variant: {
-        default: "bg-primary text-primary-foreground shadow hover:bg-primary/90",
-        primary:
-          "shadow hover:opacity-90",
-        destructive:
-          "bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90",
-        outline:
-          "border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground",
-        secondary:
-          "bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/80",
-        ghost: "hover:bg-accent hover:text-accent-foreground",
-        link: "text-primary underline-offset-4 hover:underline",
-      },
-      size: {
-        default: "h-9 px-4 py-2",
-        sm: "h-8 rounded-md px-3 text-xs",
-        md: "h-9 px-4 py-2",
-        lg: "h-10 rounded-md px-8",
-        icon: "h-9 w-9",
-      },
-    },
-    defaultVariants: {
-      variant: "default",
-      size: "default",
-    },
-  }
-);
 
 export interface ButtonProps
-  extends React.ButtonHTMLAttributes<HTMLButtonElement>,
-    VariantProps<typeof buttonVariants> {
+  extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  variant?:
+    | "default"
+    | "primary"
+    | "secondary"
+    | "ghost"
+    | "outline"
+    | "destructive"
+    | "link";
+  size?: "default" | "sm" | "md" | "lg" | "icon";
   asChild?: boolean;
 }
 
+/**
+ * Maps the legacy variant/size vocabulary onto the bespoke semantic classes in
+ * styles.css. `default` and `primary` render identically (both are the orange
+ * filled control), matching the previous inline-style override behaviour.
+ */
+export function variantClass(
+  variant: ButtonProps["variant"],
+  size: ButtonProps["size"],
+): string {
+  const v = variant ?? "default";
+  const s = size ?? "default";
+  const variantName = v === "default" ? "primary" : v;
+  const sizeName = s === "default" ? "md" : s;
+  return `btn btn-${variantName} btn-${sizeName}`;
+}
+
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, asChild = false, style, ...props }, ref) => {
+  ({ className, variant, size, asChild = false, ...props }, ref) => {
     const Comp = asChild ? Slot : "button";
-    const legacy =
-      variant === "primary"
-        ? {
-            background: "var(--primary)",
-            color: "var(--on-primary)",
-            border: "1px solid transparent",
-            height:
-              size === "sm"
-                ? "var(--control-h-sm)"
-                : size === "lg"
-                  ? "var(--control-h-lg)"
-                  : "var(--control-h-md)",
-          }
-        : variant === "secondary"
-          ? {
-              background: "var(--color-surface-raised)",
-              color: "var(--color-text)",
-              border: "1px solid transparent",
-              height:
-                size === "sm"
-                  ? "var(--control-h-sm)"
-                  : size === "lg"
-                    ? "var(--control-h-lg)"
-                    : "var(--control-h-md)",
-            }
-          : variant === "ghost"
-            ? {
-                background: "transparent",
-                color: "var(--color-text)",
-                border: "1px solid var(--color-border)",
-                height:
-                  size === "sm"
-                    ? "var(--control-h-sm)"
-                    : size === "lg"
-                      ? "var(--control-h-lg)"
-                      : "var(--control-h-md)",
-              }
-            : undefined;
     return (
       <Comp
-        className={cn(buttonVariants({ variant, size, className }))}
-        style={legacy ? { ...legacy, ...style } : style}
         ref={ref}
+        className={className ? `${variantClass(variant, size)} ${className}` : variantClass(variant, size)}
         {...props}
       />
     );
-  }
+  },
 );
 Button.displayName = "Button";
 
-export { Button, buttonVariants };
+export { Button };

@@ -118,7 +118,6 @@ export function PlaygroundPage() {
           </section>
         </div>
         <p className="muted">Signed out? <Link to="/signup">Get an API key</Link> to run real requests.</p>
-        <style>{`.panels { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: var(--space-lg); } .metrics { display: grid; grid-template-columns: max-content minmax(0,1fr); gap: var(--space-xs) var(--space-md); } .metrics dd { margin: 0; } @media (max-width: 900px) { .panels { grid-template-columns: 1fr; } }`}</style>
       </div>
     </Reveal>
   );

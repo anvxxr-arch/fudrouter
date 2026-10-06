@@ -97,7 +97,6 @@ export function HomePage() {
           <p className="muted">Sign up, mint a key, and point a client at the API.</p>
           <Link to="/signup"><Button>Get API Key</Button></Link>
         </section>
-        <style>{`.hero { position: relative; } .hero-split { display: flex; flex-wrap: wrap; gap: var(--space-xl); align-items: flex-start; } .hero-copy { flex: 1 1 20rem; display: grid; gap: var(--space-md); } .hero-code { flex: 1 1 24rem; margin: 0; max-width: 34rem; } .metrics-strip { display: flex; flex-wrap: wrap; gap: var(--space-lg); padding: var(--space-lg); } .grid3 { display: grid; gap: var(--space-md); grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); } .display-xl { font-size: var(--text-display); letter-spacing: var(--tracking-display); line-height: var(--lh-display); } .fr-label { color: var(--color-text-muted); font-size: var(--text-caption); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }`}</style>
       </div>
     </Reveal>
   );

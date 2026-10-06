@@ -30,13 +30,6 @@ export function AuroraBackground() {
       <div className="aurora-blob a" />
       <div className="aurora-blob b" />
       <div className="aurora-blob c" />
-      <style>{`
-        .aurora { position: absolute; inset: 0; overflow: hidden; pointer-events: none; background: var(--glow); }
-        .aurora-blob { position: absolute; width: 42vmax; height: 42vmax; border-radius: 50%; filter: blur(90px); opacity: 0.5; }
-        .aurora-blob.a { left: -10vmax; top: -14vmax; background: color-mix(in srgb, var(--color-orange) 26%, transparent); }
-        .aurora-blob.b { right: -12vmax; top: -10vmax; background: color-mix(in srgb, var(--color-amber) 22%, transparent); }
-        .aurora-blob.c { left: 22%; bottom: -20vmax; background: color-mix(in srgb, var(--color-cream) 12%, transparent); }
-      `}</style>
     </div>
   );
 }

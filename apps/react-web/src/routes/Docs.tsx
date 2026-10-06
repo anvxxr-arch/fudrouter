@@ -84,7 +84,6 @@ export function DocsPage() {
             )}
           </main>
         </div>
-        <style>{`.doc-layout { display: grid; grid-template-columns: 14rem minmax(0,1fr); gap: var(--space-xl); } .doc-sidebar { position: sticky; top: var(--space-lg); align-self: start; display: grid; gap: var(--space-md); } .doc-sidebar ul { list-style: none; margin: var(--space-xs) 0 0; padding: 0; display: grid; gap: var(--space-xs); } .doc-sidebar a.current { color: var(--color-text); font-weight: 600; } .cat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: var(--space-md); } .cat-card { display: grid; gap: var(--space-xs); padding: var(--space-md); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); } .doc-pager { display: flex; justify-content: space-between; margin-top: var(--space-xl); border-top: 1px solid var(--color-border); padding-top: var(--space-md); } @media (max-width: 720px) { .doc-layout { grid-template-columns: 1fr; } }`}</style>
       </div>
     </Reveal>
   );

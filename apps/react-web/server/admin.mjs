@@ -5,11 +5,19 @@
 // registerAdminRoutes(app, ctx); all tables here are local minimal column
 // copies so index.mjs needs no changes beyond import + register.
 import { uuidv7 as _uuidv7 } from 'uuidv7';
-import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import net from 'node:net';
-import { lookup as _dnsLookup } from 'node:dns/promises';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { and, asc, desc, eq, gte, lt, lte, or, ne, isNull, inArray, notInArray, sql } from 'drizzle-orm';
+import {
+	MIN_PRIORITY, MAX_PRIORITY, MIN_TIMEOUT_MS, MAX_TIMEOUT_MS, MAX_BATCH_MODELS, MAX_BULK_TEST, MAX_CHAT_CHARS,
+	_parseEnum, _parseInt, _parseBool, _cleanField, _parseSlug, _parseJson, _parseFlags, _parseMicros,
+	_usdToMicro, _microToUsd, _microsToInput, _matchKey, _isIpOrCidr
+} from './lib/validate.mjs';
+import { _encCred, _decCred, _tokenAt, _headersFor } from './lib/credentials.mjs';
+import { _isBlockedLiteral, _assertPublic, _fetchCatalog } from './lib/ssrf.mjs';
+import { _sanitizeAudit, _dropRedacted, _auditView, makeAudit } from './lib/audit.mjs';
+import { SECTION_CAPS, _capsFor, _dominates, _canAdminister, _guardUser } from './lib/rbac.mjs';
+import { _deriveHealth, _evalSignals, _vkPing } from './lib/format.mjs';
 import {
 	pgTable,
 	text,
@@ -266,27 +274,6 @@ export const ausr = pgTable('user', {
 	createdAt: timestamp('created_at', tz).notNull().defaultNow()
 });
 
-// Section -> extra cap beyond admin.view (mirrors ROUTE_CAPS in roles.ts).
-const SECTION_CAPS = {
-	analytics: 'admin.view',
-	billing: 'admin.billing',
-	connections: 'admin.ops',
-	health: 'admin.ops',
-	incidents: 'admin.ops',
-	keys: 'admin.keys',
-	models: 'admin.models',
-	projects: 'admin.users',
-	providers: 'admin.providers',
-	requests: 'admin.requests',
-	routing: 'admin.ops',
-	security: 'admin.audit',
-	settings: 'admin.settings',
-	system: 'admin.ops',
-	traffic: 'admin.ops',
-	users: 'admin.users',
-	workspaces: 'admin.users'
-};
-
 const B = (v) => (typeof v === 'bigint' ? v.toString() : String(v ?? '0'));
 const micros = (v) => String(v ?? '0').split('.')[0];
 
@@ -321,7 +308,6 @@ const POLICY_SCOPES = ['platform', 'workspace', 'project', 'environment'];
 const KEY_LIFECYCLE_ACTIONS = ['key.rotate', 'api_key.rotate', 'key.create'];
 const TIMING_KEYS = ['auth', 'rate_limit', 'routing', 'queue', 'connection', 'generation'];
 const VK_NAMESPACES = ['rl', 'conc', 'spend', 'usage', 'health', 'credential', 'circuit', 'model', 'catalog', 'session', 'idem', 'lock', 'metric', 'ver'];
-const MIN_PRIORITY = 0, MAX_PRIORITY = 10000, MIN_TIMEOUT_MS = 1000, MAX_TIMEOUT_MS = 600000, MAX_BATCH_MODELS = 500, MAX_BULK_TEST = 40, MAX_CHAT_CHARS = 8000;
 const _IDP = { model: 'mdl_', providerModel: 'pmdl_', pricingRule: 'prc_', provider: 'prv_', connection: 'con_', credential: 'cred_', routingPolicy: 'rte_', rateLimit: 'lim_', securityRule: 'rul_', circuitBreaker: 'cbr_', featureFlag: 'flg_', budget: 'bdg_' };
 const _newId = (p) => p + _uuidv7();
 const _rowsOf = (r) => (Array.isArray(r) ? r : (r && Array.isArray(r.rows) ? r.rows : []));
@@ -334,33 +320,6 @@ const _reach = (modelStatus, providerStatus, allowDev) => {
 };
 const _allowDev = () => ['1', 'true', 'yes', 'on'].includes(String(process.env.ROUTER_ALLOW_DEV_PROVIDERS ?? '').trim().toLowerCase());
 const _allowPrivate = () => ['1', 'true', 'yes', 'on'].includes(String(process.env.ALLOW_PRIVATE_UPSTREAMS ?? '').trim().toLowerCase());
-const _parseEnum = (allowed, raw) => { const v = String(raw ?? '').trim(); return allowed.includes(v) ? v : null; };
-const _parseInt = (raw, min, max) => { const v = String(raw ?? '').trim(); if (!v || !/^[0-9]+$/.test(v)) return null; const n = Number(v); return (Number.isSafeInteger(n) && n >= min && n <= max) ? n : null; };
-const _parseBool = (raw) => { const v = String(raw ?? '').trim().toLowerCase(); return v === 'on' || v === 'true' || v === '1'; };
-const _cleanField = (raw, max = 200) => { const v = String(raw ?? '').trim(); if (!v || v.length > max) return null; let out = ''; for (const ch of v) { const c = ch.codePointAt(0); if (c === 9 || c === 10 || c === 13 || c >= 32) out += ch; } return out || null; };
-const _parseSlug = (raw) => { const v = String(raw ?? '').trim(); if (!v || v.length > 120) return null; return /^[A-Za-z0-9._:/-]+$/.test(v) ? v : null; };
-const _parseJson = (raw) => { const v = String(raw ?? '').trim(); if (!v) return {}; try { const p = JSON.parse(v); return (p && typeof p === 'object' && !Array.isArray(p)) ? p : null; } catch { return null; } };
-const _parseFlags = (raw) => { const v = String(raw ?? '').trim(); if (!v) return {}; try { const p = JSON.parse(v); if (!p || typeof p !== 'object' || Array.isArray(p)) return null; const out = {}; for (const [k, x] of Object.entries(p)) { if (typeof x !== 'boolean') return null; out[k] = x; } return out; } catch { return null; } };
-const _parseMicros = (input) => { const s = String(input ?? '').trim(); const m = /^(\d+)(?:\.(\d{1,6}))?$/.exec(s); if (!m) return null; try { return BigInt(m[1]) * 1000000n + BigInt((m[2] ?? '').padEnd(6, '0')); } catch { return null; } };
-const _usdToMicro = (usd) => { const s = String(usd ?? '').trim(); if (!s) return null; const n = Number(s); if (!Number.isFinite(n) || n < 0) return null; return BigInt(Math.round(n * 1000000)).toString(); };
-const _microToUsd = (micro) => { if (micro === null || micro === undefined) return '—'; return (Number(micro) / 1000000).toFixed(2); };
-const _microsToInput = (v) => { const w = v / 1000000n; const f = (v % 1000000n).toString().padStart(6, '0').replace(/0+$/, ''); return f ? `${w}.${f}` : w.toString(); };
-const _matchKey = (slug) => String(slug).replace(/^models\//, '');
-function _masterKey() { const k = process.env.CREDENTIALS_MASTER_KEY; if (!k) throw new Error('CREDENTIALS_MASTER_KEY is not set'); const buf = Buffer.from(k, 'base64'); if (buf.length !== 32) throw new Error('CREDENTIALS_MASTER_KEY must be base64 of 32 bytes'); return buf; }
-const _encCred = (plain) => { const iv = randomBytes(12); const c = createCipheriv('aes-256-gcm', _masterKey(), iv); const ct = Buffer.concat([c.update(JSON.stringify(plain), 'utf8'), c.final()]); return Buffer.concat([iv, ct, c.getAuthTag()]).toString('base64'); };
-const _decCred = (enc) => { const buf = Buffer.from(enc, 'base64'); if (buf.length < 28) throw new Error('ciphertext too short'); const iv = buf.subarray(0, 12); const tag = buf.subarray(buf.length - 16); const ct = buf.subarray(12, buf.length - 16); const d = createDecipheriv('aes-256-gcm', _masterKey(), iv); d.setAuthTag(tag); return JSON.parse(Buffer.concat([d.update(ct), d.final()]).toString('utf8')); };
-const _tokenAt = (cred, i) => { const accts = Array.isArray(cred.accounts) ? cred.accounts : []; const a = accts[i]; return String(a?.access_token || a?.api_key || cred.access_token || cred.api_key || ''); };
-const _headersFor = (cred, token) => { const h = { ...((cred.default_headers ?? {})) }; if (token) h.authorization = `Bearer ${token}`; return h; };
-function _isBlockedLiteral(host) { const h = String(host).toLowerCase().replace(/\.$/, ''); if (h === 'localhost') return true; if (net.isIP(h)) { if (net.isIPv4(h)) { const o = h.split('.').map(Number); if (o[0] === 10 || o[0] === 127 || (o[0] === 172 && o[1] >= 16 && o[1] <= 31) || (o[0] === 192 && o[1] === 168) || (o[0] === 169 && o[1] === 254) || o[0] === 0) return true; } else if (h === '::1' || h.startsWith('fc') || h.startsWith('fd') || h.startsWith('fe80')) return true; } return false; }
-async function _assertPublic(rawUrl, allowPrivate = false) { if (allowPrivate) return { ok: true }; let u; try { u = new URL(String(rawUrl)); } catch { return { ok: false, reason: 'base_url is not a valid URL' }; } if (u.protocol !== 'https:' && u.protocol !== 'http:') return { ok: false, reason: `scheme ${u.protocol} is not allowed; use http or https` }; const host = u.hostname; if (!host) return { ok: false, reason: 'base_url has no host' }; if (_isBlockedLiteral(host)) return { ok: false, reason: `refusing to call a non-public address (${host})` }; try { const r = await _dnsLookup(host); if (r && _isBlockedLiteral(r.address)) return { ok: false, reason: `refusing to call a non-public address (${host})` }; } catch { return { ok: false, reason: `cannot resolve upstream host (${host})` }; } return { ok: true }; }
-async function _fetchCatalog(baseUrl, cred, index = 0) { const base = String(baseUrl).trim().replace(/\/+$/, ''); const headers = _headersFor(cred, _tokenAt(cred, index)); const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 15000); try { const res = await fetch(`${base}/models`, { headers, signal: ctrl.signal, redirect: 'manual' }); const rl = {}; for (const [k, v] of res.headers.entries()) { if (k.startsWith('x-ratelimit') || k === 'retry-after') rl[k] = v; } if (!res.ok) return { models: [], status: res.status, url: `${base}/models`, rateLimit: rl }; let payload = null; try { payload = await res.json(); } catch { payload = null; } const raw = payload?.data && Array.isArray(payload.data) ? payload.data : (Array.isArray(payload) ? payload : []); const seen = new Set(); const models = []; for (const item of raw) { if (!item || typeof item !== 'object') continue; const slug = String(item.id ?? item.model ?? item.slug ?? '').trim(); if (!slug || seen.has(slug)) continue; seen.add(slug); models.push({ slug, name: String(item.name ?? item.display_name ?? item.label ?? slug) }); } return { models, status: res.status, url: `${base}/models`, rateLimit: rl }; } finally { clearTimeout(t); } }
-const _isIpOrCidr = (value) => { const v = String(value).trim(); if (!v || v.length > 64) return false; const slash = v.indexOf('/'); if (slash === -1) return net.isIP(v) !== 0; if (v.indexOf('/', slash + 1) !== -1) return false; const addr = v.slice(0, slash); const prefix = v.slice(slash + 1); if (!/^(0|[1-9]\d?)$/.test(prefix)) return false; if (net.isIPv4(addr)) return Number(prefix) <= 32; if (net.isIPv6(addr)) return Number(prefix) <= 128; return false; };
-function _deriveHealth({ requests, successRate, openIncidents, latestSnapshot }) { if (openIncidents.some((i) => i.severity === 'critical')) return 'outage'; if (latestSnapshot === 'unhealthy') return 'outage'; if (requests > 0 && successRate !== null && successRate < 50) return 'outage'; if (openIncidents.length > 0) return 'degraded'; if (latestSnapshot === 'degraded') return 'degraded'; if (requests > 0 && successRate !== null && successRate < 99) return 'degraded'; return 'operational'; }
-function _evalSignals(rules, windows) { const out = []; const th = (c) => { const t = Number(c?.threshold); return Number.isFinite(t) ? t : 0; }; const win = (c) => { const w = Number(c?.window_seconds); return (Number.isFinite(w) && w > 0) ? w : 3600; }; for (const rule of rules) { if (!rule.enabled) continue; for (const s of windows) { const t = th(rule.config); let hit = null; if (rule.kind === 'request_spike' && t > 0 && s.requests >= t) hit = { value: s.requests, message: `${s.requests} requests in the window (threshold ${t})` }; else if (rule.kind === 'auth_failures' && t > 0 && s.authFailures >= t) hit = { value: s.authFailures, message: `${s.authFailures} authentication failures (threshold ${t})` }; else if (rule.kind === 'key_rotation' && t > 0 && s.keyRotations >= t) hit = { value: s.keyRotations, message: `${s.keyRotations} API key rotations (threshold ${t})` }; else if (rule.kind === 'ip_distribution' && t > 0 && s.distinctIps >= t) hit = { value: s.distinctIps, message: `${s.distinctIps} distinct client addresses (threshold ${t} addresses)` }; else if (rule.kind === 'budget_anomaly' && s.budgetMicro !== null && s.budgetMicro > 0n && t > 0) { const pct = Number((s.spendMicro * 100n) / s.budgetMicro); if (pct >= t) hit = { value: pct, message: `${pct}% of the window budget spent (threshold ${t}%)` }; } else if (rule.kind === 'excessive_errors' && t > 0 && s.errorCount >= t) hit = { value: s.errorCount, message: `${s.errorCount} failed requests (threshold ${t})` }; else if (rule.kind === 'credential_abuse' && t > 0 && s.credentialAuthFailures >= t) hit = { value: s.credentialAuthFailures, message: `${s.credentialAuthFailures} upstream credential rejections (threshold ${t})` }; if (hit) out.push({ ruleId: rule.id, name: rule.name, kind: rule.kind, action: rule.action, at: s.windowStart, value: hit.value, threshold: t, windowSeconds: win(rule.config), message: hit.message }); } } out.sort((a, b) => new Date(b.at) - new Date(a.at)); return out; }
-function _sanitizeAudit(v) { if (Array.isArray(v)) return v.map(_sanitizeAudit); if (v && typeof v === 'object') { const out = {}; for (const [k, x] of Object.entries(v)) { out[k] = (/secret|token|password|credentials?|key_hash/i.test(k) || /^(api_?key|authorization)$/i.test(String(k).toLowerCase())) ? '[redacted]' : _sanitizeAudit(x); } return out; } return v; }
-function _dropRedacted(v) { if (Array.isArray(v)) return v.map(_dropRedacted); if (v && typeof v === 'object') { const out = {}; for (const [k, x] of Object.entries(v)) { if (x === '[redacted]') continue; out[k] = _dropRedacted(x); } return out; } return v; }
-const _auditView = (row) => ({ ...row, before: row.before ? _dropRedacted(_sanitizeAudit(row.before)) : null, after: row.after ? _dropRedacted(_sanitizeAudit(row.after)) : null, metadata: _dropRedacted(_sanitizeAudit(row.metadata ?? {})) });
-async function _vkPing() { if (!process.env.VALKEY_URL) return 'not configured'; try { const u = new URL(process.env.VALKEY_URL); const sock = net.createConnection({ host: u.hostname, port: Number(u.port) || 6379 }); await new Promise((res, rej) => { const t = setTimeout(() => rej(new Error('timeout')), 3000); sock.on('connect', () => { sock.write('*1\r\n$4\r\nPING\r\n'); }); sock.on('data', () => { clearTimeout(t); res(); }); sock.on('error', (e) => { clearTimeout(t); rej(e); }); }); try { sock.destroy(); } catch {} return 'up'; } catch { return 'down'; } }
 
 export function registerAdminRoutes(app, ctx) {
 	const { needDb, authedUser, requireCap, HttpError } = ctx;
@@ -407,20 +366,9 @@ export function registerAdminRoutes(app, ctx) {
 		};
 	}
 	const _fail = (status, message) => { throw new HttpError(status, message); };
-	async function _audit(dbx, entry) {
-		const redact = (v) => {
-			if (Array.isArray(v)) return v.map(redact);
-			if (v && typeof v === 'object') { const o = {}; for (const [k, x] of Object.entries(v)) o[k] = (/secret|token|password|key_hash|credentials?/i.test(k) || k === 'api_key' || k === 'authorization') ? '[redacted]' : redact(x); return o; }
-			return v;
-		};
-		await dbx.execute(sql`insert into audit_log (id, actor_user_id, actor_kind, action, resource, resource_id, workspace_id, ip, before, after, metadata) values (${_newId('aud_')}, ${entry.actorUserId ?? null}, ${entry.actorUserId ? 'user' : 'system'}, ${entry.action}, ${entry.resource}, ${entry.resourceId ?? null}, ${entry.workspaceId ?? null}, ${entry.ip ?? _ipStore.getStore() ?? null}, ${entry.before ? JSON.stringify(redact(entry.before)) : null}::jsonb, ${entry.after ? JSON.stringify(redact(entry.after)) : null}::jsonb, ${JSON.stringify(redact(entry.metadata ?? {}))}::jsonb)`);
-	}
+	const _audit = makeAudit(_ipStore);
 	const _getSetting = async (database, key) => { const r = _rowsOf(await database.execute(sql`select value from system_setting where key = ${key} limit 1`)); return r[0]?.value ?? null; };
 	const _setSetting = async (dbx, key, value, actor) => { await dbx.execute(sql`insert into system_setting (key, value, updated_by, updated_at) values (${key}, ${JSON.stringify(value)}::jsonb, ${actor}, now()) on conflict (key) do update set value = ${JSON.stringify(value)}::jsonb, updated_by = ${actor}, updated_at = now()`); };
-	const _capsFor = (role) => { const m = { user: ['member'], finance_admin: ['member', 'admin.view', 'admin.billing', 'admin.users'], ops_admin: ['member', 'admin.view', 'admin.providers', 'admin.models', 'admin.requests', 'admin.ops'], admin: ['member', 'admin.view', 'admin.users', 'admin.keys', 'admin.providers', 'admin.models', 'admin.requests', 'admin.ops', 'admin.billing', 'admin.audit', 'admin.settings'] }; return new Set(m[role] ?? ['member']); };
-	const _dominates = (a, b) => { for (const c of b) if (!a.has(c)) return false; return true; };
-	const _canAdminister = (actorRole, targetRole, granted) => { const a = _capsFor(actorRole); if (!_dominates(a, _capsFor(targetRole))) return false; if (granted !== undefined && granted !== null && !_dominates(a, _capsFor(granted))) return false; return true; };
-	const _guardUser = (actor, targetRole, granted) => { if (!_canAdminister(actor?.role ?? null, targetRole, granted)) return (granted !== undefined && granted !== targetRole) ? 'You cannot grant a role above your own level' : 'You cannot modify a user at or above your own level'; return null; };
 
 	// Overview (admin/+page.server.ts): counts + top consumers + recent.
 	app.get('/api/admin/overview', handler('analytics', async (database) => {

@@ -416,27 +416,10 @@ export const auth = betterAuth({
 });
 
 // ------------------------------------------------------------- caps/rbac ----
-const ROLE_CAPS = {
-	user: ['member'],
-	finance_admin: ['member', 'admin.view', 'admin.billing', 'admin.users'],
-	ops_admin: ['member', 'admin.view', 'admin.providers', 'admin.models', 'admin.requests', 'admin.ops'],
-	admin: [
-		'member',
-		'admin.view',
-		'admin.users',
-		'admin.keys',
-		'admin.providers',
-		'admin.models',
-		'admin.requests',
-		'admin.ops',
-		'admin.billing',
-		'admin.audit',
-		'admin.settings'
-	]
-};
-function capsFor(role) {
-	return new Set(role && ROLE_CAPS[role] ? ROLE_CAPS[role] : ['member']);
-}
+// ROLE_CAPS/capsFor live in server/lib/rbac.mjs (shared with admin.mjs); they
+// are re-exported here so existing importers of index.mjs keep working.
+export { ROLE_CAPS, capsFor } from './lib/rbac.mjs';
+import { ROLE_CAPS, capsFor } from './lib/rbac.mjs';
 const ALL_WORKSPACE_PERMISSIONS = [
 	'workspace.read', 'workspace.write', 'workspace.delete', 'member.read', 'member.invite',
 	'member.remove', 'project.read', 'project.write', 'project.delete', 'key.read',

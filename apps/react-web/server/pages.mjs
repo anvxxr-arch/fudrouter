@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { sql } from 'drizzle-orm';
 
 // DB-backed dashboard page loads + POST actions for the member dashboard
@@ -230,7 +231,6 @@ function prefixFor(ctx, key) {
 }
 export function registerPages(app, ctx) {
 	const {
-		getDb,
 		needDb,
 		authedUser,
 		requireCap,
@@ -242,6 +242,10 @@ export function registerPages(app, ctx) {
 		ID_PREFIXES,
 		HttpError
 	} = ctx;
+	// Request-scoped client IP so every writeAudit row records it without
+	// threading req through every handler. Set by wrap() below.
+	const _ipStore = new AsyncLocalStorage();
+	const _clientIp = (req) => { const xff = req.headers?.['x-forwarded-for']; if (typeof xff === 'string' && xff.length) return xff.split(',')[0].trim(); if (Array.isArray(xff) && xff.length) return String(xff[0]).split(',')[0].trim(); return req.socket?.remoteAddress ?? null; };
 
 	async function mustAuth(req) {
 		const userRow = await authedUser(req);
@@ -293,7 +297,7 @@ export function registerPages(app, ctx) {
 
 	const wrap = (fn) => async (req, res) => {
 		try {
-			await fn(req, res);
+			await _ipStore.run(_clientIp(req), () => fn(req, res));
 		} catch (err) {
 			if (err instanceof HttpError) return fail(res, err.status, err.message);
 			if (err && err.status) return fail(res, err.status, err.message || 'Request failed');
@@ -301,6 +305,8 @@ export function registerPages(app, ctx) {
 			if (!res.headersSent) return fail(res, 500, 'Request failed');
 		}
 	};
+	// writeAudit with the request IP filled in from the async store.
+	const audit = (database, entry) => writeAudit(database, { ip: _ipStore.getStore() ?? null, ...entry });
 
 	// ---- overview ----
 	app.get('/api/pages/dashboard', wrap(async (req, res) => {
@@ -426,7 +432,7 @@ export function registerPages(app, ctx) {
 		if (warning < 0n || hardStop < 0n) return fail(res, 400, 'Thresholds cannot be negative.');
 		if (hardStop > warning) return fail(res, 400, 'The hard-stop threshold must be at or below the warning threshold.');
 		await database.execute(sql`update billing_account set warning_threshold_micro = ${warning.toString()}, hard_stop_threshold_micro = ${hardStop.toString()}, updated_at = now() where workspace_id = ${workspaceId}`);
-		await writeAudit(database, { actorUserId: userRow.id, action: 'billing.thresholds.update', resource: 'billing_account', workspaceId, after: { warning_threshold_micro: warning.toString(), hard_stop_threshold_micro: hardStop.toString() } });
+		await audit(database, { actorUserId: userRow.id, action: 'billing.thresholds.update', resource: 'billing_account', workspaceId, after: { warning_threshold_micro: warning.toString(), hard_stop_threshold_micro: hardStop.toString() } });
 		res.json({ saved: true });
 	}));
 	app.get(['/api/pages/billing/credits', '/api/pages/dashboard/billing/credits'], wrap(async (req, res) => {
@@ -602,17 +608,17 @@ export function registerPages(app, ctx) {
 			const name = String(okBody(req).name ?? '').trim();
 			if (!name) return fail(res, 400, 'Workspace name is required');
 			await database.execute(sql`update workspace set name = ${name}, updated_at = now() where id = ${ws.id}`);
-			await writeAudit(database, { actorUserId: userRow.id, action: 'workspace.update', resource: 'workspace', resourceId: ws.id, workspaceId: ws.id, before: { name: ws.name }, after: { name } });
+			await audit(database, { actorUserId: userRow.id, action: 'workspace.update', resource: 'workspace', resourceId: ws.id, workspaceId: ws.id, before: { name: ws.name }, after: { name } });
 			return res.json({ renamed: name });
 		}],
 		['archive', async (database, userRow, req, res, ws) => {
 			await database.execute(sql`update workspace set status = 'archived', updated_at = now() where id = ${ws.id}`);
-			await writeAudit(database, { actorUserId: userRow.id, action: 'workspace.archive', resource: 'workspace', resourceId: ws.id, workspaceId: ws.id });
+			await audit(database, { actorUserId: userRow.id, action: 'workspace.archive', resource: 'workspace', resourceId: ws.id, workspaceId: ws.id });
 			return res.json({ archived: true });
 		}],
 		['restore', async (database, userRow, req, res, ws) => {
 			await database.execute(sql`update workspace set status = 'active', updated_at = now() where id = ${ws.id}`);
-			await writeAudit(database, { actorUserId: userRow.id, action: 'workspace.restore', resource: 'workspace', resourceId: ws.id, workspaceId: ws.id });
+			await audit(database, { actorUserId: userRow.id, action: 'workspace.restore', resource: 'workspace', resourceId: ws.id, workspaceId: ws.id });
 			return res.json({ restored: true });
 		}]
 	]) {
@@ -630,9 +636,11 @@ export function registerPages(app, ctx) {
 		const targetId = String(okBody(req).workspaceId ?? okBody(req).id ?? '').trim();
 		const m = rowsOf(await database.execute(sql`select id from workspace_member where workspace_id = ${targetId} and user_id = ${userRow.id} and status = 'active' limit 1`))[0];
 		if (!m) return fail(res, 403, 'Not a member of that workspace');
-		res.cookie('fwid', targetId, { path: '/', maxAge: 31536000000, sameSite: 'lax' });
-		res.clearCookie('fpid', { path: '/' });
-		res.clearCookie('feid', { path: '/' });
+		// httpOnly + secure: deployment is behind a cloudflared tunnel at
+		// https://ai.karepmuwes.my.id, so these only ever travel over HTTPS.
+		res.cookie('fwid', targetId, { path: '/', maxAge: 31536000000, sameSite: 'lax', httpOnly: true, secure: true });
+		res.clearCookie('fpid', { path: '/', httpOnly: true, secure: true });
+		res.clearCookie('feid', { path: '/', httpOnly: true, secure: true });
 		res.json({ switched: targetId });
 	}));
 
@@ -676,12 +684,12 @@ export function registerPages(app, ctx) {
 			const already = rowsOf(await database.execute(sql`select id from workspace_member where workspace_id = ${workspaceId} and user_id = ${existingUser.id} limit 1`))[0];
 			if (already) return fail(res, 400, 'That person is already a member');
 			await database.execute(sql`insert into workspace_member (id, workspace_id, user_id, role_id, status, invited_by) values (${newId(ID_PREFIXES.workspaceMember)}, ${workspaceId}, ${existingUser.id}, ${roleId}, 'active', ${userRow.id}) on conflict (workspace_id, user_id) do update set role_id = ${roleId}, status = 'active'`);
-			await writeAudit(database, { actorUserId: userRow.id, action: 'member.invite', resource: 'workspace_member', workspaceId, metadata: { email, roleId } });
+			await audit(database, { actorUserId: userRow.id, action: 'member.invite', resource: 'workspace_member', workspaceId, metadata: { email, roleId } });
 			return res.json({ invited: email });
 		}
 		const id = newId(ID_PREFIXES.verification);
 		await database.execute(sql`insert into verification (id, identifier, value, expires_at, created_at, updated_at) values (${id}, ${identifier}, ${payload}, now() + interval '7 days', now(), now())`);
-		await writeAudit(database, { actorUserId: userRow.id, action: 'member.invite', resource: 'workspace_member', workspaceId, metadata: { email, roleId } });
+		await audit(database, { actorUserId: userRow.id, action: 'member.invite', resource: 'workspace_member', workspaceId, metadata: { email, roleId } });
 		res.json({ invited: email, invitedLink: `/invite/${token}` });
 	}));
 	app.post(['/api/pages/team/members/changeRole', '/api/pages/dashboard/team/members/changeRole'], wrap(async (req, res) => {
@@ -744,7 +752,7 @@ export function registerPages(app, ctx) {
 		try { payload = JSON.parse(row.value); } catch { /* noop */ }
 		if (!payload || payload.workspaceId !== workspaceId) return fail(res, 404, 'Invitation not found');
 		await database.execute(sql`delete from verification where id = ${row.id}`);
-		await writeAudit(database, { actorUserId: userRow.id, action: 'member.invite_revoke', resource: 'workspace_member', workspaceId, metadata: { email: payload.email } });
+		await audit(database, { actorUserId: userRow.id, action: 'member.invite_revoke', resource: 'workspace_member', workspaceId, metadata: { email: payload.email } });
 		res.json({ revoked: payload.email });
 	}));
 	app.get(['/api/pages/team/roles', '/api/pages/dashboard/team/roles'], wrap(async (req, res) => {
@@ -802,7 +810,7 @@ export function registerPages(app, ctx) {
 		for (const e of [{ name: 'Development', slug: 'development', type: 'development' }, { name: 'Staging', slug: 'staging', type: 'production' }, { name: 'Production', slug: 'production', type: 'production' }]) {
 			await database.execute(sql`insert into environment (id, project_id, name, slug, type) values (${newId(ID_PREFIXES.environment)}, ${id}, ${e.name}, ${e.slug}, ${e.type})`);
 		}
-		await writeAudit(database, { actorUserId: userRow.id, action: 'project.create', resource: 'project', resourceId: id, workspaceId, after: { name, slug } });
+		await audit(database, { actorUserId: userRow.id, action: 'project.create', resource: 'project', resourceId: id, workspaceId, after: { name, slug } });
 		res.json({ created: id, id, slug });
 	}));
 	async function projectAction(database, userRow, req, res, perm, fn) {
@@ -842,7 +850,7 @@ export function registerPages(app, ctx) {
 			const before = { name: proj.name, slug: proj.slug, description: proj.description, status: proj.status };
 			const after = { name, slug, description, status };
 			await database.execute(sql`update project set name = ${name}, slug = ${slug}, description = ${description}, status = ${status}, updated_at = now() where id = ${proj.id}`);
-			await writeAudit(database, { actorUserId: userRow.id, action: 'project.update', resource: 'project', resourceId: proj.id, workspaceId, before, after });
+			await audit(database, { actorUserId: userRow.id, action: 'project.update', resource: 'project', resourceId: proj.id, workspaceId, before, after });
 			return res.json({ saved: true });
 		});
 	}));
@@ -852,7 +860,7 @@ export function registerPages(app, ctx) {
 		const userRow = await mustAuth(req);
 		await projectAction(database, userRow, req, res, 'project.write', async (workspaceId, proj) => {
 			await database.execute(sql`update project set status = 'archived', updated_at = now() where id = ${proj.id}`);
-			await writeAudit(database, { actorUserId: userRow.id, action: 'project.archive', resource: 'project', resourceId: proj.id, workspaceId, before: { status: proj.status }, after: { status: 'archived' } });
+			await audit(database, { actorUserId: userRow.id, action: 'project.archive', resource: 'project', resourceId: proj.id, workspaceId, before: { status: proj.status }, after: { status: 'archived' } });
 			return res.json({ archived: proj.name });
 		});
 	}));
@@ -862,7 +870,7 @@ export function registerPages(app, ctx) {
 		const userRow = await mustAuth(req);
 		await projectAction(database, userRow, req, res, 'project.write', async (workspaceId, proj) => {
 			await database.execute(sql`update project set status = 'active', updated_at = now() where id = ${proj.id}`);
-			await writeAudit(database, { actorUserId: userRow.id, action: 'project.restore', resource: 'project', resourceId: proj.id, workspaceId, before: { status: proj.status }, after: { status: 'active' } });
+			await audit(database, { actorUserId: userRow.id, action: 'project.restore', resource: 'project', resourceId: proj.id, workspaceId, before: { status: proj.status }, after: { status: 'active' } });
 			return res.json({ restored: proj.name });
 		});
 	}));
@@ -872,9 +880,9 @@ export function registerPages(app, ctx) {
 		const userRow = await mustAuth(req);
 		await projectAction(database, userRow, req, res, 'project.write', async (workspaceId, proj) => {
 			const env = rowsOf(await database.execute(sql`select id from environment where project_id = ${proj.id} order by created_at asc limit 1`))[0];
-			res.cookie('fpid', proj.id, { path: '/', maxAge: 31536000000, sameSite: 'lax' });
-			if (env) res.cookie('feid', env.id, { path: '/', maxAge: 31536000000, sameSite: 'lax' });
-			else res.clearCookie('feid', { path: '/' });
+			res.cookie('fpid', proj.id, { path: '/', maxAge: 31536000000, sameSite: 'lax', httpOnly: true, secure: true });
+			if (env) res.cookie('feid', env.id, { path: '/', maxAge: 31536000000, sameSite: 'lax', httpOnly: true, secure: true });
+			else res.clearCookie('feid', { path: '/', httpOnly: true, secure: true });
 			return res.json({ switched: proj.id });
 		});
 	}));
@@ -890,7 +898,7 @@ export function registerPages(app, ctx) {
 			const keyCount = num(kc?.n);
 			const force = b.force === true || b.force === 'true' || b.force === 'on' || b.force === 'force' || b.force === 1;
 			if (keyCount > 0 && !force) return fail(res, 400, `Project still has API keys — ${keyCount} key(s) would be deleted with it. Remove them first, or tick "force" to delete them too.`);
-			await writeAudit(database, { actorUserId: userRow.id, action: 'project.delete', resource: 'project', resourceId: proj.id, workspaceId, before: { name: proj.name, slug: proj.slug, description: proj.description, status: proj.status }, metadata: { forced: Boolean(force), keyCount } });
+			await audit(database, { actorUserId: userRow.id, action: 'project.delete', resource: 'project', resourceId: proj.id, workspaceId, before: { name: proj.name, slug: proj.slug, description: proj.description, status: proj.status }, metadata: { forced: Boolean(force), keyCount } });
 			await database.execute(sql`delete from project where id = ${proj.id}`);
 			return res.json({ deleted: proj.name });
 		});
@@ -930,7 +938,7 @@ export function registerPages(app, ctx) {
 			const { key, prefix, keyHash } = generateApiKey();
 			const id = newId(ID_PREFIXES.apiKey);
 			await database.execute(sql`insert into api_key (id, workspace_id, project_id, environment_id, user_id, name, prefix, key_hash, policy, expires_at, status) values (${id}, ${workspaceId}, ${proj.id}, ${env.id}, ${userRow.id}, ${name}, ${prefix}, ${keyHash}, ${JSON.stringify(parsed.policy)}::jsonb, ${expiresAt ? expiresAt.toISOString() : null}, 'active')`);
-			await writeAudit(database, { actorUserId: userRow.id, action: 'key.create', resource: 'api_key', resourceId: id, workspaceId, metadata: { name, prefix, environmentId: env.id } });
+			await audit(database, { actorUserId: userRow.id, action: 'key.create', resource: 'api_key', resourceId: id, workspaceId, metadata: { name, prefix, environmentId: env.id } });
 			return res.json({ created: key, name, id });
 		});
 	}));
@@ -946,7 +954,7 @@ export function registerPages(app, ctx) {
 				if (!row) return fail(res, 404, 'Key not found');
 				const next = st === 'enable' ? 'active' : 'disabled';
 				await database.execute(sql`update api_key set status = ${next}, updated_at = now() where id = ${row.id}`);
-				await writeAudit(database, { actorUserId: userRow.id, action: st === 'enable' ? 'key.enable' : 'key.disable', resource: 'api_key', resourceId: row.id, workspaceId, before: { status: row.status }, after: { status: next } });
+				await audit(database, { actorUserId: userRow.id, action: st === 'enable' ? 'key.enable' : 'key.disable', resource: 'api_key', resourceId: row.id, workspaceId, before: { status: row.status }, after: { status: next } });
 				return res.json({ [st === 'enable' ? 'enabled' : 'disabled']: row.name });
 			});
 		}));
@@ -1060,7 +1068,7 @@ export function registerPages(app, ctx) {
 			const ex = rowsOf(await database.execute(sql`select id from rate_limit where scope = ${scope} and scope_id = ${scopeId} limit 1`))[0];
 			const id = ex?.id ?? newId(prefixFor(ctx, 'rateLimit'));
 			await database.execute(sql`insert into rate_limit (id, scope, scope_id, rpm, tpm, rpd, tpd, concurrency, daily_spend_micro, monthly_spend_micro) values (${id}, ${scope}, ${scopeId}, ${vals.rpm}, ${vals.tpm}, ${vals.rpd}, ${vals.tpd}, ${vals.concurrency}, ${vals.dailySpendMicro}, ${vals.monthlySpendMicro}) on conflict (scope, scope_id) do update set rpm = ${vals.rpm}, tpm = ${vals.tpm}, rpd = ${vals.rpd}, tpd = ${vals.tpd}, concurrency = ${vals.concurrency}, daily_spend_micro = ${vals.dailySpendMicro}, monthly_spend_micro = ${vals.monthlySpendMicro}, updated_at = now()`);
-			await writeAudit(database, { actorUserId: userRow.id, action: ex ? 'limit.update' : 'limit.create', resource: 'rate_limit', resourceId: id, workspaceId, after: { scope, scopeId, rpm: vals.rpm, tpm: vals.tpm, rpd: vals.rpd, tpd: vals.tpd, concurrency: vals.concurrency, dailySpendMicro: vals.dailySpendMicro, monthlySpendMicro: vals.monthlySpendMicro } });
+			await audit(database, { actorUserId: userRow.id, action: ex ? 'limit.update' : 'limit.create', resource: 'rate_limit', resourceId: id, workspaceId, after: { scope, scopeId, rpm: vals.rpm, tpm: vals.tpm, rpd: vals.rpd, tpd: vals.tpd, concurrency: vals.concurrency, dailySpendMicro: vals.dailySpendMicro, monthlySpendMicro: vals.monthlySpendMicro } });
 			return res.json({ saved: id });
 		});
 	}));
@@ -1081,7 +1089,7 @@ export function registerPages(app, ctx) {
 			const row = rowsOf(await database.execute(sql`select id, scope, scope_id from rate_limit where scope = ${scope} and scope_id = ${scopeId} limit 1`))[0];
 			if (!row) return fail(res, 404, 'Limit row not found');
 			await database.execute(sql`delete from rate_limit where id = ${row.id}`);
-			await writeAudit(database, { actorUserId: userRow.id, action: 'limit.delete', resource: 'rate_limit', resourceId: row.id, workspaceId, before: { scope: row.scope, scopeId: row.scope_id } });
+			await audit(database, { actorUserId: userRow.id, action: 'limit.delete', resource: 'rate_limit', resourceId: row.id, workspaceId, before: { scope: row.scope, scopeId: row.scope_id } });
 			return res.json({ removed: row.id });
 		});
 	}));
@@ -1126,7 +1134,7 @@ export function registerPages(app, ctx) {
 			if (hit) return fail(res, 409, `A policy named "${v.name}" already exists in this ${scope}.`);
 			const id = newId(prefixFor(ctx, 'routingPolicy'));
 			await database.execute(sql`insert into routing_policy (id, workspace_id, project_id, environment_id, name, strategy, enabled, max_attempts, request_timeout_ms, fallback_enabled, provider_preferences, model_preferences, constraints, weights) values (${id}, ${workspaceId}, ${scope === 'project' ? proj.id : null}, null, ${v.name}, ${v.strategy}, ${v.enabled}, ${v.maxAttempts}, ${v.requestTimeoutMs}, ${v.fallbackEnabled}, ${JSON.stringify(v.providerPreferences)}::jsonb, ${JSON.stringify(v.modelPreferences)}::jsonb, ${JSON.stringify(v.constraints)}::jsonb, ${JSON.stringify(v.weights)}::jsonb)`);
-			await writeAudit(database, { actorUserId: userRow.id, action: 'routing.create', resource: 'routing_policy', resourceId: id, workspaceId, after: { name: v.name, strategy: v.strategy, enabled: v.enabled, maxAttempts: v.maxAttempts, requestTimeoutMs: v.requestTimeoutMs, fallbackEnabled: v.fallbackEnabled, providerPreferences: v.providerPreferences, modelPreferences: v.modelPreferences, constraints: v.constraints, weights: v.weights, scope } });
+			await audit(database, { actorUserId: userRow.id, action: 'routing.create', resource: 'routing_policy', resourceId: id, workspaceId, after: { name: v.name, strategy: v.strategy, enabled: v.enabled, maxAttempts: v.maxAttempts, requestTimeoutMs: v.requestTimeoutMs, fallbackEnabled: v.fallbackEnabled, providerPreferences: v.providerPreferences, modelPreferences: v.modelPreferences, constraints: v.constraints, weights: v.weights, scope } });
 			return res.json({ created: v.name, id });
 		});
 	}));
@@ -1160,7 +1168,7 @@ export function registerPages(app, ctx) {
 			const before = { name: existing.name, strategy: existing.strategy, enabled: existing.enabled, maxAttempts: existing.max_attempts, requestTimeoutMs: existing.request_timeout_ms, fallbackEnabled: existing.fallback_enabled, providerPreferences: existing.provider_preferences, modelPreferences: existing.model_preferences, constraints: existing.constraints, weights: existing.weights, scope: existing.environment_id ? 'environment' : existing.project_id ? 'project' : 'workspace' };
 			const after = { name: v.name, strategy: v.strategy, enabled: v.enabled, maxAttempts: v.maxAttempts, requestTimeoutMs: v.requestTimeoutMs, fallbackEnabled: v.fallbackEnabled, providerPreferences: v.providerPreferences, modelPreferences: v.modelPreferences, constraints: v.constraints, weights: v.weights, scope };
 			await database.execute(sql`update routing_policy set workspace_id = ${workspaceId}, project_id = ${scope === 'project' ? proj.id : null}, environment_id = ${environmentId}, name = ${v.name}, strategy = ${v.strategy}, enabled = ${v.enabled}, max_attempts = ${v.maxAttempts}, request_timeout_ms = ${v.requestTimeoutMs}, fallback_enabled = ${v.fallbackEnabled}, provider_preferences = ${JSON.stringify(v.providerPreferences)}::jsonb, model_preferences = ${JSON.stringify(v.modelPreferences)}::jsonb, constraints = ${JSON.stringify(v.constraints)}::jsonb, weights = ${JSON.stringify(v.weights)}::jsonb, updated_at = now() where id = ${id}`);
-			await writeAudit(database, { actorUserId: userRow.id, action: 'routing.update', resource: 'routing_policy', resourceId: id, workspaceId, before, after });
+			await audit(database, { actorUserId: userRow.id, action: 'routing.update', resource: 'routing_policy', resourceId: id, workspaceId, before, after });
 			return res.json({ updated: v.name });
 		});
 	}));
@@ -1179,7 +1187,7 @@ export function registerPages(app, ctx) {
 			const bound = rowsOf(await database.execute(sql`select name from environment where routing_policy_id = ${id}`)).map((r) => r.name);
 			const before = { name: existing.name, strategy: existing.strategy, enabled: existing.enabled, maxAttempts: existing.max_attempts, requestTimeoutMs: existing.request_timeout_ms, fallbackEnabled: existing.fallback_enabled, providerPreferences: existing.provider_preferences, modelPreferences: existing.model_preferences, constraints: existing.constraints, weights: existing.weights, scope: existing.environment_id ? 'environment' : existing.project_id ? 'project' : 'workspace', unboundEnvironments: bound };
 			await database.execute(sql`delete from routing_policy where id = ${id}`);
-			await writeAudit(database, { actorUserId: userRow.id, action: 'routing.delete', resource: 'routing_policy', resourceId: id, workspaceId, before });
+			await audit(database, { actorUserId: userRow.id, action: 'routing.delete', resource: 'routing_policy', resourceId: id, workspaceId, before });
 			return res.json({ deleted: existing.name });
 		});
 	}));
@@ -1383,7 +1391,7 @@ export function registerPages(app, ctx) {
 			if (!parsed.ok) return fail(res, 400, parsed.error);
 			const id = newId('alr_');
 			await database.execute(sql`insert into alert (id, workspace_id, project_id, name, condition, channel, enabled) values (${id}, ${workspaceId}, ${proj.id}, ${parsed.value.name}, ${JSON.stringify(parsed.value.condition)}::jsonb, ${parsed.value.channel}, ${parsed.value.enabled})`);
-			await writeAudit(database, { actorUserId: userRow.id, action: 'alert.create', resource: 'alert', resourceId: id, workspaceId, after: { name: parsed.value.name, channel: parsed.value.channel } });
+			await audit(database, { actorUserId: userRow.id, action: 'alert.create', resource: 'alert', resourceId: id, workspaceId, after: { name: parsed.value.name, channel: parsed.value.channel } });
 			return res.json({ saved: id });
 		});
 	}));
@@ -1413,7 +1421,7 @@ export function registerPages(app, ctx) {
 			const before = rowsOf(await database.execute(sql`select id, name from alert where id = ${id} and project_id = ${proj.id} limit 1`))[0];
 			if (!before) return fail(res, 404, 'Alert not found');
 			await database.execute(sql`delete from alert where id = ${id}`);
-			await writeAudit(database, { actorUserId: userRow.id, action: 'alert.delete', resource: 'alert', resourceId: id, workspaceId, before: { name: before.name } });
+			await audit(database, { actorUserId: userRow.id, action: 'alert.delete', resource: 'alert', resourceId: id, workspaceId, before: { name: before.name } });
 			return res.json({ removed: id });
 		});
 	}));
@@ -1463,7 +1471,7 @@ export function registerPages(app, ctx) {
 				await database.execute(sql`insert into model_alias_target (alias_id, model_id, position) values (${aliasId}, ${mid}, ${pos})`);
 				pos += 1;
 			}
-			await writeAudit(database, { actorUserId: userRow.id, action: 'alias.create', resource: 'model_alias', resourceId: aliasId, workspaceId, after: { name, scope } });
+			await audit(database, { actorUserId: userRow.id, action: 'alias.create', resource: 'model_alias', resourceId: aliasId, workspaceId, after: { name, scope } });
 			return res.json({ created: name, id: aliasId });
 		});
 	}));
@@ -1479,7 +1487,7 @@ export function registerPages(app, ctx) {
 			if (existing.workspace_id === null) return fail(res, 403, 'Global virtual aliases are read-only.');
 			if (existing.project_id !== proj.id && existing.project_id !== null) return fail(res, 404, 'Alias not found');
 			await database.execute(sql`delete from model_alias where id = ${id}`);
-			await writeAudit(database, { actorUserId: userRow.id, action: 'alias.delete', resource: 'model_alias', resourceId: id, workspaceId, before: { name: existing.name } });
+			await audit(database, { actorUserId: userRow.id, action: 'alias.delete', resource: 'model_alias', resourceId: id, workspaceId, before: { name: existing.name } });
 			return res.json({ deleted: existing.name });
 		});
 	}));
@@ -1581,7 +1589,7 @@ export function registerPages(app, ctx) {
 			const existing = rowsOf(await database.execute(sql`select id from budget where scope = ${scope} and scope_id = ${scopeId} and period = ${period} limit 1`))[0];
 			const id = existing?.id ?? newId('bdg_');
 			await database.execute(sql`insert into budget (id, scope, scope_id, period, amount_micro, warn_percent, critical_percent, action_at_100) values (${id}, ${scope}, ${scopeId}, ${period}, ${amount.toString()}, ${warnPercent}, ${criticalPercent}, ${actionAt100}) on conflict (scope, scope_id, period) do update set amount_micro = ${amount.toString()}, warn_percent = ${warnPercent}, critical_percent = ${criticalPercent}, action_at_100 = ${actionAt100}, updated_at = now()`);
-			await writeAudit(database, { actorUserId: userRow.id, action: existing ? 'budget.update' : 'budget.create', resource: 'budget', resourceId: id, workspaceId, after: { scope, scopeId, period } });
+			await audit(database, { actorUserId: userRow.id, action: existing ? 'budget.update' : 'budget.create', resource: 'budget', resourceId: id, workspaceId, after: { scope, scopeId, period } });
 			return res.json({ saved: id });
 		});
 	}));
@@ -1627,7 +1635,7 @@ export function registerPages(app, ctx) {
 			}
 			const id = newId(ID_PREFIXES.environment);
 			await database.execute(sql`insert into environment (id, project_id, name, slug, type, status) values (${id}, ${proj.id}, ${name}, ${slug}, 'custom', 'active')`);
-			await writeAudit(database, { actorUserId: userRow.id, action: 'environment.create', resource: 'environment', resourceId: id, workspaceId, after: { name, slug } });
+			await audit(database, { actorUserId: userRow.id, action: 'environment.create', resource: 'environment', resourceId: id, workspaceId, after: { name, slug } });
 			return res.json({ created: name, environmentId: id });
 		});
 	}));
@@ -1660,13 +1668,13 @@ export function registerPages(app, ctx) {
 				if (kact === 'rotate') {
 					const { key: plaintext, prefix, keyHash } = generateApiKey();
 					await database.execute(sql`update api_key set prefix = ${prefix}, key_hash = ${keyHash}, updated_at = now() where id = ${key.id}`);
-					await writeAudit(database, { actorUserId: userRow.id, action: 'key.rotate', resource: 'api_key', resourceId: key.id, workspaceId, before: { prefix: key.prefix }, after: { prefix } });
+					await audit(database, { actorUserId: userRow.id, action: 'key.rotate', resource: 'api_key', resourceId: key.id, workspaceId, before: { prefix: key.prefix }, after: { prefix } });
 					return res.json({ created: plaintext, name: key.name });
 				}
 				const next = kact === 'revoke' ? 'revoked' : kact === 'enable' ? 'active' : 'disabled';
 				if (kact === 'revoke') await database.execute(sql`update api_key set status = 'revoked', revoked_at = now(), updated_at = now() where id = ${key.id}`);
 				else await database.execute(sql`update api_key set status = ${next}, updated_at = now() where id = ${key.id}`);
-				await writeAudit(database, { actorUserId: userRow.id, action: `key.${kact}`, resource: 'api_key', resourceId: key.id, workspaceId, before: { status: key.status }, after: { status: next } });
+				await audit(database, { actorUserId: userRow.id, action: `key.${kact}`, resource: 'api_key', resourceId: key.id, workspaceId, before: { status: key.status }, after: { status: next } });
 				return res.json({ [kact === 'revoke' ? 'revoked' : kact === 'enable' ? 'enabled' : 'disabled']: key.name });
 			});
 		}));
@@ -1722,8 +1730,10 @@ export function registerPages(app, ctx) {
 		if (prior) await database.execute(sql`update workspace_member set role_id = ${invite.payload.roleId}, status = 'active', updated_at = now() where id = ${prior.id}`);
 		else await database.execute(sql`insert into workspace_member (id, workspace_id, user_id, role_id, status, invited_by) values (${newId(ID_PREFIXES.workspaceMember)}, ${invite.payload.workspaceId}, ${userRow.id}, ${invite.payload.roleId}, 'active', ${invite.payload.invitedBy})`);
 		await database.execute(sql`delete from verification where id = ${invite.id}`);
-		await writeAudit(database, { actorUserId: userRow.id, action: 'member.accept', resource: 'workspace_member', workspaceId: invite.payload.workspaceId, metadata: { email: invite.payload.email } });
-		res.cookie('fwid', invite.payload.workspaceId, { path: '/', maxAge: 31536000000, sameSite: 'lax' });
+		await audit(database, { actorUserId: userRow.id, action: 'member.accept', resource: 'workspace_member', workspaceId: invite.payload.workspaceId, metadata: { email: invite.payload.email } });
+		// httpOnly + secure: deployment is behind a cloudflared tunnel at
+		// https://ai.karepmuwes.my.id, so this only ever travels over HTTPS.
+		res.cookie('fwid', invite.payload.workspaceId, { path: '/', maxAge: 31536000000, sameSite: 'lax', httpOnly: true, secure: true });
 		res.json({ accepted: invite.payload.workspaceId });
 	}));
 	app.post(['/api/pages/invite/:token/decline', '/api/invite/:token/decline'], wrap(async (req, res) => {
@@ -1733,7 +1743,7 @@ export function registerPages(app, ctx) {
 		const invite = await lookupInvite(database, req.params.token);
 		if (!invite) return fail(res, 404, 'This invitation is invalid or has expired');
 		await database.execute(sql`delete from verification where id = ${invite.id}`);
-		await writeAudit(database, { actorUserId: userRow.id, action: 'member.decline', resource: 'workspace_member', workspaceId: invite.payload.workspaceId, metadata: { email: invite.payload.email } });
+		await audit(database, { actorUserId: userRow.id, action: 'member.decline', resource: 'workspace_member', workspaceId: invite.payload.workspaceId, metadata: { email: invite.payload.email } });
 		res.json({ declined: true });
 	}));
 

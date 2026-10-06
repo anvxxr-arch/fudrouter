@@ -5,15 +5,17 @@ import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Table } from '../components/ui/table';
-import { api, formatContext, formatPricePer1M, type CatalogModel } from '../lib/api';
+import { api, formatContext, formatPricePer1M, API_BASE_DISPLAY, type CatalogModel } from '../lib/api';
 
 export function ModelsPage() {
   const [params, setParams] = useSearchParams();
   const [models, setModels] = useState<CatalogModel[]>([]);
+  const [error, setError] = useState(false);
   const search = params.get('search') ?? '';
   useEffect(() => {
     void api.models().then((d) => {
       if (d) setModels(d.models);
+      else setError(true);
     });
   }, []);
   const q = search.trim().toLowerCase();
@@ -25,6 +27,7 @@ export function ModelsPage() {
       <div className="stack">
         <h1>Models</h1>
         <p className="lede muted">Every model this deployment serves through the OpenAI-compatible API.</p>
+        {error ? <p className="error">The model catalog could not be loaded — reload in a moment.</p> : null}
         <form className="row" onSubmit={(e) => e.preventDefault()}>
           <Input type="search" placeholder="name, slug, developer" value={search} aria-label="Search models"
             onChange={(e) => setParams(e.target.value ? { search: e.target.value } : {})} style={{ maxWidth: 320 }} />
@@ -56,13 +59,17 @@ export function ModelDetailPage() {
   const { slug } = useParams();
   const [model, setModel] = useState<CatalogModel | null>(null);
   const [missing, setMissing] = useState(false);
+  const [error, setError] = useState(false);
   useEffect(() => {
-    if (slug) void api.model(slug).then((d) => {
-      if (d?.model) setModel(d.model);
-      else setMissing(true);
+    if (!slug) return;
+    void api.model(slug).then(({ data, status }) => {
+      if (data?.model) setModel(data.model);
+      else if (status === 404) setMissing(true);
+      else setError(true);
     });
   }, [slug]);
   if (missing) return <div className="stack"><h1>Model not found</h1><p className="muted">No published model has that identifier.</p><Link to="/models">Browse the model catalog.</Link></div>;
+  if (error) return <div className="stack"><h1>Model unavailable</h1><p className="muted">The model catalog could not be loaded — reload in a moment.</p><Link to="/models">Browse the model catalog.</Link></div>;
   if (!model) return <div className="stack"><h1>Models</h1><p className="muted">Loading…</p></div>;
   return (
     <Reveal>
@@ -78,7 +85,7 @@ export function ModelDetailPage() {
               <span key="o" className="num">{formatPricePer1M((p.price ?? model.price).outputPriceMicro)}</span>,
             ])} />
         </div>
-        <pre>{`curl https://ai.karepmuwes.my.id/v1/chat/completions \\\n  -H "Authorization: Bearer $FUDROUTER_KEY" \\\n  -d '{"model": "${model.slug}", "messages": [{"role": "user", "content": "hello"}]}'`}</pre>
+        <pre>{`curl ${API_BASE_DISPLAY}/v1/chat/completions \\\n  -H "Authorization: Bearer $FUDROUTER_KEY" \\\n  -d '{"model": "${model.slug}", "messages": [{"role": "user", "content": "hello"}]}'`}</pre>
       </div>
     </Reveal>
   );

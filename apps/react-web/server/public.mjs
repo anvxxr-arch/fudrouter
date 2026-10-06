@@ -252,9 +252,12 @@ function identifiersOf(m) {
 		providerForms: m.providers.map((p) => ({ providerName: p.providerName, id: p.providerModelId }))
 	};
 }
+function publicApiBase() {
+	return String(process.env.PUBLIC_API_BASE_URL || process.env.ROUTER_BASE_URL || 'http://127.0.0.1:8100').replace(/\/+$/, '');
+}
 function curlSample(slug) {
 	return [
-		'curl https://ai.karepmuwes.my.id/v1/chat/completions \\',
+		`curl ${publicApiBase()}/v1/chat/completions \\`,
 		'  -H "Authorization: Bearer $FUDROUTER_KEY" \\',
 		'  -H "Content-Type: application/json" \\',
 		`  -d '{"model": "${slug}", "messages": [{"role": "user", "content": "hello"}]}'`
@@ -655,7 +658,7 @@ the bearer token. Any OpenAI-compatible client works; plain \`curl\` is enough
 to verify the wiring:
 
 \`\`\`text
-curl https://ai.karepmuwes.my.id/v1/chat/completions \\
+curl ${publicApiBase()}/v1/chat/completions \\
   -H "Authorization: Bearer sk-ar-YOUR_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"model": "grok-4.6", "messages": [{"role": "user", "content": "hello"}]}'
@@ -695,7 +698,7 @@ key can actually reach, in the OpenAI list shape (\`object: "list"\` with
 \`data\` entries carrying \`id\` and \`object: "model"\`).
 
 \`\`\`text
-curl https://ai.karepmuwes.my.id/v1/models \\
+curl ${publicApiBase()}/v1/models \\
   -H "Authorization: Bearer sk-ar-YOUR_KEY"
 \`\`\`
 
@@ -723,7 +726,7 @@ the provider):
 - \`max_tokens\` — positive integer cap on the completion.
 
 \`\`\`text
-curl https://ai.karepmuwes.my.id/v1/chat/completions \\
+curl ${publicApiBase()}/v1/chat/completions \\
   -H "Authorization: Bearer sk-ar-YOUR_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"model": "grok-4.6", "messages": [{"role": "user", "content": "hello"}]}'
@@ -972,7 +975,7 @@ const SDKS_SDKS = `There is no proprietary SDK to install. Every OpenAI-compatib
 against this platform with two settings: the base URL and your \`sk-ar-\` key.
 
 \`\`\`text
-base URL: https://ai.karepmuwes.my.id/v1
+base URL: ${publicApiBase()}/v1
 api key:  sk-ar-YOUR_KEY
 \`\`\`
 
@@ -985,7 +988,7 @@ What is native versus forwarded is listed in
 [Compatibility](/docs/compatibility/openai-compatibility).`;
 
 const COMPATIBILITY_COMPAT = `The wire format is OpenAI-compatible at the \`/v1\` base URL
-(\`https://ai.karepmuwes.my.id/v1\`): an OpenAI SDK sends chat completions and
+(\`${publicApiBase()}/v1\`): an OpenAI SDK sends chat completions and
 lists models without code changes beyond the base URL and key.
 
 - **Native** — \`POST /v1/chat/completions\` and \`GET /v1/models\` are

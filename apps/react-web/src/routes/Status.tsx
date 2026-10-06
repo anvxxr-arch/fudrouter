@@ -17,11 +17,14 @@ const STATE_TONES: Record<string, 'ok' | 'warn' | 'danger' | 'info'> = {
 
 export function StatusPage() {
   const [data, setData] = useState<StatusPayload | null>(null);
+  const [error, setError] = useState(false);
   useEffect(() => {
     void api.status().then((d) => {
       if (d) setData(d);
+      else setError(true);
     });
   }, []);
+  if (error) return <div className="stack"><h1>Status</h1><p className="error">The status page could not be loaded — reload in a moment.</p></div>;
   if (!data) return <div className="stack"><h1>Status</h1><p className="muted">Checking the data plane…</p></div>;
   return (
     <Reveal>

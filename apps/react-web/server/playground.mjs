@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 // Playground stream relay (real data-plane SSE relay).
 // Mirrors /api/playground/stream: mint a short-lived run key in the
 // chosen key's context, POST stream:true to the data plane, relay SSE
@@ -22,6 +23,9 @@ export function registerPlayground(app, deps) {
     writeAudit,
     client
   } = deps;
+  // Request-scoped client IP so the minted-key audit rows record it.
+  const _ipStore = new AsyncLocalStorage();
+  const _clientIp = (req) => { const xff = req.headers?.['x-forwarded-for']; if (typeof xff === 'string' && xff.length) return xff.split(',')[0].trim(); if (Array.isArray(xff) && xff.length) return String(xff[0]).split(',')[0].trim(); return req.socket?.remoteAddress ?? null; };
   // --- playground stream relay (real data-plane SSE relay) ---
   // Mirrors /api/playground/stream: mint a short-lived run key in the
   // chosen key's context, POST stream:true to the data plane, relay SSE
@@ -283,14 +287,15 @@ export function registerPlayground(app, deps) {
   	const policyJson = JSON.stringify(ctx.policy);
   	await client`insert into api_key (id, user_id, name, prefix, key_hash, workspace_id, project_id, environment_id, status, policy, expires_at) values (${id}, ${userId}, ${name}, ${prefix}, ${keyHash}, ${ctx.workspaceId}, ${ctx.projectId}, ${ctx.environmentId}, 'active', ${policyJson}::jsonb, ${expiresAt})`;
   	await database.transaction(async (tx) => {
-  		await writeAudit(tx, {
-  			actorUserId: userId,
-  			action: 'key.create',
-  			resource: 'api_key',
-  			resourceId: id,
-  			workspaceId: ctx.workspaceId,
-  			after: { name, policy: ctx.policy, playground: true }
-  		});
+        await writeAudit(tx, {
+          actorUserId: userId,
+          action: 'key.create',
+          resource: 'api_key',
+          resourceId: id,
+          workspaceId: ctx.workspaceId,
+          ip: _ipStore.getStore() ?? null,
+          after: { name, policy: ctx.policy, playground: true }
+        });
   	});
   	let done = false;
   	const reclaim = async () => {
@@ -299,20 +304,22 @@ export function registerPlayground(app, deps) {
   		done = true;
   		await client`update api_key set status = 'disabled' where id = ${id}`;
   		await database.transaction(async (tx) => {
-  			await writeAudit(tx, {
-  				actorUserId: userId,
-  				action: 'key.revoke',
-  				resource: 'api_key',
-  				resourceId: id,
-  				workspaceId: ctx.workspaceId,
-  				metadata: { playground: true, reason: 'run key reclaimed' }
-  			});
+          await writeAudit(tx, {
+            actorUserId: userId,
+            action: 'key.revoke',
+            resource: 'api_key',
+            resourceId: id,
+            workspaceId: ctx.workspaceId,
+            ip: _ipStore.getStore() ?? null,
+            metadata: { playground: true, reason: 'run key reclaimed' }
+          });
   		});
   		await client`delete from api_key where id = ${id}`;
   	};
   	return { key: `sk-ar-${prefix}_${secret}`, reclaim };
   }
   app.post('/api/playground/stream', async (req, res) => {
+  	await _ipStore.run(_clientIp(req), async () => {
   	let reclaim = null;
   	try {
   		const database = needDb(res);
@@ -435,5 +442,6 @@ export function registerPlayground(app, deps) {
   		}
   		throw err;
   	}
+  	});
   });
 }

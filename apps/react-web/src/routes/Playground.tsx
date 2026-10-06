@@ -9,6 +9,7 @@ interface Model { slug: string; name: string }
 
 export function PlaygroundPage() {
   const [models, setModels] = useState<Model[]>([]);
+  const [loadError, setLoadError] = useState(false);
   const [model, setModel] = useState('');
   const [prompt, setPrompt] = useState('Say OK.');
   const [streaming, setStreaming] = useState(false);
@@ -21,7 +22,7 @@ export function PlaygroundPage() {
       if (d) {
         setModels(d.models.map(({ slug, name }) => ({ slug, name })));
         setModel(d.models[0]?.slug ?? '');
-      }
+      } else setLoadError(true);
     });
   }, []);
 
@@ -78,6 +79,7 @@ export function PlaygroundPage() {
       <div className="stack">
         <h1>Playground</h1>
         <p className="lede muted">Run a real request through the router — same auth, limits, routing and billing as production.</p>
+        {loadError ? <p className="error">The model catalog could not be loaded — reload in a moment.</p> : null}
         <div className="panels">
           <section>
             <h2>Configuration</h2>

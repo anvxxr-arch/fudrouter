@@ -1,11 +1,11 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
-import { apiAction, apiGet, type ShellData } from "../lib/server";
+import { apiGet, apiPost, type ShellData } from "../lib/server";
 import { Button } from "./ui/button";
 export function useShell() {
   const [shell, setShell] = useState<ShellData | null>(null);
   useEffect(() => {
-    apiGet<{ shell: ShellData }>("/dashboard/workspace?shell=1")
+    apiGet<{ shell: ShellData }>("/api/pages/shell")
       .then((d) => setShell(d.shell))
       .catch(() => setShell({ workspaces: [], workspaceId: null, projects: [], projectId: null, environments: [], environmentId: null }));
   }, []);
@@ -26,16 +26,14 @@ export function DashShell({ children }: { children: ReactNode }) {
   const shell = useShell();
   const params = useParams();
   const pid = params.projectId ?? shell?.projectId ?? null;
-  const switchWs = (id: string) => apiAction("/dashboard/workspace", "switchWorkspace", { id }).then(() => location.reload());
-  const switchProj = (id: string) => apiAction("/dashboard/workspace", "switchProject", { id }).then(() => location.reload());
-  const switchEnv = (id: string) => apiAction("/dashboard/workspace", "switchEnvironment", { id }).then(() => location.reload());
+  const switchWs = (id: string) => apiPost("/api/pages/workspace/switch", { workspaceId: id }).then(() => location.reload());
+  const switchProj = (id: string) => apiPost(`/api/pages/projects/${id}/switch`, {}).then(() => location.reload());
   return (
     <div className="stack">
       <div className="row" style={{ flexWrap: "wrap" }}>
         {shell ? (<>
           <Switcher label="Workspace" items={shell.workspaces} active={shell.workspaceId} onPick={switchWs} />
           <Switcher label="Project" items={shell.projects} active={pid} onPick={switchProj} />
-          <Switcher label="Env" items={shell.environments} active={shell.environmentId} onPick={switchEnv} />
         </>) : <span className="muted">Loading shell…</span>}
       </div>
       <nav className="row" style={{ flexWrap: "wrap" }}>

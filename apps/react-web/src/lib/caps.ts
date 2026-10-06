@@ -1,12 +1,12 @@
 export type Capability =
   | "member" | "admin.view" | "admin.users" | "admin.keys" | "admin.providers"
   | "admin.models" | "admin.requests" | "admin.ops" | "admin.billing"
-  | "admin.programs" | "admin.audit" | "admin.settings";
+  | "admin.audit" | "admin.settings";
 const ROLE_CAPS: Record<string, Capability[]> = {
   user: ["member"],
   finance_admin: ["member", "admin.view", "admin.billing", "admin.users"],
   ops_admin: ["member", "admin.view", "admin.providers", "admin.models", "admin.requests", "admin.ops"],
-  admin: ["member", "admin.view", "admin.users", "admin.keys", "admin.providers", "admin.models", "admin.requests", "admin.ops", "admin.billing", "admin.programs", "admin.audit", "admin.settings"],
+  admin: ["member", "admin.view", "admin.users", "admin.keys", "admin.providers", "admin.models", "admin.requests", "admin.ops", "admin.billing", "admin.audit", "admin.settings"],
 };
 export function capsFor(role?: string | null): Set<Capability> {
   const caps = role && ROLE_CAPS[role] ? ROLE_CAPS[role] : ["member" as Capability];
@@ -20,7 +20,7 @@ const ROUTE_CAPS: [string, Capability][] = [
   ["/admin/keys", "admin.keys"], ["/admin/users", "admin.users"],
   ["/admin/requests", "admin.requests"], ["/admin/connections", "admin.ops"],
   ["/admin/billing", "admin.billing"], ["/admin/revenue", "admin.billing"],
-  ["/admin/transactions", "admin.billing"], ["/admin/programs", "admin.programs"],
+  ["/admin/transactions", "admin.billing"],
   ["/admin/audit", "admin.audit"], ["/admin/settings", "admin.settings"],
   ["/admin/security", "admin.audit"], ["/admin/incidents", "admin.ops"],
   ["/admin/system", "admin.ops"], ["/admin/traffic", "admin.ops"],

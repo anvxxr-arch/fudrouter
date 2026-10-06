@@ -7,9 +7,11 @@ import { api, formatContext, formatPricePer1M } from '../lib/api';
 
 export function PricingPage() {
   const [groups, setGroups] = useState<{ developer: string; models: { slug: string; name: string; price: { inputPriceMicro: string | null; cachedInputPriceMicro: string | null; outputPriceMicro: string | null }; context: number | null; variesByProvider: boolean }[] }[]>([]);
+  const [error, setError] = useState(false);
   useEffect(() => {
     void api.pricing().then((d) => {
       if (d) setGroups(d.groups);
+      else setError(true);
     });
   }, []);
   return (
@@ -17,6 +19,7 @@ export function PricingPage() {
       <div className="stack">
         <h1>Pricing</h1>
         <p className="lede muted">Pay per token — no seat fees. One API key, every model. All prices normalized per 1M tokens.</p>
+        {error ? <p className="error">Pricing could not be loaded — reload in a moment.</p> : null}
         {groups.map((g) => (
           <section key={g.developer}>
             <h2>{g.developer} <span className="muted">· {g.models.length}</span></h2>

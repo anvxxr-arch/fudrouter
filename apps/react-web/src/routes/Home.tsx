@@ -3,15 +3,16 @@ import { Link } from 'react-router-dom';
 import { AuroraBackground } from '../components/AuroraBackground';
 import { FluidOrb } from '../components/FluidOrb';
 import { Reveal } from '../components/Reveal';
+import { ShinyText } from '../components/reactbits/ShinyText';
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
-import { api, formatContext } from '../lib/api';
+import { api, formatContext, API_BASE_DISPLAY, type Metrics } from '../lib/api';
 
 const CODE_SAMPLE = `import OpenAI from "openai";
 
 const client = new OpenAI({
   apiKey: process.env.FUDROUTER_KEY,
-  baseURL: "https://ai.karepmuwes.my.id/v1",
+  baseURL: "${API_BASE_DISPLAY}/v1",
 });
 
 const res = await client.chat.completions.create({
@@ -28,28 +29,21 @@ const FEATURES = [
   { title: 'OpenAI compatibility', body: 'Point any OpenAI-compatible client at one base URL. Chat Completions, Models, Responses and Embeddings speak the wire format your SDK already knows.', href: '/docs/compatibility/openai-compatibility', link: 'Compatibility notes' },
 ];
 
-const FALLBACK_METRICS = { models: 284, providers: 9, calls: 435, latencyMs: null as number | null };
-
 export function HomePage() {
-  const [metrics, setMetrics] = useState(FALLBACK_METRICS);
+  const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [samples, setSamples] = useState<{ slug: string; name: string; context: number | null }[]>([]);
   useEffect(() => {
     void api.metrics().then((d) => {
       if (!d) return;
-      setMetrics({
-        models: d.metrics.models ?? FALLBACK_METRICS.models,
-        providers: d.metrics.providers ?? FALLBACK_METRICS.providers,
-        calls: d.metrics.calls ?? FALLBACK_METRICS.calls,
-        latencyMs: d.metrics.latencyMs,
-      });
+      setMetrics(d.metrics);
       setSamples(d.sampleModels.slice(0, 6));
     });
   }, []);
   const strip = [
-    { label: 'Available models', value: metrics.models.toLocaleString('en-US') },
-    { label: 'Providers in network', value: String(metrics.providers) },
-    { label: 'Calls served', value: metrics.calls.toLocaleString('en-US') },
-    { label: 'Latency (24h)', value: metrics.latencyMs === null ? '—' : `${metrics.latencyMs.toLocaleString()}ms` },
+    { label: 'Available models', value: metrics?.models?.toLocaleString('en-US') ?? '—' },
+    { label: 'Providers in network', value: metrics?.providers === null || metrics?.providers === undefined ? '—' : String(metrics.providers) },
+    { label: 'Calls served', value: metrics?.calls?.toLocaleString('en-US') ?? '—' },
+    { label: 'Latency (24h)', value: metrics?.latencyMs === null || metrics?.latencyMs === undefined ? '—' : `${metrics.latencyMs.toLocaleString()}ms` },
   ];
   return (
     <Reveal>
@@ -57,7 +51,8 @@ export function HomePage() {
         <section className="hero">
           <AuroraBackground />
           <p className="fr-label">Commercial AI router</p>
-          <h1 className="display-xl">Unified API for AI models.<br />Connect once. Route anywhere.</h1>
+          <ShinyText text="Unified API for AI models." tag="h1" className="display-xl" speed={3} />
+          <ShinyText text="Connect once. Route anywhere." tag="h1" className="display-xl" speed={3} />
           <div className="hero-split">
             <div className="hero-copy">
               <p className="lede">One OpenAI-compatible key reaches every model and provider in the network — routed, metered and logged per request.</p>
@@ -78,6 +73,7 @@ export function HomePage() {
           {strip.map((m) => (
             <div key={m.label}><div className="num" style={{ fontSize: 'var(--text-h4)' }}>{m.value}</div><div className="muted">{m.label}</div></div>
           ))}
+          {metrics === null && <p className="muted" style={{ flexBasis: '100%' }}>Live metrics unavailable</p>}
         </section>
         {samples.length > 0 && (
           <section>

@@ -8,6 +8,7 @@ import { uuidv7 as _uuidv7 } from 'uuidv7';
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import net from 'node:net';
 import { lookup as _dnsLookup } from 'node:dns/promises';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { and, asc, desc, eq, gte, lt, lte, or, ne, isNull, inArray, notInArray, sql } from 'drizzle-orm';
 import {
 	pgTable,
@@ -363,6 +364,10 @@ async function _vkPing() { if (!process.env.VALKEY_URL) return 'not configured';
 
 export function registerAdminRoutes(app, ctx) {
 	const { needDb, authedUser, requireCap, HttpError } = ctx;
+	// Request-scoped client IP so every _audit row records it without threading
+	// req through ~70 handler signatures. Set by handler()/poster() below.
+	const _ipStore = new AsyncLocalStorage();
+	const _clientIp = (req) => { const xff = req.headers?.['x-forwarded-for']; if (typeof xff === 'string' && xff.length) return xff.split(',')[0].trim(); if (Array.isArray(xff) && xff.length) return String(xff[0]).split(',')[0].trim(); return req.socket?.remoteAddress ?? null; };
 
 	async function gate(req, section) {
 		const userRow = await authedUser(req);
@@ -378,7 +383,7 @@ export function registerAdminRoutes(app, ctx) {
 				if (!database) return;
 				await gate(req, section);
 				const url = new URL(req.originalUrl, 'http://localhost');
-				res.json(await fn(database, url));
+				res.json(await _ipStore.run(_clientIp(req), () => fn(database, url)));
 			} catch (err) {
 				if (err instanceof HttpError) return res.status(err.status).json({ error: err.message });
 				console.error(`[admin/${section}]`, err);
@@ -393,7 +398,7 @@ export function registerAdminRoutes(app, ctx) {
 				const database = needDb(res);
 				if (!database) return;
 				const userRow = await gate(req, section);
-				res.json(await fn(database, _body(req), userRow, req));
+				res.json(await _ipStore.run(_clientIp(req), () => fn(database, _body(req), userRow, req)));
 			} catch (err) {
 				if (err instanceof HttpError) return res.status(err.status).json({ error: err.message });
 				console.error(`[admin/${section}]`, err);
@@ -408,11 +413,11 @@ export function registerAdminRoutes(app, ctx) {
 			if (v && typeof v === 'object') { const o = {}; for (const [k, x] of Object.entries(v)) o[k] = (/secret|token|password|key_hash|credentials?/i.test(k) || k === 'api_key' || k === 'authorization') ? '[redacted]' : redact(x); return o; }
 			return v;
 		};
-		await dbx.execute(sql`insert into audit_log (id, actor_user_id, actor_kind, action, resource, resource_id, workspace_id, ip, before, after, metadata) values (${_newId('aud_')}, ${entry.actorUserId ?? null}, ${entry.actorUserId ? 'user' : 'system'}, ${entry.action}, ${entry.resource}, ${entry.resourceId ?? null}, ${entry.workspaceId ?? null}, ${entry.ip ?? null}, ${entry.before ? JSON.stringify(redact(entry.before)) : null}::jsonb, ${entry.after ? JSON.stringify(redact(entry.after)) : null}::jsonb, ${JSON.stringify(redact(entry.metadata ?? {}))}::jsonb)`);
+		await dbx.execute(sql`insert into audit_log (id, actor_user_id, actor_kind, action, resource, resource_id, workspace_id, ip, before, after, metadata) values (${_newId('aud_')}, ${entry.actorUserId ?? null}, ${entry.actorUserId ? 'user' : 'system'}, ${entry.action}, ${entry.resource}, ${entry.resourceId ?? null}, ${entry.workspaceId ?? null}, ${entry.ip ?? _ipStore.getStore() ?? null}, ${entry.before ? JSON.stringify(redact(entry.before)) : null}::jsonb, ${entry.after ? JSON.stringify(redact(entry.after)) : null}::jsonb, ${JSON.stringify(redact(entry.metadata ?? {}))}::jsonb)`);
 	}
 	const _getSetting = async (database, key) => { const r = _rowsOf(await database.execute(sql`select value from system_setting where key = ${key} limit 1`)); return r[0]?.value ?? null; };
 	const _setSetting = async (dbx, key, value, actor) => { await dbx.execute(sql`insert into system_setting (key, value, updated_by, updated_at) values (${key}, ${JSON.stringify(value)}::jsonb, ${actor}, now()) on conflict (key) do update set value = ${JSON.stringify(value)}::jsonb, updated_by = ${actor}, updated_at = now()`); };
-	const _capsFor = (role) => { const m = { user: ['member'], finance_admin: ['member', 'admin.view', 'admin.billing', 'admin.users'], ops_admin: ['member', 'admin.view', 'admin.providers', 'admin.models', 'admin.requests', 'admin.ops'], admin: ['member', 'admin.view', 'admin.users', 'admin.keys', 'admin.providers', 'admin.models', 'admin.requests', 'admin.ops', 'admin.billing', 'admin.programs', 'admin.audit', 'admin.settings'] }; return new Set(m[role] ?? ['member']); };
+	const _capsFor = (role) => { const m = { user: ['member'], finance_admin: ['member', 'admin.view', 'admin.billing', 'admin.users'], ops_admin: ['member', 'admin.view', 'admin.providers', 'admin.models', 'admin.requests', 'admin.ops'], admin: ['member', 'admin.view', 'admin.users', 'admin.keys', 'admin.providers', 'admin.models', 'admin.requests', 'admin.ops', 'admin.billing', 'admin.audit', 'admin.settings'] }; return new Set(m[role] ?? ['member']); };
 	const _dominates = (a, b) => { for (const c of b) if (!a.has(c)) return false; return true; };
 	const _canAdminister = (actorRole, targetRole, granted) => { const a = _capsFor(actorRole); if (!_dominates(a, _capsFor(targetRole))) return false; if (granted !== undefined && granted !== null && !_dominates(a, _capsFor(granted))) return false; return true; };
 	const _guardUser = (actor, targetRole, granted) => { if (!_canAdminister(actor?.role ?? null, targetRole, granted)) return (granted !== undefined && granted !== targetRole) ? 'You cannot grant a role above your own level' : 'You cannot modify a user at or above your own level'; return null; };
@@ -1280,9 +1285,9 @@ export function registerAdminRoutes(app, ctx) {
 		let upstream;
 		try {
 			const catalog = await _fetchCatalog(baseUrl, cred);
-			if (catalog.status !== 200) _fail(502, `Upstream returned HTTP ${catalog.status} for ${catalog.url}`);
+			if (catalog.status !== 200) _fail(502, `Upstream returned HTTP ${catalog.status}`);
 			upstream = catalog.models;
-		} catch (err) { _fail(502, `Could not reach ${baseUrl}: ${err.message ?? 'request failed'}`); }
+		} catch (err) { console.error('[admin/models/sync] upstream fetch failed', err); _fail(502, 'upstream request failed'); }
 		const t0 = Date.now();
 		const local = _rowsOf(await database.execute(sql`select pm.id, pm.provider_model_id, pm.context_override, pm.enabled, pm.status, m.id as model_id, m.slug as model_slug, m.name as model_name, m.context as model_context, m.input_price::text as model_input_price, m.output_price::text as model_output_price from provider_model pm join model m on m.id = pm.model_id where pm.provider_id = ${providerId}`));
 		const seen = new Set(upstream.map((u) => _matchKey(u.slug)));
@@ -1506,7 +1511,7 @@ export function registerAdminRoutes(app, ctx) {
 		try {
 			const catalog = await _fetchCatalog(baseUrl, cred);
 			return { fetched: { tier, url: catalog.url, latencyMs: Date.now() - t0, total: catalog.models.length, models: catalog.models, rateLimit: catalog.rateLimit } };
-		} catch (err) { _fail(502, `Could not reach ${baseUrl}: ${err.message ?? 'request failed'}`); }
+		} catch (err) { console.error(`[admin/providers/${id}/fetchCatalog] upstream fetch failed`, err); _fail(502, 'upstream request failed'); }
 	}));
 	app.post('/api/admin/providers/:id/enable', poster('providers', async (database, body, userRow, req) => {
 		const id = String(req.params?.id ?? body.providerId ?? '').trim();
@@ -1566,6 +1571,8 @@ export function registerAdminRoutes(app, ctx) {
 		const conns = _rowsOf(await database.execute(sql`select id, base_url from connection where provider_id = ${id} order by priority, id limit 1`));
 		const baseUrl = conns[0]?.base_url ?? null;
 		if (!baseUrl) _fail(400, 'Add a connection with a base URL first');
+		const guard = await _assertPublic(baseUrl, _allowPrivate());
+		if (!guard.ok) _fail(400, guard.reason);
 		const creds = conns[0] ? _rowsOf(await database.execute(sql`select id, name, secret_enc from credential where connection_id = ${conns[0].id} order by priority, id`)) : [];
 		const index = Number(String(body.index ?? '').trim());
 		if (!Number.isInteger(index) || index < 0 || index >= creds.length) _fail(400, 'Pick a credential that exists');
@@ -1575,7 +1582,7 @@ export function registerAdminRoutes(app, ctx) {
 		try {
 			const r = await _fetchCatalog(baseUrl, cred);
 			return { credentialTest: { label: row.name, index, ok: r.status === 200, status: r.status, latencyMs: Date.now() - t0, modelCount: r.models.length, rateLimit: r.rateLimit, error: null } };
-		} catch (err) { return { credentialTest: { label: row.name, index, ok: false, status: null, latencyMs: Date.now() - t0, modelCount: 0, rateLimit: {}, error: err.message ?? 'request failed' } }; }
+		} catch (err) { console.error(`[admin/providers/${id}/testCredential] upstream fetch failed`, err); return { credentialTest: { label: row.name, index, ok: false, status: null, latencyMs: Date.now() - t0, modelCount: 0, rateLimit: {}, error: 'upstream request failed' } }; }
 	}));
 	app.post('/api/admin/providers/:id/testAll', poster('providers', async (database, body, userRow, req) => {
 		const id = String(req.params?.id ?? body.providerId ?? '').trim();
@@ -1584,13 +1591,15 @@ export function registerAdminRoutes(app, ctx) {
 		const conns = _rowsOf(await database.execute(sql`select id, base_url from connection where provider_id = ${id} order by priority, id limit 1`));
 		const baseUrl = conns[0]?.base_url ?? null;
 		if (!baseUrl) _fail(400, 'Add a connection with a base URL first');
+		const guard = await _assertPublic(baseUrl, _allowPrivate());
+		if (!guard.ok) _fail(400, guard.reason);
 		const creds = conns[0] ? _rowsOf(await database.execute(sql`select id, name, secret_enc from credential where connection_id = ${conns[0].id} order by priority, id`)) : [];
 		const probes = creds.slice(0, MAX_BULK_TEST).map((row, index) => ({ label: row.name, index, enc: row.secret_enc }));
 		const results = await Promise.all(probes.map(async ({ label, index, enc }) => {
 			const t0 = Date.now();
 			let cred; try { cred = _decCred(enc); } catch { return { label, index, ok: false, status: null, latencyMs: 0, modelCount: 0, rateLimit: {}, error: 'cannot decrypt credentials' }; }
 			try { const r = await _fetchCatalog(baseUrl, cred); return { label, index, ok: r.status === 200, status: r.status, latencyMs: Date.now() - t0, modelCount: r.models.length, rateLimit: r.rateLimit, error: null }; }
-			catch (err) { return { label, index, ok: false, status: null, latencyMs: Date.now() - t0, modelCount: 0, rateLimit: {}, error: err.message ?? 'request failed' }; }
+			catch (err) { console.error(`[admin/providers/${id}/testAll] upstream fetch failed`, err); return { label, index, ok: false, status: null, latencyMs: Date.now() - t0, modelCount: 0, rateLimit: {}, error: 'upstream request failed' }; }
 		}));
 		return { credentialTests: results, bulkNote: creds.length > MAX_BULK_TEST ? `Tested the first ${MAX_BULK_TEST} of ${creds.length} credentials.` : null };
 	}));
@@ -1603,6 +1612,8 @@ export function registerAdminRoutes(app, ctx) {
 		const conns = _rowsOf(await database.execute(sql`select id, base_url from connection where provider_id = ${id} order by priority, id limit 1`));
 		const baseUrl = conns[0]?.base_url ?? null;
 		if (!baseUrl) _fail(400, 'Add a connection with a base URL first');
+		const guard = await _assertPublic(baseUrl, _allowPrivate());
+		if (!guard.ok) _fail(400, guard.reason);
 		const cr = conns[0] ? _rowsOf(await database.execute(sql`select secret_enc from credential where connection_id = ${conns[0].id} order by priority, id limit 1`))[0] : null;
 		if (!cr) _fail(400, 'No credential to probe with');
 		let cred; try { cred = _decCred(cr.secret_enc); } catch { _fail(400, 'Cannot decrypt credentials'); }
@@ -1613,8 +1624,8 @@ export function registerAdminRoutes(app, ctx) {
 			let res; try { res = await fetch(`${String(baseUrl).trim().replace(/\/+$/, '')}/chat/completions`, { method: 'POST', headers, body: JSON.stringify({ model: slug, messages: [{ role: 'user', content: 'Say OK' }], max_tokens: 512 }), signal: ctrl.signal }); } finally { clearTimeout(t); }
 			const data = await res.json().catch(() => null);
 			const choice = data?.choices?.[0];
-			return { modelTest: { ok: res.ok, status: res.status, latencyMs: Date.now() - t0, tokensIn: data?.usage?.prompt_tokens ?? null, tokensOut: data?.usage?.completion_tokens ?? null, content: choice?.message?.content ?? null, reasoning: choice?.message?.reasoning_content ?? null, finishReason: choice?.finish_reason ?? null, error: res.ok ? null : (data?.error?.message ?? `HTTP ${res.status}`), slug } };
-		} catch (err) { return { modelTest: { ok: false, status: null, latencyMs: Date.now() - t0, error: err.message ?? 'request failed', slug } }; }
+			return { modelTest: { ok: res.ok, status: res.status, latencyMs: Date.now() - t0, tokensIn: data?.usage?.prompt_tokens ?? null, tokensOut: data?.usage?.completion_tokens ?? null, content: choice?.message?.content ?? null, reasoning: choice?.message?.reasoning_content ?? null, finishReason: choice?.finish_reason ?? null, error: res.ok ? null : `HTTP ${res.status}`, slug } };
+		} catch (err) { console.error(`[admin/providers/${id}/testModel] upstream fetch failed`, err); return { modelTest: { ok: false, status: null, latencyMs: Date.now() - t0, error: 'upstream request failed', slug } }; }
 	}));
 	app.post('/api/admin/providers/:id/chat', poster('providers', async (database, body, userRow, req) => {
 		const id = String(req.params?.id ?? body.providerId ?? '').trim();
@@ -1627,6 +1638,8 @@ export function registerAdminRoutes(app, ctx) {
 		const conns = _rowsOf(await database.execute(sql`select id, base_url from connection where provider_id = ${id} order by priority, id limit 1`));
 		const baseUrl = conns[0]?.base_url ?? null;
 		if (!baseUrl) _fail(400, 'Add a connection with a base URL first');
+		const guard = await _assertPublic(baseUrl, _allowPrivate());
+		if (!guard.ok) _fail(400, guard.reason);
 		const cr = conns[0] ? _rowsOf(await database.execute(sql`select secret_enc from credential where connection_id = ${conns[0].id} order by priority, id limit 1`))[0] : null;
 		if (!cr) _fail(400, 'No credential to probe with');
 		let cred; try { cred = _decCred(cr.secret_enc); } catch { _fail(400, 'Cannot decrypt credentials'); }
@@ -1637,8 +1650,8 @@ export function registerAdminRoutes(app, ctx) {
 			let res; try { res = await fetch(`${String(baseUrl).trim().replace(/\/+$/, '')}/chat/completions`, { method: 'POST', headers, body: JSON.stringify({ model: slug, messages: [{ role: 'user', content: message }], max_tokens: 512 }), signal: ctrl.signal }); } finally { clearTimeout(t); }
 			const data = await res.json().catch(() => null);
 			const choice = data?.choices?.[0];
-			return { chat: { ok: res.ok, status: res.status, latencyMs: Date.now() - t0, tokensIn: data?.usage?.prompt_tokens ?? null, tokensOut: data?.usage?.completion_tokens ?? null, content: choice?.message?.content ?? null, reasoning: choice?.message?.reasoning_content ?? null, finishReason: choice?.finish_reason ?? null, error: res.ok ? null : (data?.error?.message ?? `HTTP ${res.status}`), slug, message } };
-		} catch (err) { return { chat: { ok: false, status: null, latencyMs: Date.now() - t0, error: err.message ?? 'request failed', slug, message } }; }
+			return { chat: { ok: res.ok, status: res.status, latencyMs: Date.now() - t0, tokensIn: data?.usage?.prompt_tokens ?? null, tokensOut: data?.usage?.completion_tokens ?? null, content: choice?.message?.content ?? null, reasoning: choice?.message?.reasoning_content ?? null, finishReason: choice?.finish_reason ?? null, error: res.ok ? null : `HTTP ${res.status}`, slug, message } };
+		} catch (err) { console.error(`[admin/providers/${id}/chat] upstream fetch failed`, err); return { chat: { ok: false, status: null, latencyMs: Date.now() - t0, error: 'upstream request failed', slug, message } }; }
 	}));
 	app.post('/api/admin/providers/:id/strategy', poster('providers', async (database, body, userRow, req) => {
 		const id = String(req.params?.id ?? body.providerId ?? '').trim();

@@ -5,9 +5,11 @@ import { api, type ChangelogEntry } from '../lib/api';
 
 export function ChangelogPage() {
   const [entries, setEntries] = useState<ChangelogEntry[]>([]);
+  const [error, setError] = useState(false);
   useEffect(() => {
     void api.changelog().then((d) => {
       if (d) setEntries(d.entries);
+      else setError(true);
     });
   }, []);
   return (
@@ -15,6 +17,7 @@ export function ChangelogPage() {
       <div className="stack">
         <h1>Changelog</h1>
         <p className="lede muted">One entry per shipped release, newest first.</p>
+        {error ? <p className="error">The changelog could not be loaded — reload in a moment.</p> : null}
         {entries.map((e) => (
           <section key={e.slug}>
             <p className="muted num">{e.date}</p>
@@ -30,13 +33,17 @@ export function ChangelogEntryPage() {
   const { slug } = useParams();
   const [entry, setEntry] = useState<ChangelogEntry | null>(null);
   const [missing, setMissing] = useState(false);
+  const [error, setError] = useState(false);
   useEffect(() => {
-    if (slug) void api.changelogEntry(slug).then((d) => {
-      if (d?.entry) setEntry(d.entry);
-      else setMissing(true);
+    if (!slug) return;
+    void api.changelogEntry(slug).then(({ data, status }) => {
+      if (data?.entry) setEntry(data.entry);
+      else if (status === 404) setMissing(true);
+      else setError(true);
     });
   }, [slug]);
   if (missing) return <div className="stack"><h1>Entry not found</h1><Link to="/changelog">Back to changelog.</Link></div>;
+  if (error) return <div className="stack"><h1>Entry unavailable</h1><p className="muted">The changelog could not be loaded — reload in a moment.</p><Link to="/changelog">Back to changelog.</Link></div>;
   if (!entry) return <div className="stack"><h1>Changelog</h1><p className="muted">Loading…</p></div>;
   return (
     <div className="stack">

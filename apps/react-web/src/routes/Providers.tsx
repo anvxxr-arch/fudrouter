@@ -7,9 +7,11 @@ import { api, formatContext, formatMs, formatPricePer1M, type ProviderRow } from
 
 export function ProvidersPage() {
   const [providers, setProviders] = useState<ProviderRow[]>([]);
+  const [error, setError] = useState(false);
   useEffect(() => {
     void api.providers().then((d) => {
       if (d) setProviders(d.providers);
+      else setError(true);
     });
   }, []);
   return (
@@ -17,6 +19,7 @@ export function ProvidersPage() {
       <div className="stack">
         <h1>Providers</h1>
         <p className="lede muted">The upstream AI providers this network routes to, and how each one is doing.</p>
+        {error ? <p className="error">The provider directory could not be loaded — reload in a moment.</p> : null}
         <div className="table-wrap">
           <Table
             head={['Provider', 'Status', 'Models', 'Latency (P50 / P95)', 'Availability']}
@@ -39,13 +42,17 @@ export function ProviderDetailPage() {
   const { slug } = useParams();
   const [row, setRow] = useState<ProviderRow | null>(null);
   const [missing, setMissing] = useState(false);
+  const [error, setError] = useState(false);
   useEffect(() => {
-    if (slug) void api.provider(slug).then((d) => {
-      if (d?.provider) setRow(d.provider);
-      else setMissing(true);
+    if (!slug) return;
+    void api.provider(slug).then(({ data, status }) => {
+      if (data?.provider) setRow(data.provider);
+      else if (status === 404) setMissing(true);
+      else setError(true);
     });
   }, [slug]);
   if (missing) return <div className="stack"><h1>Provider not found</h1><p className="muted">No provider in the public catalog matches this name.</p><Link to="/providers">Browse the provider directory.</Link></div>;
+  if (error) return <div className="stack"><h1>Provider unavailable</h1><p className="muted">The provider directory could not be loaded — reload in a moment.</p><Link to="/providers">Browse the provider directory.</Link></div>;
   if (!row) return <div className="stack"><h1>Providers</h1><p className="muted">Loading…</p></div>;
   return (
     <Reveal>

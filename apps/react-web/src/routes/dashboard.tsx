@@ -493,16 +493,56 @@ export function ProjectSubPage({ name }: { name: string }) {
 export function PlaygroundPage2() {
   const { projectId } = useParams();
   const [out, setOut] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function run(model: string, prompt: string) {
+    setBusy(true);
+    setError(null);
+    setOut("");
+    try {
+      const res = await fetch("/api/playground/stream", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId, model, messages: [{ role: "user", content: prompt }] }),
+      });
+      if (!res.ok || !res.body) {
+        const failed = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
+        setError(failed?.error?.message ?? "The run failed to start.");
+        return;
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let raw = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        raw += decoder.decode(value, { stream: true });
+        let text = "";
+        for (const line of raw.split("\n")) {
+          if (!line.startsWith("data: ") || line.includes("[DONE]")) continue;
+          try {
+            const chunk = JSON.parse(line.slice(6)) as { choices?: { delta?: { content?: unknown } }[] };
+            const delta = chunk.choices?.[0]?.delta?.content;
+            if (typeof delta === "string") text += delta;
+          } catch { /* partial frame */ }
+        }
+        setOut(text || raw);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message.slice(0, 500) : "The stream failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
   return (<Proj><Page title="Playground" lede="Run a streamed completion.">
     <form onSubmit={(e) => {
       e.preventDefault();
       const f = new FormData(e.currentTarget);
-      apiPost<{ text: string }>(`/api/pages/projects/${projectId}/playground/run`, { prompt: String(f.get("prompt") ?? "") })
-        .then((r) => setOut(r.text ?? JSON.stringify(r).slice(0, 4000)))
-        .catch((ex) => setOut(ex instanceof Error ? ex.message : "Run failed"));
+      void run(String(f.get("model") ?? "").trim(), String(f.get("prompt") ?? ""));
     }}>
-      <div className="row"><Input name="prompt" placeholder="Prompt" required /><Button type="submit">Run</Button></div>
+      <div className="row"><Input name="model" placeholder="Model slug" required /><Input name="prompt" placeholder="Prompt" required /><Button type="submit" disabled={busy}>{busy ? "Running…" : "Run"}</Button></div>
     </form>
+    {error ? <p className="error">{error}</p> : null}
     {out ? <Card desc={out.slice(0, 4000)} /> : null}
   </Page></Proj>);
 }

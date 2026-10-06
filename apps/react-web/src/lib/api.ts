@@ -4,14 +4,34 @@
  * when the server lands. All fetches degrade to empty data, never throw.
  */
 const BASE = '/api';
-
+let lastApiError: string | null = null;
+/** Last failure reason recorded by `get` — null after a success. */
+export function getLastApiError(): string | null {
+  return lastApiError;
+}
 async function get<T>(path: string): Promise<T | null> {
   try {
     const res = await fetch(`${BASE}${path}`);
-    if (!res.ok) return null;
+    if (!res.ok) {
+      lastApiError = `${path}: ${res.status}`;
+      return null;
+    }
+    lastApiError = null;
     return (await res.json()) as T;
-  } catch {
+  } catch (e) {
+    lastApiError = `${path}: ${e instanceof Error ? e.message : 'network error'}`;
     return null;
+  }
+}
+/** Like `get`, but reports the HTTP status (null when the request never landed). */
+async function getWithStatus<T>(path: string): Promise<{ data: T | null; status: number | null }> {
+  try {
+    const res = await fetch(`${BASE}${path}`);
+    lastApiError = res.ok ? null : `${path}: ${res.status}`;
+    return { data: res.ok ? ((await res.json()) as T) : null, status: res.status };
+  } catch (e) {
+    lastApiError = `${path}: ${e instanceof Error ? e.message : 'network error'}`;
+    return { data: null, status: null };
   }
 }
 
@@ -98,16 +118,16 @@ export interface RunMetrics {
 export const api = {
   metrics: () => get<{ metrics: Metrics; sampleModels: { slug: string; name: string; context: number | null }[] }>('/metrics'),
   models: () => get<{ models: CatalogModel[]; total: number }>('/models'),
-  model: (slug: string) => get<{ model: CatalogModel | null }>(`/models/${encodeURIComponent(slug)}`),
+  model: (slug: string) => getWithStatus<{ model: CatalogModel | null }>(`/models/${encodeURIComponent(slug)}`),
   compare: (slugs: string[]) => get<{ columns: CatalogModel[]; missing: string[] }>(`/models/compare?models=${encodeURIComponent(slugs.join(','))}`),
   providers: () => get<{ providers: ProviderRow[] }>('/providers'),
-  provider: (slug: string) => get<{ provider: ProviderRow | null }>(`/providers/${encodeURIComponent(slug)}`),
+  provider: (slug: string) => getWithStatus<{ provider: ProviderRow | null }>(`/providers/${encodeURIComponent(slug)}`),
   pricing: () => get<{ groups: { developer: string; models: { slug: string; name: string; price: PriceMicro; context: number | null; variesByProvider: boolean }[] }[]; hasReasoning: boolean }>('/pricing'),
   status: () => get<StatusPayload>('/status'),
   docs: () => get<{ categories: { slug: string; title: string; pages: DocEntry[] }[] }>('/docs'),
-  doc: (path: string) => get<{ entry: DocEntry | null; prev: DocEntry | null; next: DocEntry | null }>(`/docs/${path}`),
+  doc: (path: string) => getWithStatus<{ entry: DocEntry | null; prev: DocEntry | null; next: DocEntry | null }>(`/docs/${path}`),
   changelog: () => get<{ entries: ChangelogEntry[] }>('/changelog'),
-  changelogEntry: (slug: string) => get<{ entry: ChangelogEntry | null }>(`/changelog/${encodeURIComponent(slug)}`),
+  changelogEntry: (slug: string) => getWithStatus<{ entry: ChangelogEntry | null }>(`/changelog/${encodeURIComponent(slug)}`),
 };
 
 export function formatPricePer1M(value: string | null): string {
@@ -127,3 +147,5 @@ export function formatMs(ms: number | null): string {
   if (ms === null) return '—';
   return `${ms.toLocaleString('en-US')} ms`;
 }
+/** Public API origin shown in curl samples and copy; build-time Vite var. */
+export const API_BASE_DISPLAY = import.meta.env?.VITE_PUBLIC_API_BASE_URL ?? 'https://ai.karepmuwes.my.id';

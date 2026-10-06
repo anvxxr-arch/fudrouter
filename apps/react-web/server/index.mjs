@@ -16,12 +16,12 @@ import {
 } from 'drizzle-orm/pg-core';
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
-import { admin } from 'better-auth/plugins';
 import { uuidv7 } from 'uuidv7';
 import { registerPlayground } from './playground.mjs';
 import { registerAdminRoutes } from './admin.mjs';
 import { registerPages } from './pages.mjs';
 import { registerPublicRoutes } from './public.mjs';
+import { rateLimit } from './rate-limit.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.join(__dirname, '..', 'dist');
@@ -256,6 +256,13 @@ function redactSecrets(value) {
 	}
 	return value;
 }
+// First X-Forwarded-For hop (the client, behind the cloudflared tunnel), else the socket.
+export function clientIp(req) {
+	const xff = req.headers?.['x-forwarded-for'];
+	if (typeof xff === 'string' && xff.length) return xff.split(',')[0].trim();
+	if (Array.isArray(xff) && xff.length) return String(xff[0]).split(',')[0].trim();
+	return req.socket?.remoteAddress ?? null;
+}
 async function writeAudit(dbtx, entry) {
 	await dbtx.insert(auditLog).values({
 		id: newId(ID_PREFIXES.auditLog),
@@ -340,6 +347,7 @@ async function provisionWorkspace(dbtx, opts) {
 		resource: 'workspace',
 		resourceId: workspaceId,
 		workspaceId,
+		ip: opts.ip ?? null,
 		after: { name: opts.name, slug },
 		metadata: { projectId, billingAccountId, environmentIds }
 	});
@@ -354,7 +362,8 @@ async function ensureUserWorkspace(dbtx, opts) {
 	if (existing) return { workspaceId: existing.workspaceId };
 	const provisioned = await provisionWorkspace(dbtx, {
 		name: `${opts.name.split("'")[0]}'s Workspace`,
-		ownerUserId: opts.userId
+		ownerUserId: opts.userId,
+		ip: opts.ip ?? null
 	});
 	return { workspaceId: provisioned.workspaceId };
 }
@@ -399,8 +408,11 @@ export const auth = betterAuth({
 					}
 				}
 			}
-		: {}),
-	plugins: [admin({ defaultRole: 'user' })]
+		: {})
+	// No plugins: better-auth's admin plugin exposed /api/auth/admin/* with its own
+	// user/admin role model, which does not match this app's user/finance_admin/
+	// ops_admin/admin roles. Admin actions are served from /api/admin/* (admin.mjs)
+	// with the app's own role whitelist, dominance checks and audit rows.
 });
 
 // ------------------------------------------------------------- caps/rbac ----
@@ -418,7 +430,6 @@ const ROLE_CAPS = {
 		'admin.requests',
 		'admin.ops',
 		'admin.billing',
-		'admin.programs',
 		'admin.audit',
 		'admin.settings'
 	]
@@ -529,11 +540,6 @@ async function requireMemberPermission(database, userRow, workspaceId, perm) {
 	if (!ctx.caps.has(perm)) throw new HttpError(403, 'Missing permission: ' + perm);
 	return { member: ctx.member, workspace: ctx.workspace };
 }
-function sendHttpError(res, err) {
-	if (err instanceof HttpError) return res.status(err.status).json({ error: err.message });
-	throw err;
-}
-
 // --------------------------------------------------------------- palette ----
 function escapeLike(q) {
 	return q.replace(/[\\%_]/g, (m) => `\\${m}`);
@@ -595,6 +601,16 @@ app.all('/api/auth/{*path}', async (req, res) => {
 
 app.use(express.json({ limit: '1mb' }));
 
+// Rate limiting. Registered after the better-auth forward (/api/auth/* keeps its
+// own limiter) and before the page/admin routes. Keys are the session user id
+// when one is present, else the client IP, so shared NATs count together.
+const _limitKey = async (req) => {
+	try { const u = await getSessionUser(req); if (u?.id) return `u:${u.id}`; } catch {}
+	return `ip:${clientIp(req) ?? req.ip ?? 'unknown'}`;
+};
+app.use('/api/pages', rateLimit({ windowMs: 60_000, max: 300, key: _limitKey }));
+app.use('/api/admin', rateLimit({ windowMs: 60_000, max: 300, key: _limitKey }));
+app.use('/api/playground', rateLimit({ windowMs: 60_000, max: 10, key: _limitKey }));
 async function authedUser(req) {
 	return getSessionUser(req);
 }
@@ -777,7 +793,7 @@ app.get('/api/pages/shell', async (req, res) => {
 		const userRow = await authedUser(req);
 		requireCap(userRow, 'member');
 		const cookies = parseCookies(req);
-		await ensureUserWorkspace(database, { userId: userRow.id, name: userRow.name });
+		await ensureUserWorkspace(database, { userId: userRow.id, name: userRow.name, ip: clientIp(req) });
 		const workspaces = await database
 			.select({ id: workspace.id, name: workspace.name })
 			.from(workspaceMember)
@@ -785,7 +801,9 @@ app.get('/api/pages/shell', async (req, res) => {
 			.where(and(eq(workspaceMember.userId, userRow.id), eq(workspaceMember.status, 'active')));
 		const workspaceId = await currentWorkspaceId(database, userRow.id, cookies);
 		if (workspaceId && workspaceId !== cookies.fwid) {
-			res.cookie('fwid', workspaceId, { path: '/', maxAge: 31536000000, sameSite: 'lax' });
+			// httpOnly + secure: deployment is behind a cloudflared tunnel at
+			// https://ai.karepmuwes.my.id, so this only ever travels over HTTPS.
+			res.cookie('fwid', workspaceId, { path: '/', maxAge: 31536000000, sameSite: 'lax', httpOnly: true, secure: true });
 		}
 		const projects = workspaceId
 			? await database

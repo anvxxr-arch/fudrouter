@@ -7,6 +7,7 @@ export function DocsPage() {
   const { '*': splat } = useParams();
   const path = (splat ?? '').replace(/^\/+|\/+$/g, '');
   const [cats, setCats] = useState<{ slug: string; title: string; pages: DocEntry[] }[]>([]);
+  const [loadError, setLoadError] = useState(false);
   const [entry, setEntry] = useState<DocEntry | null>(null);
   const [prev, setPrev] = useState<DocEntry | null>(null);
   const [next, setNext] = useState<DocEntry | null>(null);
@@ -14,6 +15,7 @@ export function DocsPage() {
   useEffect(() => {
     void api.docs().then((d) => {
       if (d) setCats(d.categories);
+      else setLoadError(true);
     });
   }, []);
   useEffect(() => {
@@ -22,13 +24,13 @@ export function DocsPage() {
       setMissing(false);
       return;
     }
-    void api.doc(path).then((d) => {
-      if (d?.entry) {
-        setEntry(d.entry);
-        setPrev(d.prev);
-        setNext(d.next);
+    void api.doc(path).then(({ data, status }) => {
+      if (data?.entry) {
+        setEntry(data.entry);
+        setPrev(data.prev);
+        setNext(data.next);
         setMissing(false);
-      } else setMissing(true);
+      } else setMissing(status === 404);
     });
   }, [path]);
   const sidebar = (
@@ -52,6 +54,7 @@ export function DocsPage() {
       <div className="stack">
         <h1>{entry ? entry.title : 'Documentation'}</h1>
         <p className="lede muted">{entry ? entry.categoryTitle : 'How this platform works, one page per topic.'}</p>
+        {loadError ? <p className="error">The documentation index could not be loaded — reload in a moment.</p> : null}
         <div className="doc-layout">
           {sidebar}
           <main className="doc-body">

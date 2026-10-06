@@ -36,6 +36,21 @@ func TestIsBlockedIP(t *testing.T) {
 		{"::ffff:10.0.0.1", true, "IPv4-mapped RFC1918"},
 		{"198.19.255.255", true, "benchmarking, last address of /15"},
 		{"100.127.255.255", true, "CGNAT, last address of /10"},
+		// Transition mechanisms that embed a reachable IPv4 (FIX 7): the guard
+		// must unwrap and re-check them, or a base_url of [64:ff9b::7f00:1]
+		// dials loopback while the guard sees an ordinary IPv6 address.
+		{"64:ff9b::7f00:1", true, "NAT64 embedding IPv4 loopback 127.0.0.1"},
+		{"64:ff9b::a9fe:a9fe", true, "NAT64 embedding the metadata address"},
+		{"64:ff9b::0a00:1", true, "NAT64 embedding RFC1918 10.0.0.1"},
+		{"64:ff9b::c0a8:1", true, "NAT64 embedding RFC1918 192.168.0.1"},
+		{"2002:7f00:1::", true, "6to4 embedding IPv4 loopback 127.0.0.1"},
+		{"2002:a9fe:a9fe::", true, "6to4 embedding the metadata address"},
+		{"2002:0a00:1::", true, "6to4 embedding RFC1918 10.0.0.1"},
+		{"64:ff9b::0808:0808", false, "NAT64 embedding public 8.8.8.8"},
+		{"2002:0808:0808::", false, "6to4 embedding public 8.8.8.8"},
+		// Teredo is intentionally not unwrapped (its embedded client IPv4 is at
+		// a different offset and its server IPv4 is public).
+		{"2001:0:0:0:0:0:7f00:1", false, "Teredo, deliberately not unwrapped"},
 		// Must be allowed: ordinary public addresses.
 		{"8.8.8.8", false, "public DNS"},
 		{"1.1.1.1", false, "public DNS"},

@@ -113,6 +113,16 @@ func (s *Store) ChargeRequest(ctx context.Context, r *RequestLog) (*ChargeResult
 	}
 
 	res := &ChargeResult{Charged: true}
+	if r.WorkspaceID == "" {
+		// Account-less tenant (S0): there is no billing_account row to lock, so
+		// the `for update` select would only take a lock path that serialises
+		// the common case against itself for nothing. Skip straight to the
+		// no-account commit — identical outcome, no row lock.
+		if err := tx.Commit(ctx); err != nil {
+			return nil, err
+		}
+		return res, nil
+	}
 	var accountID *string
 	var warningThreshold, hardStop, balance *int64
 	err = tx.QueryRow(ctx, `

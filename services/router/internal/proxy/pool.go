@@ -175,7 +175,14 @@ func newPool(
 // setPersistAccount installs the per-row writer (spec §4: a rotated token is
 // written back to the credential row it came from). Set after construction so
 // the pool's build signature stays the S0 one.
+//
+// The write takes p.mu because targetFor calls this on a pool that concurrent
+// requests may already be using: save() reads the same field under that lock,
+// so an unsynchronised store here is a data race — and could let a save()
+// observe a torn func value while a rotation is mid-flight.
 func (p *Pool) setPersistAccount(fn func(ctx context.Context, credID, plaintext string) error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.persistAccount = fn
 }
 
@@ -414,10 +421,12 @@ func (p *Pool) stale(now time.Time, ttl time.Duration) bool {
 func (p *Pool) save(ctx context.Context) error {
 	// Per-row persistence (credential rows, spec §4) is independent of the
 	// legacy blob writer and does not use `encrypt` — the caller encrypts.
-	if p.persistAccount == nil && (p.persist == nil || p.encrypt == nil) {
-		return nil
-	}
+	// persistAccount is snapshotted under p.mu so it pairs with
+	// setPersistAccount's locked write: targetFor installs it on a pool that
+	// concurrent requests may already be using.
 	p.mu.Lock()
+	persistAccount := p.persistAccount
+	hasBlobWriter := p.persist != nil && p.encrypt != nil
 	snap := make([]account, 0, len(p.accounts))
 	credIDs := make(map[string]string, len(p.accounts))
 	for _, a := range p.accounts {
@@ -429,9 +438,11 @@ func (p *Pool) save(ctx context.Context) error {
 		a.mu.Unlock()
 	}
 	p.mu.Unlock()
-
+	if persistAccount == nil && !hasBlobWriter {
+		return nil
+	}
 	// Per-row persistence: the merge rule is the row itself (one account).
-	if p.persistAccount != nil {
+	if persistAccount != nil {
 		for _, a := range snap {
 			credID := credIDs[a.Email]
 			if credID == "" {
@@ -441,12 +452,12 @@ func (p *Pool) save(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
-			if err := p.persistAccount(ctx, credID, plain); err != nil {
+			if err := persistAccount(ctx, credID, plain); err != nil {
 				return err
 			}
 		}
 	}
-	if p.persist == nil || p.encrypt == nil {
+	if !hasBlobWriter {
 		return nil
 	}
 	if p.load != nil {

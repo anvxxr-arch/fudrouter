@@ -3,7 +3,11 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
+
+	"github.com/anvxxr-arch/fudrouter/services/router/internal/ids"
+	"github.com/jackc/pgx/v5"
 )
 
 // RequestLog is one row of the append-only request ledger (spec §8).
@@ -128,6 +132,86 @@ func (s *Store) InsertRequestLog(ctx context.Context, r *RequestLog) error {
 		values (`+placeholders(43)+`)
 		on conflict (id) do nothing`, r.args()...)
 	return err
+}
+
+// InsertRequestLogWithLedger is the FALLBACK path for a failed ChargeRequest:
+// it writes the request_log row AND the usage_charge credit_ledger row AND the
+// balance_micro cache update in ONE transaction, so billing_account.balance_micro
+// can never desync from SUM(credit_ledger.amount_micro) just because the charge
+// transaction blew up. The plain InsertRequestLog above drops the ledger entry,
+// which silently loses money the workspace owes.
+//
+// It mirrors ChargeRequest's logic but is tolerant of a PARTIAL failure: the
+// request_log insert and the credit_ledger insert are both
+// `on conflict do nothing` (idempotency key `usage:<request_id>`), so replaying
+// a request whose first attempt committed the row but failed afterwards can
+// never double-charge. The balance update is applied only when the ledger row
+// was actually inserted, exactly as in ChargeRequest.
+//
+// The account is looked up WITHOUT `for update`: this runs on the recovery path
+// where the primary transaction has already failed, so a lock would only add
+// contention to an already-degraded moment, and the balance update is
+// idempotent by construction (it is guarded by the ledger insert).
+func (s *Store) InsertRequestLogWithLedger(ctx context.Context, r *RequestLog) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // rollback after Commit is a no-op
+	// Same mirroring rule as ChargeRequest: request_log is self-describing.
+	if r.CreditChargedMicro == 0 && r.Cost != 0 {
+		r.CreditChargedMicro = r.Cost
+	}
+	if _, err := tx.Exec(ctx, `
+		insert into request_log (`+requestLogColumns+`)
+		values (`+placeholders(43)+`)
+		on conflict (id) do nothing`, r.args()...); err != nil {
+		return err
+	}
+	if r.WorkspaceID == "" {
+		// Account-less tenant: nothing to charge, same as ChargeRequest.
+		return tx.Commit(ctx)
+	}
+	var accountID string
+	var currency string
+	err = tx.QueryRow(ctx, `
+		select id, currency from billing_account where workspace_id = $1`,
+		r.WorkspaceID,
+	).Scan(&accountID, &currency)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		// No account: the row stands on its own, nothing to charge.
+		return tx.Commit(ctx)
+	case err != nil:
+		return err
+	}
+	amount := -r.Cost // a usage_charge debits the balance
+	var charged bool
+	err = tx.QueryRow(ctx, `
+		insert into credit_ledger
+		  (id, billing_account_id, type, amount_micro, currency, request_id,
+		   idempotency_key, description, metadata)
+		values ($1,$2,'usage_charge',$3,$4,$5,$6,$7,$8)
+		on conflict (idempotency_key) do nothing
+		returning true`,
+		ids.New("txn"), accountID, amount, r.Currency, nullStr(r.ID),
+		"usage:"+r.ID, "usage charge for "+r.ID, "{}",
+	).Scan(&charged)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		// Already charged (or the row exists from the failed attempt): the
+		// balance was already moved with it, so do not move it again.
+		return tx.Commit(ctx)
+	case err != nil:
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		update billing_account
+		set balance_micro = balance_micro + $2, updated_at = now()
+		where id = $1`, accountID, amount); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // RequestAttempt is one routing attempt against one target (spec §8).

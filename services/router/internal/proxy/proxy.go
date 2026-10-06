@@ -154,10 +154,38 @@ const nonStreamTimeout = 120 * time.Second
 var poolReloadAfter = time.Minute
 
 // headers a stored default_header may never override.
+//
+// Beyond the three that break the request outright (authorization, content-type,
+// host) this blocks the standard hop-by-hop set (RFC 7230 §6.1: connection,
+// keep-alive, proxy-authenticate, proxy-authorization, te, trailer,
+// transfer-encoding, upgrade) — a provider default_header that set `te` or
+// `transfer-encoding` would desynchronise the upstream exchange — and the
+// forwarding-sensitive headers that describe the CLIENT's connection
+// (x-forwarded-for, x-forwarded-host, x-forwarded-proto, forwarded, x-real-ip)
+// plus the router's own identity headers (x-fudrouter-*), which a provider
+// must never be able to forge into the client's response.
 var reservedHeaders = map[string]bool{
-	"authorization": true,
-	"content-type":  true,
-	"host":          true,
+	"authorization":          true,
+	"content-type":           true,
+	"host":                   true,
+	"connection":             true,
+	"keep-alive":             true,
+	"proxy-authenticate":     true,
+	"proxy-authorization":    true,
+	"te":                     true,
+	"trailer":                true,
+	"transfer-encoding":      true,
+	"upgrade":                true,
+	"x-forwarded-for":        true,
+	"x-forwarded-host":       true,
+	"x-forwarded-proto":      true,
+	"forwarded":              true,
+	"x-real-ip":              true,
+	"x-fudrouter-request-id": true,
+	"x-fudrouter-provider":   true,
+	"x-fudrouter-model":      true,
+	"x-fudrouter-latency":    true,
+	"x-fudrouter-cost-micro": true,
 }
 
 // responseHeadersForwarded is an ALLOWLIST of upstream response headers copied

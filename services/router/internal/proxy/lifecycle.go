@@ -10,6 +10,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -173,7 +174,15 @@ func (h *Handler) begin(w http.ResponseWriter, r *http.Request, start time.Time,
 	if err != nil {
 		pol = store.DefaultRoutingPolicy()
 	}
-	strategyOverride := r.Header.Get("x-fudrouter-strategy")
+	strategyOverride := ""
+	// The strategy header lets a caller override the stored routing policy's
+	// strategy, so it is off by default and must be opted into with
+	// ROUTER_ALLOW_STRATEGY_HEADER=on. Left unset, the header is ignored
+	// entirely: only an operator who knows what a strategy does to routing may
+	// hand that choice to clients.
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("ROUTER_ALLOW_STRATEGY_HEADER")), "on") {
+		strategyOverride = r.Header.Get("x-fudrouter-strategy")
+	}
 	plan := routing.PlanFromRoutingPolicy(pol, strategyOverride, false)
 	lc.pol, lc.polID = &plan, pol.ID
 
@@ -291,13 +300,81 @@ func (lc *lifecycle) checkModelPolicy(res *store.ModelResolution) error {
 	return nil
 }
 
-// clientIP extracts the request's client address: first hop of
-// X-Forwarded-For (the ingress terminates TLS — the same rule the control
-// plane's writeAudit uses), else RemoteAddr's host. Unparseable → "".
+// TrustedProxiesEnv lists the ingress addresses whose X-Forwarded-For entries
+// may be believed, as a comma-separated list of IPs and CIDRs. It is the
+// operator's declaration of "my TLS terminates here" — the same rule the
+// control plane's writeAudit follows, but made explicit instead of trusting
+// whoever spoke first.
+const TrustedProxiesEnv = "ROUTER_TRUSTED_PROXIES"
+
+// trustedProxies is parsed once at startup from TrustedProxiesEnv. Empty means
+// trust nothing: X-Forwarded-For is ignored entirely and clientIP falls back to
+// RemoteAddr, which is the one address the router itself observed. Leaving the
+// var unset therefore fails CLOSED — a client that forges
+// `X-Forwarded-For: 1.2.3.4` cannot defeat a key's ip_allowlist or poison the
+// request_log rows when the operator has not declared a proxy.
+var trustedProxies = parseTrustedProxies(os.Getenv(TrustedProxiesEnv))
+
+// parseTrustedProxies turns the env value into subnets. A bare IP becomes a
+// /32 or /128 so every entry is one comparable *net.IPNet. Malformed entries
+// are dropped rather than fatal: a typo must not stop the data plane, and the
+// safe direction of a dropped entry is that its hop is treated as untrusted.
+func parseTrustedProxies(spec string) []*net.IPNet {
+	var out []*net.IPNet
+	for _, part := range strings.Split(spec, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if _, subnet, err := net.ParseCIDR(part); err == nil {
+			out = append(out, subnet)
+			continue
+		}
+		if ip := net.ParseIP(part); ip != nil {
+			bits := 32
+			if ip.To4() == nil {
+				bits = 128
+			}
+			out = append(out, &net.IPNet{IP: ip, Mask: net.CIDRMask(bits, bits)})
+		}
+	}
+	return out
+}
+
+// isTrustedProxy reports whether addr is one of the declared ingress hops.
+func isTrustedProxy(addr string) bool {
+	ip := net.ParseIP(strings.TrimSpace(addr))
+	if ip == nil {
+		return false
+	}
+	for _, subnet := range trustedProxies {
+		if subnet.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// clientIP extracts the request's client address by walking X-Forwarded-For
+// from RIGHT to LEFT, skipping every entry that is a trusted proxy
+// (ROUTER_TRUSTED_PROXIES, comma-separated IPs/CIDRs), and returning the first
+// address that is not. The rightmost entry is the one the nearest trusted proxy
+// appended, so this yields the real client even through a chain of them; the
+// leftmost entries are client-supplied and are exactly what a spoofer forges,
+// which is why they are never believed on their own. With no XFF, or with every
+// entry a trusted proxy, it falls back to RemoteAddr's host. Unparseable → "".
 func clientIP(r *http.Request) string {
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		if first, _, ok := strings.Cut(xff, ","); ok {
-			if ip := net.ParseIP(strings.TrimSpace(first)); ip != nil {
+		hops := strings.Split(xff, ",")
+		for i := len(hops) - 1; i >= 0; i-- {
+			hop := strings.TrimSpace(hops[i])
+			if hop == "" {
+				continue
+			}
+			if isTrustedProxy(hop) {
+				continue
+			}
+			if ip := net.ParseIP(hop); ip != nil {
 				return ip.String()
 			}
 		}
@@ -602,9 +679,11 @@ func (lc *lifecycle) finish() {
 	charge, err := lc.h.store.ChargeRequest(ctx, row)
 	if err != nil {
 		log.Printf("[proxy] charge failed for %s: %v", row.ID, err)
-		// The ledger row is the priority: fall back to a plain insert so the
-		// request is never invisible.
-		if err2 := lc.h.store.InsertRequestLog(ctx, row); err2 != nil {
+		// The ledger row is the priority: fall back to an insert that still
+		// carries the credit_ledger entry, so a failed charge can never leave
+		// balance_micro desynced from SUM(credit_ledger.amount_micro). Only if
+		// THAT fails too is the request invisible.
+		if err2 := lc.h.store.InsertRequestLogWithLedger(ctx, row); err2 != nil {
 			log.Printf("[proxy] request_log insert failed: %v", err2)
 		}
 	}

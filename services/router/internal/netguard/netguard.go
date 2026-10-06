@@ -54,6 +54,15 @@ func AllowPrivate() bool {
 // multicast, unspecified) this covers carrier-grade NAT and the benchmarking
 // range, both of which reach hosts that are not the caller's to reach. The AWS
 // instance-metadata address 169.254.169.254 is already link-local.
+//
+// Two IPv6 transition mechanisms embed a full IPv4 address that the router
+// would actually reach, so they are unwrapped and re-checked as IPv4:
+// NAT64 (64:ff9b::/96, the IPv4 at bytes 12-15) and 6to4 (2002::/16, the IPv4
+// at bytes 2-5). Without this, a provider base_url of
+// `http://[64:ff9b::7f00:1]/` dials loopback and the guard never notices.
+// Teredo (2001::/32) is deliberately NOT unwrapped: its embedded client IPv4
+// sits at a different offset and its server IPv4 is public, so unwrapping it
+// would block legitimate addresses.
 func IsBlockedIP(ip net.IP) bool {
 	if ip == nil {
 		return true
@@ -72,6 +81,19 @@ func IsBlockedIP(ip net.IP) bool {
 		}
 		if v4[0] == 198 && (v4[1] == 18 || v4[1] == 19) { // 198.18.0.0/15 benchmarking
 			return true
+		}
+		return false
+	}
+	// IPv6: unwrap the transition mechanisms that carry a reachable IPv4.
+	// NAT64 is 64:ff9b::/96, so the prefix occupies bytes 1-3 and the embedded
+	// IPv4 is the last four bytes. 6to4 is 2002::/16, so the prefix occupies
+	// bytes 0-1 and the embedded IPv4 follows at bytes 2-5.
+	if len(ip) == net.IPv6len {
+		if ip[1] == 0x64 && ip[2] == 0xff && ip[3] == 0x9b { // 64:ff9b::/96 NAT64
+			return IsBlockedIP(net.IPv4(ip[12], ip[13], ip[14], ip[15]))
+		}
+		if ip[0] == 0x20 && ip[1] == 0x02 { // 2002::/16 6to4
+			return IsBlockedIP(net.IPv4(ip[2], ip[3], ip[4], ip[5]))
 		}
 	}
 	return false

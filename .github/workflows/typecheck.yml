@@ -1,0 +1,28 @@
+# Typecheck — runs every workspace's `check` script in CI.
+#
+# This is a separate file from ci.yml on purpose. ci.yml's react-web job only
+# builds (vite build): apps/react-web defines a `check` script (`tsc --noEmit`)
+# that no workflow ever invoked, so a pure type error could still ship. Rather
+# than rely on one job remembering to call one workspace's script — and have it
+# rot again — this runs `npm run check --workspaces --if-present` so EVERY
+# workspace that defines a `check` script is type-checked, including ones added
+# later.
+name: Typecheck
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      # Root install (no --workspace): each package's devDependencies carry the
+      # toolchain its check needs (e.g. typescript/tsc for react-web), so a
+      # workspace-scoped `npm ci` would leave the other workspaces unable to run.
+      - run: npm ci
+      - run: npm run check --workspaces --if-present

@@ -1621,7 +1621,8 @@ export function registerAdminRoutes(app, ctx) {
 		const t0 = Date.now();
 		try {
 			const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 60000);
-			let res; try { res = await fetch(`${String(baseUrl).trim().replace(/\/+$/, '')}/chat/completions`, { method: 'POST', headers, body: JSON.stringify({ model: slug, messages: [{ role: 'user', content: 'Say OK' }], max_tokens: 512 }), signal: ctrl.signal }); } finally { clearTimeout(t); }
+			let res; try { res = await fetch(`${String(baseUrl).trim().replace(/\/+$/, '')}/chat/completions`, { method: 'POST', headers, body: JSON.stringify({ model: slug, messages: [{ role: 'user', content: 'Say OK' }], max_tokens: 512 }), signal: ctrl.signal, redirect: 'manual' }); } finally { clearTimeout(t); }
+			if (res.type === 'opaqueredirect' || res.status === 0 || (res.status >= 300 && res.status < 400)) { console.error(`[admin/providers/${id}/testModel] upstream returned a redirect, which is not followed`); return { modelTest: { ok: false, status: res.status, latencyMs: Date.now() - t0, tokensIn: null, tokensOut: null, content: null, reasoning: null, finishReason: null, error: 'upstream returned a redirect, which is not followed', slug } }; }
 			const data = await res.json().catch(() => null);
 			const choice = data?.choices?.[0];
 			return { modelTest: { ok: res.ok, status: res.status, latencyMs: Date.now() - t0, tokensIn: data?.usage?.prompt_tokens ?? null, tokensOut: data?.usage?.completion_tokens ?? null, content: choice?.message?.content ?? null, reasoning: choice?.message?.reasoning_content ?? null, finishReason: choice?.finish_reason ?? null, error: res.ok ? null : `HTTP ${res.status}`, slug } };
@@ -1647,7 +1648,8 @@ export function registerAdminRoutes(app, ctx) {
 		const t0 = Date.now();
 		try {
 			const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 60000);
-			let res; try { res = await fetch(`${String(baseUrl).trim().replace(/\/+$/, '')}/chat/completions`, { method: 'POST', headers, body: JSON.stringify({ model: slug, messages: [{ role: 'user', content: message }], max_tokens: 512 }), signal: ctrl.signal }); } finally { clearTimeout(t); }
+			let res; try { res = await fetch(`${String(baseUrl).trim().replace(/\/+$/, '')}/chat/completions`, { method: 'POST', headers, body: JSON.stringify({ model: slug, messages: [{ role: 'user', content: message }], max_tokens: 512 }), signal: ctrl.signal, redirect: 'manual' }); } finally { clearTimeout(t); }
+			if (res.type === 'opaqueredirect' || res.status === 0 || (res.status >= 300 && res.status < 400)) { console.error(`[admin/providers/${id}/chat] upstream returned a redirect, which is not followed`); return { chat: { ok: false, status: res.status, latencyMs: Date.now() - t0, tokensIn: null, tokensOut: null, content: null, reasoning: null, finishReason: null, error: 'upstream returned a redirect, which is not followed', slug, message } }; }
 			const data = await res.json().catch(() => null);
 			const choice = data?.choices?.[0];
 			return { chat: { ok: res.ok, status: res.status, latencyMs: Date.now() - t0, tokensIn: data?.usage?.prompt_tokens ?? null, tokensOut: data?.usage?.completion_tokens ?? null, content: choice?.message?.content ?? null, reasoning: choice?.message?.reasoning_content ?? null, finishReason: choice?.finish_reason ?? null, error: res.ok ? null : `HTTP ${res.status}`, slug, message } };

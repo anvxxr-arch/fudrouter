@@ -54,6 +54,16 @@ func (lc *lifecycle) streamSSE(w http.ResponseWriter, body io.Reader) {
 			if payload == "[DONE]" {
 				continue
 			}
+			// A token chunk is `{"id":…,"choices":[…]}`; only the provider's
+			// final chunk carries `usage`. The substring test is a NECESSARY
+			// condition for the parse below to find anything (a JSON key can
+			// only be spelled out or \u-escaped, and the escape contains a
+			// backslash), so skipping the parse when it fails changes nothing
+			// observable — it just stops the relay from paying a full JSON
+			// unmarshal per token chunk.
+			if !strings.Contains(payload, `"usage"`) && !strings.Contains(payload, `\`) {
+				continue
+			}
 			var chunk struct {
 				Usage *struct {
 					PromptTokens     int64 `json:"prompt_tokens"`

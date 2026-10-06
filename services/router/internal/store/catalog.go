@@ -114,16 +114,29 @@ func (s *Store) PublishedModel(ctx context.Context, slug string) (*ModelInfo, er
 	return m, nil
 }
 
-// providerServableSQL is the one provider predicate. It speaks BOTH status
-// vocabularies because migration 0009 widened the CHECKs while 0010 still has
-// to move the values: S0 rows carry `status='active'|'dev'` and post-0010 rows
+// providerServableSQL returns the one provider predicate, precomputed once at
+// Store construction (see providerServableSQLFor). The dev-tier opt-in is a
+// process-level bool read once, so the string cannot change for the Store's
+// lifetime and every call site interpolates it without rebuilding it.
+func (s *Store) providerServableSQL() string {
+	return s.providerServable
+}
+
+// providerServableSQLFor builds the one provider predicate. It speaks BOTH
+// status vocabularies because migration 0009 widened the CHECKs while 0010 still
+// has to move the values: S0 rows carry `status='active'|'dev'` and post-0010 rows
 // carry the PRD §52 set with `tier='commercial'|'dev'`. Either way a dev-tier
 // provider needs the opt-in. The opt-in is a process-level bool (read once at
 // Store construction), so it is interpolated as a `true`/`false` literal — no
 // query-parameter juggling across the four call sites.
-func (s *Store) providerServableSQL() string {
+//
+// Computed once per Store rather than per call: every catalogue query
+// (ActiveModels, PublishedModel, Candidates) previously rebuilt this string on
+// each execution, and the value cannot change — the flag is read once at
+// construction.
+func providerServableSQLFor(allowDevProviders bool) string {
 	dev := "false"
-	if s.allowDevProviders {
+	if allowDevProviders {
 		dev = "true"
 	}
 	return `p.enabled

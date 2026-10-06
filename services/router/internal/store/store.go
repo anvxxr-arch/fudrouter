@@ -36,6 +36,10 @@ var ErrNotFound = errors.New("not found")
 type Store struct {
 	pool              *pgxpool.Pool
 	allowDevProviders bool
+	// providerServable is the provider predicate built once from
+	// allowDevProviders (see providerServableSQLFor). Every catalogue query
+	// interpolates it, so rebuilding the string per call was pure waste.
+	providerServable string
 }
 
 func New(ctx context.Context, dsn string) (*Store, error) {
@@ -43,7 +47,12 @@ func New(ctx context.Context, dsn string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Store{pool: pool, allowDevProviders: envBool("ROUTER_ALLOW_DEV_PROVIDERS")}, nil
+	allowDev := envBool("ROUTER_ALLOW_DEV_PROVIDERS")
+	return &Store{
+		pool:              pool,
+		allowDevProviders: allowDev,
+		providerServable:  providerServableSQLFor(allowDev),
+	}, nil
 }
 
 // envBool accepts only explicit truthy values, so a typo or an empty string

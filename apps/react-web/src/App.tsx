@@ -1,3 +1,4 @@
+import { lazy } from 'react';
 import { BrowserRouter, Route, Routes, useParams } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { RequireAuth, RequireRouteCap } from './components/guards';
@@ -10,32 +11,36 @@ import { PlaygroundPage } from './routes/Playground';
 import { PricingPage } from './routes/Pricing';
 import { ProviderDetailPage, ProvidersPage } from './routes/Providers';
 import { IncidentDetailPage, StatusPage } from './routes/Status';
-import { AdminDetail, AdminHome, AdminSectionRoute } from './routes/admin';
-import {
-  AccountPage,
-  BillingPage,
-  CreditsPage,
-  DashboardHome,
-  InvitePage,
-  InvoicesPage,
-  KeysPage,
-  PayMethodsPage,
-  PlaygroundPage2,
-  ProjectNewPage,
-  ProjectPage,
-  ProjectSubPage,
-  TeamInvitesPage,
-  TeamMembersPage,
-  TeamRolesPage,
-  UsagePage,
-  WorkspacePage,
-} from './routes/dashboard';
+
+// The dashboard and admin trees are ~60 kB of source that only a signed-in
+// user ever reaches. Splitting them keeps the landing bundle (the first paint
+// every visitor pays for) to the public routes; the two trees arrive on demand
+// the first time a /dashboard or /admin route matches.
+const AdminDetail = lazy(() => import('./routes/admin').then((m) => ({ default: m.AdminDetail })));
+const AdminHome = lazy(() => import('./routes/admin').then((m) => ({ default: m.AdminHome })));
+const AdminSectionRoute = lazy(() => import('./routes/admin').then((m) => ({ default: m.AdminSectionRoute })));
+const AccountPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.AccountPage })));
+const BillingPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.BillingPage })));
+const CreditsPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.CreditsPage })));
+const DashboardHome = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.DashboardHome })));
+const InvitePage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.InvitePage })));
+const InvoicesPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.InvoicesPage })));
+const KeysPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.KeysPage })));
+const PayMethodsPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.PayMethodsPage })));
+const PlaygroundPage2 = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.PlaygroundPage2 })));
+const ProjectNewPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.ProjectNewPage })));
+const ProjectPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.ProjectPage })));
+const ProjectSubPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.ProjectSubPage })));
+const TeamInvitesPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.TeamInvitesPage })));
+const TeamMembersPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.TeamMembersPage })));
+const TeamRolesPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.TeamRolesPage })));
+const UsagePage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.UsagePage })));
+const WorkspacePage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.WorkspacePage })));
 
 function ProjectSubRoute() {
   const { name } = useParams();
   return <ProjectSubPage name={name ?? ''} />;
 }
-
 export default function App() {
   return (
     <BrowserRouter>

@@ -63,7 +63,7 @@ GET /pricing  -> 200, anonymous
 ```
 
 Measured by diffing the rendered HTML against the database: the 270 slugs that pass
-the web page's own publish gate (`reachability()` in `apps/web/src/lib/publish.ts`)
+the web page's own publish gate (`reachability()` in `shared/control-lib/publish.ts`)
 are **all** present in the anonymous response, whether as a `<code class="slug">`
 or as the card title. Requiring a key on `/v1/models` would therefore hide nothing
 while breaking every client whose only capability is the catalogue — the SDK and

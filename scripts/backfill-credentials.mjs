@@ -12,7 +12,7 @@
 // credential rows is skipped entirely; each provider splits in one transaction.
 //
 // Envelope compatibility: this file duplicates the AES-256-GCM envelope from
-// apps/web/src/lib/server/credentials.ts and services/router/internal/crypt
+// shared/control-lib/server/credentials.ts and services/router/internal/crypt
 // (base64(iv[12] || ct || tag[16])) because a plain-node script cannot import
 // TS. `scripts/backfill-credentials.test.ts` cross-checks both directions
 // against credentials.ts — same "re-parse everything the other side mints"

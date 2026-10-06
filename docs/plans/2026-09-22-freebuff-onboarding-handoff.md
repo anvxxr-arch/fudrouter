@@ -11,19 +11,23 @@
 | Protocol package | `services/router/internal/freebuff/` (`client.go`, `manager.go`, `models.go`, `models.json`, `util.go`, `freebuff_test.go`) |
 | Dispatch | `services/router/internal/proxy/proxy.go` — `cred.Protocol == ProtocolFreebuff` |
 | Credential field | `services/router/internal/proxy/pool.go` — `credentials.Protocol` (persisted through `pool.save()`) |
-| Onboard | `apps/web/scripts/onboard-freebuff.mjs` (`npm run onboard:freebuff`) |
-| Verify gate | `apps/web/scripts/verify-freebuff.mjs` (`npm run verify:freebuff`) |
+| Onboard | `apps/web/scripts/onboard-freebuff.mjs` — removed with the Svelte control plane (2026-10-06). The React app ships no equivalent; retrieve the script from history: `git show 2362648^:apps/web/scripts/onboard-freebuff.mjs` (the `onboard:freebuff` npm script it backed is gone too) |
+| Verify gate | `apps/web/scripts/verify-freebuff.mjs` — likewise removed (2026-10-06); `git show 2362648^:apps/web/scripts/verify-freebuff.mjs` |
 | Test seeding | `services/router/tests/helpers.go` — `SeedEnvFreebuff`, `SeedEnvFreebuffAccounts` |
 | Skill | `fudrouter-provider-onboarding` + `references/freebuff-protocol.md` |
 
 ## The ONE pending step
 
-Supply a **codebuff.com Bearer token** (NOT a web Cookie), then:
+Supply a **codebuff.com Bearer token** (NOT a web Cookie), then — the onboard/verify
+scripts and `apps/web` itself no longer exist, so restore the script you need from the
+deletion commit's parent into a scratch dir and run it there:
 
 ```bash
-cd /home/dwizzy/fudrouter/apps/web
-FREEBUFF_TOKEN='<bearer>' npm run onboard:freebuff
-npm run verify:freebuff          # must print: ALL CHECKS PASSED
+cd /home/dwizzy/fudrouter
+git show 2362648^:apps/web/scripts/onboard-freebuff.mjs > /tmp/onboard-freebuff.mjs
+git show 2362648^:apps/web/scripts/verify-freebuff.mjs  > /tmp/verify-freebuff.mjs
+FREEBUFF_TOKEN='<bearer>' node /tmp/onboard-freebuff.mjs
+node /tmp/verify-freebuff.mjs          # must print: ALL CHECKS PASSED
 ```
 
 Restart the router (`pm2 restart fudrouter-router`) only when **re-onboarding with a
@@ -67,4 +71,4 @@ which is **not ported**. Port it before onboarding a cookie.
 ```bash
 tail -20 ~/.pm2/logs/fudrouter-router-error.log   # [proxy] provider=freebuff … status=<code>
 ```
-Send that + the `verify:freebuff` output.
+Send that + the `verify-freebuff` output.

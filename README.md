@@ -5,7 +5,7 @@ Commercial AI router — one API key, many model providers.
 Two stateless processes over one Postgres (plus shared Valkey for runtime state):
 
 ```
-client ──► apps/react-web (React, :3002)    control plane: UI, auth, billing, admin
+client ──► apps/react-web (React, :3000)    control plane: UI, auth, billing, admin
            │  ▲
            │  └── reads/writes workspace · project · api_key · model · provider · user
            ▼
@@ -60,9 +60,9 @@ see `internal/netguard`).
 # both planes need this
 docker compose -f infra/docker-compose.yml up -d     # stack (Postgres is consolidated)
 
-cd apps/react-web && npm install
-npm run build          # vite build (dist/ served by server/index.mjs)
-npm run dev            # vite dev
+npm ci --workspace apps/react-web          # installs react-web from the root lockfile
+npm run build --workspace apps/react-web   # vite build (dist/ served by server/index.mjs)
+npm run dev --workspace apps/react-web     # vite dev
 
 cd services/router
 go test ./... -race    # the data-plane suite is DB-backed; see below

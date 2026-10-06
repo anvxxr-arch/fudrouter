@@ -37,7 +37,7 @@ Two decisions frame everything below:
    > business decision that contradicts this section as written.
 
 2. **Architecture B — split control plane and data plane.**
-   - **Control plane:** SvelteKit + TypeScript. UI, auth, billing, admin.
+   - **Control plane:** React + TypeScript (Express server + Vite SPA). UI, auth, billing, admin.
    - **Data plane:** Go. The `/v1/chat/completions` hot path.
    Rationale: the existing Go core is already provider-agnostic and makes plain
    `POST {base}/v1/chat/completions` calls, while Node is the weaker tool for a
@@ -176,16 +176,16 @@ Monorepo, npm workspaces — the same shape as the existing `fudcourt` monorepo.
 
 ```
 fudrouter/
-  apps/web/                 # SvelteKit control plane — adapter-node     :3000
+  apps/react-web/           # React control plane (Express + Vite)      :3000
   services/router/          # Go data plane (lifted core)                :8100
   packages/contracts/       # shared TS types for web ↔ router contract
   infra/                    # docker-compose (PG17 + Valkey), migrations
   docs/specs/               # this document
 ```
 
-> **Note on `svelte.config.js`.** SvelteKit 2.63+ (via `sv@0.17.1`) no longer
-> generates a standalone `svelte.config.js`; adapter config lives inline in
-> `apps/web/vite.config.ts`. The app directory will not contain this file.
+> **Note.** The SvelteKit app this section scaffolded was retired on 2026-10-06
+> (the React control plane at `apps/react-web` replaced it); the historical
+> `svelte.config.js` note it carried no longer applies.
 
 Home: `/home/dwizzy/fudrouter`.
 
@@ -261,8 +261,8 @@ request_log   id, userId, apiKeyId, modelId, providerId, tokensIn, tokensOut,
 **Better Auth**, self-hosted — we own the user data. (Lucia is deprecated as of
 March 2025 and is no longer an option.)
 
-- Official SvelteKit integration: `better-auth/svelte-kit` handler +
-  `sveltekitCookies` plugin (requires SvelteKit ≥ 2.20).
+- Official Better Auth integration: the `better-auth` handler mounted on the
+  Express server (`apps/react-web/server/index.mjs`).
 - `@better-auth/drizzle-adapter` for Postgres.
 - **Admin plugin** supplies `role`, `banned`, `banReason`, `banExpires`,
   `impersonatedBy` — covering §6.2's "ban, impersonate" without hand-rolling.
@@ -323,10 +323,10 @@ signup / login (Better Auth)
   → Go selects provider + model, calls upstream, streams SSE back
   → Go writes request_log (userId, apiKeyId, modelId, providerId,
                           tokensIn, tokensOut, cost, latencyMs, status)
-  → SvelteKit page lists that request, SSR from Postgres
+  → React page lists that request, read from Postgres
 ```
 
-This proves SvelteKit ↔ Go ↔ Postgres ↔ upstream are genuinely wired.
+This proves React ↔ Go ↔ Postgres ↔ upstream are genuinely wired.
 
 ---
 
@@ -337,14 +337,14 @@ This proves SvelteKit ↔ Go ↔ Postgres ↔ upstream are genuinely wired.
 - **Vitest** for web server-side logic.
 - **One end-to-end smoke test** running the whole path against the dev stack.
   This test *is* the S0 acceptance gate.
-- CI: `sv check`, `drizzle-kit check`, `go vet ./...`, `go test ./...`.
+- CI: `npm run check` (web type-check), `go vet ./...`, `go test ./...`.
 
 ---
 
 ## 13. Deploy
 
 - `docker compose` (same file dev and prod) for Postgres + Valkey.
-- SvelteKit via adapter-node under PM2 as **`fudrouter-web`**.
+- React control plane (Express server + Vite SPA) served by `apps/react-web/run.sh`.
 - Go data plane under PM2 as **`fudrouter-router`**.
 - Drizzle migrations applied on deploy.
 - **No public exposure during S0** — no tunnel ingress, no external ingress.
@@ -356,7 +356,7 @@ This proves SvelteKit ↔ Go ↔ Postgres ↔ upstream are genuinely wired.
 S0 is done when all hold:
 
 - [ ] `docker compose up` yields Postgres 17 + Valkey
-- [ ] `sv check`, `go vet ./...`, `go test ./...` all green
+- [ ] `npm run check`, `go vet ./...`, `go test ./...` all green
 - [ ] signup → login → create API key works
 - [ ] `curl` to `/v1/chat/completions` with that key returns a real completion
       from one seeded provider

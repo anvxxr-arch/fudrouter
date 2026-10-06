@@ -46,6 +46,11 @@ jobs:
             sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
           }
           ./scripts/migrate.sh
+      # No type-check or test step: apps/react-web/package.json exposes only
+      # build/dev/preview/server — there is no `check` (and no `test`) script to
+      # run, so this job verifies the React control plane compiles only. Adding
+      # `tsc --noEmit` here first requires wiring a type-check script into the
+      # workspace (no `check` script exists as of 2026-10-06).
       - run: npm run build --workspace apps/react-web
 
   router:

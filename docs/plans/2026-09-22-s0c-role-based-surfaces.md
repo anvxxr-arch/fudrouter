@@ -237,9 +237,11 @@ static too — at that size fluidity buys nothing.
    static dimensions (`px`/`em`/`rem`) — a `clamp()` is rejected as "not a valid
    dimension". So the frontmatter records each fluid heading's **floor**, the
    `clamp()` expressions live in DESIGN.md's typography table, and
-   `tokens.test.ts` asserts the two agree. `tools/regen_theme.py` wraps the
-   official exporter and re-injects the real clamps into the Tailwind mirror,
-   because `@theme` *is* CSS and a clamp is valid there.
+   `tokens.test.ts` asserts the two agree. `tools/regen_theme.py` (since removed
+   with the Svelte app, 2026-10-06 — it wrote the SvelteKit-only
+   `theme.tailwind.css`) wrapped the official exporter and re-injected the real
+   clamps into the Tailwind mirror, because `@theme` *is* CSS and a clamp is
+   valid there.
 2. **Heading elements map onto the lower half of the ladder** — `h1` renders at the
    `h4` step, `h2` at `h5`. The app is a dense console: `<h2>` is used for
    in-card section headings ("Add model", "Recent requests"), so mapping it to

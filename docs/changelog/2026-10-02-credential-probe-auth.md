@@ -1,6 +1,6 @@
 # Credential validation was probing with no Authorization header
 
-`tokenAt()` in `apps/web/src/lib/server/provider-credentials.ts` read the token
+`tokenAt()` in `shared/control-lib/server/provider-credentials.ts` (then at `apps/web/src/lib/server/provider-credentials.ts`; moved to `shared/control-lib` in the React migration) read the token
 out of `accounts[]` only. But a credential row is **one account stored flat** at
 the top level — `{email,access_token,refresh_token,id_token,expired}` — because
 spec §4 defines one account = one credential row, and that flat form is exactly

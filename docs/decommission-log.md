@@ -74,7 +74,7 @@ commits — and the standalone repository was retired. The product is a monorepo
 the retired generation belongs in the same history rather than in a stray second
 repo.
 
-Nothing under `legacy/` is built or deployed: CI is scoped to `apps/web` and
+Nothing under `legacy/` is built or deployed: CI is scoped to `apps/react-web` and
 `services/router`, and the root npm workspaces cover only `apps/*` and
 `packages/*`. The tarball backup above is untouched and remains the rollback
 source.

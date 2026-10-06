@@ -1,7 +1,7 @@
 # Platform schema & domain contract
 **Date:** 2026-09-30
 **Status:** Accepted — source of truth for every plane's data access
-**Scope:** whole platform (apps/web control plane, services/router data plane, infra/migrations)
+**Scope:** whole platform (apps/react-web control plane, services/router data plane, infra/migrations)
 **Supersedes:** nothing. Extends `2026-09-21-s0-foundation-design.md` (flat S0 schema) to the
 PRD's resource model: `User → Workspace → Project → Environment → API Key` and
 `Model → Provider Model → Provider → Connection → Credential`, with
@@ -52,7 +52,7 @@ roughly time-ordered, non-sequential, safe to show in URLs and logs.
 | `rul_` | security_rule | `cbr_` | circuit_breaker |
 
 Rules:
-- Generated **app-side** (never `serial`). TS: `newId(prefix)` in `apps/web/src/lib/server/id.ts`
+- Generated **app-side** (never `serial`). TS: `newId(prefix)` in `shared/control-lib/server/id.ts`
   (`uuidv7` package). Go: `ids.New(prefix)` in `services/router/internal/ids`
   (`gofrs/uuid` NewV7), formatted the same way.
 - **Backfilled IDs are `<prefix>_<legacy id>`, legacy id verbatim.** S0 ids are mixed-shape
@@ -61,7 +61,7 @@ Rules:
   exists (`usr_u_apkpg2yCQHFi`, `prv_mingles`) instead of minting new identities — history and
   FKs survive intact. Prefix strip = split on the first `_`.
 - Better Auth mints its own rows, so `advanced.database.generateId({ model })` in
-  `apps/web/src/lib/server/auth.ts` maps model→prefix (`user`→`usr_`, `session`→`ses_`,
+  `apps/react-web/server/index.mjs` maps model→prefix (`user`→`usr_`, `session`→`ses_`,
   `account`→`acc_`, `verification`→`ver_`).
 - S0 rows are rewritten in `0007` (prefix + existing uuid), keeping every FK consistent.
   The rewrite is idempotent (`where id not like 'usr\_%'` style guards) and backfills only.
@@ -89,19 +89,23 @@ jsonb is kept as a **legacy column** until its last caller migrates (§3).
   **The sweep that must be in the SAME commit** (miss one and the constraint
   rejects live writes or the public catalog goes dark):
   - `services/router/**` Go status writers (`logRequest` call sites).
-  - `apps/web/src/lib/publish.ts` reachability predicate (`p.status === 'active'`
+  - `shared/control-lib/publish.ts` reachability predicate (`p.status === 'active'`
     → `'operational'`; also the mirrored SQL in `services/router/internal/store`).
     **Sharpest cutover risk in the wave: flip this and the migration together or
     every published model vanishes from `/models` and `/v1/models`.**
-  - `apps/web/src/lib/provider-catalog.ts`, `provider-status.ts`, admin
+  - `shared/control-lib/provider-catalog.ts` (and the React status UI under
+    `apps/react-web/src/routes/`), admin
     provider/model form status dropdowns (`routes/admin/providers/**`,
     `routes/admin/models/**`).
-  - `apps/web/scripts/*.mjs` onboarding/verify scripts (27 files) — the easy miss.
+  - the retired `apps/web/scripts/*.mjs` onboarding/verify scripts (27 files) — the
+    easy miss; they were removed with the Svelte app (2026-10-06) and the React app
+    ships no equivalent. The literal inventory below is kept as the sweep record.
     Concrete literal inventory (36 hits / 8 files), captured 2026-09-30:
     `onboard-googleai.mjs`, `onboard-openrouter.mjs`, `onboard-xai-grok.mjs`,
     `prune-unikey-catalog.mjs`, `seed.mjs`, `verify-freebuff.mjs`,
     `verify-inferhub.mjs`, `verify-xai.mjs` (grep `'active'|'dev'|'inactive'`).
-  - `apps/web/src/lib/server/route-gates.test.ts`/other tests pinning old literals.
+  - the retired `apps/web/src/lib/server/route-gates.test.ts` and its sibling tests
+    pinning old literals — removed with the Svelte app (2026-10-06).
 
   **Model-side needs NO predicate change**: both the router (`m.status = 'active'`)
   and `publish.ts` (`isPublished` → `=== 'active'`) already gate on `active`, so
@@ -503,7 +507,7 @@ GetJSON/SetJSON(ctx, key string, v any, ttl time.Duration) error
 Lua(ctx, script, key string, args ...any) ([]any, error)
 ```
 ```
-// TS — apps/web/src/lib/server/vk.ts
+// TS — shared/control-lib/server/vk.ts
 allowRate(key, limit, windowMs): Promise<boolean>
 getJSON<T>(key): Promise<T | null>; setJSON(key, value, ttlMs): Promise<void>
 incr(key, ttlMs): Promise<number>; decr(key): Promise<void>
@@ -528,14 +532,16 @@ Go client module: `github.com/valkey-io/valkey-go`. TS client package: `ioredis`
 Go (services/router/internal/): `store` (all SQL), `ids`, `vk`, `cost`, `crypt`, `keys`,
 `netguard`, `proxy` (http hot path), `routing` (candidate selection/scoring/fallback),
 `upstream` (per-connection client, OAuth refresh), `limits`, `health`, `jobs` (workers).
-TS (apps/web/src/lib/server/): `db` (drizzle), `auth`, `keys`, `crypt`, `vk`, `rbac`
-(workspace permissions), `billing` (ledger), `audit`, `jobs`, plus the existing page-level
-`+page.server.ts` actions. Rule from S0 stands: pure rule / env read / separate files.
+TS (shared/control-lib/server/): `db` (drizzle), `auth`, `keys`, `crypt`, `vk`, `rbac`
+(workspace permissions), `billing` (ledger), `audit`, `jobs`; the React app owns the
+page-level routes and their server actions under `apps/react-web/`. Rule from S0 stands:
+pure rule / env read / separate files.
 
 **Migration tooling** — hand-written SQL in `infra/migrations/NNNN_*.sql`, applied in lexical
 order by `scripts/migrate.sh` (psql, `ON_ERROR_STOP`, idempotent via a `schema_migration`
 name table). Drizzle-kit's journal/snapshot pair is retired (`infra/migrations/meta/` removed,
-`db:generate`/`db:check`/`db:push` removed from `apps/web/package.json`): the journal only
+`db:generate`/`db:check`/`db:push` retired with the Svelte app's `apps/web/package.json`):
+the journal only
 knew 0000–0003 while 0004/0005 shipped as plain SQL — `drizzle-kit migrate` silently skipped
 them for the web plane (live evidence, 2026-09-30). `db/schema.ts` mirrors the SQL for typed
 queries; the SQL files are the source of truth.

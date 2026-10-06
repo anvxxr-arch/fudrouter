@@ -60,8 +60,14 @@ echo "$STAMP  $SIZE  ${TABLES} tables  $OUT.gz"
 # ciphertext. A dump without it restores into a database where every provider
 # decrypt fails, which looks exactly like a corrupt backup. Copy it alongside,
 # mode 600, and say so in the filename so nobody ships it to a shared box.
-if [ -f /home/dwizzy/fudrouter/.env ]; then
-  KEYOUT="$BACKUP_DIR/fudrouter-$STAMP.env"
-  install -m 600 /home/dwizzy/fudrouter/.env "$KEYOUT"
-  echo "  master key -> $KEYOUT (mode 600, KEEP THIS OFF-SITE AND OFF-GIT)"
-fi
+#
+# Both env files are backed up: the router/workers/scheduler PM2 entrypoints
+# source the root .env, and the React control plane sources .env.react-web
+# (apps/react-web/run.sh). The master key lives in each.
+for src in /home/dwizzy/fudrouter/.env /home/dwizzy/fudrouter/.env.react-web; do
+  [ -f "$src" ] || continue
+  suffix="${src##*/}"; suffix="${suffix#.}"
+  KEYOUT="$BACKUP_DIR/fudrouter-$STAMP.$suffix"
+  install -m 600 "$src" "$KEYOUT"
+  echo "  env -> $KEYOUT (mode 600, KEEP THIS OFF-SITE AND OFF-GIT)"
+done

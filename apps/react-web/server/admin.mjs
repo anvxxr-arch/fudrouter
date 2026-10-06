@@ -11,7 +11,7 @@ import { and, asc, desc, eq, gte, lt, lte, or, ne, isNull, inArray, notInArray, 
 import {
 	MIN_PRIORITY, MAX_PRIORITY, MIN_TIMEOUT_MS, MAX_TIMEOUT_MS, MAX_BATCH_MODELS, MAX_BULK_TEST, MAX_CHAT_CHARS,
 	_parseEnum, _parseInt, _parseBool, _cleanField, _parseSlug, _parseJson, _parseFlags, _parseMicros,
-	_usdToMicro, _microToUsd, _microsToInput, _matchKey, _isIpOrCidr
+	_usdToMicro, _microToUsd, _microsToInput, _matchKey, _isIpOrCidr, _rowsOf, _num
 } from './lib/validate.mjs';
 import { _encCred, _decCred, _tokenAt, _headersFor } from './lib/credentials.mjs';
 import { _isBlockedLiteral, _assertPublic, _fetchCatalog } from './lib/ssrf.mjs';
@@ -310,8 +310,6 @@ const TIMING_KEYS = ['auth', 'rate_limit', 'routing', 'queue', 'connection', 'ge
 const VK_NAMESPACES = ['rl', 'conc', 'spend', 'usage', 'health', 'credential', 'circuit', 'model', 'catalog', 'session', 'idem', 'lock', 'metric', 'ver'];
 const _IDP = { model: 'mdl_', providerModel: 'pmdl_', pricingRule: 'prc_', provider: 'prv_', connection: 'con_', credential: 'cred_', routingPolicy: 'rte_', rateLimit: 'lim_', securityRule: 'rul_', circuitBreaker: 'cbr_', featureFlag: 'flg_', budget: 'bdg_' };
 const _newId = (p) => p + _uuidv7();
-const _rowsOf = (r) => (Array.isArray(r) ? r : (r && Array.isArray(r.rows) ? r.rows : []));
-const _num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 const _reach = (modelStatus, providerStatus, allowDev) => {
 	if (modelStatus !== 'active') return { served: false, reason: 'unpublished' };
 	if (providerStatus === 'active') return { served: true, reason: null };

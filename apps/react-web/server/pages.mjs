@@ -1,46 +1,15 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { sql } from 'drizzle-orm';
+import { rowsOf, big, num, iso, okBody } from './lib/validate.mjs';
 
 // DB-backed dashboard page loads + POST actions for the member dashboard
 // routes. All routes require auth (anon 401).
 // Raw SQL is used throughout so real columns work regardless of the minimal
 // drizzle table copies in index.mjs.
-
-function rowsOf(r) {
-	if (Array.isArray(r)) return r;
-	if (r && Array.isArray(r.rows)) return r.rows;
-	return [];
-}
-function big(v) {
-	if (v === null || v === undefined) return 0n;
-	try {
-		return BigInt(String(v));
-	} catch {
-		return 0n;
-	}
-}
-function num(v) {
-	const n = Number(v);
-	return Number.isFinite(n) ? n : 0;
-}
-function iso(v) {
-	if (!v) return null;
-	try {
-		return new Date(v).toISOString();
-	} catch {
-		return String(v);
-	}
-}
 function fail(res, status, error) {
 	return res.status(status).json({ error });
 }
-function okBody(req) {
-	const b = req.body;
-	if (b && typeof b === 'object' && !Array.isArray(b)) return b;
-	return {};
-}
-
 // sk-ar-<prefix>_<secret>, sha256(secret) stored. Byte-compatible with
 // shared/control-lib/server/keys.ts + the Go data plane parser.
 function generateApiKey() {

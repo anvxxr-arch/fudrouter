@@ -16,3 +16,15 @@ export const _microToUsd = (micro) => { if (micro === null || micro === undefine
 export const _microsToInput = (v) => { const w = v / 1000000n; const f = (v % 1000000n).toString().padStart(6, '0').replace(/0+$/, ''); return f ? `${w}.${f}` : w.toString(); };
 export const _matchKey = (slug) => String(slug).replace(/^models\//, '');
 export const _isIpOrCidr = (value) => { const v = String(value).trim(); if (!v || v.length > 64) return false; const slash = v.indexOf('/'); if (slash === -1) return net.isIP(v) !== 0; if (v.indexOf('/', slash + 1) !== -1) return false; const addr = v.slice(0, slash); const prefix = v.slice(slash + 1); if (!/^(0|[1-9]\d?)$/.test(prefix)) return false; if (net.isIPv4(addr)) return Number(prefix) <= 32; if (net.isIPv6(addr)) return Number(prefix) <= 128; return false; };
+
+// ---- row + value coercers shared by admin.mjs and pages.mjs ----
+// admin.mjs had _rowsOf/_num; pages.mjs had rowsOf/num. Both pairs were
+// byte-identical in logic, so they are unified here and each file imports
+// the name it already used. big/iso/okBody had no admin counterpart.
+export const _rowsOf = (r) => (Array.isArray(r) ? r : (r && Array.isArray(r.rows) ? r.rows : []));
+export const rowsOf = _rowsOf;
+export const _num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+export const num = _num;
+export const big = (v) => { if (v === null || v === undefined) return 0n; try { return BigInt(String(v)); } catch { return 0n; } };
+export const iso = (v) => { if (!v) return null; try { return new Date(v).toISOString(); } catch { return String(v); } };
+export const okBody = (req) => { const b = req.body; if (b && typeof b === 'object' && !Array.isArray(b)) return b; return {}; };

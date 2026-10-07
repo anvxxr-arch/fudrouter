@@ -1,8 +1,7 @@
 import type { PgDatabase } from 'drizzle-orm/pg-core';
 import type { PostgresJsQueryResultHKT } from 'drizzle-orm/postgres-js';
-import { getRequestEvent } from '$app/server';
-import { auditLog } from '$lib/server/db/schema';
-import { newId, ID_PREFIXES } from '$lib/server/id';
+import { auditLog } from './db/schema';
+import { newId, ID_PREFIXES } from './id';
 
 /**
  * Anything that can run queries: the drizzle `db` singleton or a transaction
@@ -60,19 +59,12 @@ export function redactSecrets<T>(value: T): T {
 }
 
 /**
- * Write one audit row. The caller's IP is picked up from the request event
- * unless given explicitly (jobs/system actors have none).
+ * Write one audit row. The IP comes from `entry.ip` only — the caller owns it
+ * (the Express layer reads `clientIp(req)`; jobs/system actors have none), so
+ * there is no ambient request scope to fall back on here.
  */
 export async function writeAudit(dbtx: DbTx, entry: AuditEntry): Promise<void> {
-	let ip = entry.ip ?? null;
-	if (!ip) {
-		try {
-			ip =
-				getRequestEvent().request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null;
-		} catch {
-			ip = null;
-		}
-	}
+	const ip = entry.ip ?? null;
 	await dbtx.insert(auditLog).values({
 		id: newId(ID_PREFIXES.auditLog),
 		actorUserId: entry.actorUserId ?? null,

@@ -18,7 +18,7 @@ import { lookup } from 'node:dns/promises';
 /**
  * Whether `host` is a non-public literal address, blockable before any DNS work.
  *
- * Exported so the URL-sanitiser in `$lib/server/admin-limits` and the guard here
+ * Exported so the URL-sanitiser in `./admin-limits` and the guard here
  * agree: they were two independent implementations of the same rule, and the weaker one
  * (in admin-limits) was missing `0.0.0.0`, `::`, `198.18/15`, `::ffff:` mapped
  * IPv6 and `fe80::%zone`. A stored base_url could name any of those and pass a

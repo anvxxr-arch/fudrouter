@@ -2,19 +2,19 @@
  * Upstream catalog discovery for the admin console.
  *
  * Reading a provider's `/models` is what lets an admin publish slugs without
- * typing them: this fetches the list, and `$lib/provider-catalog` parses it into
+ * typing them: this fetches the list, and `../provider-catalog` parses it into
  * the shape the gallery edits. The fetch is guarded — `base_url` is
  * admin-supplied, so an unvalidated request is a request-forgery primitive.
  */
 import { eq } from 'drizzle-orm';
-import { guardedUpstreamFetch } from '$lib/server/ssrf';
-import { allowPrivateUpstreams } from '$lib/server/publish-env';
-import { safeUpstreamUrl } from '$lib/server/admin-limits';
-import { parseUpstreamModels, type UpstreamModel } from '$lib/provider-catalog';
-import type { Credentials } from '$lib/server/credentials';
-import { headersFor, tokenAt } from '$lib/server/provider-credentials';
-import { db } from '$lib/server/db';
-import { provider } from '$lib/server/db/schema';
+import { guardedUpstreamFetch } from './ssrf';
+import { allowPrivateUpstreams } from './publish-env';
+import { safeUpstreamUrl } from './admin-limits';
+import { parseUpstreamModels, type UpstreamModel } from '../provider-catalog';
+import type { Credentials } from './credentials';
+import { headersFor, tokenAt } from './provider-credentials';
+import { db } from './db';
+import { provider } from './db/schema';
 
 /** How long any single upstream call may take. */
 export const UPSTREAM_TIMEOUT_MS = 15_000;

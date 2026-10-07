@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 // scripts/workers.mjs — worker-fleet entrypoint (PRD §75–76).
 //
-// Runs `src/lib/server/workers.ts` (TypeScript) under plain `node`: the worker
+// Runs `shared/control-lib/server/workers.ts` (TypeScript) under plain `node`: the worker
 // shares the control plane's modules (`db`, `vk`, `credentials`, `jobs`, …) and
 // duplicating them in JS would drift within a week — the same reasoning as
 // `scripts/verify-*.mjs`, which imports `credentials.ts` through Node's type
-// stripping. Here we register synchronous module hooks so the whole `$lib/*`
-// graph resolves and strips (the `$lib` alias and `$app/*` shims are needed
-// because those modules predate the shared/control-lib move).
+// stripping. Here we register synchronous module hooks so the whole shared
+// graph resolves and strips (the extension-less relative imports need the
+// resolver half; the `.ts` files need the type-stripping half).
 //
 // Usage: node --env-file=.env scripts/workers.mjs
 //   WORKER_TYPES=usage_aggregation,alert_evaluation   # subset of job types

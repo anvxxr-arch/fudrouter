@@ -17,7 +17,7 @@ import { _encCred, _decCred, _tokenAt, _headersFor } from './lib/credentials.mjs
 import { _isBlockedLiteral, _assertPublic, _fetchCatalog } from './lib/ssrf.mjs';
 import { clientIp } from './lib/ip.mjs';
 import { _sanitizeAudit, _dropRedacted, _auditView, makeAudit } from './lib/audit.mjs';
-import { SECTION_CAPS, _capsFor, _dominates, _canAdminister, _guardUser } from './lib/rbac.mjs';
+import { SECTION_CAPS, _dominates, _canAdminister, _guardUser } from './lib/rbac.mjs';
 import { _deriveHealth, _evalSignals, _vkPing } from './lib/format.mjs';
 import {
 	pgTable,

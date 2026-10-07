@@ -8,11 +8,16 @@
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
-    "check": "npm run check --workspaces --if-present",
+    "check": "npm run check --workspaces --if-present && npm run check:shared",
+    "check:shared": "tsc --noEmit -p shared/control-lib/tsconfig.json",
     "test": "npm run test --workspaces --if-present"
   },
   "engines": {
     "node": ">=22.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.4",
+    "typescript": "^5.9.3"
   },
   "dependencies": {
     "@rolldown/binding-linux-x64-gnu": "^1.2.9",

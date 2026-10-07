@@ -6,14 +6,15 @@ import {
 	credential,
 	creditLedger,
 	invoice,
+	job,
 	pricingRule,
 	providerModel,
 	requestLog,
 	systemEvent,
 	usageDaily,
 	usageHourly
-} from '$lib/server/db/schema';
-import { db } from '$lib/server/db';
+} from './db/schema';
+import { db } from './db';
 import {
 	claimJobs,
 	completeJob,
@@ -24,21 +25,21 @@ import {
 	type JobHandle,
 	type JobRow,
 	type JobType
-} from '$lib/server/jobs';
-import { evaluateAlerts } from '$lib/server/alerts';
-import { deliverWebhook, pendingDeliveriesReady } from '$lib/server/webhooks';
-import { getSetting } from '$lib/server/settings';
-import { newId } from '$lib/server/id';
-import { decryptCredentials, type Credentials } from '$lib/server/credentials';
-import { headersFor, isExpiredOAuth, tokenAt } from '$lib/server/provider-credentials';
+} from './jobs';
+import { evaluateAlerts } from './alerts';
+import { deliverWebhook, pendingDeliveriesReady } from './webhooks';
+import { getSetting } from './settings';
+import { newId } from './id';
+import { decryptCredentials, type Credentials } from './credentials';
+import { headersFor, isExpiredOAuth, tokenAt } from './provider-credentials';
 import {
 	fetchUpstreamCatalog,
 	getProvider,
 	UPSTREAM_TIMEOUT_MS
-} from '$lib/server/provider-catalog-fetch';
-import { allowPrivateUpstreams } from '$lib/server/publish-env';
-import { guardedUpstreamFetch } from '$lib/server/ssrf';
-import { reconcile } from '$lib/server/billing';
+} from './provider-catalog-fetch';
+import { allowPrivateUpstreams } from './publish-env';
+import { guardedUpstreamFetch } from './ssrf';
+import { reconcile } from './billing';
 
 /**
  * Worker fleet (PRD §75–76, spec §11/§13).
@@ -389,6 +390,20 @@ const providerHealthCheck: JobHandler = async (dbtx, payload) => {
 const CREDENTIAL_VALIDATION_BATCH = 250;
 
 /**
+ * How long a probe-detected failure withholds a credential from routing.
+ *
+ * The router's usable predicate is `status not in ('disabled','invalid') and
+ * (cooldown_until is null or cooldown_until <= now())` — `auth_failed` is NOT an
+ * exclusion on its own, so a failed probe that writes no cooldown leaves the
+ * credential fully routable: the pool keeps selecting a key the probe just
+ * rejected, eats a 401 on the request, and the next hourly probe re-finds the
+ * same dead row. Mirror the data plane's `parkCredential` and set a cooldown;
+ * keep it just under the hourly cadence so the next run re-tests rather than the
+ * credential being parked forever on one bad probe.
+ */
+const CREDENTIAL_PROBE_COOLDOWN_MS = 55 * 60 * 1000;
+
+/**
  * `credential_validation`: decrypt one credential (spec §4 envelope) and probe
  * its connection with the credential's own auth headers; map the response onto
  * the `credential.status` vocabulary and record the transition in a
@@ -520,6 +535,10 @@ const credentialValidation: JobHandler = async (dbtx, payload) => {
 			detail.note = 'access token expired; the data plane refreshes it from refresh_token';
 		}
 		const now = new Date();
+		// A failing verdict must actually withhold the credential — see
+		// CREDENTIAL_PROBE_COOLDOWN_MS. Clearing it on a passing verdict also
+		// un-parks a credential the data plane had cooled down.
+		const failing = status === 'auth_failed' || status === 'rate_limited';
 		await dbtx
 			.update(credential)
 			.set({
@@ -527,6 +546,7 @@ const credentialValidation: JobHandler = async (dbtx, payload) => {
 				lastUsedAt: now,
 				lastSuccessAt: status === 'healthy' ? now : undefined,
 				lastErrorAt: status === 'healthy' ? undefined : now,
+				cooldownUntil: failing ? new Date(now.getTime() + CREDENTIAL_PROBE_COOLDOWN_MS) : null,
 				updatedAt: now
 			})
 			.where(eq(credential.id, cred.id));
@@ -715,9 +735,10 @@ const pricingSync: JobHandler = async (dbtx, payload) => {
  * - `request_content_days` scrubs `request_body`/`response_body` past the
  *   window; `0` (the seeded default) therefore scrubs ALL captured content —
  *   content is only kept while a positive window allows it.
- * - `request_metadata_days` / `system_events_days` / `audit_logs_days` DELETE
- *   rows past the window; `0`/negative keeps them forever (deletion is
- *   opt-in — a zero here must never mean "wipe the ledger").
+ * - `request_metadata_days` / `system_events_days` / `audit_logs_days` / `job_days`
+ *   DELETE rows past the window; `0`/negative keeps them forever (deletion is
+ *   opt-in — a zero here must never mean "wipe the ledger"). `job_days` deletes
+ *   only TERMINAL (`completed`/`failed`) queue rows, never live work.
  *
  * Idempotent: a second run finds nothing older than the same cutoffs.
  */
@@ -727,6 +748,7 @@ const dataRetentionCleanup: JobHandler = async (dbtx) => {
 	const contentDays = Number(retention?.request_content_days ?? 0);
 	const eventDays = Number(retention?.system_events_days ?? 0);
 	const auditDays = Number(retention?.audit_logs_days ?? 0);
+	const jobDays = Number(retention?.job_days ?? 0);
 	const cutoff = (days: number) => new Date(Date.now() - days * 86_400_000);
 
 	await dbtx
@@ -763,13 +785,38 @@ const dataRetentionCleanup: JobHandler = async (dbtx) => {
 			.returning({ id: auditLog.id });
 		deletedAudits = rows.length;
 	}
-	if (deletedRequests + deletedEvents + deletedAudits > 0) {
+	// `job` is an internal queue, not a ledger: its completed/failed rows are
+	// pure history and grow ~3-4k/day forever (one row per webhook delivery,
+	// alert evaluation, aggregation, probe). Delete only TERMINAL rows — a
+	// pending/running job is live work and a sweep must never drop it.
+	let deletedJobs = 0;
+	if (jobDays > 0) {
+		const rows = await dbtx
+			.delete(job)
+			.where(
+				and(
+					sql`${job.status} in ('completed', 'failed')`,
+					lt(job.createdAt, cutoff(jobDays))
+				)
+			)
+			.returning({ id: job.id });
+		deletedJobs = rows.length;
+	}
+	if (deletedRequests + deletedEvents + deletedAudits + deletedJobs > 0) {
 		await dbtx.insert(systemEvent).values({
 			id: newId('evt_'),
 			type: 'data_retention_cleanup',
 			resource: 'system',
 			resourceId: null,
-			metadata: { deletedRequests, deletedEvents, deletedAudits, metadataDays, contentDays }
+			metadata: {
+				deletedRequests,
+				deletedEvents,
+				deletedAudits,
+				deletedJobs,
+				metadataDays,
+				contentDays,
+				jobDays
+			}
 		});
 	}
 };

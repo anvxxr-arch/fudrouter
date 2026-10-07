@@ -1,12 +1,18 @@
-# Typecheck — runs every workspace's `check` script in CI.
+# Typecheck — runs the root `check` script in CI.
 #
 # This is a separate file from ci.yml on purpose. ci.yml's react-web job only
 # builds (vite build): apps/react-web defines a `check` script (`tsc --noEmit`)
 # that no workflow ever invoked, so a pure type error could still ship. Rather
 # than rely on one job remembering to call one workspace's script — and have it
-# rot again — this runs `npm run check --workspaces --if-present` so EVERY
-# workspace that defines a `check` script is type-checked, including ones added
-# later.
+# rot again — this runs the root `check`, which fans out to every workspace that
+# defines a `check` script AND to `check:shared`.
+#
+# `shared/control-lib` is not a workspace (no package.json) and is loaded at
+# runtime by the PM2 daemons through scripts/ts-hooks.mjs, so nothing used to
+# type-check it: a type error in the control plane (workers, billing, ssrf,
+# credentials) was invisible until the code path ran in production. The root
+# `check` now includes `tsc -p shared/control-lib/tsconfig.json` for exactly
+# that reason.
 name: Typecheck
 on:
   push:
@@ -25,4 +31,4 @@ jobs:
       # toolchain its check needs (e.g. typescript/tsc for react-web), so a
       # workspace-scoped `npm ci` would leave the other workspaces unable to run.
       - run: npm ci
-      - run: npm run check --workspaces --if-present
+      - run: npm run check

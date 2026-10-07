@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
-import { db } from '$lib/server/db';
-import { systemSetting } from '$lib/server/db/schema';
+import { db } from './db';
+import { systemSetting } from './db/schema';
 
 /**
  * Platform settings (PRD §105, §138) — a typed view over the
@@ -16,6 +16,10 @@ export type SystemSettings = {
 		request_content_days: number;
 		system_events_days: number;
 		audit_logs_days: number;
+		// Terminal (`completed`/`failed`) `job` rows older than this are deleted;
+		// 0/negative keeps them forever, same opt-in rule as the rest. Absent on
+		// rows written before the key existed, so readers default it.
+		job_days?: number;
 	} | null;
 	registration: { enabled: boolean } | null;
 	maintenance: { enabled: boolean } | null;

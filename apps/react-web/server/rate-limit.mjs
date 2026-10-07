@@ -1,11 +1,15 @@
 // In-process fixed-window rate limiter (no dependencies).
-// One bucket per key (session user id, else request IP) per limiter instance;
-// stale buckets are pruned on every check so the map cannot grow unbounded.
-const buckets = new Map();
-
+// One bucket per key (session user id, else request IP), scoped to ONE limiter
+// instance: the map is created per `rateLimit()` call, so two limiters that
+// derive the same key for a client (e.g. the strict and loose `/api/auth`
+// buckets, both `ip:<x>`) keep independent counters. A module-level map shared
+// the counter between every limiter, so a burst on one surface (10 playground
+// requests) could 429 a different one (login). Stale buckets are pruned on every
+// check so a map cannot grow unbounded.
 export function rateLimit({ windowMs, max, key }) {
 	const window = Number(windowMs);
 	const limit = Number(max);
+	const buckets = new Map();
 	return async (req, res, next) => {
 		const now = Date.now();
 		const id = key ? await key(req) : (req.ip || 'unknown');

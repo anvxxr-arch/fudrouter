@@ -45,7 +45,10 @@ export const SECTION_CAPS = {
 	workspaces: 'admin.users'
 };
 
-export const _capsFor = (role) => { const m = { user: ['member'], finance_admin: ['member', 'admin.view', 'admin.billing', 'admin.users'], ops_admin: ['member', 'admin.view', 'admin.providers', 'admin.models', 'admin.requests', 'admin.ops'], admin: ['member', 'admin.view', 'admin.users', 'admin.keys', 'admin.providers', 'admin.models', 'admin.requests', 'admin.ops', 'admin.billing', 'admin.audit', 'admin.settings'] }; return new Set(m[role] ?? ['member']); };
+// The admin dominance helpers use the SAME `capsFor` table as routing. They
+// used to carry a private `_capsFor` copy, which is a privilege-escalation
+// hazard: the moment the two tables disagree, a grant check compares against a
+// vocabulary the enforcement path does not use.
 export const _dominates = (a, b) => { for (const c of b) if (!a.has(c)) return false; return true; };
-export const _canAdminister = (actorRole, targetRole, granted) => { const a = _capsFor(actorRole); if (!_dominates(a, _capsFor(targetRole))) return false; if (granted !== undefined && granted !== null && !_dominates(a, _capsFor(granted))) return false; return true; };
+export const _canAdminister = (actorRole, targetRole, granted) => { const a = capsFor(actorRole); if (!_dominates(a, capsFor(targetRole))) return false; if (granted !== undefined && granted !== null && !_dominates(a, capsFor(granted))) return false; return true; };
 export const _guardUser = (actor, targetRole, granted) => { if (!_canAdminister(actor?.role ?? null, targetRole, granted)) return (granted !== undefined && granted !== targetRole) ? 'You cannot grant a role above your own level' : 'You cannot modify a user at or above your own level'; return null; };

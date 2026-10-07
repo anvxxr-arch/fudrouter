@@ -1,5 +1,5 @@
 import { and, eq, gte, sql } from 'drizzle-orm';
-import { db } from '$lib/server/db';
+import { db } from './db';
 import {
 	alert,
 	alertEvent,
@@ -8,10 +8,10 @@ import {
 	requestLog,
 	systemEvent,
 	usageHourly
-} from '$lib/server/db/schema';
-import { newId } from '$lib/server/id';
-import type { JobHandle } from '$lib/server/jobs';
-import { dispatchEvent, type WebhookEvent } from '$lib/server/webhooks';
+} from './db/schema';
+import { newId } from './id';
+import type { JobHandle } from './jobs';
+import { dispatchEvent, type WebhookEvent } from './webhooks';
 
 /**
  * Alerting (PRD §42, spec §11).

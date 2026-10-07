@@ -1,17 +1,21 @@
-// scripts/ts-hooks.mjs — module hooks that let plain `node` load the `$lib` TS
-// graph. Shared by every PM2 entrypoint that runs the control plane's modules
-// (`workers.mjs`, `scheduler.mjs`), because duplicating this
+// scripts/ts-hooks.mjs — module hooks that let plain `node` load the control
+// plane's TS graph. Shared by every PM2 entrypoint that runs the control plane's
+// modules (`workers.mjs`, `scheduler.mjs`), because duplicating this
 // resolver in JS would drift the moment one copy learns a new alias.
 //
 // The hooks are needed for two reasons:
-//   - `$lib/*` and `$app/*` are legacy resolver aliases (kept so the shared
-//     modules need no rewrites), not real paths, so `node` cannot resolve them;
+//   - the modules import each other extension-less (`./jobs`, `./db`), which
+//     `node` cannot resolve on its own;
 //   - the modules are TypeScript and `node` will not strip types on its own.
+//
+// The `$lib/*`, `$app/*` and `$env/*` aliases this used to translate are gone:
+// shared/control-lib was extracted from the SvelteKit app and every module now
+// reaches its siblings with real relative paths, so there is nothing left to
+// rewrite and no shim to keep alive for a second entrypoint to forget.
 import { readFileSync } from 'node:fs';
 import { registerHooks, stripTypeScriptTypes } from 'node:module';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { join, resolve as resolvePath } from 'node:path';
-
 /**
  * Register the hooks and return the roots they resolved.
  *
@@ -22,29 +26,17 @@ import { join, resolve as resolvePath } from 'node:path';
  * @param {string} scriptRoot absolute path of the `scripts/` directory
  */
 export function installTsHooks(scriptRoot) {
-	const webRoot = resolvePath(scriptRoot, '..', 'shared', 'control-lib');
-	const libRoot = webRoot;
-
+	const libRoot = resolvePath(scriptRoot, '..', 'shared', 'control-lib');
 	registerHooks({
 		resolve(specifier, context, nextResolve) {
-			let spec = specifier;
-			if (spec.startsWith('$lib/')) spec = pathToFileURL(join(libRoot, spec.slice(5))).href;
-			else if (spec === '$lib') spec = pathToFileURL(libRoot).href;
-			else if (spec.startsWith('$app/')) {
-				// The job handlers never touch app modules, but a transitive
-				// import might; answering with an empty module keeps the fleet alive.
-				spec = pathToFileURL(join(scriptRoot, 'app-shim.mjs')).href;
-			} else if (spec.startsWith('$env/')) {
-				spec = pathToFileURL(join(scriptRoot, 'env-shim.mjs')).href;
-			}
 			try {
-				return nextResolve(spec, context);
+				return nextResolve(specifier, context);
 			} catch (err) {
-				// Extension-less relative/absolute TS imports (`./jobs`, `$lib/server/db`).
-				if (/\.(ts|js)$/.test(spec) || spec.includes('node:')) throw err;
+				// Extension-less relative/absolute TS imports (`./jobs`, `./db`).
+				if (/\.(ts|js)$/.test(specifier) || specifier.includes('node:')) throw err;
 				for (const ext of ['.ts', '/index.ts', '.js', '/index.js']) {
 					try {
-						return nextResolve(spec + ext, context);
+						return nextResolve(specifier + ext, context);
 					} catch {
 						// keep trying
 					}
@@ -62,10 +54,8 @@ export function installTsHooks(scriptRoot) {
 			return nextLoad(url, context);
 		}
 	});
-
 	return { libRoot };
 }
-
 /** Absolute path to a module under `shared/control-lib`, for `await import()`. */
 export function libUrl(libRoot, subpath) {
 	return pathToFileURL(join(libRoot, subpath)).href;

@@ -1,12 +1,11 @@
-import { env } from '$env/dynamic/private';
-import { devProvidersAllowed, privateUpstreamsAllowed } from '$lib/publish';
+import { devProvidersAllowed, privateUpstreamsAllowed } from '../publish';
 /**
  * Environment reads for the publish rule.
  *
- * The rule itself is pure and lives in `$lib/publish`; this module is the only
- * place that touches `$env` for it, which is what keeps the rule unit-testable
- * (see the header there). Every flag below must be set identically in the
- * router's own environment, or the console and the data plane will disagree
+ * The rule itself is pure and lives in `../publish`; this module is the only
+ * place that touches the environment for it, which is what keeps the rule
+ * unit-testable (see the header there). Every flag below must be set identically
+ * in the router's own environment, or the console and the data plane will disagree
  * about which slugs are reachable.
  */
 
@@ -24,7 +23,7 @@ import { devProvidersAllowed, privateUpstreamsAllowed } from '$lib/publish';
  * two disagree.
  */
 export function allowDevProviders(): boolean {
-	return devProvidersAllowed(env.ROUTER_ALLOW_DEV_PROVIDERS);
+	return devProvidersAllowed(process.env.ROUTER_ALLOW_DEV_PROVIDERS);
 }
 
 /**
@@ -34,5 +33,5 @@ export function allowDevProviders(): boolean {
  * that runs local upstreams (the seed provider is `http://127.0.0.1:20128/v1`).
  */
 export function allowPrivateUpstreams(): boolean {
-	return privateUpstreamsAllowed(env.ALLOW_PRIVATE_UPSTREAMS);
+	return privateUpstreamsAllowed(process.env.ALLOW_PRIVATE_UPSTREAMS);
 }

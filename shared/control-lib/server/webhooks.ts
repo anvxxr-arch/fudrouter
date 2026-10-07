@@ -2,14 +2,14 @@ import { createHmac } from 'node:crypto';
 import { and, eq, lte, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase, PostgresJsQueryResultHKT } from 'drizzle-orm/postgres-js';
 import type { PgTransaction } from 'drizzle-orm/pg-core';
-import { decryptCredentials } from '$lib/server/credentials';
-import { db } from '$lib/server/db';
-import { webhook, webhookDelivery } from '$lib/server/db/schema';
-import { newId } from '$lib/server/id';
-import { backoffMs, enqueue, type JobHandle } from '$lib/server/jobs';
-import { allowPrivateUpstreams } from '$lib/server/publish-env';
-import { assertPublicUpstream, guardedUpstreamFetch } from '$lib/server/ssrf';
-import { bumpVersion, setJSON } from '$lib/server/vk';
+import { decryptCredentials } from './credentials';
+import { db } from './db';
+import { webhook, webhookDelivery } from './db/schema';
+import { newId } from './id';
+import { backoffMs, enqueue, type JobHandle } from './jobs';
+import { allowPrivateUpstreams } from './publish-env';
+import { assertPublicUpstream, guardedUpstreamFetch } from './ssrf';
+import { bumpVersion, setJSON } from './vk';
 
 /**
  * Outbound webhooks (PRD §43, spec §11).

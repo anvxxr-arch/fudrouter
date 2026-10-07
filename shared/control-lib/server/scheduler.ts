@@ -28,9 +28,9 @@
  *    stays anyway: it is what restarts the chain if a follow-up ever dies.
  */
 import { and, eq, inArray, sql } from 'drizzle-orm';
-import { db } from '$lib/server/db';
-import { job } from '$lib/server/db/schema';
-import { enqueue, type JobHandle, type JobType } from '$lib/server/jobs';
+import { db } from './db';
+import { job } from './db/schema';
+import { enqueue, type JobHandle, type JobType } from './jobs';
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;

@@ -50,24 +50,45 @@ echo "  ${#MIG_FILES[@]} migrations, router at $ROUTER_DIR, port $PORT"
 echo "### 1. fresh database"
 $PG -q -c "drop database if exists $DB;" -c "create database $DB owner $APP_USER;" || { fail "could not create $DB"; exit 1; }
 
-echo "### 2. migrations (on empty DB)"
+echo "### 2. migrations (on empty DB; gated files skipped like scripts/migrate.sh)"
+SKIPPED=0
 for f in "${MIG_FILES[@]}"; do
+	# GATED: a file whose header carries `-- gated:` is staged in the tree but
+	# must only land in the commit that flips its writers (scripts/migrate.sh
+	# owns that rule and this mirrors it). Applying 0010 here narrows the status
+	# CHECKs while the router still writes `active`/`dev`, so the seed below dies
+	# on check_violation and the drill fails for a reason unrelated to the
+	# router — which is exactly how this drill rotted when 0010 landed.
+	if grep -qiE '^--[[:space:]]*gated:' "$f"; then
+		printf '  %-45s %s\n' "$(basename "$f")" "GATED (skipped)"
+		SKIPPED=$((SKIPPED + 1))
+		continue
+	fi
 	out=$(MIG -q -v ON_ERROR_STOP=1 < "$f" 2>&1)
 	rc=$?
 	printf '  %-45s %s\n' "$(basename "$f")" "$([ $rc -eq 0 ] && echo OK || echo "FAILED: $out")"
 	[ $rc -ne 0 ] && PANIC=1
 done
 [ $PANIC -ne 0 ] && { fail "migrations did not apply"; exit 1; }
+echo "  $((${#MIG_FILES[@]} - SKIPPED)) applied, $SKIPPED gated/skipped"
 
 echo "### 3. seed a dev + an active provider (dummy blob: listing never decrypts)"
+# The catalogue walks model -> provider_model -> provider (`ListModels` joins
+# `provider_model pm on pm.model_id = m.id and pm.enabled`). Seeding only a
+# provider+model leaves the model INVISIBLE no matter how healthy the provider
+# is, which is how this drill rotted: every /v1/models assertion went to 0 for a
+# reason unrelated to the dev-flag interlock it exists to test.
 QRY "insert into provider (id,name,base_url,credentials_enc,status,priority) values
  ('drill-dev','Drill Dev','https://example.invalid/v1','ZHVtbXk=','dev',100),
  ('drill-active','Drill Active','https://example.invalid/v1','ZHVtbXk=','active',100);
  insert into model (id,slug,name,provider_id,input_price,output_price,context,status) values
  ('drill-m-dev','drill-dev-model','Drill Dev Model','drill-dev',0,0,1000,'active'),
- ('drill-m-active','drill-active-model','Drill Active Model','drill-active',0,0,1000,'active');" \
+ ('drill-m-active','drill-active-model','Drill Active Model','drill-active',0,0,1000,'active');
+ insert into provider_model (id,model_id,provider_id,provider_model_id,enabled) values
+ ('drill-pm-dev','drill-m-dev','drill-dev','drill-dev-model',true),
+ ('drill-pm-active','drill-m-active','drill-active','drill-active-model',true);" \
 	|| { fail "seed failed"; exit 1; }
-echo "  seeded: $(QRY 'select count(*) from provider') providers, $(QRY 'select count(*) from model') models"
+echo "  seeded: $(QRY 'select count(*) from provider') providers, $(QRY 'select count(*) from model') models, $(QRY 'select count(*) from provider_model') provider_models"
 
 echo "### 3b. status constraints are enforced (migration 0005)"
 # The seed above only proves the valid values are ACCEPTED. A CHECK that was

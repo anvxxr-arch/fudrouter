@@ -22,6 +22,7 @@ import { registerAdminRoutes } from './admin.mjs';
 import { registerPages } from './pages.mjs';
 import { registerPublicRoutes } from './public.mjs';
 import { rateLimit } from './rate-limit.mjs';
+import { clientIp } from './lib/ip.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.join(__dirname, '..', 'dist');
@@ -256,13 +257,10 @@ function redactSecrets(value) {
 	}
 	return value;
 }
-// First X-Forwarded-For hop (the client, behind the cloudflared tunnel), else the socket.
-export function clientIp(req) {
-	const xff = req.headers?.['x-forwarded-for'];
-	if (typeof xff === 'string' && xff.length) return xff.split(',')[0].trim();
-	if (Array.isArray(xff) && xff.length) return String(xff[0]).split(',')[0].trim();
-	return req.socket?.remoteAddress ?? null;
-}
+// Real client IP lives in server/lib/ip.mjs. The previous version trusted the
+// FIRST X-Forwarded-For hop with no proxy check, so any caller could pick its own
+// rate-limit bucket (and poison audit_log.ip) by sending a random header.
+export { clientIp };
 async function writeAudit(dbtx, entry) {
 	await dbtx.insert(auditLog).values({
 		id: newId(ID_PREFIXES.auditLog),
@@ -378,6 +376,14 @@ export const auth = betterAuth({
 	advanced: {
 		database: {
 			generateId: ({ model: m }) => newId(AUTH_ID_PREFIX[m] ?? 'id_')
+		},
+		// Without this better-auth cannot resolve a client IP from the multi-hop
+		// X-Forwarded-For we forward, so its limiter collapses into ONE shared
+		// per-path bucket (throttling every user together). Trusting the loopback
+		// hop makes it walk right-to-left exactly like lib/ip.mjs does.
+		ipAddress: {
+			ipAddressHeaders: ['x-forwarded-for'],
+			trustedProxies: ['127.0.0.1', '::1']
 		}
 	},
 	databaseHooks: {
@@ -397,6 +403,20 @@ export const auth = betterAuth({
 	},
 	trustedOrigins: process.env.NODE_ENV === 'production' ? [] : ['http://localhost:3000', 'http://127.0.0.1:3000'],
 	emailAndPassword: { enabled: true },
+	// better-auth's own limiter was OFF and the express limiter never covered
+	// /api/auth/*, so sign-in/sign-up were unthrottled (14 rapid failed logins
+	// returned 14x401). This is a backstop; the express limiter is the primary.
+	rateLimit: {
+		enabled: true,
+		window: 60,
+		max: 100,
+		customRules: {
+			'/sign-in/email': { window: 60, max: 10 },
+			'/sign-up/email': { window: 60, max: 5 },
+			'/forget-password': { window: 60, max: 5 },
+			'/reset-password': { window: 60, max: 5 }
+		}
+	},
 	...(process.env.FLEXYROUTE_CLIENT_ID && process.env.FLEXYROUTE_CLIENT_SECRET
 		? {
 				socialProviders: {
@@ -543,6 +563,20 @@ function paletteParams(url) {
 const app = express();
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 
+// ------------------------------------------------------- rate limiting ----
+// Keyed on the real client IP (lib/ip.mjs — X-Forwarded-For is only honoured
+// from a trusted proxy), so a spoofed header can no longer mint a fresh bucket.
+const _ipKey = async (req) => `ip:${clientIp(req) ?? 'unknown'}`;
+const _authLoose = rateLimit({ windowMs: 60_000, max: 120, key: _ipKey });
+const _authStrict = rateLimit({ windowMs: 60_000, max: 10, key: _ipKey });
+// Credential-bearing endpoints get the strict bucket; the rest of /api/auth
+// (session polling, OAuth callbacks) gets the loose one so the app keeps working.
+const _AUTH_SENSITIVE = /^\/(sign-in|sign-up|forget-password|reset-password|change-password|change-email|verify-email|send-verification-email|two-factor|delete-user)/;
+app.use('/api/auth', (req, res, next) => {
+	const strict = req.method === 'POST' && _AUTH_SENSITIVE.test(req.path);
+	return (strict ? _authStrict : _authLoose)(req, res, next);
+});
+
 // better-auth node handler at /api/auth/* (registered before express.json so
 // the raw body stream stays intact for the Web Request we forward).
 app.all('/api/auth/{*path}', async (req, res) => {
@@ -584,12 +618,11 @@ app.all('/api/auth/{*path}', async (req, res) => {
 
 app.use(express.json({ limit: '1mb' }));
 
-// Rate limiting. Registered after the better-auth forward (/api/auth/* keeps its
-// own limiter) and before the page/admin routes. Keys are the session user id
-// when one is present, else the client IP, so shared NATs count together.
+// Rate limiting for the authenticated surfaces: keyed on the session user id
+// when one is present, else the real client IP, so shared NATs count together.
 const _limitKey = async (req) => {
 	try { const u = await getSessionUser(req); if (u?.id) return `u:${u.id}`; } catch {}
-	return `ip:${clientIp(req) ?? req.ip ?? 'unknown'}`;
+	return _ipKey(req);
 };
 app.use('/api/pages', rateLimit({ windowMs: 60_000, max: 300, key: _limitKey }));
 app.use('/api/admin', rateLimit({ windowMs: 60_000, max: 300, key: _limitKey }));
@@ -887,4 +920,7 @@ app.get('{*path}', async (req, res, next) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`react-web server listening on :${PORT}`));
+// Bind loopback only (caddy reaches it at 127.0.0.1:3002). The default `::` bind
+// exposed the control plane on the LAN, against the box's loopback-only rule.
+const HOST = process.env.HOST || '127.0.0.1';
+app.listen(PORT, HOST, () => console.log(`react-web server listening on ${HOST}:${PORT}`));

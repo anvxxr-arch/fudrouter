@@ -15,6 +15,7 @@ import {
 } from './lib/validate.mjs';
 import { _encCred, _decCred, _tokenAt, _headersFor } from './lib/credentials.mjs';
 import { _isBlockedLiteral, _assertPublic, _fetchCatalog } from './lib/ssrf.mjs';
+import { clientIp } from './lib/ip.mjs';
 import { _sanitizeAudit, _dropRedacted, _auditView, makeAudit } from './lib/audit.mjs';
 import { SECTION_CAPS, _capsFor, _dominates, _canAdminister, _guardUser } from './lib/rbac.mjs';
 import { _deriveHealth, _evalSignals, _vkPing } from './lib/format.mjs';
@@ -324,7 +325,9 @@ export function registerAdminRoutes(app, ctx) {
 	// Request-scoped client IP so every _audit row records it without threading
 	// req through ~70 handler signatures. Set by handler()/poster() below.
 	const _ipStore = new AsyncLocalStorage();
-	const _clientIp = (req) => { const xff = req.headers?.['x-forwarded-for']; if (typeof xff === 'string' && xff.length) return xff.split(',')[0].trim(); if (Array.isArray(xff) && xff.length) return String(xff[0]).split(',')[0].trim(); return req.socket?.remoteAddress ?? null; };
+// Shared, proxy-aware client IP (lib/ip.mjs) — the old local copy trusted a
+	// spoofable X-Forwarded-For, poisoning every audit row's ip.
+	const _clientIp = clientIp;
 
 	async function gate(req, section) {
 		const userRow = await authedUser(req);

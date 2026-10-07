@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { sql } from 'drizzle-orm';
 import { rowsOf, big, num, iso, okBody } from './lib/validate.mjs';
+import { clientIp } from './lib/ip.mjs';
 
 // DB-backed dashboard page loads + POST actions for the member dashboard
 // routes. All routes require auth (anon 401).
@@ -214,7 +215,9 @@ export function registerPages(app, ctx) {
 	// Request-scoped client IP so every writeAudit row records it without
 	// threading req through every handler. Set by wrap() below.
 	const _ipStore = new AsyncLocalStorage();
-	const _clientIp = (req) => { const xff = req.headers?.['x-forwarded-for']; if (typeof xff === 'string' && xff.length) return xff.split(',')[0].trim(); if (Array.isArray(xff) && xff.length) return String(xff[0]).split(',')[0].trim(); return req.socket?.remoteAddress ?? null; };
+// Shared, proxy-aware client IP (lib/ip.mjs) — the old local copy trusted a
+	// spoofable X-Forwarded-For, poisoning every audit row's ip.
+	const _clientIp = clientIp;
 
 	async function mustAuth(req) {
 		const userRow = await authedUser(req);

@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { clientIp } from './lib/ip.mjs';
 // Playground stream relay (real data-plane SSE relay).
 // Mirrors /api/playground/stream: mint a short-lived run key in the
 // chosen key's context, POST stream:true to the data plane, relay SSE
@@ -25,7 +26,8 @@ export function registerPlayground(app, deps) {
   } = deps;
   // Request-scoped client IP so the minted-key audit rows record it.
   const _ipStore = new AsyncLocalStorage();
-  const _clientIp = (req) => { const xff = req.headers?.['x-forwarded-for']; if (typeof xff === 'string' && xff.length) return xff.split(',')[0].trim(); if (Array.isArray(xff) && xff.length) return String(xff[0]).split(',')[0].trim(); return req.socket?.remoteAddress ?? null; };
+// Shared, proxy-aware client IP (lib/ip.mjs).
+  const _clientIp = clientIp;
   // --- playground stream relay (real data-plane SSE relay) ---
   // Mirrors /api/playground/stream: mint a short-lived run key in the
   // chosen key's context, POST stream:true to the data plane, relay SSE

@@ -66,6 +66,24 @@ module.exports = {
 			kill_timeout: 10000,
 			merge_logs: true,
 			time: true
+		},
+		{
+			// React control plane (console + JSON API). Caddy path-splits the
+			// public host onto its port (the Go router owns :8100), and
+			// run.sh sources .env.react-web which PINS that port — so the port
+			// is not inherited from whatever shell started the process. Do not
+			// add PORT to `env` here: .env.react-web is sourced after this env
+			// is applied and would silently win, leaving two sources of truth.
+			name: 'fudrouter-react',
+			cwd: path.join(ROOT, 'apps/react-web'),
+			script: 'run.sh',
+			interpreter: 'bash',
+			autorestart: true,
+			max_restarts: 10,
+			restart_delay: 2000,
+			kill_timeout: 5000,
+			merge_logs: true,
+			time: true
 		}
 	]
 };

@@ -98,6 +98,23 @@ for u in "${UNITS[@]}"; do
 done
 
 echo
+echo "=== 4b. apply-time prerequisites (fail-fast before any destructive step) ==="
+# .env.console was previously checked only in step 8 (AFTER pm2 delete all).
+# A missing file there leaves the fleet deleted with the console on the wrong
+# port. Check it here so --apply refuses before anything destructive.
+[ -f .env.console ] && ok ".env.console present" || bad ".env.console missing -- console would start on the wrong port"
+for f in apps/console/run.sh apps/router/run.sh apps/workers/run.sh apps/scheduler/run.sh; do
+	[ -x "$f" ] && ok "$f executable" || bad "$f missing or not executable"
+done
+[ -f packages/platform/ts-hooks.mjs ] && ok "packages/platform/ts-hooks.mjs present" || bad "packages/platform/ts-hooks.mjs missing"
+command -v pm2 >/dev/null 2>&1 && ok "pm2 in PATH" || bad "pm2 not in PATH"
+command -v crontab >/dev/null 2>&1 && ok "crontab in PATH" || bad "crontab not in PATH"
+# --check must not write anything: only prove the rollback backup WOULD succeed.
+# The real capture happens in the --apply path below, after this gate passes.
+[ -w /tmp ] && ok "/tmp writable for crontab backup" || bad "/tmp not writable -- rollback backup would fail"
+node -e "const c=require('./ecosystem.config.cjs'); if(!c.apps||!c.apps.length) throw new Error('no apps');" >/dev/null 2>&1 && ok "ecosystem.config.cjs loads (node require)" || bad "ecosystem.config.cjs fails to load under node"
+
+echo
 if [ "$FAILS" -gt 0 ]; then
 	echo "PRECONDITIONS FAILED ($FAILS)."
 	echo "--check: nothing was changed."
@@ -110,33 +127,39 @@ if [ "$FAILS" -gt 0 ]; then
 fi
 
 [ "$MODE" = "--check" ] && { echo "PRECONDITIONS OK — --apply is safe to run."; exit 0; }
-
 # ------------------------------------------------------------------- apply
+echo "=== 4c. capture rollback state (before anything destructive) ==="
+# CT was captured read-only in step 4. Persist it HERE, before `pm2 delete all`:
+# if --apply dies mid-cutover the rollback copy already exists.
+printf '%s\n' "$CT" > /tmp/fudrouter-crontab.bak || { echo "FATAL: cannot write /tmp/fudrouter-crontab.bak -- refusing cutover."; exit 1; }
+cp /tmp/fudrouter-crontab.bak "/tmp/fudrouter-crontab.bak.$(date -u +%Y%m%d-%H%M%S)" || { echo "FATAL: cannot write timestamped crontab backup -- refusing cutover."; exit 1; }
+echo "  crontab backup saved (live + timestamped)."
+
 echo "=== 5. reload PM2 from the config file ==="
 # delete+start (not `pm2 reload`): reload re-uses each process's EXISTING
 # definition, which is the stale one this cutover exists to replace.
-pm2 delete all
+pm2 delete all || { echo "FATAL: pm2 delete all failed -- refusing to start on a half-deleted fleet."; exit 1; }
 pm2 start ecosystem.config.cjs || { echo "FATAL: pm2 start failed."; exit 1; }
 pm2 save || { echo "FATAL: pm2 save failed — dump.pm2 still holds old paths."; exit 1; }
 
 echo
-echo "=== 6. crontab (keep the old copy, and a timestamped one) ==="
-printf '%s\n' "$CT" > /tmp/fudrouter-crontab.bak
-cp /tmp/fudrouter-crontab.bak "/tmp/fudrouter-crontab.bak.$(date -u +%Y%m%d-%H%M%S)"
-printf '%s\n' "$CT" | sed 's|fudrouter/scripts/backup-db.sh|fudrouter/ops/backup-db.sh|' | crontab -
-crontab -l | grep backup-db.sh
+echo "=== 6. crontab (backup already captured in 4c) ==="
+printf '%s\n' "$CT" | sed 's|fudrouter/scripts/backup-db.sh|fudrouter/ops/backup-db.sh|' | crontab - || { echo "FATAL: crontab install failed -- restore with: crontab /tmp/fudrouter-crontab.bak"; exit 1; }
+crontab -l | grep backup-db.sh || { echo "FATAL: crontab verify failed -- backup-db.sh entry missing after install"; exit 1; }
 
 echo
 echo "=== 7. systemd user units ==="
 for u in "${UNITS[@]}"; do
 	f="$HOME/.config/systemd/user/$u.service"
 	[ -f "$f" ] || continue
-	sed -i 's|fudrouter/scripts/onboard-|fudrouter/ops/onboard-|g' "$f"
+	sed -i 's|fudrouter/scripts/onboard-|fudrouter/ops/onboard-|g' "$f" || { echo "FATAL: failed to rewrite $f"; exit 1; }
 done
-systemctl --user daemon-reload
+systemctl --user daemon-reload || { echo "FATAL: systemctl --user daemon-reload failed"; exit 1; }
+RESTART_FAILS=0
 for u in "${UNITS[@]}"; do
-	systemctl --user restart "$u" 2>/dev/null && echo "  restarted $u";
+	if systemctl --user restart "$u"; then echo "  restarted $u"; else echo "  FAIL restart $u -- unit file rewritten but restart failed"; RESTART_FAILS=$((RESTART_FAILS + 1)); fi
 done
+if [ "$RESTART_FAILS" -gt 0 ]; then echo "FATAL: $RESTART_FAILS unit restart(s) failed -- see above"; exit 1; fi
 
 echo
 echo "=== 8. verify ==="

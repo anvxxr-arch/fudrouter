@@ -42,7 +42,7 @@ export function encryptCredentials(plain: Credentials): string {
 /**
  * Decrypt tries the ACTIVE key first, then the previous one during a rotation
  * window (CREDENTIALS_MASTER_KEY_PREV). This is the canonical envelope for the
- * whole fleet — the React control plane (via server/lib/shared-ts.mjs), the
+ * whole fleet — the React control plane (via server/lib/platform-ts.mjs), the
  * workers and the scheduler — and it must carry the rotation seam, not just
  * the Go data plane: a rotation that only the router understands leaves the
  * control plane unable to decrypt its own rows.

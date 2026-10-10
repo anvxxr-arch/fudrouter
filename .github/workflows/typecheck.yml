@@ -5,14 +5,18 @@
 # that no workflow ever invoked, so a pure type error could still ship. Rather
 # than rely on one job remembering to call one workspace's script — and have it
 # rot again — this runs the root `check`, which fans out to every workspace that
-# defines a `check` script AND to `check:shared`.
+# defines a `check` script.
 #
-# `shared/control-lib` is not a workspace (no package.json) and is loaded at
-# runtime by the PM2 daemons through scripts/ts-hooks.mjs, so nothing used to
-# type-check it: a type error in the control plane (workers, billing, ssrf,
-# credentials) was invisible until the code path ran in production. The root
-# `check` now includes `tsc -p shared/control-lib/tsconfig.json` for exactly
-# that reason.
+# `packages/platform` holds the control plane's domain + persistence code and is
+# loaded at RUNTIME by the PM2 daemons through scripts/ts-hooks.mjs, so nothing
+# used to type-check it: a type error in the control plane (workers, billing,
+# ssrf, credentials) was invisible until the code path ran in production.
+#
+# It used to be reached by a hard-coded `check:shared` path because it had no
+# package.json. Per ADR-0001 it is now a workspace with its own `check` script,
+# so the root `check` picks it up through --workspaces like every other package —
+# one mechanism instead of two. It also grew a package.json, so the "no
+# package.json, so the name is not the only problem" objection is closed.
 name: Typecheck
 on:
   push:

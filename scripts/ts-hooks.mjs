@@ -9,7 +9,7 @@
 //   - the modules are TypeScript and `node` will not strip types on its own.
 //
 // The `$lib/*`, `$app/*` and `$env/*` aliases this used to translate are gone:
-// shared/control-lib was extracted from the SvelteKit app and every module now
+// packages/platform was extracted from the SvelteKit app and every module now
 // reaches its siblings with real relative paths, so there is nothing left to
 // rewrite and no shim to keep alive for a second entrypoint to forget.
 import { readFileSync } from 'node:fs';
@@ -26,7 +26,7 @@ import { join, resolve as resolvePath } from 'node:path';
  * @param {string} scriptRoot absolute path of the `scripts/` directory
  */
 export function installTsHooks(scriptRoot) {
-	const libRoot = resolvePath(scriptRoot, '..', 'shared', 'control-lib');
+	const libRoot = resolvePath(scriptRoot, '..', 'packages', 'platform');
 	registerHooks({
 		resolve(specifier, context, nextResolve) {
 			try {
@@ -56,7 +56,7 @@ export function installTsHooks(scriptRoot) {
 	});
 	return { libRoot };
 }
-/** Absolute path to a module under `shared/control-lib`, for `await import()`. */
+/** Absolute path to a module under `packages/platform`, for `await import()`. */
 export function libUrl(libRoot, subpath) {
 	return pathToFileURL(join(libRoot, subpath)).href;
 }

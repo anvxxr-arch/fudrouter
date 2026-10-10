@@ -1,8 +1,8 @@
 // Credential master-key handling + AES-256-GCM sealing for provider secrets.
 // Extracted verbatim from server/admin.mjs; needs node:crypto only.
 //
-// The CANONICAL envelope is shared/control-lib/server/credentials.ts, reached
-// from the server through server/lib/shared-ts.mjs: that is what admin.mjs
+// The CANONICAL envelope is packages/platform/server/credentials.ts, reached
+// from the server through server/lib/platform-ts.mjs: that is what admin.mjs
 // imports, and that is what the workers and the scheduler decrypt with. This
 // module is still the home of _tokenAt/_headersFor, which ssrf.mjs imports.
 // Keep the envelope here in sync with the shared module (rotation seam

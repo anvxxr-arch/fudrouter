@@ -5,7 +5,7 @@
 // Why a script and not SQL: provider/credential secrets are AES-256-GCM
 // ciphertext (`provider.credentials_enc`, `credential.secret_enc`) whose
 // envelope only code holding CREDENTIALS_MASTER_KEY can produce — the same
-// base64(iv[12] || ct || tag[16]) format as shared/control-lib/server/credentials.ts
+// base64(iv[12] || ct || tag[16]) format as packages/platform/server/credentials.ts
 // and services/router/internal/crypt.
 //
 // Idempotent by construction (the farm appends keys continuously and REVOKES a

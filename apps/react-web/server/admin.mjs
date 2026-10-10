@@ -15,7 +15,7 @@ import {
 } from './lib/validate.mjs';
 
 import { _fetchCatalog } from './lib/ssrf.mjs';
-import { _isBlockedLiteral, _assertPublic, _encCred, _decCred, _tokenAt, _headersFor } from './lib/shared-ts.mjs';
+import { _isBlockedLiteral, _assertPublic, _encCred, _decCred, _tokenAt, _headersFor } from './lib/platform-ts.mjs';
 import { clientIp } from './lib/ip.mjs';
 import { _sanitizeAudit, _dropRedacted, _auditView, makeAudit } from './lib/audit.mjs';
 import { SECTION_CAPS, _dominates, _canAdminister, _guardUser } from './lib/rbac.mjs';

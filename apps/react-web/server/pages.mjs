@@ -12,7 +12,7 @@ function fail(res, status, error) {
 	return res.status(status).json({ error });
 }
 // sk-ar-<prefix>_<secret>, sha256(secret) stored. Byte-compatible with
-// shared/control-lib/server/keys.ts + the Go data plane parser.
+// packages/platform/server/keys.ts + the Go data plane parser.
 function generateApiKey() {
 	let prefix;
 	do {

@@ -1,10 +1,10 @@
-// apps/react-web/server/lib/shared-ts.mjs — runtime bridge from the plain-JS
-// Express server to the TypeScript modules in shared/control-lib/server/.
+// apps/react-web/server/lib/platform-ts.mjs — runtime bridge from the plain-JS
+// Express server to the TypeScript modules in packages/platform/server/.
 //
 // Why this exists: the server is untyped .mjs (tsconfig covers src/ only) while
 // the canonical security logic (SSRF guard, AES credential envelope, id
-// prefixes, validators) lives in shared/*.ts. Node >= 22 strips types natively
-// (verified: `node --input-type=module < import('shared/.../id.ts')` resolves),
+// prefixes, validators) lives in packages/platform/*.ts. Node >= 22 strips types natively
+// (verified: `node --input-type=module < import('packages/platform/.../id.ts')` resolves),
 // and scripts/ts-hooks.mjs already uses the same mechanism for workers — so
 // the server can import the canonical modules instead of carrying local copies.
 //
@@ -18,7 +18,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const scriptRoot = fileURLToPath(new URL('../../../../scripts/', import.meta.url));
 const { libRoot } = installTsHooks(scriptRoot);
-const libUrl = (sub) => pathToFileURL(fileURLToPath(new URL(`../../../../shared/control-lib/${sub}`, import.meta.url))).href;
+const libUrl = (sub) => pathToFileURL(fileURLToPath(new URL(`../../../../packages/platform/${sub}`, import.meta.url))).href;
 
 const ssrf = await import(libUrl('server/ssrf.ts'));
 const creds = await import(libUrl('server/credentials.ts'));

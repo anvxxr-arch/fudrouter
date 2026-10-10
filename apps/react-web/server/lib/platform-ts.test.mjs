@@ -5,7 +5,7 @@
 // units and route wiring without a database: no test here touches Postgres.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { _isBlockedLiteral, _sanitizeAudit, _tokenAt, _headersFor, newId, ID_PREFIXES } from './shared-ts.mjs';
+import { _isBlockedLiteral, _sanitizeAudit, _tokenAt, _headersFor, newId, ID_PREFIXES } from './platform-ts.mjs';
 
 test('bridge blocks loopback literals and allows public names', () => {
 	assert.equal(_isBlockedLiteral('localhost'), true);
@@ -17,7 +17,7 @@ test('bridge blocks loopback literals and allows public names', () => {
 });
 
 test('bridge allows private only via assertPublicUpstream', async () => {
-	const { _assertPublic } = await import('./shared-ts.mjs');
+	const { _assertPublic } = await import('./platform-ts.mjs');
 	const pub = await _assertPublic('https://example.com/v1');
 	assert.equal(pub.ok, true);
 	const priv = await _assertPublic('http://127.0.0.1:5432');
@@ -45,12 +45,12 @@ test('bridge mints prefixed ids from the canonical table', () => {
 	assert.ok(id.startsWith('key_'), `expected key_ prefix, got ${id}`);
 });
 
-// The canonical envelope (shared/control-lib/server/credentials.ts) is what the
+// The canonical envelope (packages/platform/server/credentials.ts) is what the
 // control plane, the workers and the scheduler all decrypt with, so the master
 // key rotation seam has to live there — a prev-key the Go router understands
 // but this module does not leaves the console unable to read its own rows.
 test('bridge accepts the previous master key during a rotation window', async () => {
-	const { _encCred, _decCred } = await import('./shared-ts.mjs');
+	const { _encCred, _decCred } = await import('./platform-ts.mjs');
 	const KEY_OLD = Buffer.alloc(32, 7).toString('base64');
 	const KEY_NEW = Buffer.alloc(32, 9).toString('base64');
 	const before = { ...process.env };

@@ -8,8 +8,7 @@
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
-    "check": "npm run check --workspaces --if-present && npm run check:shared",
-    "check:shared": "tsc --noEmit -p shared/control-lib/tsconfig.json",
+    "check": "npm run check --workspaces --if-present",
     "test": "npm run test --workspaces --if-present"
   },
   "engines": {

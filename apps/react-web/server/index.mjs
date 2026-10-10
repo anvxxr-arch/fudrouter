@@ -28,7 +28,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.join(__dirname, '..', 'dist');
 
 // ---------------------------------------------------------------- tables ----
-// Minimal column copies of shared/control-lib/server/db/{auth.schema,schema}.ts
+// Minimal column copies of packages/platform/server/db/{auth.schema,schema}.ts
 // (same table/column names so better-auth + the palette/shell queries behave
 // identically). Only columns this server reads/writes are declared.
 

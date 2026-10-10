@@ -8,7 +8,7 @@ export function _evalSignals(rules, windows) { const out = []; const th = (c) =>
 // Single raw-socket Valkey helper. Four call sites (admin.mjs x3 + _vkPing)
 // previously inlined their own net.createConnection + RESP framing; the only
 // differences were the command bytes and timeout. One function, one timeout
-// policy, one cleanup path. (Long-term: adopt shared/control-lib/server/vk.ts
+// policy, one cleanup path. (Long-term: adopt packages/platform/server/vk.ts
 // ioredis client; this helper is the seam that makes that swap one edit.)
 //
 // AUTH is pipelined in front of the command, and the reply's "+OK" is stripped

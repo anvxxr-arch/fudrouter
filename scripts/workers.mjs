@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // scripts/workers.mjs — worker-fleet entrypoint (PRD §75–76).
 //
-// Runs `shared/control-lib/server/workers.ts` (TypeScript) under plain `node`: the worker
+// Runs `packages/platform/server/workers.ts` (TypeScript) under plain `node`: the worker
 // shares the control plane's modules (`db`, `vk`, `credentials`, `jobs`, …) and
 // duplicating them in JS would drift within a week — the same reasoning as
 // `scripts/verify-*.mjs`, which imports `credentials.ts` through Node's type

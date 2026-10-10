@@ -2,6 +2,33 @@ const path = require('node:path');
 
 const ROOT = __dirname;
 
+// PM2 captures the environment of whichever *client* creates a process and
+// stores it verbatim in ~/.pm2/dump.pm2, which `pm2 resurrect` replays forever.
+// Create an app from an agent shell and that shell's whole env — provider API
+// keys included — lands in the dump and in every child process env, surviving
+// every later restart. The run*.sh entrypoints source the real config at start,
+// so none of the below is needed by the services.
+//
+// filter_env matches key-name *substrings* and drops those keys from the env
+// PM2 hands the app. `filter_env: true` is a no-op: Common.js tests
+// `app.filter_env.length`, so only an array actually filters anything.
+const FILTER_ENV = [
+	'HERMES', // HERMES_CUSTOM_API_*_API_KEY, HERMES_SESSION_*, HERMES_SCRATCH_DIR
+	'_hermes',
+	'TERMINAL_', // TERMINAL_DOCKER_* — namespaces this project does not use
+	'HINDSIGHT_',
+	'BROWSERBASE_',
+	'CLAUDECODE',
+	'OMPCODE',
+	'AI_AGENT',
+	'MOA_TOOLS_DEBUG',
+	'IMAGE_TOOLS_DEBUG',
+	'VISION_TOOLS_DEBUG',
+	'WEB_TOOLS_DEBUG',
+	'TMPDIR', // points into the agent scratch dir, which is pruned at 72h
+	'_tree_pids'
+];
+
 // PM2 entrypoints source the root .env at start, so this file
 // holds no secrets and stays safe to commit.
 module.exports = {
@@ -20,6 +47,7 @@ module.exports = {
 				// never sees those directly).
 				ROUTER_TRUSTED_PROXIES: '127.0.0.1'
 			},
+			filter_env: FILTER_ENV,
 			autorestart: true,
 			max_restarts: 10,
 			restart_delay: 2000,
@@ -49,6 +77,7 @@ module.exports = {
 				// only reason the fleet can make progress in parallel.
 				WORKER_CONCURRENCY: '4'
 			},
+			filter_env: FILTER_ENV,
 			autorestart: true,
 			max_restarts: 10,
 			restart_delay: 2000,
@@ -69,6 +98,7 @@ module.exports = {
 			env: {
 				NODE_ENV: 'production'
 			},
+			filter_env: FILTER_ENV,
 			autorestart: true,
 			max_restarts: 10,
 			restart_delay: 2000,
@@ -90,6 +120,7 @@ module.exports = {
 			env: {
 				NODE_ENV: 'production'
 			},
+			filter_env: FILTER_ENV,
 			autorestart: true,
 			max_restarts: 10,
 			restart_delay: 2000,

@@ -2,7 +2,7 @@ module github.com/anvxxr-arch/fudrouter/apps/router
 
 go 1.25.0
 
-toolchain go1.26.6
+toolchain go1.26.9
 
 require (
 	github.com/gofrs/uuid/v5 v5.3.0

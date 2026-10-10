@@ -20,6 +20,7 @@ const creds = await import('@fudrouter/platform/server/credentials.ts');
 const provCreds = await import('@fudrouter/platform/server/provider-credentials.ts');
 const ids = await import('@fudrouter/platform/server/id.ts');
 const audit = await import('@fudrouter/platform/server/audit.ts');
+const rbac = await import('@fudrouter/platform/rbac');
 
 // SSRF: the platform module OWNS the rule, including the literal blocklist --
 // isBlockedIp and the range arithmetic are re-exported below for the request
@@ -64,6 +65,14 @@ export function _headersFor(cred, token) {
 	if (token) h.authorization = `Bearer ${token}`;
 	return h;
 }
+
+// RBAC: the role -> capability table is the platform's (@fudrouter/platform/rbac),
+// the same object the SPA's route guards import. Re-exported under the plain names
+// server/lib/rbac.mjs has always exported, so admin.mjs, index.mjs and
+// src/lib/caps.ts all read one table -- a UI that gates on a table the API does
+// not enforce shows controls that 403.
+export const ROLE_CAPS = rbac.ROLE_CAPS;
+export const capsFor = rbac.capsFor;
 
 // IDs: single canonical prefix table.
 export const ID_PREFIXES = ids.ID_PREFIXES;

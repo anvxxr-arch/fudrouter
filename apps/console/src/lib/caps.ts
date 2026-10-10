@@ -1,21 +1,25 @@
-export type Capability =
-  | "member" | "admin.view" | "admin.users" | "admin.keys" | "admin.providers"
-  | "admin.models" | "admin.requests" | "admin.ops" | "admin.billing"
-  | "admin.audit" | "admin.settings";
-const ROLE_CAPS: Record<string, Capability[]> = {
-  user: ["member"],
-  finance_admin: ["member", "admin.view", "admin.billing", "admin.users"],
-  ops_admin: ["member", "admin.view", "admin.providers", "admin.models", "admin.requests", "admin.ops"],
-  admin: ["member", "admin.view", "admin.users", "admin.keys", "admin.providers", "admin.models", "admin.requests", "admin.ops", "admin.billing", "admin.audit", "admin.settings"],
-};
-export function capsFor(role?: string | null): Set<Capability> {
-  const caps = role && ROLE_CAPS[role] ? ROLE_CAPS[role] : ["member" as Capability];
-  return new Set(caps);
-}
+// Route gating for the SPA: which path needs which capability, and whether the
+// signed-in user holds it.
+//
+// The role -> capability table is NOT here. It lives in @fudrouter/platform/rbac
+// -- the same table the server enforces from -- and is re-exported below. This
+// file used to hold its own copy, and a server-side test compared the two by
+// parsing THIS file's source text; a UI that gates on a table the API does not
+// enforce shows controls that 403, so there is one table now.
+//
+// What belongs here is what is genuinely the SPA's business: the route-prefix ->
+// cap map, its longest-prefix match, and the compound check `hasCap` that a
+// guard component calls with the session's role.
+import { capsFor, ROLE_CAPS, type Capability } from "@fudrouter/platform/rbac";
+
+export { capsFor, ROLE_CAPS };
+export type { Capability };
+
 export function hasCap(role: string | null | undefined, cap: Capability): boolean {
   return capsFor(role ?? null).has(cap);
 }
-const ROUTE_CAPS: [string, Capability][] = [
+
+export const ROUTE_CAPS: [string, Capability][] = [
   ["/admin/providers", "admin.providers"], ["/admin/models", "admin.models"],
   ["/admin/keys", "admin.keys"], ["/admin/users", "admin.users"],
   ["/admin/requests", "admin.requests"], ["/admin/connections", "admin.ops"],

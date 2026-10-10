@@ -1,28 +1,19 @@
-// Role capability tables + the admin dominance checks. ROLE_CAPS/capsFor were
-// moved here from server/index.mjs (re-exported there for existing importers);
-// SECTION_CAPS and the _guardUser family moved from server/admin.mjs.
+// Section capability map + the admin dominance checks.
+//
+// ROLE_CAPS/capsFor are NOT defined here any more. They are the platform's table
+// (@fudrouter/platform/rbac, re-exported through ./platform-ts.mjs) -- the same
+// object the SPA's route guards read. Three copies used to exist: this file, the
+// SPA's src/lib/caps.ts, and a literal in rbac.test.mjs that compared the first
+// two by parsing the second one's source text. The live two agreed by luck, and
+// nothing kept them in step. The enforcement path and the UI must not be able to
+// disagree -- a control the API refuses is a bug, and a table the API does not
+// use is a privilege-escalation hazard waiting for the next edit.
+//
+// What stays local: SECTION_CAPS (the section -> extra-cap map admin.mjs
+// enforces endpoint by endpoint) and the dominance helpers.
+import { ROLE_CAPS, capsFor } from './platform-ts.mjs';
 
-export const ROLE_CAPS = {
-	user: ['member'],
-	finance_admin: ['member', 'admin.view', 'admin.billing', 'admin.users'],
-	ops_admin: ['member', 'admin.view', 'admin.providers', 'admin.models', 'admin.requests', 'admin.ops'],
-	admin: [
-		'member',
-		'admin.view',
-		'admin.users',
-		'admin.keys',
-		'admin.providers',
-		'admin.models',
-		'admin.requests',
-		'admin.ops',
-		'admin.billing',
-		'admin.audit',
-		'admin.settings'
-	]
-};
-export function capsFor(role) {
-	return new Set(role && ROLE_CAPS[role] ? ROLE_CAPS[role] : ['member']);
-}
+export { ROLE_CAPS, capsFor };
 
 // Section -> extra cap beyond admin.view (mirrors ROUTE_CAPS in roles.ts).
 export const SECTION_CAPS = {

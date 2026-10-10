@@ -1,15 +1,23 @@
-// Unit tests for the role-capability table and the admin dominance checks.
+// Unit tests for the role-capability table, the admin dominance checks, and the
+// two maps that must agree with the table.
 //
 // Two properties matter and both have been a finding:
-//  1. the server table is the enforcement vocabulary, so it is pinned here;
-//  2. the console's table (src/lib/caps.ts) must not drift from it — a private
-//     copy (`_capsFor`) once existed on the server side, which is a
-//     privilege-escalation hazard the moment the two disagree. The cross-check
-//     below parses the TS source so a drift in either file fails this test.
+//
+//  1. the enforcement vocabulary is pinned to the spec here;
+//  2. nothing that gates a route or a section may name a capability the table
+//     does not contain.
+//
+// The SPA used to carry its own role table and this suite compared the two by
+// PARSING src/lib/caps.ts as source text -- a check that went red on a
+// reformatting and green on any drift that kept the parsed shape. Both sides now
+// read one table (packages/platform/rbac.ts, re-exported by server/lib/rbac.mjs
+// and by the SPA's caps.ts), so the checks below are semantic: they import the
+// SPA's own ROUTE_CAPS and assert every capability it names is real, and that
+// the SPA's guard answers from the same table the server enforces.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { ROLE_CAPS, capsFor, SECTION_CAPS, _dominates, _canAdminister, _guardUser } from './rbac.mjs';
+import { ROUTE_CAPS, requiredCap, hasCap } from '../../src/lib/caps.ts';
 
 const EXPECTED = {
 	user: ['member'],
@@ -21,7 +29,7 @@ const EXPECTED = {
 	]
 };
 
-test('server ROLE_CAPS matches the spec exactly', () => {
+test('ROLE_CAPS matches the spec exactly', () => {
 	assert.deepEqual(Object.keys(ROLE_CAPS).sort(), Object.keys(EXPECTED).sort());
 	for (const [role, caps] of Object.entries(EXPECTED)) {
 		assert.deepEqual([...capsFor(role)].sort(), [...caps].sort(), `caps for ${role}`);
@@ -34,18 +42,42 @@ test('capsFor defaults an unknown or missing role to member only', () => {
 	}
 });
 
-test('the console table does not drift from the server table', () => {
-	const src = readFileSync(new URL('../../src/lib/caps.ts', import.meta.url), 'utf8');
-	const block = src.match(/const ROLE_CAPS[^=]*=\s*\{([\s\S]*?)\n\};/);
-	assert.ok(block, 'could not locate ROLE_CAPS in src/lib/caps.ts — update this test to match the new shape');
-	const tsCaps = {};
-	for (const m of block[1].matchAll(/([A-Za-z_][A-Za-z0-9_]*)\s*:\s*\[([^\]]*)\]/g)) {
-		tsCaps[m[1]] = [...m[2].matchAll(/"([^"]+)"/g)].map((x) => x[1]).sort();
+test('SECTION_CAPS and the SPA ROUTE_CAPS only name real capabilities', () => {
+	const known = new Set(Object.values(EXPECTED).flat());
+	for (const [section, cap] of Object.entries(SECTION_CAPS)) {
+		assert.ok(known.has(cap), `section ${section} maps to unknown cap ${cap}`);
 	}
-	assert.deepEqual(Object.keys(tsCaps).sort(), Object.keys(ROLE_CAPS).sort(), 'role set differs');
-	for (const role of Object.keys(ROLE_CAPS)) {
-		assert.deepEqual(tsCaps[role], [...ROLE_CAPS[role]].sort(), `role ${role} differs between server and console`);
+	assert.ok(ROUTE_CAPS.length > 0, 'the SPA route map is empty');
+	for (const [pattern, cap] of ROUTE_CAPS) {
+		assert.ok(known.has(cap), `SPA route ${pattern} maps to unknown cap ${cap}`);
 	}
+});
+
+test('the SPA guard answers from the table the server enforces', () => {
+	// Same table, so this pins the SPA side of the seam: for every role, hasCap
+	// must agree with capsFor for every capability in the vocabulary. A cap the
+	// SPA's type lacks silently hides a control the API allows; one the table
+	// lacks shows a control the API refuses with a 403.
+	for (const [role, caps] of Object.entries(ROLE_CAPS)) {
+		for (const cap of Object.values(ROLE_CAPS).flat()) {
+			assert.equal(hasCap(role, cap), caps.includes(cap), `${role} / ${cap}`);
+		}
+	}
+	assert.equal(hasCap(null, 'member'), true);
+	assert.equal(hasCap('ops_admin', 'admin.keys'), false);
+});
+
+test('requiredCap picks the longest matching route prefix', () => {
+	assert.equal(requiredCap('/admin/keys'), 'admin.keys');
+	assert.equal(requiredCap('/admin/providers/12'), 'admin.providers');
+	assert.equal(requiredCap('/admin/models'), 'admin.models');
+	// listed after /admin, so the longer entry must win
+	assert.equal(requiredCap('/admin/security'), 'admin.audit');
+	// the bare prefix falls back to the widest entry
+	assert.equal(requiredCap('/admin'), 'admin.view');
+	assert.equal(requiredCap('/admin/unknown-section'), 'admin.view');
+	assert.equal(requiredCap('/dashboard/team/roles'), 'member');
+	assert.equal(requiredCap('/public'), null);
 });
 
 test('_dominates requires a superset', () => {
@@ -74,11 +106,4 @@ test('_guardUser returns the right refusal message', () => {
 	assert.equal(_guardUser({ role: 'admin' }, 'user'), null);
 	assert.match(String(_guardUser({ role: 'ops_admin' }, 'admin')), /at or above your own level/);
 	assert.match(String(_guardUser({ role: 'ops_admin' }, 'user', 'admin')), /above your own level/);
-});
-
-test('SECTION_CAPS only names known capabilities', () => {
-	const known = new Set(Object.values(EXPECTED).flat());
-	for (const [section, cap] of Object.entries(SECTION_CAPS)) {
-		assert.ok(known.has(cap), `section ${section} maps to unknown cap ${cap}`);
-	}
 });

@@ -942,6 +942,48 @@ export interface WorkerRuntime {
  * a job is never abandoned mid-flight (its row would stay `running` until the
  * stale sweep resurrects it).
  */
+// ECONNRESET included: when the container is stopped, in-flight queries die
+// with `read ECONNRESET` before the listener starts refusing (ECONNREFUSED).
+// Both are the same outage at different instants.
+const CONNECTION_OUTAGE_RE = /57P03|ECONNREFUSED|ECONNRESET|ENOTFOUND|ETIMEDOUT|EHOSTUNREACH|ENETUNREACH|connection refused|not yet accepting|terminating connection|connection terminated|connection reset|server closed the connection|too many clients|remaining connection slots/i;
+
+// isConnectionOutage reports whether an error looks like the database being
+// unreachable (restart, recovery, failover) rather than a bug in our SQL.
+// Matched on message/code because drizzle/postgres-js surface transport
+// failures as plain Errors with driver text, not a stable error class.
+function isConnectionOutage(e: unknown): boolean {
+	let text: string;
+	if (e instanceof Error) {
+		let code = '';
+		if ('code' in e) {
+			const c = e.code;
+		if (typeof c === 'string' || typeof c === 'number') code = ` ${c}`;
+		}
+		text = `${e.message}${code} ${outageChainText(e.cause)}`;
+	} else {
+		text = String(e);
+	}
+	return CONNECTION_OUTAGE_RE.test(text);
+}
+
+// outageChainText flattens an error's `cause` chain for outage matching and
+// logging. drizzle/postgres-js wrap the transport failure: the driver text
+// (ECONNREFUSED, 57P03) lives in the chain, not in `message` (which carries
+// the SQL). Two call sites (matcher + log hint) must walk it identically.
+function outageChainText(cause: unknown): string {
+	let text = '';
+	let cur: unknown = cause;
+	while (cur instanceof Error) {
+		text += ` ${cur.message}`;
+		cur = cur.cause;
+	}
+	if (typeof cur === 'object' && cur !== null && 'code' in cur) {
+		const c = cur.code;
+		if (typeof c === 'string' || typeof c === 'number') text += ` ${c}`;
+	}
+	return text;
+}
+
 export function createWorker(options: WorkerOptions = {}): WorkerRuntime {
 	const types = options.types ?? (Object.keys(JOB_HANDLERS) as JobType[]);
 	const concurrency = Math.max(1, options.concurrency ?? 1);
@@ -967,12 +1009,41 @@ export function createWorker(options: WorkerOptions = {}): WorkerRuntime {
 	return {
 		async run() {
 			let sinceSweep = 0;
+			let backoffMs = 0;
+			let loggedOutage = false;
 			while (running) {
-				if (Date.now() - sinceSweep > staleAfterMs / 2) {
-					sinceSweep = Date.now();
-					await requeueStaleJobs(staleAfterMs);
+				// The claim + sweep are the only DB touches in the loop body.
+				// A connection outage (Postgres restart/recovery, e.g. 57P03)
+				// must back off and retry, not kill the loop: runJob/failJob
+				// below already settle per-job errors, so only the claim path
+				// needs this guard. Non-connection errors rethrow (a real bug
+				// must stay loud).
+				let claimed;
+				try {
+					if (Date.now() - sinceSweep > staleAfterMs / 2) {
+						sinceSweep = Date.now();
+						await requeueStaleJobs(staleAfterMs);
+					}
+					claimed = await claimJobs(types, concurrency);
+				} catch (e) {
+					if (!running) break;
+					if (!isConnectionOutage(e)) throw e;
+					backoffMs = backoffMs === 0 ? 5000 : Math.min(backoffMs * 2, 60000);
+					if (!loggedOutage) {
+						loggedOutage = true;
+						// One short token, never a full stack or query string:
+						// search the cause chain first (driver code), then
+						// the top message as a last resort.
+						const chain = e instanceof Error ? outageChainText(e.cause) : String(e);
+						const top = e instanceof Error ? e.message : '';
+						const hint = chain.match(/57P03|ECONNREFUSED|ECONNRESET|ENOTFOUND|ETIMEDOUT|EHOSTUNREACH|ENETUNREACH|not yet accepting|connection refused|terminating connection|too many clients/i)?.[0] ?? top.slice(0, 40) ?? 'unreachable';
+						console.error(`[workers] database unreachable (${hint}) — retrying with backoff`);
+					}
+					await sleep(backoffMs);
+					continue;
 				}
-				const claimed = await claimJobs(types, concurrency);
+				backoffMs = 0;
+				loggedOutage = false;
 				if (claimed.length === 0) {
 					await sleep(idleSleepMs);
 					continue;

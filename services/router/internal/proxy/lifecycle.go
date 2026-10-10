@@ -116,6 +116,10 @@ func (h *Handler) begin(w http.ResponseWriter, r *http.Request, start time.Time,
 	authStart := time.Now()
 	key, err := h.authenticate(r)
 	if err != nil {
+		if errors.Is(err, errAuthRateLimited) {
+			lc.reject(routing.ErrCodeRateLimited, err.Error(), "rate_limited", http.StatusTooManyRequests)
+			return lc, false
+		}
 		lc.reject(routing.ErrCodeAuthError, err.Error(), "client_error", int(statusCodeFor(routing.ErrCodeAuthError)))
 		return lc, false
 	}
@@ -170,7 +174,7 @@ func (h *Handler) begin(w http.ResponseWriter, r *http.Request, start time.Time,
 	lc.timing["rate_limit"] = time.Since(limStart).Milliseconds()
 
 	routeStart := time.Now()
-	pol, err := h.store.RoutingPolicyFor(r.Context(), key)
+	pol, err := h.cachedRoutingPolicy(r.Context(), key)
 	if err != nil {
 		pol = store.DefaultRoutingPolicy()
 	}
@@ -218,6 +222,11 @@ func (h *Handler) begin(w http.ResponseWriter, r *http.Request, start time.Time,
 			}
 			_ = i
 		}
+		// Per-candidate prices drive the cost-aware strategies. Resolved here
+		// through the shared fillCandidatePricing helper (fail-open to DB) so N
+		// candidates cost N cache hits instead of N pricing queries; the
+		// request's own billing snapshot in buildRow is untouched.
+		h.fillCandidatePricing(r.Context(), merged)
 		// The alias's own target order is the model preference when the policy
 		// declares none (spec §5: alias targets are ordered by position).
 		if len(plan.ModelPref.Order) == 0 && res.Kind == "alias" {
@@ -358,12 +367,28 @@ func isTrustedProxy(addr string) bool {
 // clientIP extracts the request's client address by walking X-Forwarded-For
 // from RIGHT to LEFT, skipping every entry that is a trusted proxy
 // (ROUTER_TRUSTED_PROXIES, comma-separated IPs/CIDRs), and returning the first
-// address that is not. The rightmost entry is the one the nearest trusted proxy
-// appended, so this yields the real client even through a chain of them; the
-// leftmost entries are client-supplied and are exactly what a spoofer forges,
-// which is why they are never believed on their own. With no XFF, or with every
-// entry a trusted proxy, it falls back to RemoteAddr's host. Unparseable → "".
+// address that is not. The header is walked ONLY when the socket peer itself
+// is a declared proxy — a direct caller forging X-Forwarded-For gets its peer
+// address, never the forged value (fail closed, same gate as the React
+// plane's clientIp). With no XFF, or with every entry a trusted proxy, it
+// falls back to the peer host. Unparseable → "".
 func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	peer := strings.TrimSpace(host)
+	// The header is believed only when the socket peer is a declared proxy:
+	// otherwise any direct caller could forge X-Forwarded-For and defeat a
+	// key's ip_allowlist (or poison request_log.client_ip). An untrusted peer
+	// means the peer itself is the client — the same gate the React plane
+	// uses (server/lib/ip.mjs clientIp).
+	if !isTrustedProxy(peer) {
+		if ip := net.ParseIP(peer); ip != nil {
+			return ip.String()
+		}
+		return ""
+	}
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		hops := strings.Split(xff, ",")
 		for i := len(hops) - 1; i >= 0; i-- {
@@ -379,11 +404,7 @@ func clientIP(r *http.Request) string {
 			}
 		}
 	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = r.RemoteAddr
-	}
-	if ip := net.ParseIP(strings.TrimSpace(host)); ip != nil {
+	if ip := net.ParseIP(peer); ip != nil {
 		return ip.String()
 	}
 	return ""

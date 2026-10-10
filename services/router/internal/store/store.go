@@ -11,11 +11,16 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -36,14 +41,39 @@ var ErrNotFound = errors.New("not found")
 type Store struct {
 	pool              *pgxpool.Pool
 	allowDevProviders bool
+	// cacheNS namespaces every Valkey entry this process writes. Two
+	// deployments that share one Valkey (a drill, a staging box) but serve
+	// different databases would otherwise read each other's catalogue — the
+	// drill proved it: its second boot with ROUTER_ALLOW_DEV_PROVIDERS=1 read
+	// the dev-hidden list the first boot had cached.
+	cacheNS string
 	// providerServable is the provider predicate built once from
 	// allowDevProviders (see providerServableSQLFor). Every catalogue query
 	// interpolates it, so rebuilding the string per call was pure waste.
 	providerServable string
+	// hardLimits caches `system_setting['platform_hard_limits']` in-process
+	// (see hardLimitCache). Guarded by hardLimitsMu; expiry bounds the skew.
+	hardLimitsMu  sync.RWMutex
+	hardLimits    hardLimitCache
+	hardLimitsExp time.Time
+}
+
+// hardLimitCache is one cached copy of
+// `system_setting['platform_hard_limits']`. The row changes only when an
+// operator edits it, so a short TTL bounds the skew without an
+// invalidation channel.
+type hardLimitCache struct {
+	RPM         *int64
+	TPM         *int64
+	Concurrency *int64
 }
 
 func New(ctx context.Context, dsn string) (*Store, error) {
-	pool, err := pgxpool.New(ctx, dsn)
+	cfg, err := poolConfig(dsn)
+	if err != nil {
+		return nil, err
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -51,8 +81,78 @@ func New(ctx context.Context, dsn string) (*Store, error) {
 	return &Store{
 		pool:              pool,
 		allowDevProviders: allowDev,
+		cacheNS:           cacheNamespaceFor(dsn),
 		providerServable:  providerServableSQLFor(allowDev),
 	}, nil
+}
+
+// DevProvidersAllowed reports whether this process serves dev-tier providers.
+// Callers that build a Valkey key from a catalogue query MUST fold this in:
+// the catalogue SQL filters on providerServable, which is derived from
+// ROUTER_ALLOW_DEV_PROVIDERS, so a shared entry between two processes with
+// different settings is a wrong answer, not a stale one.
+func (s *Store) DevProvidersAllowed() bool { return s.allowDevProviders }
+
+// CacheNamespace is the per-database prefix for Valkey entries (see cacheNS).
+func (s *Store) CacheNamespace() string { return s.cacheNS }
+
+// cacheNamespaceFor derives a short cache namespace from the DSN's host, port
+// and database — never the credentials, so nothing secret is ever written into
+// a cache key. Two processes on the same database share entries (restart keeps
+// its cache warm); two on different databases never do. An unparseable DSN
+// degrades to a constant, which at worst collapses namespaces but cannot leak
+// one database's rows into another's answers.
+func cacheNamespaceFor(dsn string) string {
+	cfg, err := pgconn.ParseConfig(dsn)
+	if err != nil {
+		return "unknown"
+	}
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%s:%d/%s", cfg.Host, cfg.Port, cfg.Database)))
+	return hex.EncodeToString(sum[:])[:10]
+}
+
+// poolConfig parses the DSN and applies the project's pool bounds.
+//
+// pgxpool.ParseConfig fills nonzero pgx defaults (MaxConns=max(4,NumCPU),
+// lifetime 1h, idle 30m) when the URL carries no pool_* parameter, so a
+// naive `== 0` check can never tell "absent" from "pgx default". Presence
+// is detected on the raw pgconn parse instead: a pool_* key in the URL wins
+// verbatim (pgx validates it), and only an absent key gets the project
+// default — one source of truth, no silent override either way.
+func poolConfig(dsn string) (*pgxpool.Config, error) {
+	raw, err := pgconn.ParseConfig(dsn)
+	if err != nil {
+		return nil, err
+	}
+	_, hasMax := raw.RuntimeParams["pool_max_conns"]
+	_, hasMin := raw.RuntimeParams["pool_min_conns"]
+	_, hasLife := raw.RuntimeParams["pool_max_conn_lifetime"]
+	_, hasIdle := raw.RuntimeParams["pool_max_conn_idle_time"]
+	_, hasHealth := raw.RuntimeParams["pool_health_check_period"]
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return nil, err
+	}
+	if !hasMax {
+		cfg.MaxConns = 20
+	}
+	if !hasMin {
+		// Clamp the default floor to an explicit small MaxConns: a DSN with
+		// pool_max_conns=1 and no min would otherwise get MinConns=2, an
+		// invalid pool (pgx rejects min > max). An explicit pool_min_conns
+		// still wins verbatim — pgx validates that combination itself.
+		cfg.MinConns = min(2, cfg.MaxConns)
+	}
+	if !hasLife {
+		cfg.MaxConnLifetime = 30 * time.Minute
+	}
+	if !hasIdle {
+		cfg.MaxConnIdleTime = 5 * time.Minute
+	}
+	if !hasHealth {
+		cfg.HealthCheckPeriod = time.Minute
+	}
+	return cfg, nil
 }
 
 // envBool accepts only explicit truthy values, so a typo or an empty string

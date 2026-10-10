@@ -111,6 +111,13 @@ CONSTRAINTS=$(QRY "select count(*) from pg_constraint where conname in ('provide
 check "$CONSTRAINTS" "2" "both status constraints present"
 
 echo "### 4. boot production (ROUTER_ALLOW_DEV_PROVIDERS unset)"
+# Step 4 and step 5 deliberately share ONE Valkey: $ENV_FILE carries
+# VALKEY_URL, so both boots write and read the same cache. That is what makes
+# step 5 a cache-isolation assertion, not just a flag assertion — the router
+# used to key the catalogue on a constant, so step 5 read the dev-hidden list
+# step 4 had written and reported the interlock broken. Do NOT "fix" a failure
+# here by unsetting VALKEY_URL: that hides the shared-cache case the drill
+# exists to cover.
 set -a; . "$ENV_FILE"; set +a
 export DATABASE_URL="${DATABASE_URL%/*}/$DB"
 export ROUTER_ADDR=127.0.0.1:$PORT

@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sort"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -452,28 +452,28 @@ func (s *Store) Candidates(ctx context.Context, modelID string, requiredCaps map
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	// Release the candidate result before the batch credential query below:
+	// holding it defers the connection back to the pool while a second query
+	// runs, defeating part of the pool-efficiency goal.
+	rows.Close()
 	if len(out) == 0 {
 		return nil, ErrNotFound
 	}
 
 	// Credential usability is a per-candidate filter (spec §5: "credential
 	// (usable: not disabled/invalid, cooldown_until past/NULL)").
-	for i := range out {
-		creds, err := s.usableCredentials(ctx, out[i].ConnectionID)
-		if err != nil {
-			return nil, err
-		}
-		out[i].Credentials = creds
+	// One batch query for every distinct connection instead of one round trip
+	// per candidate.
+	byConn, err := s.usableCredentialsBatch(ctx, connectionIDs(out))
+	if err != nil {
+		return nil, err
 	}
-	// Per-candidate prices drive the cost-aware strategies; the request itself
-	// re-resolves and snapshots its own price (ResolvePricing at request time).
-	now := time.Now()
 	for i := range out {
-		p, err := s.ResolvePricing(ctx, out[i].ModelID, out[i].ProviderModelID, now)
-		if err == nil {
-			out[i].Price = p
-		}
+		out[i].Credentials = byConn[out[i].ConnectionID]
 	}
+	// Per-candidate prices are filled by the caller through cachedPricing
+	// (proxy): the request's own billing snapshot in buildRow still resolves
+	// and freezes its price at request time.
 	// A connection with no usable credential row and no legacy blob cannot be
 	// attempted at all — drop it rather than fail later on every request.
 	filtered := out[:0]
@@ -486,28 +486,49 @@ func (s *Store) Candidates(ctx context.Context, modelID string, requiredCaps map
 	return filtered, nil
 }
 
-func (s *Store) usableCredentials(ctx context.Context, connectionID string) ([]Credential, error) {
-	if connectionID == "" {
-		return nil, nil
+// connectionIDs collects the distinct non-empty connection ids of a
+// candidate set, sorted for a stable query plan.
+func connectionIDs(cands []Candidate) []string {
+	seen := map[string]bool{}
+	var ids []string
+	for _, c := range cands {
+		if c.ConnectionID == "" || seen[c.ConnectionID] {
+			continue
+		}
+		seen[c.ConnectionID] = true
+		ids = append(ids, c.ConnectionID)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+// usableCredentialsBatch is the batched form of usableCredentials: one query
+// for every distinct connection, grouped by connection id in the same order
+// (priority asc, weight desc, id). An empty input returns an empty map with
+// no query.
+func (s *Store) usableCredentialsBatch(ctx context.Context, ids []string) (map[string][]Credential, error) {
+	out := map[string][]Credential{}
+	if len(ids) == 0 {
+		return out, nil
 	}
 	rows, err := s.pool.Query(ctx, `
-		select id, name, secret_enc, status, weight, priority
+		select id, name, secret_enc, status, weight, priority, connection_id
 		from credential
-		where connection_id = $1
+		where connection_id = any($1)
 		  and status not in ('disabled', 'invalid')
 		  and (cooldown_until is null or cooldown_until <= now())
-		order by priority asc, weight desc, id`, connectionID)
+		order by priority asc, weight desc, id`, ids)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []Credential
 	for rows.Next() {
 		var c Credential
-		if err := rows.Scan(&c.ID, &c.Name, &c.SecretEnc, &c.Status, &c.Weight, &c.Priority); err != nil {
+		var connID string
+		if err := rows.Scan(&c.ID, &c.Name, &c.SecretEnc, &c.Status, &c.Weight, &c.Priority, &connID); err != nil {
 			return nil, err
 		}
-		out = append(out, c)
+		out[connID] = append(out[connID], c)
 	}
 	return out, rows.Err()
 }

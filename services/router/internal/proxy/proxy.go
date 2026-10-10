@@ -16,6 +16,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -68,6 +69,9 @@ func New(st *store.Store, cr *crypt.Crypt, client *http.Client, refresher TokenR
 	if c == nil {
 		c = vk.Disabled()
 	}
+	// Read once at construction (main calls New once): the reload window for
+	// credential pools. Tests set poolReloadAfter directly and are unaffected.
+	poolReloadAfter = time.Duration(poolReloadSeconds()) * time.Second
 	return &Handler{
 		store:        st,
 		crypt:        cr,
@@ -129,6 +133,10 @@ func newUpstreamClient() *http.Client {
 			DialContext:           dialer.DialContext,
 			ForceAttemptHTTP2:     true,
 			MaxIdleConns:          100,
+			// Go's per-host idle default is 2: without this, concurrent
+			// requests to the same upstream serialize on dials while the
+			// global pool sits mostly empty.
+			MaxIdleConnsPerHost:   20,
 			IdleConnTimeout:       90 * time.Second,
 			TLSHandshakeTimeout:   15 * time.Second,
 			ResponseHeaderTimeout: 120 * time.Second,
@@ -152,6 +160,19 @@ const nonStreamTimeout = 120 * time.Second
 // rotation — and a pool that never reloads keeps serving tokens that were
 // rotated away. A var so a test can exercise the reload without sleeping.
 var poolReloadAfter = time.Minute
+
+// poolReloadSeconds reads ROUTER_POOL_RELOAD_S (default 60): how long a
+// built credential pool is trusted before it reloads the stored secret. A
+// large farm churns secrets on rotation, so the window is tunable without a
+// redeploy; <=0 or unparseable falls back to the default.
+func poolReloadSeconds() int {
+	if s, ok := os.LookupEnv("ROUTER_POOL_RELOAD_S"); ok {
+		if n, err := strconv.Atoi(strings.TrimSpace(s)); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 60
+}
 
 // headers a stored default_header may never override.
 //

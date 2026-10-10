@@ -21,10 +21,14 @@ const provCreds = await import('@fudrouter/platform/server/provider-credentials.
 const ids = await import('@fudrouter/platform/server/id.ts');
 const audit = await import('@fudrouter/platform/server/audit.ts');
 
-// SSRF: shared isBlockedLiteral + assertPublicUpstream carry the same rule as
-// the local _isBlockedLiteral/_assertPublic (IANA special-use + intranet TLDs
-// + every-record DNS check). The local copy additionally trims brackets and
-// trailing dots; normalize here so behavior is identical.
+// SSRF: the platform module OWNS the rule, including the literal blocklist --
+// isBlockedIp and the range arithmetic are re-exported below for the request
+// path (server/lib/ip.mjs) and the tests. An earlier version of this comment
+// claimed the shared rule and the console's local copy were equivalent; they
+// were not. The shared list was the shorter one and accepted 23 addresses the
+// console's refused, NAT64/6to4 spellings of the metadata address among them.
+// The console's list is now IN the platform module, so there is one rule and
+// nothing to keep in sync.
 import net from 'node:net';
 export function _isBlockedLiteral(host) {
   const h = String(host ?? '').trim().toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
@@ -37,6 +41,14 @@ export function _isBlockedLiteral(host) {
   if (net.isIP(bare)) return ssrf.isBlockedLiteral(bare);
   return false;
 }
+// The literal blocklist itself, re-exported so the request path and the tests
+// reach exactly the implementation the guard uses.
+export const isBlockedIp = ssrf.isBlockedIp;
+export const _parseV6 = ssrf.parseV6;
+export const _ipv4ToBig = ssrf.ipv4ToBig;
+export const _ipv4BlockedBig = ssrf.ipv4BlockedBig;
+export const _ipv6BlockedBig = ssrf.ipv6BlockedBig;
+
 export async function _assertPublic(rawUrl, allowPrivate = false) {
 	const r = await ssrf.assertPublicUpstream(rawUrl, allowPrivate);
 	return r.ok ? { ok: true } : { ok: false, reason: r.reason };

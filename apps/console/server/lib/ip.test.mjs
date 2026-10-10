@@ -1,4 +1,7 @@
 // Unit tests for the SSRF IP classification + real client-IP extraction.
+// The classification itself lives in packages/platform/server/ssrf.ts and is
+// re-exported by ip.mjs, so this suite is the regression net for the rule the
+// live guard uses, not for a console-local copy of it.
 //
 // These two helpers are the only thing standing between a user-supplied
 // `base_url` / `X-Forwarded-For` and the loopback network, so the cases below
@@ -43,7 +46,11 @@ test('isBlockedIp blocks every IANA special-use range', () => {
 		'2002::1', // 6to4
 		'64:ff9b::7f00:1', // NAT64
 		'100::1', // discard-only
-		'::ffff:127.0.0.1', '::ffff:169.254.169.254', '::ffff:10.0.0.1', '::ffff:100.64.0.1' // IPv4-mapped
+		'::ffff:127.0.0.1', '::ffff:169.254.169.254', '::ffff:10.0.0.1', '::ffff:100.64.0.1', // IPv4-mapped
+		'::ffff:7f00:1', '::ffff:a00:1', // IPv4-mapped, hex-spelled by a URL parser
+		'::0.0.0.1', // IPv4-compatible loopback in v6 space
+		'64:ff9b::a9fe:a9fe', '64:ff9b::a00:1', // NAT64 of metadata / RFC1918
+		'2002:7f00:1::', '2002:c0a8:101::' // 6to4 of loopback / RFC1918
 	];
 	for (const ip of blocked) assert.equal(isBlockedIp(ip), true, `expected ${ip} blocked`);
 });

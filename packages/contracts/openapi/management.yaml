@@ -1,0 +1,5078 @@
+openapi: 3.1.0
+info:
+  title: FUDRouter Management API
+  version: 1.0.0
+  description: |
+    GENERATED FILE — do not edit by hand.
+    Source: packages/contracts/routes.json, extracted from apps/react-web/server/*.mjs
+    by packages/contracts/scripts/extract-routes.mjs.
+    Regenerate: npm run extract -w @fudrouter/contracts && npm run gen -w @fudrouter/contracts
+    
+    Paths, methods, path parameters and security are mechanically derived and therefore
+    exact. Request/response BODIES are intentionally NOT modelled — 180+ handlers return
+    Drizzle result objects, and a fabricated schema would be worse than none. Each
+    operation carries `x-source` pointing at the line that implements it.
+    
+    Public prefixes (rate-limited by client IP via _publicRead): /api/changelog, /api/docs, /api/metrics, /api/models, /api/palette, /api/pricing, /api/providers, /api/status.
+    Every other route requires a session (or an admin capability) — see x-source.
+servers:
+  - url: http://127.0.0.1:3002
+    description: loopback listener of the Express plane (PORT pinned by .env.react-web)
+tags:
+  - name: admin
+  - name: app
+  - name: auth
+  - name: changelog
+  - name: docs
+  - name: health
+  - name: metrics
+  - name: models
+  - name: pages
+  - name: palette
+  - name: playground
+  - name: pricing
+  - name: providers
+  - name: seo
+  - name: status
+paths:
+  "{*path}":
+    get:
+      operationId: getpath
+      tags: [app]
+      summary: "GET {*path}"
+      description: |
+        Registered at apps/react-web/server/index.mjs:960.
+        Express 5 splat route: the trailing path segment is greedy.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: path
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/index.mjs
+        line: 960
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/analytics":
+    get:
+      operationId: getapiAdminAnalytics
+      tags: [admin]
+      summary: "GET /api/admin/analytics"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:416.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 416
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/billing":
+    get:
+      operationId: getapiAdminBilling
+      tags: [admin]
+      summary: "GET /api/admin/billing"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:480.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 480
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/connections":
+    get:
+      operationId: getapiAdminConnections
+      tags: [admin]
+      summary: "GET /api/admin/connections"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:509.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 509
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/health":
+    get:
+      operationId: getapiAdminHealth
+      tags: [admin]
+      summary: "GET /api/admin/health"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:524.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 524
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/incidents":
+    get:
+      operationId: getapiAdminIncidents
+      tags: [admin]
+      summary: "GET /api/admin/incidents"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:553.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 553
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/keys":
+    get:
+      operationId: getapiAdminKeys
+      tags: [admin]
+      summary: "GET /api/admin/keys"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:568.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 568
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/models":
+    get:
+      operationId: getapiAdminModels
+      tags: [admin]
+      summary: "GET /api/admin/models"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:592.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 592
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/models/{id}":
+    get:
+      operationId: getapiAdminModelsId
+      tags: [admin]
+      summary: "GET /api/admin/models/{id}"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:909.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 909
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/models/{id}/mapping":
+    post:
+      operationId: postapiAdminModelsIdMapping
+      tags: [admin]
+      summary: "POST /api/admin/models/{id}/mapping"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1074.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1074
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/models/{id}/update":
+    post:
+      operationId: postapiAdminModelsIdUpdate
+      tags: [admin]
+      summary: "POST /api/admin/models/{id}/update"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1046.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1046
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/models/bulk":
+    post:
+      operationId: postapiAdminModelsBulk
+      tags: [admin]
+      summary: "POST /api/admin/models/bulk"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:929.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 929
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/models/create":
+    post:
+      operationId: postapiAdminModelsCreate
+      tags: [admin]
+      summary: "POST /api/admin/models/create"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:962.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 962
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/models/delete":
+    post:
+      operationId: postapiAdminModelsDelete
+      tags: [admin]
+      summary: "POST /api/admin/models/delete"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1032.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1032
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/models/mappings":
+    get:
+      operationId: getapiAdminModelsMappings
+      tags: [admin]
+      summary: "GET /api/admin/models/mappings"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:890.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 890
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/models/mappings/create":
+    post:
+      operationId: postapiAdminModelsMappingsCreate
+      tags: [admin]
+      summary: "POST /api/admin/models/mappings/create"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1090.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1090
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/models/mappings/delete":
+    post:
+      operationId: postapiAdminModelsMappingsDelete
+      tags: [admin]
+      summary: "POST /api/admin/models/mappings/delete"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1151.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1151
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/models/mappings/update":
+    post:
+      operationId: postapiAdminModelsMappingsUpdate
+      tags: [admin]
+      summary: "POST /api/admin/models/mappings/update"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1120.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1120
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/models/pricing":
+    get:
+      operationId: getapiAdminModelsPricing
+      tags: [admin]
+      summary: "GET /api/admin/models/pricing"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:897.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 897
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/models/pricing/apply":
+    post:
+      operationId: postapiAdminModelsPricingApply
+      tags: [admin]
+      summary: "POST /api/admin/models/pricing/apply"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1195.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1195
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/models/pricing/preview":
+    post:
+      operationId: postapiAdminModelsPricingPreview
+      tags: [admin]
+      summary: "POST /api/admin/models/pricing/preview"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1183.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1183
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/models/provider":
+    post:
+      operationId: postapiAdminModelsProvider
+      tags: [admin]
+      summary: "POST /api/admin/models/provider"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:945.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 945
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/models/sync":
+    get:
+      operationId: getapiAdminModelsSync
+      tags: [admin]
+      summary: "GET /api/admin/models/sync"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:905.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 905
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/models/sync/apply":
+    post:
+      operationId: postapiAdminModelsSyncApply
+      tags: [admin]
+      summary: "POST /api/admin/models/sync/apply"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1261.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1261
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/models/sync/fetch":
+    post:
+      operationId: postapiAdminModelsSyncFetch
+      tags: [admin]
+      summary: "POST /api/admin/models/sync/fetch"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1219.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1219
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/models/update":
+    post:
+      operationId: postapiAdminModelsUpdate
+      tags: [admin]
+      summary: "POST /api/admin/models/update"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1002.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1002
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/overview":
+    get:
+      operationId: getapiAdminOverview
+      tags: [admin]
+      summary: "GET /api/admin/overview"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:376.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 376
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/projects":
+    get:
+      operationId: getapiAdminProjects
+      tags: [admin]
+      summary: "GET /api/admin/projects"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:642.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 642
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/projects/{id}":
+    get:
+      operationId: getapiAdminProjectsId
+      tags: [admin]
+      summary: "GET /api/admin/projects/{id}"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1309.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1309
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/projects/setStatus":
+    post:
+      operationId: postapiAdminProjectsSetStatus
+      tags: [admin]
+      summary: "POST /api/admin/projects/setStatus"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1318.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1318
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/providers":
+    get:
+      operationId: getapiAdminProviders
+      tags: [admin]
+      summary: "GET /api/admin/providers"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:664.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 664
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/providers/{id}":
+    get:
+      operationId: getapiAdminProvidersId
+      tags: [admin]
+      summary: "GET /api/admin/providers/{id}"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1422.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1422
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/providers/{id}/chat":
+    post:
+      operationId: postapiAdminProvidersIdChat
+      tags: [admin]
+      summary: "POST /api/admin/providers/{id}/chat"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1581.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1581
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/providers/{id}/connections":
+    get:
+      operationId: getapiAdminProvidersIdConnections
+      tags: [admin]
+      summary: "GET /api/admin/providers/{id}/connections"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1394.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1394
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/providers/{id}/connections/create":
+    post:
+      operationId: postapiAdminProvidersIdConnectionsCreate
+      tags: [admin]
+      summary: "POST /api/admin/providers/{id}/connections/create"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1635.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1635
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/providers/{id}/credentials":
+    get:
+      operationId: getapiAdminProvidersIdCredentials
+      tags: [admin]
+      summary: "GET /api/admin/providers/{id}/credentials"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1403.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1403
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/providers/{id}/disable":
+    post:
+      operationId: postapiAdminProvidersIdDisable
+      tags: [admin]
+      summary: "POST /api/admin/providers/{id}/disable"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1504.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1504
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/providers/{id}/enable":
+    post:
+      operationId: postapiAdminProvidersIdEnable
+      tags: [admin]
+      summary: "POST /api/admin/providers/{id}/enable"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1466.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1466
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/providers/{id}/fetchCatalog":
+    post:
+      operationId: postapiAdminProvidersIdFetchCatalog
+      tags: [admin]
+      summary: "POST /api/admin/providers/{id}/fetchCatalog"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1448.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1448
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/providers/{id}/strategy":
+    post:
+      operationId: postapiAdminProvidersIdStrategy
+      tags: [admin]
+      summary: "POST /api/admin/providers/{id}/strategy"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1608.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1608
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/providers/{id}/testAll":
+    post:
+      operationId: postapiAdminProvidersIdTestAll
+      tags: [admin]
+      summary: "POST /api/admin/providers/{id}/testAll"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1537.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1537
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/providers/{id}/testCredential":
+    post:
+      operationId: postapiAdminProvidersIdTestCredential
+      tags: [admin]
+      summary: "POST /api/admin/providers/{id}/testCredential"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1517.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1517
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/providers/{id}/testModel":
+    post:
+      operationId: postapiAdminProvidersIdTestModel
+      tags: [admin]
+      summary: "POST /api/admin/providers/{id}/testModel"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1556.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1556
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/providers/connections/delete":
+    post:
+      operationId: postapiAdminProvidersConnectionsDelete
+      tags: [admin]
+      summary: "POST /api/admin/providers/connections/delete"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1669.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1669
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/providers/connections/update":
+    post:
+      operationId: postapiAdminProvidersConnectionsUpdate
+      tags: [admin]
+      summary: "POST /api/admin/providers/connections/update"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1652.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1652
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/providers/create":
+    post:
+      operationId: postapiAdminProvidersCreate
+      tags: [admin]
+      summary: "POST /api/admin/providers/create"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1332.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1332
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/providers/credentials/create":
+    post:
+      operationId: postapiAdminProvidersCredentialsCreate
+      tags: [admin]
+      summary: "POST /api/admin/providers/credentials/create"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1691.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1691
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/providers/credentials/delete":
+    post:
+      operationId: postapiAdminProvidersCredentialsDelete
+      tags: [admin]
+      summary: "POST /api/admin/providers/credentials/delete"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1773.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1773
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/providers/credentials/disable":
+    post:
+      operationId: postapiAdminProvidersCredentialsDisable
+      tags: [admin]
+      summary: "POST /api/admin/providers/credentials/disable"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1744.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1744
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/providers/credentials/enable":
+    post:
+      operationId: postapiAdminProvidersCredentialsEnable
+      tags: [admin]
+      summary: "POST /api/admin/providers/credentials/enable"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1745.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1745
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/providers/credentials/revoke":
+    post:
+      operationId: postapiAdminProvidersCredentialsRevoke
+      tags: [admin]
+      summary: "POST /api/admin/providers/credentials/revoke"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1761.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1761
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/providers/credentials/rotate":
+    post:
+      operationId: postapiAdminProvidersCredentialsRotate
+      tags: [admin]
+      summary: "POST /api/admin/providers/credentials/rotate"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1746.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1746
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/providers/credentials/update":
+    post:
+      operationId: postapiAdminProvidersCredentialsUpdate
+      tags: [admin]
+      summary: "POST /api/admin/providers/credentials/update"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1712.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1712
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/providers/delete":
+    post:
+      operationId: postapiAdminProvidersDelete
+      tags: [admin]
+      summary: "POST /api/admin/providers/delete"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1379.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1379
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/providers/update":
+    post:
+      operationId: postapiAdminProvidersUpdate
+      tags: [admin]
+      summary: "POST /api/admin/providers/update"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1355.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1355
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/requests":
+    get:
+      operationId: getapiAdminRequests
+      tags: [admin]
+      summary: "GET /api/admin/requests"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:700.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 700
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/requests/{id}":
+    get:
+      operationId: getapiAdminRequestsId
+      tags: [admin]
+      summary: "GET /api/admin/requests/{id}"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1786.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1786
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/routing":
+    get:
+      operationId: getapiAdminRouting
+      tags: [admin]
+      summary: "GET /api/admin/routing"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:732.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 732
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/routing/circuit-breakers":
+    get:
+      operationId: getapiAdminRoutingCircuit-breakers
+      tags: [admin]
+      summary: "GET /api/admin/routing/circuit-breakers"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1799.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1799
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/routing/circuit-breakers/create":
+    post:
+      operationId: postapiAdminRoutingCircuit-breakersCreate
+      tags: [admin]
+      summary: "POST /api/admin/routing/circuit-breakers/create"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1841.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1841
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/routing/circuit-breakers/delete":
+    post:
+      operationId: postapiAdminRoutingCircuit-breakersDelete
+      tags: [admin]
+      summary: "POST /api/admin/routing/circuit-breakers/delete"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1868.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1868
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/routing/circuit-breakers/update":
+    post:
+      operationId: postapiAdminRoutingCircuit-breakersUpdate
+      tags: [admin]
+      summary: "POST /api/admin/routing/circuit-breakers/update"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1855.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1855
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/routing/fallbacks":
+    get:
+      operationId: getapiAdminRoutingFallbacks
+      tags: [admin]
+      summary: "GET /api/admin/routing/fallbacks"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1880.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1880
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/routing/policies":
+    get:
+      operationId: getapiAdminRoutingPolicies
+      tags: [admin]
+      summary: "GET /api/admin/routing/policies"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1885.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1885
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/routing/policies/create":
+    post:
+      operationId: postapiAdminRoutingPoliciesCreate
+      tags: [admin]
+      summary: "POST /api/admin/routing/policies/create"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1914.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1914
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/routing/policies/delete":
+    post:
+      operationId: postapiAdminRoutingPoliciesDelete
+      tags: [admin]
+      summary: "POST /api/admin/routing/policies/delete"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1941.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1941
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/routing/policies/update":
+    post:
+      operationId: postapiAdminRoutingPoliciesUpdate
+      tags: [admin]
+      summary: "POST /api/admin/routing/policies/update"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1926.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1926
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/routing/simulations":
+    get:
+      operationId: getapiAdminRoutingSimulations
+      tags: [admin]
+      summary: "GET /api/admin/routing/simulations"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1961.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1961
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/routing/simulations/simulate":
+    post:
+      operationId: postapiAdminRoutingSimulationsSimulate
+      tags: [admin]
+      summary: "POST /api/admin/routing/simulations/simulate"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1966.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1966
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/routing/strategies":
+    get:
+      operationId: getapiAdminRoutingStrategies
+      tags: [admin]
+      summary: "GET /api/admin/routing/strategies"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:1956.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 1956
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/security":
+    get:
+      operationId: getapiAdminSecurity
+      tags: [admin]
+      summary: "GET /api/admin/security"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:766.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 766
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/security/abuse":
+    get:
+      operationId: getapiAdminSecurityAbuse
+      tags: [admin]
+      summary: "GET /api/admin/security/abuse"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2077.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2077
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/security/audit-log":
+    get:
+      operationId: getapiAdminSecurityAudit-log
+      tags: [admin]
+      summary: "GET /api/admin/security/audit-log"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2093.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2093
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/security/blocked-ips":
+    get:
+      operationId: getapiAdminSecurityBlocked-ips
+      tags: [admin]
+      summary: "GET /api/admin/security/blocked-ips"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2103.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2103
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/security/blocked-ips/add":
+    post:
+      operationId: postapiAdminSecurityBlocked-ipsAdd
+      tags: [admin]
+      summary: "POST /api/admin/security/blocked-ips/add"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2107.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2107
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/security/blocked-ips/remove":
+    post:
+      operationId: postapiAdminSecurityBlocked-ipsRemove
+      tags: [admin]
+      summary: "POST /api/admin/security/blocked-ips/remove"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2122.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2122
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/security/blocked-keys":
+    get:
+      operationId: getapiAdminSecurityBlocked-keys
+      tags: [admin]
+      summary: "GET /api/admin/security/blocked-keys"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2134.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2134
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/security/blocked-keys/add":
+    post:
+      operationId: postapiAdminSecurityBlocked-keysAdd
+      tags: [admin]
+      summary: "POST /api/admin/security/blocked-keys/add"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2147.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2147
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/security/blocked-keys/remove":
+    post:
+      operationId: postapiAdminSecurityBlocked-keysRemove
+      tags: [admin]
+      summary: "POST /api/admin/security/blocked-keys/remove"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2161.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2161
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/security/create":
+    post:
+      operationId: postapiAdminSecurityCreate
+      tags: [admin]
+      summary: "POST /api/admin/security/create"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2022.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2022
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/security/delete":
+    post:
+      operationId: postapiAdminSecurityDelete
+      tags: [admin]
+      summary: "POST /api/admin/security/delete"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2065.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2065
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/security/update":
+    post:
+      operationId: postapiAdminSecurityUpdate
+      tags: [admin]
+      summary: "POST /api/admin/security/update"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2043.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2043
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/settings":
+    get:
+      operationId: getapiAdminSettings
+      tags: [admin]
+      summary: "GET /api/admin/settings"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:776.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 776
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/settings/feature-flags":
+    get:
+      operationId: getapiAdminSettingsFeature-flags
+      tags: [admin]
+      summary: "GET /api/admin/settings/feature-flags"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2250.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2250
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/settings/feature-flags/create":
+    post:
+      operationId: postapiAdminSettingsFeature-flagsCreate
+      tags: [admin]
+      summary: "POST /api/admin/settings/feature-flags/create"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2254.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2254
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/settings/feature-flags/delete":
+    post:
+      operationId: postapiAdminSettingsFeature-flagsDelete
+      tags: [admin]
+      summary: "POST /api/admin/settings/feature-flags/delete"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2305.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2305
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/settings/feature-flags/toggle":
+    post:
+      operationId: postapiAdminSettingsFeature-flagsToggle
+      tags: [admin]
+      summary: "POST /api/admin/settings/feature-flags/toggle"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2293.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2293
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/settings/feature-flags/update":
+    post:
+      operationId: postapiAdminSettingsFeature-flagsUpdate
+      tags: [admin]
+      summary: "POST /api/admin/settings/feature-flags/update"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2272.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2272
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/settings/setBillingDefaults":
+    post:
+      operationId: postapiAdminSettingsSetBillingDefaults
+      tags: [admin]
+      summary: "POST /api/admin/settings/setBillingDefaults"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2236.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2236
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/settings/updateDefaultRouting":
+    post:
+      operationId: postapiAdminSettingsUpdateDefaultRouting
+      tags: [admin]
+      summary: "POST /api/admin/settings/updateDefaultRouting"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2210.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2210
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/settings/updateGeneral":
+    post:
+      operationId: postapiAdminSettingsUpdateGeneral
+      tags: [admin]
+      summary: "POST /api/admin/settings/updateGeneral"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2175.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2175
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/settings/updateHardLimits":
+    post:
+      operationId: postapiAdminSettingsUpdateHardLimits
+      tags: [admin]
+      summary: "POST /api/admin/settings/updateHardLimits"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2223.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2223
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/settings/updateRegistration":
+    post:
+      operationId: postapiAdminSettingsUpdateRegistration
+      tags: [admin]
+      summary: "POST /api/admin/settings/updateRegistration"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2188.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2188
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/settings/updateRetention":
+    post:
+      operationId: postapiAdminSettingsUpdateRetention
+      tags: [admin]
+      summary: "POST /api/admin/settings/updateRetention"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2197.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2197
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/system":
+    get:
+      operationId: getapiAdminSystem
+      tags: [admin]
+      summary: "GET /api/admin/system"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:797.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 797
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/system/database":
+    get:
+      operationId: getapiAdminSystemDatabase
+      tags: [admin]
+      summary: "GET /api/admin/system/database"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2319.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2319
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/system/events":
+    get:
+      operationId: getapiAdminSystemEvents
+      tags: [admin]
+      summary: "GET /api/admin/system/events"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2333.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2333
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/system/health":
+    get:
+      operationId: getapiAdminSystemHealth
+      tags: [admin]
+      summary: "GET /api/admin/system/health"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2343.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2343
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/system/jobs":
+    get:
+      operationId: getapiAdminSystemJobs
+      tags: [admin]
+      summary: "GET /api/admin/system/jobs"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2373.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2373
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/system/jobs/cancel":
+    post:
+      operationId: postapiAdminSystemJobsCancel
+      tags: [admin]
+      summary: "POST /api/admin/system/jobs/cancel"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2402.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2402
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/system/jobs/retry":
+    post:
+      operationId: postapiAdminSystemJobsRetry
+      tags: [admin]
+      summary: "POST /api/admin/system/jobs/retry"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2387.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2387
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/system/metrics":
+    get:
+      operationId: getapiAdminSystemMetrics
+      tags: [admin]
+      summary: "GET /api/admin/system/metrics"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2418.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2418
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/system/valkey":
+    get:
+      operationId: getapiAdminSystemValkey
+      tags: [admin]
+      summary: "GET /api/admin/system/valkey"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2431.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2431
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/system/workers":
+    get:
+      operationId: getapiAdminSystemWorkers
+      tags: [admin]
+      summary: "GET /api/admin/system/workers"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2464.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2464
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/traffic":
+    get:
+      operationId: getapiAdminTraffic
+      tags: [admin]
+      summary: "GET /api/admin/traffic"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:820.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 820
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/traffic/queues":
+    get:
+      operationId: getapiAdminTrafficQueues
+      tags: [admin]
+      summary: "GET /api/admin/traffic/queues"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2488.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2488
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/traffic/rate-limits":
+    get:
+      operationId: getapiAdminTrafficRate-limits
+      tags: [admin]
+      summary: "GET /api/admin/traffic/rate-limits"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2498.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2498
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/traffic/rate-limits/create":
+    post:
+      operationId: postapiAdminTrafficRate-limitsCreate
+      tags: [admin]
+      summary: "POST /api/admin/traffic/rate-limits/create"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2512.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2512
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/traffic/rate-limits/delete":
+    post:
+      operationId: postapiAdminTrafficRate-limitsDelete
+      tags: [admin]
+      summary: "POST /api/admin/traffic/rate-limits/delete"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2540.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2540
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/traffic/rate-limits/update":
+    post:
+      operationId: postapiAdminTrafficRate-limitsUpdate
+      tags: [admin]
+      summary: "POST /api/admin/traffic/rate-limits/update"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2527.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2527
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/traffic/save":
+    post:
+      operationId: postapiAdminTrafficSave
+      tags: [admin]
+      summary: "POST /api/admin/traffic/save"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2474.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2474
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/traffic/throttling":
+    get:
+      operationId: getapiAdminTrafficThrottling
+      tags: [admin]
+      summary: "GET /api/admin/traffic/throttling"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2552.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2552
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/users":
+    get:
+      operationId: getapiAdminUsers
+      tags: [admin]
+      summary: "GET /api/admin/users"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:826.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 826
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/users/{id}":
+    get:
+      operationId: getapiAdminUsersId
+      tags: [admin]
+      summary: "GET /api/admin/users/{id}"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2612.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2612
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/users/disableAccess":
+    post:
+      operationId: postapiAdminUsersDisableAccess
+      tags: [admin]
+      summary: "POST /api/admin/users/disableAccess"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2666.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2666
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/users/setRole":
+    post:
+      operationId: postapiAdminUsersSetRole
+      tags: [admin]
+      summary: "POST /api/admin/users/setRole"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2580.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2580
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/users/suspend":
+    post:
+      operationId: postapiAdminUsersSuspend
+      tags: [admin]
+      summary: "POST /api/admin/users/suspend"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2636.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2636
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/users/toggleBan":
+    post:
+      operationId: postapiAdminUsersToggleBan
+      tags: [admin]
+      summary: "POST /api/admin/users/toggleBan"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2595.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2595
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/users/unsuspend":
+    post:
+      operationId: postapiAdminUsersUnsuspend
+      tags: [admin]
+      summary: "POST /api/admin/users/unsuspend"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2652.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2652
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/workspaces":
+    get:
+      operationId: getapiAdminWorkspaces
+      tags: [admin]
+      summary: "GET /api/admin/workspaces"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:861.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 861
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/workspaces/{id}":
+    get:
+      operationId: getapiAdminWorkspacesId
+      tags: [admin]
+      summary: "GET /api/admin/workspaces/{id}"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2687.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2687
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/workspaces/setStatus":
+    post:
+      operationId: postapiAdminWorkspacesSetStatus
+      tags: [admin]
+      summary: "POST /api/admin/workspaces/setStatus"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2704.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2704
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/workspaces/suspend":
+    post:
+      operationId: postapiAdminWorkspacesSuspend
+      tags: [admin]
+      summary: "POST /api/admin/workspaces/suspend"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2717.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2717
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/workspaces/unsuspend":
+    post:
+      operationId: postapiAdminWorkspacesUnsuspend
+      tags: [admin]
+      summary: "POST /api/admin/workspaces/unsuspend"
+      description: |
+        Registered at apps/react-web/server/admin.mjs:2730.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/admin.mjs
+        line: 2730
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/auth/{*path}":
+    all:
+      operationId: allapiAuthPath
+      tags: [auth]
+      summary: "ALL /api/auth/{*path}"
+      description: |
+        Registered at apps/react-web/server/index.mjs:588.
+        Express 5 splat route: the trailing path segment is greedy.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: path
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/index.mjs
+        line: 588
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/changelog":
+    get:
+      operationId: getapiChangelog
+      tags: [changelog]
+      summary: "GET /api/changelog"
+      description: |
+        Registered at apps/react-web/server/public.mjs:1497.
+        PUBLIC — rate-limited by client IP (_publicRead).
+      security: []
+      x-source:
+        file: apps/react-web/server/public.mjs
+        line: 1497
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/changelog/{slug}":
+    get:
+      operationId: getapiChangelogSlug
+      tags: [changelog]
+      summary: "GET /api/changelog/{slug}"
+      description: |
+        Registered at apps/react-web/server/public.mjs:1500.
+        PUBLIC — rate-limited by client IP (_publicRead).
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+      security: []
+      x-source:
+        file: apps/react-web/server/public.mjs
+        line: 1500
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/docs":
+    get:
+      operationId: getapiDocs
+      tags: [docs]
+      summary: "GET /api/docs"
+      description: |
+        Registered at apps/react-web/server/public.mjs:1478.
+        PUBLIC — rate-limited by client IP (_publicRead).
+      security: []
+      x-source:
+        file: apps/react-web/server/public.mjs
+        line: 1478
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/docs/{*path}":
+    get:
+      operationId: getapiDocsPath
+      tags: [docs]
+      summary: "GET /api/docs/{*path}"
+      description: |
+        Registered at apps/react-web/server/public.mjs:1487.
+        Express 5 splat route: the trailing path segment is greedy.
+        PUBLIC — rate-limited by client IP (_publicRead).
+      parameters:
+        - name: path
+          in: path
+          required: true
+          schema: { type: string }
+      security: []
+      x-source:
+        file: apps/react-web/server/public.mjs
+        line: 1487
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/health":
+    get:
+      operationId: getapiHealth
+      tags: [health]
+      summary: "GET /api/health"
+      description: |
+        Registered at apps/react-web/server/index.mjs:570.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/index.mjs
+        line: 570
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/metrics":
+    get:
+      operationId: getapiMetrics
+      tags: [metrics]
+      summary: "GET /api/metrics"
+      description: |
+        Registered at apps/react-web/server/public.mjs:1152.
+        PUBLIC — rate-limited by client IP (_publicRead).
+      security: []
+      x-source:
+        file: apps/react-web/server/public.mjs
+        line: 1152
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/metrics/vitals":
+    post:
+      operationId: postapiMetricsVitals
+      tags: [metrics]
+      summary: "POST /api/metrics/vitals"
+      description: |
+        Registered at apps/react-web/server/public.mjs:1177.
+        PUBLIC — rate-limited by client IP (_publicRead).
+      security: []
+      x-source:
+        file: apps/react-web/server/public.mjs
+        line: 1177
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/models":
+    get:
+      operationId: getapiModels
+      tags: [models]
+      summary: "GET /api/models"
+      description: |
+        Registered at apps/react-web/server/public.mjs:1193.
+        PUBLIC — rate-limited by client IP (_publicRead).
+      security: []
+      x-source:
+        file: apps/react-web/server/public.mjs
+        line: 1193
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/models/{slug}":
+    get:
+      operationId: getapiModelsSlug
+      tags: [models]
+      summary: "GET /api/models/{slug}"
+      description: |
+        Registered at apps/react-web/server/public.mjs:1225.
+        PUBLIC — rate-limited by client IP (_publicRead).
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+      security: []
+      x-source:
+        file: apps/react-web/server/public.mjs
+        line: 1225
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/models/compare":
+    get:
+      operationId: getapiModelsCompare
+      tags: [models]
+      summary: "GET /api/models/compare"
+      description: |
+        Registered at apps/react-web/server/public.mjs:1204.
+        PUBLIC — rate-limited by client IP (_publicRead).
+      security: []
+      x-source:
+        file: apps/react-web/server/public.mjs
+        line: 1204
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/{*path}":
+    get:
+      operationId: getapiPagesPath
+      tags: [pages]
+      summary: "GET /api/pages/{*path}"
+      description: |
+        Registered at apps/react-web/server/index.mjs:937.
+        Express 5 splat route: the trailing path segment is greedy.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: path
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/index.mjs
+        line: 937
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/dashboard":
+    get:
+      operationId: getapiPagesDashboard
+      tags: [pages]
+      summary: "GET /api/pages/dashboard"
+      description: |
+        Registered at apps/react-web/server/pages.mjs:284.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/pages.mjs
+        line: 284
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/invite/{token}":
+    get:
+      operationId: getapiPagesInviteToken
+      tags: [pages]
+      summary: "GET /api/pages/invite/{token}"
+      description: |
+        Registered at apps/react-web/server/pages.mjs:1698.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/pages.mjs
+        line: 1698
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/projects/{projectId}":
+    get:
+      operationId: getapiPagesProjectsProjectId
+      tags: [pages]
+      summary: "GET /api/pages/projects/{projectId}"
+      description: |
+        Registered at apps/react-web/server/pages.mjs:808.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/pages.mjs
+        line: 808
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/projects/{projectId}/alerts":
+    get:
+      operationId: getapiPagesProjectsProjectIdAlerts
+      tags: [pages]
+      summary: "GET /api/pages/projects/{projectId}/alerts"
+      description: |
+        Registered at apps/react-web/server/pages.mjs:1359.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/pages.mjs
+        line: 1359
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/projects/{projectId}/alerts/create":
+    post:
+      operationId: postapiPagesProjectsProjectIdAlertsCreate
+      tags: [pages]
+      summary: "POST /api/pages/projects/{projectId}/alerts/create"
+      description: |
+        Registered at apps/react-web/server/pages.mjs:1371.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/pages.mjs
+        line: 1371
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/projects/{projectId}/alerts/remove":
+    post:
+      operationId: postapiPagesProjectsProjectIdAlertsRemove
+      tags: [pages]
+      summary: "POST /api/pages/projects/{projectId}/alerts/remove"
+      description: |
+        Registered at apps/react-web/server/pages.mjs:1400.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/pages.mjs
+        line: 1400
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/projects/{projectId}/alerts/update":
+    post:
+      operationId: postapiPagesProjectsProjectIdAlertsUpdate
+      tags: [pages]
+      summary: "POST /api/pages/projects/{projectId}/alerts/update"
+      description: |
+        Registered at apps/react-web/server/pages.mjs:1384.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/pages.mjs
+        line: 1384
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/projects/{projectId}/aliases":
+    get:
+      operationId: getapiPagesProjectsProjectIdAliases
+      tags: [pages]
+      summary: "GET /api/pages/projects/{projectId}/aliases"
+      description: |
+        Registered at apps/react-web/server/pages.mjs:1415.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/pages.mjs
+        line: 1415
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/projects/{projectId}/aliases/create":
+    post:
+      operationId: postapiPagesProjectsProjectIdAliasesCreate
+      tags: [pages]
+      summary: "POST /api/pages/projects/{projectId}/aliases/create"
+      description: |
+        Registered at apps/react-web/server/pages.mjs:1436.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/pages.mjs
+        line: 1436
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/projects/{projectId}/aliases/delete":
+    post:
+      operationId: postapiPagesProjectsProjectIdAliasesDelete
+      tags: [pages]
+      summary: "POST /api/pages/projects/{projectId}/aliases/delete"
+      description: |
+        Registered at apps/react-web/server/pages.mjs:1464.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/pages.mjs
+        line: 1464
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/projects/{projectId}/analytics":
+    get:
+      operationId: getapiPagesProjectsProjectIdAnalytics
+      tags: [pages]
+      summary: "GET /api/pages/projects/{projectId}/analytics"
+      description: |
+        Registered at apps/react-web/server/pages.mjs:1485.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/pages.mjs
+        line: 1485
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/projects/{projectId}/archive":
+    post:
+      operationId: postapiPagesProjectsProjectIdArchive
+      tags: [pages]
+      summary: "POST /api/pages/projects/{projectId}/archive"
+      description: |
+        Registered at apps/react-web/server/pages.mjs:843.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/pages.mjs
+        line: 843
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/projects/{projectId}/budgets":
+    get:
+      operationId: getapiPagesProjectsProjectIdBudgets
+      tags: [pages]
+      summary: "GET /api/pages/projects/{projectId}/budgets"
+      description: |
+        Registered at apps/react-web/server/pages.mjs:1522.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/pages.mjs
+        line: 1522
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/projects/{projectId}/budgets/remove":
+    post:
+      operationId: postapiPagesProjectsProjectIdBudgetsRemove
+      tags: [pages]
+      summary: "POST /api/pages/projects/{projectId}/budgets/remove"
+      description: |
+        Registered at apps/react-web/server/pages.mjs:1582.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/pages.mjs
+        line: 1582
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/projects/{projectId}/budgets/save":
+    post:
+      operationId: postapiPagesProjectsProjectIdBudgetsSave
+      tags: [pages]
+      summary: "POST /api/pages/projects/{projectId}/budgets/save"
+      description: |
+        Registered at apps/react-web/server/pages.mjs:1551.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/pages.mjs
+        line: 1551
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/projects/{projectId}/delete":
+    post:
+      operationId: postapiPagesProjectsProjectIdDelete
+      tags: [pages]
+      summary: "POST /api/pages/projects/{projectId}/delete"
+      description: |
+        Registered at apps/react-web/server/pages.mjs:875.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/pages.mjs
+        line: 875
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/projects/{projectId}/environments":
+    get:
+      operationId: getapiPagesProjectsProjectIdEnvironments
+      tags: [pages]
+      summary: "GET /api/pages/projects/{projectId}/environments"
+      description: |
+        Registered at apps/react-web/server/pages.mjs:1598.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/pages.mjs
+        line: 1598
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/projects/{projectId}/environments/create":
+    post:
+      operationId: postapiPagesProjectsProjectIdEnvironmentsCreate
+      tags: [pages]
+      summary: "POST /api/pages/projects/{projectId}/environments/create"
+      description: |
+        Registered at apps/react-web/server/pages.mjs:1609.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/pages.mjs
+        line: 1609
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/projects/{projectId}/keys":
+    get:
+      operationId: getapiPagesProjectsProjectIdKeys
+      tags: [pages]
+      summary: "GET /api/pages/projects/{projectId}/keys"
+      description: |
+        Registered at apps/react-web/server/pages.mjs:893.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/pages.mjs
+        line: 893
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/projects/{projectId}/keys/{keyId}":
+    get:
+      operationId: getapiPagesProjectsProjectIdKeysKeyId
+      tags: [pages]
+      summary: "GET /api/pages/projects/{projectId}/keys/{keyId}"
+      description: |
+        Registered at apps/react-web/server/pages.mjs:1629.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: keyId
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/pages.mjs
+        line: 1629
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/projects/{projectId}/keys/{keyId}/disable":
+    post:
+      operationId: postapiPagesProjectsProjectIdKeysKeyIdDisable
+      tags: [pages]
+      summary: "POST /api/pages/projects/{projectId}/keys/{keyId}/disable"
+      description: |
+        Registered at apps/react-web/server/pages.mjs:1644.
+        Expanded from the template `/api/pages/projects/:projectId/keys/:keyId/${kact}`.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: keyId
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/pages.mjs
+        line: 1644
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/projects/{projectId}/keys/{keyId}/enable":
+    post:
+      operationId: postapiPagesProjectsProjectIdKeysKeyIdEnable
+      tags: [pages]
+      summary: "POST /api/pages/projects/{projectId}/keys/{keyId}/enable"
+      description: |
+        Registered at apps/react-web/server/pages.mjs:1644.
+        Expanded from the template `/api/pages/projects/:projectId/keys/:keyId/${kact}`.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: keyId
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/pages.mjs
+        line: 1644
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/projects/{projectId}/keys/{keyId}/revoke":
+    post:
+      operationId: postapiPagesProjectsProjectIdKeysKeyIdRevoke
+      tags: [pages]
+      summary: "POST /api/pages/projects/{projectId}/keys/{keyId}/revoke"
+      description: |
+        Registered at apps/react-web/server/pages.mjs:1644.
+        Expanded from the template `/api/pages/projects/:projectId/keys/:keyId/${kact}`.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: keyId
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/pages.mjs
+        line: 1644
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/projects/{projectId}/keys/{keyId}/rotate":
+    post:
+      operationId: postapiPagesProjectsProjectIdKeysKeyIdRotate
+      tags: [pages]
+      summary: "POST /api/pages/projects/{projectId}/keys/{keyId}/rotate"
+      description: |
+        Registered at apps/react-web/server/pages.mjs:1644.
+        Expanded from the template `/api/pages/projects/:projectId/keys/:keyId/${kact}`.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: keyId
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/pages.mjs
+        line: 1644
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/projects/{projectId}/keys/create":
+    post:
+      operationId: postapiPagesProjectsProjectIdKeysCreate
+      tags: [pages]
+      summary: "POST /api/pages/projects/{projectId}/keys/create"
+      description: |
+        Registered at apps/react-web/server/pages.mjs:905.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/pages.mjs
+        line: 905
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/projects/{projectId}/keys/disable":
+    post:
+      operationId: postapiPagesProjectsProjectIdKeysDisable
+      tags: [pages]
+      summary: "POST /api/pages/projects/{projectId}/keys/disable"
+      description: |
+        Registered at apps/react-web/server/pages.mjs:932.
+        Expanded from the template `/api/pages/projects/:projectId/keys/${st}`.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/pages.mjs
+        line: 932
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/projects/{projectId}/keys/enable":
+    post:
+      operationId: postapiPagesProjectsProjectIdKeysEnable
+      tags: [pages]
+      summary: "POST /api/pages/projects/{projectId}/keys/enable"
+      description: |
+        Registered at apps/react-web/server/pages.mjs:932.
+        Expanded from the template `/api/pages/projects/:projectId/keys/${st}`.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/pages.mjs
+        line: 932
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/projects/{projectId}/limits":
+    get:
+      operationId: getapiPagesProjectsProjectIdLimits
+      tags: [pages]
+      summary: "GET /api/pages/projects/{projectId}/limits"
+      description: |
+        Registered at apps/react-web/server/pages.mjs:949.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/pages.mjs
+        line: 949
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/projects/{projectId}/limits/remove":
+    post:
+      operationId: postapiPagesProjectsProjectIdLimitsRemove
+      tags: [pages]
+      summary: "POST /api/pages/projects/{projectId}/limits/remove"
+      description: |
+        Registered at apps/react-web/server/pages.mjs:1061.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/pages.mjs
+        line: 1061
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/projects/{projectId}/limits/save":
+    post:
+      operationId: postapiPagesProjectsProjectIdLimitsSave
+      tags: [pages]
+      summary: "POST /api/pages/projects/{projectId}/limits/save"
+      description: |
+        Registered at apps/react-web/server/pages.mjs:1023.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/pages.mjs
+        line: 1023
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/projects/{projectId}/playground":
+    get:
+      operationId: getapiPagesProjectsProjectIdPlayground
+      tags: [pages]
+      summary: "GET /api/pages/projects/{projectId}/playground"
+      description: |
+        Registered at apps/react-web/server/pages.mjs:1317.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/pages.mjs
+        line: 1317
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/projects/{projectId}/requests":
+    get:
+      operationId: getapiPagesProjectsProjectIdRequests
+      tags: [pages]
+      summary: "GET /api/pages/projects/{projectId}/requests"
+      description: |
+        Registered at apps/react-web/server/pages.mjs:1181.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/pages.mjs
+        line: 1181
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/projects/{projectId}/requests/{requestId}":
+    get:
+      operationId: getapiPagesProjectsProjectIdRequestsRequestId
+      tags: [pages]
+      summary: "GET /api/pages/projects/{projectId}/requests/{requestId}"
+      description: |
+        Registered at apps/react-web/server/pages.mjs:1669.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: requestId
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/pages.mjs
+        line: 1669
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/projects/{projectId}/restore":
+    post:
+      operationId: postapiPagesProjectsProjectIdRestore
+      tags: [pages]
+      summary: "POST /api/pages/projects/{projectId}/restore"
+      description: |
+        Registered at apps/react-web/server/pages.mjs:853.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/pages.mjs
+        line: 853
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/projects/{projectId}/routing":
+    get:
+      operationId: getapiPagesProjectsProjectIdRouting
+      tags: [pages]
+      summary: "GET /api/pages/projects/{projectId}/routing"
+      description: |
+        Registered at apps/react-web/server/pages.mjs:1083.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/pages.mjs
+        line: 1083
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/projects/{projectId}/routing/create":
+    post:
+      operationId: postapiPagesProjectsProjectIdRoutingCreate
+      tags: [pages]
+      summary: "POST /api/pages/projects/{projectId}/routing/create"
+      description: |
+        Registered at apps/react-web/server/pages.mjs:1105.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/pages.mjs
+        line: 1105
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/projects/{projectId}/routing/delete":
+    post:
+      operationId: postapiPagesProjectsProjectIdRoutingDelete
+      tags: [pages]
+      summary: "POST /api/pages/projects/{projectId}/routing/delete"
+      description: |
+        Registered at apps/react-web/server/pages.mjs:1161.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/pages.mjs
+        line: 1161
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/projects/{projectId}/routing/update":
+    post:
+      operationId: postapiPagesProjectsProjectIdRoutingUpdate
+      tags: [pages]
+      summary: "POST /api/pages/projects/{projectId}/routing/update"
+      description: |
+        Registered at apps/react-web/server/pages.mjs:1127.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/pages.mjs
+        line: 1127
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/projects/{projectId}/settings":
+    get:
+      operationId: getapiPagesProjectsProjectIdSettings
+      tags: [pages]
+      summary: "GET /api/pages/projects/{projectId}/settings"
+      description: |
+        Registered at apps/react-web/server/pages.mjs:1268.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/pages.mjs
+        line: 1268
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/projects/{projectId}/switch":
+    post:
+      operationId: postapiPagesProjectsProjectIdSwitch
+      tags: [pages]
+      summary: "POST /api/pages/projects/{projectId}/switch"
+      description: |
+        Registered at apps/react-web/server/pages.mjs:863.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/pages.mjs
+        line: 863
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/projects/{projectId}/update":
+    post:
+      operationId: postapiPagesProjectsProjectIdUpdate
+      tags: [pages]
+      summary: "POST /api/pages/projects/{projectId}/update"
+      description: |
+        Registered at apps/react-web/server/pages.mjs:819.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/pages.mjs
+        line: 819
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/shell":
+    get:
+      operationId: getapiPagesShell
+      tags: [pages]
+      summary: "GET /api/pages/shell"
+      description: |
+        Registered at apps/react-web/server/index.mjs:835.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/index.mjs
+        line: 835
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/palette/{type}":
+    get:
+      operationId: getapiPaletteType
+      tags: [palette]
+      summary: "GET /api/palette/{type}"
+      description: |
+        Registered at apps/react-web/server/index.mjs:666.
+        PUBLIC — rate-limited by client IP (_publicRead).
+      parameters:
+        - name: type
+          in: path
+          required: true
+          schema: { type: string }
+      security: []
+      x-source:
+        file: apps/react-web/server/index.mjs
+        line: 666
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/playground/stream":
+    post:
+      operationId: postapiPlaygroundStream
+      tags: [playground]
+      summary: "POST /api/playground/stream"
+      description: |
+        Registered at apps/react-web/server/playground.mjs:323.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/playground.mjs
+        line: 323
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pricing":
+    get:
+      operationId: getapiPricing
+      tags: [pricing]
+      summary: "GET /api/pricing"
+      description: |
+        Registered at apps/react-web/server/public.mjs:1342.
+        PUBLIC — rate-limited by client IP (_publicRead).
+      security: []
+      x-source:
+        file: apps/react-web/server/public.mjs
+        line: 1342
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/providers":
+    get:
+      operationId: getapiProviders
+      tags: [providers]
+      summary: "GET /api/providers"
+      description: |
+        Registered at apps/react-web/server/public.mjs:1238.
+        PUBLIC — rate-limited by client IP (_publicRead).
+      security: []
+      x-source:
+        file: apps/react-web/server/public.mjs
+        line: 1238
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/providers/{slug}":
+    get:
+      operationId: getapiProvidersSlug
+      tags: [providers]
+      summary: "GET /api/providers/{slug}"
+      description: |
+        Registered at apps/react-web/server/public.mjs:1244.
+        PUBLIC — rate-limited by client IP (_publicRead).
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+      security: []
+      x-source:
+        file: apps/react-web/server/public.mjs
+        line: 1244
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/status":
+    get:
+      operationId: getapiStatus
+      tags: [status]
+      summary: "GET /api/status"
+      description: |
+        Registered at apps/react-web/server/public.mjs:1371.
+        PUBLIC — rate-limited by client IP (_publicRead).
+      security: []
+      x-source:
+        file: apps/react-web/server/public.mjs
+        line: 1371
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/status/incidents/{id}":
+    get:
+      operationId: getapiStatusIncidentsId
+      tags: [status]
+      summary: "GET /api/status/incidents/{id}"
+      description: |
+        Registered at apps/react-web/server/public.mjs:1423.
+        PUBLIC — rate-limited by client IP (_publicRead).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      security: []
+      x-source:
+        file: apps/react-web/server/public.mjs
+        line: 1423
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/robots.txt":
+    get:
+      operationId: getrobots.txt
+      tags: [seo]
+      summary: "GET /robots.txt"
+      description: |
+        Registered at apps/react-web/server/index.mjs:945.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/index.mjs
+        line: 945
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/sitemap.xml":
+    get:
+      operationId: getsitemap.xml
+      tags: [seo]
+      summary: "GET /sitemap.xml"
+      description: |
+        Registered at apps/react-web/server/index.mjs:949.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/react-web/server/index.mjs
+        line: 949
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+components:
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: better-auth.session_token
+      description: better-auth session cookie (Discord OAuth or email/password).

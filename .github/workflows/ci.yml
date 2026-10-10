@@ -54,6 +54,28 @@ jobs:
       - run: npm run build --workspace apps/react-web
       - run: npm test --workspace apps/react-web
 
+  contracts:
+    # No database and no `npm ci`: the contract gate imports node builtins only,
+    # so it cannot be skipped for an environment reason and cannot be broken by a
+    # dependency. It is the cheapest job here and the one that catches a silent
+    # route change — the failure mode with no natural detector.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      # Fails when the live route tables (Go ServeMux + Express registrations) no
+      # longer match packages/contracts/routes.json, or when management.yaml has
+      # drifted from it. Also re-run across every workspace by typecheck.yml's
+      # `npm run check`, so this job makes the failure explicit and named.
+      - name: Surface lock and OpenAPI staleness
+        working-directory: packages/contracts
+        run: npm run check
+      - name: Contract regression tests
+        working-directory: packages/contracts
+        run: node --test
+
   router:
     runs-on: ubuntu-latest
     services:

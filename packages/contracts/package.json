@@ -1,0 +1,19 @@
+{
+  "name": "@fudrouter/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Mekanisme kontrak: surface HTTP kedua plane (Go inference + Express management) sebagai sumber kebenaran yang bisa diverifikasi, plus OpenAPI turunannya.",
+  "exports": {
+    ".": "./routes.json",
+    "./routes.json": "./routes.json",
+    "./openapi/inference.yaml": "./openapi/inference.yaml",
+    "./openapi/management.yaml": "./openapi/management.yaml"
+  },
+  "scripts": {
+    "extract": "node scripts/extract-routes.mjs",
+    "gen": "node scripts/gen-openapi-management.mjs",
+    "check": "node scripts/extract-routes.mjs --check && node scripts/gen-openapi-management.mjs --check",
+    "test": "node --test"
+  }
+}

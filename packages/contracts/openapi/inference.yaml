@@ -1,0 +1,483 @@
+openapi: 3.1.0
+info:
+  title: FUDRouter Inference API
+  version: 1.0.0
+  description: |
+    The data plane served by the Go binary `services/router` (PM2 app
+    `fudrouter-router`, default `127.0.0.1:8100`).
+
+    Every field, status code and taxonomy code in this document was read out of
+    the source, not invented:
+      - route table .......... `internal/proxy/proxy.go` (`ServeMux`)
+      - error taxonomy ....... `internal/proxy/errors.go` (`errTable`, 14 codes)
+      - catalogue shape ...... `internal/proxy/models.go` (`modelObject`)
+      - health behaviour ..... `main.go` (`newHealthHandler`)
+      - Anthropic subset ..... `internal/proxy/anthropic.go` (`anthropicRequest`)
+
+    Two properties are load-bearing and must not be "tidied":
+      1. `GET /v1/models` and `GET /v1/models/{model}` are UNAUTHENTICATED on
+         purpose — the same catalogue is public at `/models` and `/pricing`, so a
+         key would hide nothing while breaking every catalogue-only client.
+      2. The `/v1/` catch-all has NO method in the route table, so a method
+         mismatch is not a 405: `GET /v1/chat/completions` falls through and is
+         served (and billed) by the generic handler. This is pinned by
+         `internal/proxy/surface_test.go` as behaviour, not as a bug.
+  license:
+    name: Proprietary
+servers:
+  - url: http://127.0.0.1:8100
+    description: loopback listener (ROUTER_ADDR); reached publicly through Caddy + the Cloudflare tunnel
+tags:
+  - name: health
+    description: Unauthenticated liveness/readiness.
+  - name: catalogue
+    description: Unauthenticated public model catalogue.
+  - name: inference
+    description: Bearer-authenticated, metered, billed inference.
+
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      tags: [health]
+      summary: Service identity and database readiness
+      security: []
+      description: |
+        Reports readiness, not just liveness: the data plane can serve nothing
+        without the database, so a DB-down state is 503 rather than 200. The
+        failure body is deliberately generic because the endpoint is
+        unauthenticated — the underlying DB error is logged, never returned.
+        The ping is bounded by a 2s context timeout.
+      responses:
+        "200":
+          description: Database reachable.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HealthReady" }
+        "503":
+          description: Database unreachable.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HealthNotReady" }
+
+  /v1/models:
+    get:
+      operationId: listModels
+      tags: [catalogue]
+      summary: List the published catalogue
+      security: []
+      description: |
+        Publishes the same catalogue as `/models` and `/pricing` on the web app.
+        The S0 shape is preserved; `context` and `pricing` are additive fields.
+      responses:
+        "200":
+          description: The published catalogue.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ModelList" }
+        "500":
+          $ref: "#/components/responses/Error"
+
+  /v1/models/{model}:
+    get:
+      operationId: getModel
+      tags: [catalogue]
+      summary: One catalogue object by slug
+      security: []
+      description: |
+        Returns **exactly** the fields `/v1/models` returns for one slug. An
+        unknown slug and an unpublished slug both answer the same 404 — the
+        answer must not distinguish "never existed" from "not published".
+
+        Note on the route table: this is registered as the `GET /v1/models/`
+        **prefix** pattern, so it matches any `/v1/models/<slug>` depth. A
+        request to `/v1/models/` with no slug is served as the list.
+      parameters:
+        - name: model
+          in: path
+          required: true
+          schema: { type: string }
+          description: Model slug, e.g. `gpt-5.4`.
+      responses:
+        "200":
+          description: The catalogue object.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ModelObject" }
+        "404":
+          description: Unknown **or** unpublished slug (indistinguishable).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              examples:
+                modelNotFound:
+                  value:
+                    error:
+                      message: "model not found: does-not-exist"
+                      type: invalid_request_error
+                      code: MODEL_NOT_FOUND
+
+  /v1/chat/completions:
+    post:
+      operationId: createChatCompletion
+      tags: [inference]
+      summary: OpenAI-compatible chat completions
+      description: |
+        The hot path. The request body is forwarded to the upstream provider
+        essentially verbatim: `ServeCompletions` decodes it into
+        `map[string]any`, not a typed struct, so unmodelled OpenAI fields pass
+        through and this document intentionally describes only the subset the
+        router reasons about.
+
+        One transformation IS applied and is billable-relevant: when the body
+        asks for `stream`, the router injects
+        `stream_options.include_usage = true` so the final upstream chunk carries
+        the usage block the bill is computed from. `ServeGeneric` does not do
+        this, which is how the two handlers are told apart in tests — dropping
+        the exact pattern would silently bill streamed requests without usage.
+
+        Streamed responses are `text/event-stream` and flushed incrementally;
+        any buffering breaks time-to-first-token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ChatCompletionRequest" }
+      responses:
+        "200":
+          description: |
+            Non-streamed: an OpenAI chat completion object (forwarded).
+            Streamed: `text/event-stream`, `data:` frames, terminated by
+            `data: [DONE]`.
+          content:
+            application/json:
+              schema:
+                type: object
+                description: Forwarded upstream body. Not normalised by the router.
+                additionalProperties: true
+            text/event-stream:
+              schema:
+                type: string
+                description: SSE frames from the upstream provider.
+        default:
+          $ref: "#/components/responses/Error"
+
+  /v1/messages:
+    post:
+      operationId: createMessage
+      tags: [inference]
+      summary: Anthropic Messages API (native)
+      description: |
+        The router models a subset of the Anthropic Messages request and
+        translates it to the upstream provider. Fields the router does not model
+        (`metadata`, `thinking`, …) are **ignored rather than rejected**, so a
+        client sending more than the subset still works.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AnthropicMessageRequest" }
+      responses:
+        "200":
+          description: |
+            Non-streamed: the Anthropic message object (forwarded).
+            Streamed: `text/event-stream` with Anthropic event frames.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+            text/event-stream:
+              schema: { type: string }
+        default:
+          $ref: "#/components/responses/Error"
+
+  /v1/messages/count_tokens:
+    post:
+      operationId: countMessageTokens
+      tags: [inference]
+      summary: Anthropic token counting
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AnthropicMessageRequest" }
+      responses:
+        "200":
+          description: Token count for the supplied message set.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  input_tokens: { type: integer, format: int64 }
+                additionalProperties: true
+        default:
+          $ref: "#/components/responses/Error"
+
+  /v1/{path}:
+    x-route-pattern: "/v1/"
+    post:
+      operationId: genericPassthrough
+      tags: [inference]
+      summary: Catch-all [OI]-compatible passthrough
+      description: |
+        **Registered with no method**, so this catch-all answers every unmatched
+        `/v1/...` path *in any HTTP method*. It authenticates first, so a bad key
+        yields 401 — which makes it indistinguishable from the exact patterns by
+        status code alone.
+
+        `POST /v1/embeddings` lands here. It is routed and billed but is not
+        advertised as a fully supported surface. Adding an exact pattern for a
+        path means this handler stops seeing it; the route lock
+        (`packages/contracts/routes.json`) is what makes that visible.
+      parameters:
+        - name: path
+          in: path
+          required: true
+          schema: { type: string }
+          description: Any unmatched suffix after `/v1/`.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Forwarded upstream response (or stream).
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+            text/event-stream:
+              schema: { type: string }
+        default:
+          $ref: "#/components/responses/Error"
+
+components:
+  securitySchemes:
+    bearerKey:
+      type: http
+      scheme: bearer
+      description: |
+        A FUDRouter API key (`Authorization: Bearer <key>`). Keys are minted per
+        project + environment in the console. The Go plane resolves the key to a
+        workspace, enforces rate/concurrency limits, and writes the usage ledger.
+
+  responses:
+    Error:
+      description: |
+        The normalized error envelope. `code` is the cross-plane taxonomy (what
+        the playground and metrics panels read); `type` is the [OI]-shaped class
+        existing clients already parse; upstream error text is never the
+        client-facing code.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+  schemas:
+    HealthReady:
+      type: object
+      required: [ok, service]
+      properties:
+        ok: { const: true }
+        service: { const: fudrouter-router }
+      examples:
+        - { ok: true, service: fudrouter-router }
+
+    HealthNotReady:
+      type: object
+      required: [ok, service, error]
+      properties:
+        ok: { const: false }
+        service: { const: fudrouter-router }
+        error: { const: database unreachable }
+      examples:
+        - { ok: false, service: fudrouter-router, error: database unreachable }
+
+    ModelList:
+      type: object
+      required: [object, data]
+      properties:
+        object: { const: list }
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/ModelObject" }
+
+    ModelObject:
+      type: object
+      description: |
+        Identical field set on `/v1/models` and `/v1/models/{model}`; that
+        equality is an acceptance criterion, not an accident.
+      required: [id, object, owned_by, context, pricing]
+      properties:
+        id:
+          type: string
+          description: Model slug.
+        object: { const: model }
+        owned_by:
+          type: string
+          description: Publishing provider (or the platform, for an alias).
+        context:
+          type: integer
+          description: Context window in tokens.
+        pricing:
+          type: object
+          properties:
+            input: { type: string, description: Price per 1M input tokens. }
+            output: { type: string, description: Price per 1M output tokens. }
+            currency: { type: string }
+            unit: { const: micro-units per 1M tokens }
+      examples:
+        - id: gpt-5.4
+          object: model
+          owned_by: openai
+          context: 400000
+          pricing:
+            input: "2500000"
+            output: "10000000"
+            currency: USD
+            unit: micro-units per 1M tokens
+
+    ChatCompletionRequest:
+      type: object
+      required: [model, messages]
+      description: |
+        The subset the router reasons about. Everything else is forwarded
+        verbatim to the upstream provider because the body is decoded into
+        `map[string]any`.
+      properties:
+        model:
+          type: string
+          description: A FUDRouter model slug (resolved through the alias table).
+        messages:
+          type: array
+          items:
+            type: object
+            properties:
+              role: { type: string, enum: [system, user, assistant, tool] }
+              content: {}
+            additionalProperties: true
+        stream:
+          type: boolean
+          default: false
+          description: |
+            When true the router injects `stream_options.include_usage = true`
+            into the upstream body and answers `text/event-stream`.
+        stream_options:
+          type: object
+          properties:
+            include_usage: { type: boolean }
+          additionalProperties: true
+      additionalProperties: true
+
+    AnthropicMessageRequest:
+      type: object
+      required: [model, max_tokens, messages]
+      description: |
+        The modelled subset of the Anthropic Messages request. Unmodelled fields
+        are ignored, not rejected.
+      properties:
+        model: { type: string }
+        max_tokens: { type: integer, format: int64 }
+        system:
+          description: String or content-block array; passed through raw.
+        messages:
+          type: array
+          items:
+            type: object
+            required: [role, content]
+            properties:
+              role: { type: string, enum: [user, assistant] }
+              content:
+                description: String or content-block array; passed through raw.
+        stream: { type: boolean, default: false }
+        temperature: { type: number, format: double, nullable: true }
+        top_p: { type: number, format: double, nullable: true }
+        stop_sequences:
+          type: array
+          items: { type: string }
+        tools:
+          type: array
+          items:
+            type: object
+            required: [name, input_schema]
+            properties:
+              name: { type: string }
+              description: { type: string }
+              input_schema: { type: object, additionalProperties: true }
+        tool_choice:
+          description: Passed through raw.
+      additionalProperties: true
+
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [message, type, code]
+          properties:
+            message: { type: string }
+            type:
+              type: string
+              enum: [invalid_request_error, rate_limit_error, billing_error, api_error]
+            code:
+              type: string
+              description: |
+                The PRD §88 cross-plane taxonomy. This enum is exhaustive —
+                `errTable` maps every code onto its wire status, and an unknown
+                code falls back to INTERNAL_ERROR.
+              enum:
+                - AUTH_ERROR
+                - AUTHORIZATION_ERROR
+                - RATE_LIMITED
+                - INSUFFICIENT_CREDITS
+                - INVALID_REQUEST
+                - MODEL_NOT_FOUND
+                - CONTEXT_TOO_LONG
+                - UNSUPPORTED_PARAM
+                - CONTENT_REJECTED
+                - PROVIDER_TIMEOUT
+                - PROVIDER_UNAVAILABLE
+                - CIRCUIT_OPEN
+                - UPSTREAM_ERROR
+                - INTERNAL_ERROR
+      examples:
+        rateLimited:
+          value:
+            error:
+              message: "rate limit exceeded"
+              type: rate_limit_error
+              code: RATE_LIMITED
+
+    # The code -> status mapping, mirrored from errors.go `errTable`. Kept here
+    # because it is the part of the contract clients branch on, and because a
+    # silent remap is the kind of change that breaks callers without breaking
+    # any test that only looks at a 4xx/5xx class.
+    TaxonomyToStatus:
+      type: object
+      description: |
+        Mirrored from `internal/proxy/errors.go`. Each code always surfaces as
+        the same HTTP status; the table is the single source of that mapping.
+      properties:
+        AUTH_ERROR: { const: 401 }
+        AUTHORIZATION_ERROR: { const: 403 }
+        RATE_LIMITED: { const: 429 }
+        INSUFFICIENT_CREDITS: { const: 402 }
+        INVALID_REQUEST: { const: 400 }
+        MODEL_NOT_FOUND: { const: 404 }
+        CONTEXT_TOO_LONG: { const: 413 }
+        UNSUPPORTED_PARAM: { const: 400 }
+        CONTENT_REJECTED: { const: 403 }
+        PROVIDER_TIMEOUT: { const: 504 }
+        PROVIDER_UNAVAILABLE: { const: 502 }
+        CIRCUIT_OPEN: { const: 503 }
+        UPSTREAM_ERROR: { const: 502 }
+        INTERNAL_ERROR: { const: 500 }
+
+security:
+  - bearerKey: []

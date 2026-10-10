@@ -64,6 +64,8 @@
   --duration-fast: 120ms;
   --duration-med: 320ms;
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --shadow-sm: 0 1px 3px 0 #0000001a, 0 1px 2px -1px #0000001a;
+  --shadow-md: 0 1px 2px 0 #0000001a;
   --focus-ring: 2px solid var(--primary);
   /* ---- 2. semantic tokens ---- */
   --primary: var(--color-orange);
@@ -135,6 +137,10 @@ table.fr tbody tr:hover { background: var(--color-surface); }
 .stack { display: grid; gap: var(--space-md); }
 .stack > * { min-width: 0; }
 .table-wrap { position: relative; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+/* A 339-row catalog must not become a 20,000px page. `Table` renders its own
+   `.table-scroll` inside, so that is the element that gets the height cap; the
+   outer wrap keeps owning horizontal scroll for the short tables. */
+.table-wrap:has(.table-scroll) { max-height: 70vh; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
@@ -238,7 +244,7 @@ textarea { resize: vertical; }
 .border-transparent { border-color: transparent; }
 .rounded-md { border-radius: var(--radius-md); }
 .rounded-xl { border-radius: var(--radius-lg); }
-.shadow, .shadow-sm { box-shadow: 0 1px 3px 0 #0000001a, 0 1px 2px -1px #0000001a; }
+.shadow, .shadow-sm { box-shadow: var(--shadow-sm); }
 .outline { outline-width: 1px; }
 .transition-colors { transition-property: color, background-color, border-color; transition-duration: var(--duration-fast); }
 .hover\:opacity-90:hover { opacity: 0.9; }
@@ -246,8 +252,6 @@ textarea { resize: vertical; }
 .disabled\:pointer-events-none:disabled { pointer-events: none; }
 .disabled\:cursor-not-allowed:disabled { cursor: not-allowed; }
 .disabled\:opacity-50:disabled { opacity: 0.5; }
-.focus\:outline-none:focus { outline-style: none; }
-.focus-visible\:outline-none:focus-visible { outline-style: none; }
 
 /* ---- bespoke component classes (replaces the inline-style overrides) ---- */
 .btn {
@@ -264,14 +268,14 @@ textarea { resize: vertical; }
 .btn-primary, .btn-default {
   height: var(--control-h-md); padding: 0 var(--space-md);
   background: var(--primary); color: var(--on-primary);
-  box-shadow: 0 1px 3px 0 #0000001a, 0 1px 2px -1px #0000001a;
+  box-shadow: var(--shadow-sm);
 }
 .btn-primary:hover, .btn-default:hover { opacity: 0.9; }
 
 .btn-secondary {
   height: var(--control-h-md); padding: 0 var(--space-md);
   background: var(--color-surface-raised); color: var(--color-text);
-  box-shadow: 0 1px 3px 0 #0000001a, 0 1px 2px -1px #0000001a;
+  box-shadow: var(--shadow-sm);
 }
 .btn-secondary:hover { background: var(--color-border); }
 
@@ -286,14 +290,14 @@ textarea { resize: vertical; }
   height: var(--control-h-md); padding: 0 var(--space-md);
   background: var(--color-surface); color: var(--color-text);
   border-color: var(--color-border);
-  box-shadow: 0 1px 3px 0 #0000001a, 0 1px 2px -1px #0000001a;
+  box-shadow: var(--shadow-sm);
 }
 .btn-outline:hover { background: var(--color-surface-raised); }
 
 .btn-destructive {
   height: var(--control-h-md); padding: 0 var(--space-md);
   background: var(--color-danger); color: var(--color-bg);
-  box-shadow: 0 1px 3px 0 #0000001a, 0 1px 2px -1px #0000001a;
+  box-shadow: var(--shadow-sm);
 }
 .btn-destructive:hover { opacity: 0.9; }
 
@@ -312,7 +316,7 @@ textarea { resize: vertical; }
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   padding: var(--space-card);
-  box-shadow: 0 1px 3px 0 #0000001a, 0 1px 2px -1px #0000001a;
+  box-shadow: var(--shadow-sm);
 }
 .card-title { margin: 0 0 var(--space-sm); }
 .card-desc { margin: 0; color: var(--color-text-muted); }
@@ -325,7 +329,7 @@ textarea { resize: vertical; }
   border-radius: var(--radius-md);
   color: var(--color-text);
   font-family: var(--font-ui); font-size: var(--text-sm);
-  box-shadow: 0 1px 2px 0 #0000001a;
+  box-shadow: var(--shadow-md);
 }
 .input::placeholder { color: var(--color-text-muted); }
 .input:disabled { cursor: not-allowed; opacity: 0.5; }
@@ -353,7 +357,27 @@ textarea { resize: vertical; }
 .badge-info { border-color: var(--color-info); color: var(--color-info); }
 .badge-danger { border-color: var(--color-danger); color: var(--color-danger); }
 
-.table-scroll { position: relative; width: 100%; overflow: auto; }
+.table-scroll {
+  position: relative;
+  width: 100%;
+  /* `overflow: auto` here would make THIS the scrollport, and the sticky `th`
+     inside it would pin against this box instead of the viewport-capped one —
+     it ends up scrolling away (measured: th.top -1249 after a 1500px scroll).
+     So this element must not scroll; the outer `.table-wrap` is the scrollport. */
+  overflow: visible;
+}
+/* The reset above drops `th` back to inherited weight and leaves the header
+   looking like body text while it scrolls away. Pin it and keep it legible.
+   Specificity has to beat the later `.fr th` rule. */
+.fr .fr-thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--color-surface-raised);
+  font-weight: 600;
+  color: var(--color-text);
+  white-space: nowrap;
+}
 .fr { width: 100%; border-collapse: collapse; caption-side: bottom; font-size: var(--text-sm); }
 .fr th, .fr td { padding: var(--space-sm); text-align: left; vertical-align: middle; }
 .fr th { border-bottom: 1px solid var(--color-border-strong); font-weight: 500; color: var(--color-text-muted); }

@@ -29,5 +29,5 @@ node_modules/.pnpm/
 *.rej
 
 # One-off investigation scratch space. Anything here is a single-sighting probe
-# by definition; real tools get promoted into tools/ and committed from there.
+# by definition; real tools get promoted into ops/verify/ and committed from there.
 scratch/

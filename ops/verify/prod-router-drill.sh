@@ -7,10 +7,13 @@
 # Exits non-zero if any assertion fails, so it is usable as a gate.
 # Always drops its scratch database, including on failure.
 #
-#   ./tools/prod-router-drill.sh
+#   ./ops/verify/prod-router-drill.sh
 set -uo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Moved from tools/ to ops/verify/ (one level deeper): the root derivation below
+# had to grow a level with it, or ROOT/services/router and ROOT/infra/migrations
+# both resolve to nothing.
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DB=fudrouter_drill
 ROUTER_DIR="$ROOT/services/router"
 MIGRATIONS="$ROOT/infra/migrations"

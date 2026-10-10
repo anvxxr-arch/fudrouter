@@ -86,7 +86,7 @@ trimmed.
 ## Deployment
 
 `run.sh` sources `../../.env` and execs `./bin/fudrouter-router`. PM2
-(`ecosystem.config.cjs`) is the supervisor. `tools/prod-router-drill.sh` is the
+(`ecosystem.config.cjs`) is the supervisor. `ops/verify/prod-router-drill.sh` is the
 end-to-end drill: fresh database, migrations, build to a scratch path, boot twice
 with and without `ROUTER_ALLOW_DEV_PROVIDERS`, and always drop the scratch
 database via an exit trap.

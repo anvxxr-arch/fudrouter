@@ -13,10 +13,13 @@
 # the client is fixed in the router, so a non-200 there is a REGRESSION and
 # fails the run (it used to be reported as a non-fatal "gap").
 #
-#   ./tools/route-integrity/run.sh
+#   ./ops/verify/route-integrity/run.sh
 set -uo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# Three levels now (ops/verify/route-integrity), not two (tools/route-integrity):
+# the ops/verify/ nesting added a level, so /../.. lands on ops/ and every path
+# derived from ROOT below resolves to nothing.
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DB=fudrouter_ftest
 RPORT=8198

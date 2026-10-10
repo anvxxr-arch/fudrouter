@@ -11,10 +11,13 @@
 # ecosystem.config.cjs declares `filter_env` so it cannot recur; this script is
 # the assertion that it held. Run after any deploy.
 #
-# Usage: tools/pm2-env-hygiene.sh [--quiet]
+# Usage: ops/verify/pm2-env-hygiene.sh [--quiet]
 set -uo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Depth matters: this file sits at ops/verify/, two levels under the repo root.
+# It used to sit at tools/, one level. A stale `/..` here silently sets
+# FUDROUTER_ROOT=ops/ and every path below resolves to nothing.
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # PM2_DUMP_DIR lets the dump checks run against a fixture without moving
 # PM2_HOME — pointing PM2_HOME elsewhere would also redirect `pm2 jlist` to a
 # daemon that does not exist, and the live-env check would then read nothing.

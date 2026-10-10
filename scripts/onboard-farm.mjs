@@ -71,6 +71,17 @@ const REGISTRY = {
       emailField: 'email'
     }
   },
+  cline: {
+    providerId: 'prv_cline',
+    connectionId: 'con_prv_cline-default',
+    base: 'https://api.cline.bot/api/v1',
+    headers: {},
+    keys: {
+      kind: 'lines',
+      file: '/home/dwizzy/cline-farm/cline_keys.txt',
+      rx: /(sk_[A-Za-z0-9_-]{8,})/
+    }
+  },
   tokenharbor: {
     providerId: 'prv_tokenharbor',
     connectionId: 'con_prv_tokenharbor-default',

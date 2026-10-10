@@ -12,12 +12,21 @@ module.exports = {
 			script: 'run.sh',
 			interpreter: 'bash',
 			env: {
-				ROUTER_ADDR: '127.0.0.1:8100'
+				ROUTER_ADDR: '127.0.0.1:8100',
+				// The only ingress hop is Caddy on loopback: without this,
+				// clientIP falls back to RemoteAddr=127.0.0.1 and the
+				// ip_allowlist gate plus request_log.client_ip go blind.
+				// Loopback only — never a public/Cloudflare IP (the router
+				// never sees those directly).
+				ROUTER_TRUSTED_PROXIES: '127.0.0.1'
 			},
 			autorestart: true,
 			max_restarts: 10,
 			restart_delay: 2000,
-			kill_timeout: 5000,
+			// kill_timeout > graceful drain (srv.Shutdown 20s in main.go):
+			// PM2 must not SIGKILL mid-drain.
+			kill_timeout: 25000,
+			min_uptime: 10000,
 			merge_logs: true,
 			time: true
 		},
@@ -78,6 +87,9 @@ module.exports = {
 			cwd: path.join(ROOT, 'apps/react-web'),
 			script: 'run.sh',
 			interpreter: 'bash',
+			env: {
+				NODE_ENV: 'production'
+			},
 			autorestart: true,
 			max_restarts: 10,
 			restart_delay: 2000,

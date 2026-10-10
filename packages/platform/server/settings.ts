@@ -5,7 +5,7 @@ import { systemSetting } from './db/schema';
 /**
  * Platform settings (PRD §105, §138) — a typed view over the
  * `system_setting` key/value table. Seeded keys are pinned in
- * `infra/migrations/0007_platform_backfill.sql`; unknown keys read as `null`
+ * `db/migrations/0007_platform_backfill.sql`; unknown keys read as `null`
  * rather than throwing, so a setting added later does not break older callers.
  */
 export type SystemSettings = {

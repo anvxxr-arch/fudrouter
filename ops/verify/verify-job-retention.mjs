@@ -9,9 +9,9 @@
 //
 // Self-contained: it plants its own rows and removes them afterwards.
 //   set -a && . .env && set +a && node scratch/verify-job-retention.mjs
-import { installTsHooks, libUrl } from '/home/dwizzy/fudrouter/scripts/ts-hooks.mjs';
+import { installTsHooks, libUrl } from '/home/dwizzy/fudrouter/packages/platform/ts-hooks.mjs';
 
-const { libRoot } = installTsHooks('/home/dwizzy/fudrouter/scripts');
+const { libRoot } = installTsHooks();
 
 const { db } = await import(libUrl(libRoot, 'server/db/index.ts'));
 const { JOB_HANDLERS } = await import(libUrl(libRoot, 'server/workers.ts'));

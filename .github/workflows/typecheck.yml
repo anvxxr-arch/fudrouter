@@ -1,14 +1,14 @@
 # Typecheck — runs the root `check` script in CI.
 #
 # This is a separate file from ci.yml on purpose. ci.yml's react-web job only
-# builds (vite build): apps/react-web defines a `check` script (`tsc --noEmit`)
+# builds (vite build): apps/console defines a `check` script (`tsc --noEmit`)
 # that no workflow ever invoked, so a pure type error could still ship. Rather
 # than rely on one job remembering to call one workspace's script — and have it
 # rot again — this runs the root `check`, which fans out to every workspace that
 # defines a `check` script.
 #
 # `packages/platform` holds the control plane's domain + persistence code and is
-# loaded at RUNTIME by the PM2 daemons through scripts/ts-hooks.mjs, so nothing
+# loaded at RUNTIME by the PM2 daemons through packages/platform/ts-hooks.mjs, so nothing
 # used to type-check it: a type error in the control plane (workers, billing,
 # ssrf, credentials) was invisible until the code path ran in production.
 #

@@ -35,7 +35,7 @@ module.exports = {
 	apps: [
 		{
 			name: 'fudrouter-router',
-			cwd: path.join(ROOT, 'services/router'),
+			cwd: path.join(ROOT, 'apps/router'),
 			script: 'run.sh',
 			interpreter: 'bash',
 			env: {
@@ -66,7 +66,7 @@ module.exports = {
 			// handlers settle their job rows (never abandons one `running`).
 			name: 'fudrouter-workers',
 			cwd: ROOT,
-			script: 'scripts/run-workers.sh',
+			script: 'apps/workers/run.sh',
 			interpreter: 'bash',
 			env: {
 				NODE_ENV: 'production',
@@ -93,7 +93,7 @@ module.exports = {
 			// lock plus the in-flight check inside schedulerTick.
 			name: 'fudrouter-scheduler',
 			cwd: ROOT,
-			script: 'scripts/run-scheduler.sh',
+			script: 'apps/scheduler/run.sh',
 			interpreter: 'bash',
 			env: {
 				NODE_ENV: 'production'
@@ -109,12 +109,12 @@ module.exports = {
 		{
 			// React control plane (console + JSON API). Caddy path-splits the
 			// public host onto its port (the Go router owns :8100), and
-			// run.sh sources .env.react-web which PINS that port — so the port
+			// run.sh sources .env.console which PINS that port — so the port
 			// is not inherited from whatever shell started the process. Do not
-			// add PORT to `env` here: .env.react-web is sourced after this env
+			// add PORT to `env` here: .env.console is sourced after this env
 			// is applied and would silently win, leaving two sources of truth.
 			name: 'fudrouter-react',
-			cwd: path.join(ROOT, 'apps/react-web'),
+			cwd: path.join(ROOT, 'apps/console'),
 			script: 'run.sh',
 			interpreter: 'bash',
 			env: {

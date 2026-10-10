@@ -53,7 +53,7 @@ import { reconcile } from './billing';
  * (invoices) or checks durable state before acting (deliveries).
  *
  * Shutdown: `stop()` stops claiming and lets in-flight handlers finish; the
- * entrypoint (scripts/workers.mjs) wires SIGTERM/SIGINT to it.
+ * entrypoint (apps/workers/workers.mjs) wires SIGTERM/SIGINT to it.
  */
 
 /** One job handler: `(dbtx, payload)`; `dbtx` is the app db or a transaction. */

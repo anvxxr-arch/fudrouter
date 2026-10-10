@@ -5,11 +5,11 @@ Commercial AI router — one API key, many model providers.
 Two stateless processes over one Postgres (plus shared Valkey for runtime state):
 
 ```
-client ──► apps/react-web (React, :3000)    control plane: UI, auth, billing, admin
+client ──► apps/console (React, :3000)    control plane: UI, auth, billing, admin
            │  ▲
            │  └── reads/writes workspace · project · api_key · model · provider · user
            ▼
-client ──► services/router (Go, :8100)   data plane: /v1/* hot path
+client ──► apps/router (Go, :8100)   data plane: /v1/* hot path
               ▲  │
               │  └── decrypts provider credentials, routes across
               │      connections/credentials, writes request_log + credit_ledger
@@ -29,14 +29,14 @@ see `internal/netguard`).
 
 | Path | What lives there |
 |---|---|
-| `apps/react-web/src/` | React control plane: routes, components, compat API client |
-| `apps/react-web/server/` | Express compat server: admin, pages, public, playground APIs |
+| `apps/console/src/` | React control plane: routes, components, compat API client |
+| `apps/console/server/` | Express compat server: admin, pages, public, playground APIs |
 | `packages/platform/` | Shared server modules: jobs, workers, scheduler, credentials, SSRF, billing |
 | `packages/platform/server/db/` | Drizzle schema + connection |
-| `services/router/internal/proxy/` | The hot path, split by concern: `proxy.go` handler, `auth.go` auth+failover policy, `billing.go` the cost funnel, `generic.go` the non-chat passthrough |
-| `services/router/internal/netguard/` | The SSRF dial guard, shared by every upstream client |
-| `services/router/internal/freebuff/` | The native Codebuff protocol (split into protocol/transport/classify) |
-| `infra/migrations/` | SQL migrations, applied in order by `scripts/migrate.sh` (both CI jobs and deploys use this runner — drizzle-kit's journal is retired) |
+| `apps/router/internal/proxy/` | The hot path, split by concern: `proxy.go` handler, `auth.go` auth+failover policy, `billing.go` the cost funnel, `generic.go` the non-chat passthrough |
+| `apps/router/internal/netguard/` | The SSRF dial guard, shared by every upstream client |
+| `apps/router/internal/freebuff/` | The native Codebuff protocol (split into protocol/transport/classify) |
+| `db/migrations/` | SQL migrations, applied in order by `ops/migrate.sh` (both CI jobs and deploys use this runner — drizzle-kit's journal is retired) |
 | `docs/specs/` | Design specs. The endpoint-surface spec is the source of truth for what the API actually supports |
 
 ## Conventions worth knowing before editing
@@ -49,7 +49,7 @@ see `internal/netguard`).
   the rule stays unit-testable outside the worker runtime.
 - **Money never touches a float.** Tokens are `int64`, prices are
   `numeric(18,6)`, and cost is computed through `math/big` in
-  `services/router/internal/cost`.
+  `apps/router/internal/cost`.
 - **API keys are hash-only.** `sk-ar-<prefix>_<secret>`, only `sha256(secret)`
   is stored. The TS and Go sides must stay byte-compatible — both re-parse every
   key the other mints.
@@ -60,11 +60,11 @@ see `internal/netguard`).
 # both planes need this
 docker compose -f infra/docker-compose.yml up -d     # stack (Postgres is consolidated)
 
-npm ci --workspace apps/react-web          # installs react-web from the root lockfile
-npm run build --workspace apps/react-web   # vite build (dist/ served by server/index.mjs)
-npm run dev --workspace apps/react-web     # vite dev
+npm ci --workspace apps/console          # installs react-web from the root lockfile
+npm run build --workspace apps/console   # vite build (dist/ served by server/index.mjs)
+npm run dev --workspace apps/console     # vite dev
 
-cd services/router
+cd apps/router
 go test ./... -race    # the data-plane suite is DB-backed; see below
 ```
 
@@ -81,7 +81,7 @@ docker exec postgres-hardened psql -U postgres -d postgres \
 
 # 2. apply the schema, then point the suite at it and run it.
 export DATABASE_URL=postgres://fudrouter:fudrouter@127.0.0.1:5432/fudrouter_test
-./scripts/migrate.sh
+./ops/migrate.sh
 go test ./... -race
 ```
 
@@ -91,4 +91,4 @@ go test ./... -race
 Every step that can no-op has been closed: no `--if-present` scripts (an absent
 script would silently pass), the DB-backed Go tests `FAIL` rather than skip when
 `DATABASE_URL` is absent. Both jobs apply the schema
-through `scripts/migrate.sh`, the single migration path. The `react-web` job builds the React control plane; the `router` job vets, builds, scans and tests the Go data plane.
+through `ops/migrate.sh`, the single migration path. The `react-web` job builds the React control plane; the `router` job vets, builds, scans and tests the Go data plane.

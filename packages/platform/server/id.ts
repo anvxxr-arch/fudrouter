@@ -4,7 +4,7 @@ import { uuidv7 } from 'uuidv7';
  * time-ordered, safe to show in URLs and logs. The prefix makes a stray ID
  * self-describing in logs and support tickets (`req_…` is a request).
  *
- * The Go data plane mints the same shape in `services/router/internal/ids` and
+ * The Go data plane mints the same shape in `apps/router/internal/ids` and
  * backfilled S0 ids are `<prefix>_<legacy>` (spec §1) — prefix strip is always
  * "split on the first `_`".
  */

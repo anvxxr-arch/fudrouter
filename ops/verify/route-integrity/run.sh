@@ -57,11 +57,11 @@ FTEST_DSN="${BASE%/*}/$DB"
 echo "### 1. fresh database"
 $PG -q -c "drop database if exists $DB;" -c "create database $DB owner fudrouter;" || exit 1
 
-echo "### 2. migrations (as the app role; gated files skipped like scripts/migrate.sh)"
-shopt -s nullglob; MIGS=("$ROOT"/infra/migrations/*.sql); shopt -u nullglob
+echo "### 2. migrations (as the app role; gated files skipped like ops/migrate.sh)"
+shopt -s nullglob; MIGS=("$ROOT"/db/migrations/*.sql); shopt -u nullglob
 napplied=0
 for f in "${MIGS[@]}"; do
-  # Mirror scripts/migrate.sh's gate — it is the single source of truth. A file
+  # Mirror ops/migrate.sh's gate — it is the single source of truth. A file
   # whose header carries `-- gated:` is staged in the tree but MUST NOT be
   # applied until its writer/predicate cutover lands in the same commit. 0010
   # narrows the status CHECKs while the code still writes `active`, so applying
@@ -78,8 +78,8 @@ done
 echo "  $napplied migrations OK"
 
 echo "### 3. build router from the working tree (what is about to ship)"
-(cd "$ROOT/services/router" && GOTOOLCHAIN=auto go build -trimpath -o "$BIN" .) || { echo "build failed"; exit 1; }
-echo "  build: walk-bound=$(strings "$BIN" | grep -c 'pool walk stopped') failover=$(strings "$BIN" | grep -c shouldFailover) | deployed: walk-bound=$(strings "$ROOT/services/router/bin/fudrouter-router" 2>/dev/null | grep -c 'pool walk stopped') failover=$(strings "$ROOT/services/router/bin/fudrouter-router" 2>/dev/null | grep -c shouldFailover)"
+(cd "$ROOT/apps/router" && GOTOOLCHAIN=auto go build -trimpath -o "$BIN" .) || { echo "build failed"; exit 1; }
+echo "  build: walk-bound=$(strings "$BIN" | grep -c 'pool walk stopped') failover=$(strings "$BIN" | grep -c shouldFailover) | deployed: walk-bound=$(strings "$ROOT/apps/router/bin/fudrouter-router" 2>/dev/null | grep -c 'pool walk stopped') failover=$(strings "$ROOT/apps/router/bin/fudrouter-router" 2>/dev/null | grep -c shouldFailover)"
 
 echo "### 4. seed key + providers + connections + credentials + models"
 # seed.mjs is self-contained: it mints the drill API key (the Svelte-era

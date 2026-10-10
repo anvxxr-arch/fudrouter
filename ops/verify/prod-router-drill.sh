@@ -11,12 +11,12 @@
 set -uo pipefail
 
 # Moved from tools/ to ops/verify/ (one level deeper): the root derivation below
-# had to grow a level with it, or ROOT/services/router and ROOT/infra/migrations
+# had to grow a level with it, or ROOT/apps/router and ROOT/db/migrations
 # both resolve to nothing.
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DB=fudrouter_drill
-ROUTER_DIR="$ROOT/services/router"
-MIGRATIONS="$ROOT/infra/migrations"
+ROUTER_DIR="$ROOT/apps/router"
+MIGRATIONS="$ROOT/db/migrations"
 ENV_FILE="$ROOT/.env"
 PG_CONTAINER="${FUDROUTER_PG_CONTAINER:-postgres-hardened}"
 PG_USER="${FUDROUTER_PG_SUPERUSER:-postgres}"
@@ -53,11 +53,11 @@ echo "  ${#MIG_FILES[@]} migrations, router at $ROUTER_DIR, port $PORT"
 echo "### 1. fresh database"
 $PG -q -c "drop database if exists $DB;" -c "create database $DB owner $APP_USER;" || { fail "could not create $DB"; exit 1; }
 
-echo "### 2. migrations (on empty DB; gated files skipped like scripts/migrate.sh)"
+echo "### 2. migrations (on empty DB; gated files skipped like ops/migrate.sh)"
 SKIPPED=0
 for f in "${MIG_FILES[@]}"; do
 	# GATED: a file whose header carries `-- gated:` is staged in the tree but
-	# must only land in the commit that flips its writers (scripts/migrate.sh
+	# must only land in the commit that flips its writers (ops/migrate.sh
 	# owns that rule and this mirrors it). Applying 0010 here narrows the status
 	# CHECKs while the router still writes `active`/`dev`, so the seed below dies
 	# on check_violation and the drill fails for a reason unrelated to the

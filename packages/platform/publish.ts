@@ -8,7 +8,7 @@
  *                     dev-provider opt-in is enabled
  *
  * The data plane implements exactly this in SQL — `ModelWithProvider` and
- * `ActiveModels` in `services/router/internal/store/store.go`:
+ * `ActiveModels` in `apps/router/internal/store/store.go`:
  *
  *   where m.status = 'active'
  *     and (p.status = 'active' or (p.status = 'dev' and $allowDevProviders))

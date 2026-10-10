@@ -24,7 +24,7 @@ import { fileURLToPath } from 'node:url';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..', '..');
 const ROUTES = join(REPO, 'packages', 'contracts', 'routes.json');
-const INDEX = join(REPO, 'apps', 'react-web', 'server', 'index.mjs');
+const INDEX = join(REPO, 'apps', 'console', 'server', 'index.mjs');
 const OUT = join(REPO, 'packages', 'contracts', 'openapi', 'management.yaml');
 
 const routes = JSON.parse(readFileSync(ROUTES, 'utf8'));
@@ -90,7 +90,7 @@ L.push('  title: FUDRouter Management API');
 L.push('  version: 1.0.0');
 L.push('  description: |');
 L.push('    GENERATED FILE — do not edit by hand.');
-L.push('    Source: packages/contracts/routes.json, extracted from apps/react-web/server/*.mjs');
+L.push('    Source: packages/contracts/routes.json, extracted from apps/console/server/*.mjs');
 L.push('    by packages/contracts/scripts/extract-routes.mjs.');
 L.push('    Regenerate: npm run extract -w @fudrouter/contracts && npm run gen -w @fudrouter/contracts');
 L.push('    ');
@@ -103,7 +103,7 @@ L.push(`    Public prefixes (rate-limited by client IP via _publicRead): ${[...p
 L.push('    Every other route requires a session (or an admin capability) — see x-source.');
 L.push('servers:');
 L.push('  - url: http://127.0.0.1:3002');
-L.push('    description: loopback listener of the Express plane (PORT pinned by .env.react-web)');
+L.push('    description: loopback listener of the Express plane (PORT pinned by .env.console)');
 L.push('tags:');
 const tags = [...new Set([...paths.keys()].map(tagFor))].sort();
 for (const t of tags) L.push(`  - name: ${t}`);
@@ -125,7 +125,7 @@ for (const [path, regs] of sortedPaths) {
     L.push(`      tags: [${tagFor(r.path)}]`);
     L.push(`      summary: ${yamlStr(`${method} ${path}`)}`);
     L.push('      description: |');
-    L.push(`        Registered at apps/react-web/server/${r.file}:${r.line}.`);
+    L.push(`        Registered at apps/console/server/${r.file}:${r.line}.`);
     if (r.expanded_from) {
       L.push(`        Expanded from the template \`${r.expanded_from}\`.`);
     }
@@ -158,7 +158,7 @@ for (const [path, regs] of sortedPaths) {
       L.push('        - session: []');
     }
     L.push('      x-source:');
-    L.push(`        file: apps/react-web/server/${r.file}`);
+    L.push(`        file: apps/console/server/${r.file}`);
     L.push(`        line: ${r.line}`);
     L.push('      x-body-schema: unmodelled');
     L.push('      responses:');

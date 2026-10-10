@@ -4,7 +4,7 @@ info:
   version: 1.0.0
   description: |
     GENERATED FILE — do not edit by hand.
-    Source: packages/contracts/routes.json, extracted from apps/react-web/server/*.mjs
+    Source: packages/contracts/routes.json, extracted from apps/console/server/*.mjs
     by packages/contracts/scripts/extract-routes.mjs.
     Regenerate: npm run extract -w @fudrouter/contracts && npm run gen -w @fudrouter/contracts
     
@@ -17,7 +17,7 @@ info:
     Every other route requires a session (or an admin capability) — see x-source.
 servers:
   - url: http://127.0.0.1:3002
-    description: loopback listener of the Express plane (PORT pinned by .env.react-web)
+    description: loopback listener of the Express plane (PORT pinned by .env.console)
 tags:
   - name: admin
   - name: app
@@ -41,7 +41,7 @@ paths:
       tags: [app]
       summary: "GET {*path}"
       description: |
-        Registered at apps/react-web/server/index.mjs:960.
+        Registered at apps/console/server/index.mjs:960.
         Express 5 splat route: the trailing path segment is greedy.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
@@ -52,7 +52,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/index.mjs
+        file: apps/console/server/index.mjs
         line: 960
       x-body-schema: unmodelled
       responses:
@@ -72,12 +72,12 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/analytics"
       description: |
-        Registered at apps/react-web/server/admin.mjs:416.
+        Registered at apps/console/server/admin.mjs:416.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 416
       x-body-schema: unmodelled
       responses:
@@ -97,12 +97,12 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/billing"
       description: |
-        Registered at apps/react-web/server/admin.mjs:480.
+        Registered at apps/console/server/admin.mjs:480.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 480
       x-body-schema: unmodelled
       responses:
@@ -122,12 +122,12 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/connections"
       description: |
-        Registered at apps/react-web/server/admin.mjs:509.
+        Registered at apps/console/server/admin.mjs:509.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 509
       x-body-schema: unmodelled
       responses:
@@ -147,12 +147,12 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/health"
       description: |
-        Registered at apps/react-web/server/admin.mjs:524.
+        Registered at apps/console/server/admin.mjs:524.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 524
       x-body-schema: unmodelled
       responses:
@@ -172,12 +172,12 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/incidents"
       description: |
-        Registered at apps/react-web/server/admin.mjs:553.
+        Registered at apps/console/server/admin.mjs:553.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 553
       x-body-schema: unmodelled
       responses:
@@ -197,12 +197,12 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/keys"
       description: |
-        Registered at apps/react-web/server/admin.mjs:568.
+        Registered at apps/console/server/admin.mjs:568.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 568
       x-body-schema: unmodelled
       responses:
@@ -222,12 +222,12 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/models"
       description: |
-        Registered at apps/react-web/server/admin.mjs:592.
+        Registered at apps/console/server/admin.mjs:592.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 592
       x-body-schema: unmodelled
       responses:
@@ -247,7 +247,7 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/models/{id}"
       description: |
-        Registered at apps/react-web/server/admin.mjs:909.
+        Registered at apps/console/server/admin.mjs:909.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: id
@@ -257,7 +257,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 909
       x-body-schema: unmodelled
       responses:
@@ -277,7 +277,7 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/models/{id}/mapping"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1074.
+        Registered at apps/console/server/admin.mjs:1074.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: id
@@ -287,7 +287,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1074
       x-body-schema: unmodelled
       responses:
@@ -307,7 +307,7 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/models/{id}/update"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1046.
+        Registered at apps/console/server/admin.mjs:1046.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: id
@@ -317,7 +317,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1046
       x-body-schema: unmodelled
       responses:
@@ -337,12 +337,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/models/bulk"
       description: |
-        Registered at apps/react-web/server/admin.mjs:929.
+        Registered at apps/console/server/admin.mjs:929.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 929
       x-body-schema: unmodelled
       responses:
@@ -362,12 +362,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/models/create"
       description: |
-        Registered at apps/react-web/server/admin.mjs:962.
+        Registered at apps/console/server/admin.mjs:962.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 962
       x-body-schema: unmodelled
       responses:
@@ -387,12 +387,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/models/delete"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1032.
+        Registered at apps/console/server/admin.mjs:1032.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1032
       x-body-schema: unmodelled
       responses:
@@ -412,12 +412,12 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/models/mappings"
       description: |
-        Registered at apps/react-web/server/admin.mjs:890.
+        Registered at apps/console/server/admin.mjs:890.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 890
       x-body-schema: unmodelled
       responses:
@@ -437,12 +437,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/models/mappings/create"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1090.
+        Registered at apps/console/server/admin.mjs:1090.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1090
       x-body-schema: unmodelled
       responses:
@@ -462,12 +462,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/models/mappings/delete"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1151.
+        Registered at apps/console/server/admin.mjs:1151.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1151
       x-body-schema: unmodelled
       responses:
@@ -487,12 +487,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/models/mappings/update"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1120.
+        Registered at apps/console/server/admin.mjs:1120.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1120
       x-body-schema: unmodelled
       responses:
@@ -512,12 +512,12 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/models/pricing"
       description: |
-        Registered at apps/react-web/server/admin.mjs:897.
+        Registered at apps/console/server/admin.mjs:897.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 897
       x-body-schema: unmodelled
       responses:
@@ -537,12 +537,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/models/pricing/apply"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1195.
+        Registered at apps/console/server/admin.mjs:1195.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1195
       x-body-schema: unmodelled
       responses:
@@ -562,12 +562,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/models/pricing/preview"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1183.
+        Registered at apps/console/server/admin.mjs:1183.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1183
       x-body-schema: unmodelled
       responses:
@@ -587,12 +587,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/models/provider"
       description: |
-        Registered at apps/react-web/server/admin.mjs:945.
+        Registered at apps/console/server/admin.mjs:945.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 945
       x-body-schema: unmodelled
       responses:
@@ -612,12 +612,12 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/models/sync"
       description: |
-        Registered at apps/react-web/server/admin.mjs:905.
+        Registered at apps/console/server/admin.mjs:905.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 905
       x-body-schema: unmodelled
       responses:
@@ -637,12 +637,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/models/sync/apply"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1261.
+        Registered at apps/console/server/admin.mjs:1261.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1261
       x-body-schema: unmodelled
       responses:
@@ -662,12 +662,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/models/sync/fetch"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1219.
+        Registered at apps/console/server/admin.mjs:1219.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1219
       x-body-schema: unmodelled
       responses:
@@ -687,12 +687,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/models/update"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1002.
+        Registered at apps/console/server/admin.mjs:1002.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1002
       x-body-schema: unmodelled
       responses:
@@ -712,12 +712,12 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/overview"
       description: |
-        Registered at apps/react-web/server/admin.mjs:376.
+        Registered at apps/console/server/admin.mjs:376.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 376
       x-body-schema: unmodelled
       responses:
@@ -737,12 +737,12 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/projects"
       description: |
-        Registered at apps/react-web/server/admin.mjs:642.
+        Registered at apps/console/server/admin.mjs:642.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 642
       x-body-schema: unmodelled
       responses:
@@ -762,7 +762,7 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/projects/{id}"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1309.
+        Registered at apps/console/server/admin.mjs:1309.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: id
@@ -772,7 +772,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1309
       x-body-schema: unmodelled
       responses:
@@ -792,12 +792,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/projects/setStatus"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1318.
+        Registered at apps/console/server/admin.mjs:1318.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1318
       x-body-schema: unmodelled
       responses:
@@ -817,12 +817,12 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/providers"
       description: |
-        Registered at apps/react-web/server/admin.mjs:664.
+        Registered at apps/console/server/admin.mjs:664.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 664
       x-body-schema: unmodelled
       responses:
@@ -842,7 +842,7 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/providers/{id}"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1422.
+        Registered at apps/console/server/admin.mjs:1422.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: id
@@ -852,7 +852,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1422
       x-body-schema: unmodelled
       responses:
@@ -872,7 +872,7 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/providers/{id}/chat"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1581.
+        Registered at apps/console/server/admin.mjs:1581.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: id
@@ -882,7 +882,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1581
       x-body-schema: unmodelled
       responses:
@@ -902,7 +902,7 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/providers/{id}/connections"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1394.
+        Registered at apps/console/server/admin.mjs:1394.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: id
@@ -912,7 +912,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1394
       x-body-schema: unmodelled
       responses:
@@ -932,7 +932,7 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/providers/{id}/connections/create"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1635.
+        Registered at apps/console/server/admin.mjs:1635.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: id
@@ -942,7 +942,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1635
       x-body-schema: unmodelled
       responses:
@@ -962,7 +962,7 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/providers/{id}/credentials"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1403.
+        Registered at apps/console/server/admin.mjs:1403.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: id
@@ -972,7 +972,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1403
       x-body-schema: unmodelled
       responses:
@@ -992,7 +992,7 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/providers/{id}/disable"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1504.
+        Registered at apps/console/server/admin.mjs:1504.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: id
@@ -1002,7 +1002,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1504
       x-body-schema: unmodelled
       responses:
@@ -1022,7 +1022,7 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/providers/{id}/enable"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1466.
+        Registered at apps/console/server/admin.mjs:1466.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: id
@@ -1032,7 +1032,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1466
       x-body-schema: unmodelled
       responses:
@@ -1052,7 +1052,7 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/providers/{id}/fetchCatalog"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1448.
+        Registered at apps/console/server/admin.mjs:1448.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: id
@@ -1062,7 +1062,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1448
       x-body-schema: unmodelled
       responses:
@@ -1082,7 +1082,7 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/providers/{id}/strategy"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1608.
+        Registered at apps/console/server/admin.mjs:1608.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: id
@@ -1092,7 +1092,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1608
       x-body-schema: unmodelled
       responses:
@@ -1112,7 +1112,7 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/providers/{id}/testAll"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1537.
+        Registered at apps/console/server/admin.mjs:1537.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: id
@@ -1122,7 +1122,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1537
       x-body-schema: unmodelled
       responses:
@@ -1142,7 +1142,7 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/providers/{id}/testCredential"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1517.
+        Registered at apps/console/server/admin.mjs:1517.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: id
@@ -1152,7 +1152,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1517
       x-body-schema: unmodelled
       responses:
@@ -1172,7 +1172,7 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/providers/{id}/testModel"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1556.
+        Registered at apps/console/server/admin.mjs:1556.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: id
@@ -1182,7 +1182,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1556
       x-body-schema: unmodelled
       responses:
@@ -1202,12 +1202,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/providers/connections/delete"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1669.
+        Registered at apps/console/server/admin.mjs:1669.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1669
       x-body-schema: unmodelled
       responses:
@@ -1227,12 +1227,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/providers/connections/update"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1652.
+        Registered at apps/console/server/admin.mjs:1652.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1652
       x-body-schema: unmodelled
       responses:
@@ -1252,12 +1252,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/providers/create"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1332.
+        Registered at apps/console/server/admin.mjs:1332.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1332
       x-body-schema: unmodelled
       responses:
@@ -1277,12 +1277,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/providers/credentials/create"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1691.
+        Registered at apps/console/server/admin.mjs:1691.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1691
       x-body-schema: unmodelled
       responses:
@@ -1302,12 +1302,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/providers/credentials/delete"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1773.
+        Registered at apps/console/server/admin.mjs:1773.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1773
       x-body-schema: unmodelled
       responses:
@@ -1327,12 +1327,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/providers/credentials/disable"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1744.
+        Registered at apps/console/server/admin.mjs:1744.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1744
       x-body-schema: unmodelled
       responses:
@@ -1352,12 +1352,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/providers/credentials/enable"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1745.
+        Registered at apps/console/server/admin.mjs:1745.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1745
       x-body-schema: unmodelled
       responses:
@@ -1377,12 +1377,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/providers/credentials/revoke"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1761.
+        Registered at apps/console/server/admin.mjs:1761.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1761
       x-body-schema: unmodelled
       responses:
@@ -1402,12 +1402,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/providers/credentials/rotate"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1746.
+        Registered at apps/console/server/admin.mjs:1746.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1746
       x-body-schema: unmodelled
       responses:
@@ -1427,12 +1427,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/providers/credentials/update"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1712.
+        Registered at apps/console/server/admin.mjs:1712.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1712
       x-body-schema: unmodelled
       responses:
@@ -1452,12 +1452,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/providers/delete"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1379.
+        Registered at apps/console/server/admin.mjs:1379.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1379
       x-body-schema: unmodelled
       responses:
@@ -1477,12 +1477,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/providers/update"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1355.
+        Registered at apps/console/server/admin.mjs:1355.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1355
       x-body-schema: unmodelled
       responses:
@@ -1502,12 +1502,12 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/requests"
       description: |
-        Registered at apps/react-web/server/admin.mjs:700.
+        Registered at apps/console/server/admin.mjs:700.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 700
       x-body-schema: unmodelled
       responses:
@@ -1527,7 +1527,7 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/requests/{id}"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1786.
+        Registered at apps/console/server/admin.mjs:1786.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: id
@@ -1537,7 +1537,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1786
       x-body-schema: unmodelled
       responses:
@@ -1557,12 +1557,12 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/routing"
       description: |
-        Registered at apps/react-web/server/admin.mjs:732.
+        Registered at apps/console/server/admin.mjs:732.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 732
       x-body-schema: unmodelled
       responses:
@@ -1582,12 +1582,12 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/routing/circuit-breakers"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1799.
+        Registered at apps/console/server/admin.mjs:1799.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1799
       x-body-schema: unmodelled
       responses:
@@ -1607,12 +1607,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/routing/circuit-breakers/create"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1841.
+        Registered at apps/console/server/admin.mjs:1841.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1841
       x-body-schema: unmodelled
       responses:
@@ -1632,12 +1632,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/routing/circuit-breakers/delete"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1868.
+        Registered at apps/console/server/admin.mjs:1868.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1868
       x-body-schema: unmodelled
       responses:
@@ -1657,12 +1657,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/routing/circuit-breakers/update"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1855.
+        Registered at apps/console/server/admin.mjs:1855.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1855
       x-body-schema: unmodelled
       responses:
@@ -1682,12 +1682,12 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/routing/fallbacks"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1880.
+        Registered at apps/console/server/admin.mjs:1880.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1880
       x-body-schema: unmodelled
       responses:
@@ -1707,12 +1707,12 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/routing/policies"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1885.
+        Registered at apps/console/server/admin.mjs:1885.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1885
       x-body-schema: unmodelled
       responses:
@@ -1732,12 +1732,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/routing/policies/create"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1914.
+        Registered at apps/console/server/admin.mjs:1914.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1914
       x-body-schema: unmodelled
       responses:
@@ -1757,12 +1757,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/routing/policies/delete"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1941.
+        Registered at apps/console/server/admin.mjs:1941.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1941
       x-body-schema: unmodelled
       responses:
@@ -1782,12 +1782,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/routing/policies/update"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1926.
+        Registered at apps/console/server/admin.mjs:1926.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1926
       x-body-schema: unmodelled
       responses:
@@ -1807,12 +1807,12 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/routing/simulations"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1961.
+        Registered at apps/console/server/admin.mjs:1961.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1961
       x-body-schema: unmodelled
       responses:
@@ -1832,12 +1832,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/routing/simulations/simulate"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1966.
+        Registered at apps/console/server/admin.mjs:1966.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1966
       x-body-schema: unmodelled
       responses:
@@ -1857,12 +1857,12 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/routing/strategies"
       description: |
-        Registered at apps/react-web/server/admin.mjs:1956.
+        Registered at apps/console/server/admin.mjs:1956.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 1956
       x-body-schema: unmodelled
       responses:
@@ -1882,12 +1882,12 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/security"
       description: |
-        Registered at apps/react-web/server/admin.mjs:766.
+        Registered at apps/console/server/admin.mjs:766.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 766
       x-body-schema: unmodelled
       responses:
@@ -1907,12 +1907,12 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/security/abuse"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2077.
+        Registered at apps/console/server/admin.mjs:2077.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2077
       x-body-schema: unmodelled
       responses:
@@ -1932,12 +1932,12 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/security/audit-log"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2093.
+        Registered at apps/console/server/admin.mjs:2093.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2093
       x-body-schema: unmodelled
       responses:
@@ -1957,12 +1957,12 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/security/blocked-ips"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2103.
+        Registered at apps/console/server/admin.mjs:2103.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2103
       x-body-schema: unmodelled
       responses:
@@ -1982,12 +1982,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/security/blocked-ips/add"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2107.
+        Registered at apps/console/server/admin.mjs:2107.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2107
       x-body-schema: unmodelled
       responses:
@@ -2007,12 +2007,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/security/blocked-ips/remove"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2122.
+        Registered at apps/console/server/admin.mjs:2122.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2122
       x-body-schema: unmodelled
       responses:
@@ -2032,12 +2032,12 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/security/blocked-keys"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2134.
+        Registered at apps/console/server/admin.mjs:2134.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2134
       x-body-schema: unmodelled
       responses:
@@ -2057,12 +2057,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/security/blocked-keys/add"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2147.
+        Registered at apps/console/server/admin.mjs:2147.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2147
       x-body-schema: unmodelled
       responses:
@@ -2082,12 +2082,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/security/blocked-keys/remove"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2161.
+        Registered at apps/console/server/admin.mjs:2161.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2161
       x-body-schema: unmodelled
       responses:
@@ -2107,12 +2107,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/security/create"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2022.
+        Registered at apps/console/server/admin.mjs:2022.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2022
       x-body-schema: unmodelled
       responses:
@@ -2132,12 +2132,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/security/delete"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2065.
+        Registered at apps/console/server/admin.mjs:2065.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2065
       x-body-schema: unmodelled
       responses:
@@ -2157,12 +2157,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/security/update"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2043.
+        Registered at apps/console/server/admin.mjs:2043.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2043
       x-body-schema: unmodelled
       responses:
@@ -2182,12 +2182,12 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/settings"
       description: |
-        Registered at apps/react-web/server/admin.mjs:776.
+        Registered at apps/console/server/admin.mjs:776.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 776
       x-body-schema: unmodelled
       responses:
@@ -2207,12 +2207,12 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/settings/feature-flags"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2250.
+        Registered at apps/console/server/admin.mjs:2250.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2250
       x-body-schema: unmodelled
       responses:
@@ -2232,12 +2232,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/settings/feature-flags/create"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2254.
+        Registered at apps/console/server/admin.mjs:2254.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2254
       x-body-schema: unmodelled
       responses:
@@ -2257,12 +2257,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/settings/feature-flags/delete"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2305.
+        Registered at apps/console/server/admin.mjs:2305.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2305
       x-body-schema: unmodelled
       responses:
@@ -2282,12 +2282,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/settings/feature-flags/toggle"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2293.
+        Registered at apps/console/server/admin.mjs:2293.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2293
       x-body-schema: unmodelled
       responses:
@@ -2307,12 +2307,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/settings/feature-flags/update"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2272.
+        Registered at apps/console/server/admin.mjs:2272.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2272
       x-body-schema: unmodelled
       responses:
@@ -2332,12 +2332,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/settings/setBillingDefaults"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2236.
+        Registered at apps/console/server/admin.mjs:2236.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2236
       x-body-schema: unmodelled
       responses:
@@ -2357,12 +2357,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/settings/updateDefaultRouting"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2210.
+        Registered at apps/console/server/admin.mjs:2210.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2210
       x-body-schema: unmodelled
       responses:
@@ -2382,12 +2382,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/settings/updateGeneral"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2175.
+        Registered at apps/console/server/admin.mjs:2175.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2175
       x-body-schema: unmodelled
       responses:
@@ -2407,12 +2407,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/settings/updateHardLimits"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2223.
+        Registered at apps/console/server/admin.mjs:2223.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2223
       x-body-schema: unmodelled
       responses:
@@ -2432,12 +2432,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/settings/updateRegistration"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2188.
+        Registered at apps/console/server/admin.mjs:2188.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2188
       x-body-schema: unmodelled
       responses:
@@ -2457,12 +2457,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/settings/updateRetention"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2197.
+        Registered at apps/console/server/admin.mjs:2197.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2197
       x-body-schema: unmodelled
       responses:
@@ -2482,12 +2482,12 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/system"
       description: |
-        Registered at apps/react-web/server/admin.mjs:797.
+        Registered at apps/console/server/admin.mjs:797.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 797
       x-body-schema: unmodelled
       responses:
@@ -2507,12 +2507,12 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/system/database"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2319.
+        Registered at apps/console/server/admin.mjs:2319.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2319
       x-body-schema: unmodelled
       responses:
@@ -2532,12 +2532,12 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/system/events"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2333.
+        Registered at apps/console/server/admin.mjs:2333.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2333
       x-body-schema: unmodelled
       responses:
@@ -2557,12 +2557,12 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/system/health"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2343.
+        Registered at apps/console/server/admin.mjs:2343.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2343
       x-body-schema: unmodelled
       responses:
@@ -2582,12 +2582,12 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/system/jobs"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2373.
+        Registered at apps/console/server/admin.mjs:2373.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2373
       x-body-schema: unmodelled
       responses:
@@ -2607,12 +2607,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/system/jobs/cancel"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2402.
+        Registered at apps/console/server/admin.mjs:2402.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2402
       x-body-schema: unmodelled
       responses:
@@ -2632,12 +2632,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/system/jobs/retry"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2387.
+        Registered at apps/console/server/admin.mjs:2387.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2387
       x-body-schema: unmodelled
       responses:
@@ -2657,12 +2657,12 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/system/metrics"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2418.
+        Registered at apps/console/server/admin.mjs:2418.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2418
       x-body-schema: unmodelled
       responses:
@@ -2682,12 +2682,12 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/system/valkey"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2431.
+        Registered at apps/console/server/admin.mjs:2431.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2431
       x-body-schema: unmodelled
       responses:
@@ -2707,12 +2707,12 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/system/workers"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2464.
+        Registered at apps/console/server/admin.mjs:2464.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2464
       x-body-schema: unmodelled
       responses:
@@ -2732,12 +2732,12 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/traffic"
       description: |
-        Registered at apps/react-web/server/admin.mjs:820.
+        Registered at apps/console/server/admin.mjs:820.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 820
       x-body-schema: unmodelled
       responses:
@@ -2757,12 +2757,12 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/traffic/queues"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2488.
+        Registered at apps/console/server/admin.mjs:2488.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2488
       x-body-schema: unmodelled
       responses:
@@ -2782,12 +2782,12 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/traffic/rate-limits"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2498.
+        Registered at apps/console/server/admin.mjs:2498.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2498
       x-body-schema: unmodelled
       responses:
@@ -2807,12 +2807,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/traffic/rate-limits/create"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2512.
+        Registered at apps/console/server/admin.mjs:2512.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2512
       x-body-schema: unmodelled
       responses:
@@ -2832,12 +2832,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/traffic/rate-limits/delete"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2540.
+        Registered at apps/console/server/admin.mjs:2540.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2540
       x-body-schema: unmodelled
       responses:
@@ -2857,12 +2857,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/traffic/rate-limits/update"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2527.
+        Registered at apps/console/server/admin.mjs:2527.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2527
       x-body-schema: unmodelled
       responses:
@@ -2882,12 +2882,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/traffic/save"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2474.
+        Registered at apps/console/server/admin.mjs:2474.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2474
       x-body-schema: unmodelled
       responses:
@@ -2907,12 +2907,12 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/traffic/throttling"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2552.
+        Registered at apps/console/server/admin.mjs:2552.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2552
       x-body-schema: unmodelled
       responses:
@@ -2932,12 +2932,12 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/users"
       description: |
-        Registered at apps/react-web/server/admin.mjs:826.
+        Registered at apps/console/server/admin.mjs:826.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 826
       x-body-schema: unmodelled
       responses:
@@ -2957,7 +2957,7 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/users/{id}"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2612.
+        Registered at apps/console/server/admin.mjs:2612.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: id
@@ -2967,7 +2967,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2612
       x-body-schema: unmodelled
       responses:
@@ -2987,12 +2987,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/users/disableAccess"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2666.
+        Registered at apps/console/server/admin.mjs:2666.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2666
       x-body-schema: unmodelled
       responses:
@@ -3012,12 +3012,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/users/setRole"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2580.
+        Registered at apps/console/server/admin.mjs:2580.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2580
       x-body-schema: unmodelled
       responses:
@@ -3037,12 +3037,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/users/suspend"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2636.
+        Registered at apps/console/server/admin.mjs:2636.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2636
       x-body-schema: unmodelled
       responses:
@@ -3062,12 +3062,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/users/toggleBan"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2595.
+        Registered at apps/console/server/admin.mjs:2595.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2595
       x-body-schema: unmodelled
       responses:
@@ -3087,12 +3087,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/users/unsuspend"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2652.
+        Registered at apps/console/server/admin.mjs:2652.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2652
       x-body-schema: unmodelled
       responses:
@@ -3112,12 +3112,12 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/workspaces"
       description: |
-        Registered at apps/react-web/server/admin.mjs:861.
+        Registered at apps/console/server/admin.mjs:861.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 861
       x-body-schema: unmodelled
       responses:
@@ -3137,7 +3137,7 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/workspaces/{id}"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2687.
+        Registered at apps/console/server/admin.mjs:2687.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: id
@@ -3147,7 +3147,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2687
       x-body-schema: unmodelled
       responses:
@@ -3167,12 +3167,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/workspaces/setStatus"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2704.
+        Registered at apps/console/server/admin.mjs:2704.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2704
       x-body-schema: unmodelled
       responses:
@@ -3192,12 +3192,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/workspaces/suspend"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2717.
+        Registered at apps/console/server/admin.mjs:2717.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2717
       x-body-schema: unmodelled
       responses:
@@ -3217,12 +3217,12 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/workspaces/unsuspend"
       description: |
-        Registered at apps/react-web/server/admin.mjs:2730.
+        Registered at apps/console/server/admin.mjs:2730.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/admin.mjs
+        file: apps/console/server/admin.mjs
         line: 2730
       x-body-schema: unmodelled
       responses:
@@ -3242,7 +3242,7 @@ paths:
       tags: [auth]
       summary: "ALL /api/auth/{*path}"
       description: |
-        Registered at apps/react-web/server/index.mjs:588.
+        Registered at apps/console/server/index.mjs:588.
         Express 5 splat route: the trailing path segment is greedy.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
@@ -3253,7 +3253,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/index.mjs
+        file: apps/console/server/index.mjs
         line: 588
       x-body-schema: unmodelled
       responses:
@@ -3273,11 +3273,11 @@ paths:
       tags: [changelog]
       summary: "GET /api/changelog"
       description: |
-        Registered at apps/react-web/server/public.mjs:1497.
+        Registered at apps/console/server/public.mjs:1497.
         PUBLIC — rate-limited by client IP (_publicRead).
       security: []
       x-source:
-        file: apps/react-web/server/public.mjs
+        file: apps/console/server/public.mjs
         line: 1497
       x-body-schema: unmodelled
       responses:
@@ -3297,7 +3297,7 @@ paths:
       tags: [changelog]
       summary: "GET /api/changelog/{slug}"
       description: |
-        Registered at apps/react-web/server/public.mjs:1500.
+        Registered at apps/console/server/public.mjs:1500.
         PUBLIC — rate-limited by client IP (_publicRead).
       parameters:
         - name: slug
@@ -3306,7 +3306,7 @@ paths:
           schema: { type: string }
       security: []
       x-source:
-        file: apps/react-web/server/public.mjs
+        file: apps/console/server/public.mjs
         line: 1500
       x-body-schema: unmodelled
       responses:
@@ -3326,11 +3326,11 @@ paths:
       tags: [docs]
       summary: "GET /api/docs"
       description: |
-        Registered at apps/react-web/server/public.mjs:1478.
+        Registered at apps/console/server/public.mjs:1478.
         PUBLIC — rate-limited by client IP (_publicRead).
       security: []
       x-source:
-        file: apps/react-web/server/public.mjs
+        file: apps/console/server/public.mjs
         line: 1478
       x-body-schema: unmodelled
       responses:
@@ -3350,7 +3350,7 @@ paths:
       tags: [docs]
       summary: "GET /api/docs/{*path}"
       description: |
-        Registered at apps/react-web/server/public.mjs:1487.
+        Registered at apps/console/server/public.mjs:1487.
         Express 5 splat route: the trailing path segment is greedy.
         PUBLIC — rate-limited by client IP (_publicRead).
       parameters:
@@ -3360,7 +3360,7 @@ paths:
           schema: { type: string }
       security: []
       x-source:
-        file: apps/react-web/server/public.mjs
+        file: apps/console/server/public.mjs
         line: 1487
       x-body-schema: unmodelled
       responses:
@@ -3380,12 +3380,12 @@ paths:
       tags: [health]
       summary: "GET /api/health"
       description: |
-        Registered at apps/react-web/server/index.mjs:570.
+        Registered at apps/console/server/index.mjs:570.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/index.mjs
+        file: apps/console/server/index.mjs
         line: 570
       x-body-schema: unmodelled
       responses:
@@ -3405,11 +3405,11 @@ paths:
       tags: [metrics]
       summary: "GET /api/metrics"
       description: |
-        Registered at apps/react-web/server/public.mjs:1152.
+        Registered at apps/console/server/public.mjs:1152.
         PUBLIC — rate-limited by client IP (_publicRead).
       security: []
       x-source:
-        file: apps/react-web/server/public.mjs
+        file: apps/console/server/public.mjs
         line: 1152
       x-body-schema: unmodelled
       responses:
@@ -3429,11 +3429,11 @@ paths:
       tags: [metrics]
       summary: "POST /api/metrics/vitals"
       description: |
-        Registered at apps/react-web/server/public.mjs:1177.
+        Registered at apps/console/server/public.mjs:1177.
         PUBLIC — rate-limited by client IP (_publicRead).
       security: []
       x-source:
-        file: apps/react-web/server/public.mjs
+        file: apps/console/server/public.mjs
         line: 1177
       x-body-schema: unmodelled
       responses:
@@ -3453,11 +3453,11 @@ paths:
       tags: [models]
       summary: "GET /api/models"
       description: |
-        Registered at apps/react-web/server/public.mjs:1193.
+        Registered at apps/console/server/public.mjs:1193.
         PUBLIC — rate-limited by client IP (_publicRead).
       security: []
       x-source:
-        file: apps/react-web/server/public.mjs
+        file: apps/console/server/public.mjs
         line: 1193
       x-body-schema: unmodelled
       responses:
@@ -3477,7 +3477,7 @@ paths:
       tags: [models]
       summary: "GET /api/models/{slug}"
       description: |
-        Registered at apps/react-web/server/public.mjs:1225.
+        Registered at apps/console/server/public.mjs:1225.
         PUBLIC — rate-limited by client IP (_publicRead).
       parameters:
         - name: slug
@@ -3486,7 +3486,7 @@ paths:
           schema: { type: string }
       security: []
       x-source:
-        file: apps/react-web/server/public.mjs
+        file: apps/console/server/public.mjs
         line: 1225
       x-body-schema: unmodelled
       responses:
@@ -3506,11 +3506,11 @@ paths:
       tags: [models]
       summary: "GET /api/models/compare"
       description: |
-        Registered at apps/react-web/server/public.mjs:1204.
+        Registered at apps/console/server/public.mjs:1204.
         PUBLIC — rate-limited by client IP (_publicRead).
       security: []
       x-source:
-        file: apps/react-web/server/public.mjs
+        file: apps/console/server/public.mjs
         line: 1204
       x-body-schema: unmodelled
       responses:
@@ -3530,7 +3530,7 @@ paths:
       tags: [pages]
       summary: "GET /api/pages/{*path}"
       description: |
-        Registered at apps/react-web/server/index.mjs:937.
+        Registered at apps/console/server/index.mjs:937.
         Express 5 splat route: the trailing path segment is greedy.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
@@ -3541,7 +3541,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/index.mjs
+        file: apps/console/server/index.mjs
         line: 937
       x-body-schema: unmodelled
       responses:
@@ -3561,12 +3561,12 @@ paths:
       tags: [pages]
       summary: "GET /api/pages/dashboard"
       description: |
-        Registered at apps/react-web/server/pages.mjs:284.
+        Registered at apps/console/server/pages.mjs:284.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/pages.mjs
+        file: apps/console/server/pages.mjs
         line: 284
       x-body-schema: unmodelled
       responses:
@@ -3586,7 +3586,7 @@ paths:
       tags: [pages]
       summary: "GET /api/pages/invite/{token}"
       description: |
-        Registered at apps/react-web/server/pages.mjs:1698.
+        Registered at apps/console/server/pages.mjs:1698.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: token
@@ -3596,7 +3596,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/pages.mjs
+        file: apps/console/server/pages.mjs
         line: 1698
       x-body-schema: unmodelled
       responses:
@@ -3616,7 +3616,7 @@ paths:
       tags: [pages]
       summary: "GET /api/pages/projects/{projectId}"
       description: |
-        Registered at apps/react-web/server/pages.mjs:808.
+        Registered at apps/console/server/pages.mjs:808.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: projectId
@@ -3626,7 +3626,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/pages.mjs
+        file: apps/console/server/pages.mjs
         line: 808
       x-body-schema: unmodelled
       responses:
@@ -3646,7 +3646,7 @@ paths:
       tags: [pages]
       summary: "GET /api/pages/projects/{projectId}/alerts"
       description: |
-        Registered at apps/react-web/server/pages.mjs:1359.
+        Registered at apps/console/server/pages.mjs:1359.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: projectId
@@ -3656,7 +3656,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/pages.mjs
+        file: apps/console/server/pages.mjs
         line: 1359
       x-body-schema: unmodelled
       responses:
@@ -3676,7 +3676,7 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/projects/{projectId}/alerts/create"
       description: |
-        Registered at apps/react-web/server/pages.mjs:1371.
+        Registered at apps/console/server/pages.mjs:1371.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: projectId
@@ -3686,7 +3686,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/pages.mjs
+        file: apps/console/server/pages.mjs
         line: 1371
       x-body-schema: unmodelled
       responses:
@@ -3706,7 +3706,7 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/projects/{projectId}/alerts/remove"
       description: |
-        Registered at apps/react-web/server/pages.mjs:1400.
+        Registered at apps/console/server/pages.mjs:1400.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: projectId
@@ -3716,7 +3716,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/pages.mjs
+        file: apps/console/server/pages.mjs
         line: 1400
       x-body-schema: unmodelled
       responses:
@@ -3736,7 +3736,7 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/projects/{projectId}/alerts/update"
       description: |
-        Registered at apps/react-web/server/pages.mjs:1384.
+        Registered at apps/console/server/pages.mjs:1384.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: projectId
@@ -3746,7 +3746,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/pages.mjs
+        file: apps/console/server/pages.mjs
         line: 1384
       x-body-schema: unmodelled
       responses:
@@ -3766,7 +3766,7 @@ paths:
       tags: [pages]
       summary: "GET /api/pages/projects/{projectId}/aliases"
       description: |
-        Registered at apps/react-web/server/pages.mjs:1415.
+        Registered at apps/console/server/pages.mjs:1415.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: projectId
@@ -3776,7 +3776,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/pages.mjs
+        file: apps/console/server/pages.mjs
         line: 1415
       x-body-schema: unmodelled
       responses:
@@ -3796,7 +3796,7 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/projects/{projectId}/aliases/create"
       description: |
-        Registered at apps/react-web/server/pages.mjs:1436.
+        Registered at apps/console/server/pages.mjs:1436.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: projectId
@@ -3806,7 +3806,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/pages.mjs
+        file: apps/console/server/pages.mjs
         line: 1436
       x-body-schema: unmodelled
       responses:
@@ -3826,7 +3826,7 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/projects/{projectId}/aliases/delete"
       description: |
-        Registered at apps/react-web/server/pages.mjs:1464.
+        Registered at apps/console/server/pages.mjs:1464.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: projectId
@@ -3836,7 +3836,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/pages.mjs
+        file: apps/console/server/pages.mjs
         line: 1464
       x-body-schema: unmodelled
       responses:
@@ -3856,7 +3856,7 @@ paths:
       tags: [pages]
       summary: "GET /api/pages/projects/{projectId}/analytics"
       description: |
-        Registered at apps/react-web/server/pages.mjs:1485.
+        Registered at apps/console/server/pages.mjs:1485.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: projectId
@@ -3866,7 +3866,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/pages.mjs
+        file: apps/console/server/pages.mjs
         line: 1485
       x-body-schema: unmodelled
       responses:
@@ -3886,7 +3886,7 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/projects/{projectId}/archive"
       description: |
-        Registered at apps/react-web/server/pages.mjs:843.
+        Registered at apps/console/server/pages.mjs:843.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: projectId
@@ -3896,7 +3896,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/pages.mjs
+        file: apps/console/server/pages.mjs
         line: 843
       x-body-schema: unmodelled
       responses:
@@ -3916,7 +3916,7 @@ paths:
       tags: [pages]
       summary: "GET /api/pages/projects/{projectId}/budgets"
       description: |
-        Registered at apps/react-web/server/pages.mjs:1522.
+        Registered at apps/console/server/pages.mjs:1522.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: projectId
@@ -3926,7 +3926,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/pages.mjs
+        file: apps/console/server/pages.mjs
         line: 1522
       x-body-schema: unmodelled
       responses:
@@ -3946,7 +3946,7 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/projects/{projectId}/budgets/remove"
       description: |
-        Registered at apps/react-web/server/pages.mjs:1582.
+        Registered at apps/console/server/pages.mjs:1582.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: projectId
@@ -3956,7 +3956,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/pages.mjs
+        file: apps/console/server/pages.mjs
         line: 1582
       x-body-schema: unmodelled
       responses:
@@ -3976,7 +3976,7 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/projects/{projectId}/budgets/save"
       description: |
-        Registered at apps/react-web/server/pages.mjs:1551.
+        Registered at apps/console/server/pages.mjs:1551.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: projectId
@@ -3986,7 +3986,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/pages.mjs
+        file: apps/console/server/pages.mjs
         line: 1551
       x-body-schema: unmodelled
       responses:
@@ -4006,7 +4006,7 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/projects/{projectId}/delete"
       description: |
-        Registered at apps/react-web/server/pages.mjs:875.
+        Registered at apps/console/server/pages.mjs:875.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: projectId
@@ -4016,7 +4016,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/pages.mjs
+        file: apps/console/server/pages.mjs
         line: 875
       x-body-schema: unmodelled
       responses:
@@ -4036,7 +4036,7 @@ paths:
       tags: [pages]
       summary: "GET /api/pages/projects/{projectId}/environments"
       description: |
-        Registered at apps/react-web/server/pages.mjs:1598.
+        Registered at apps/console/server/pages.mjs:1598.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: projectId
@@ -4046,7 +4046,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/pages.mjs
+        file: apps/console/server/pages.mjs
         line: 1598
       x-body-schema: unmodelled
       responses:
@@ -4066,7 +4066,7 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/projects/{projectId}/environments/create"
       description: |
-        Registered at apps/react-web/server/pages.mjs:1609.
+        Registered at apps/console/server/pages.mjs:1609.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: projectId
@@ -4076,7 +4076,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/pages.mjs
+        file: apps/console/server/pages.mjs
         line: 1609
       x-body-schema: unmodelled
       responses:
@@ -4096,7 +4096,7 @@ paths:
       tags: [pages]
       summary: "GET /api/pages/projects/{projectId}/keys"
       description: |
-        Registered at apps/react-web/server/pages.mjs:893.
+        Registered at apps/console/server/pages.mjs:893.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: projectId
@@ -4106,7 +4106,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/pages.mjs
+        file: apps/console/server/pages.mjs
         line: 893
       x-body-schema: unmodelled
       responses:
@@ -4126,7 +4126,7 @@ paths:
       tags: [pages]
       summary: "GET /api/pages/projects/{projectId}/keys/{keyId}"
       description: |
-        Registered at apps/react-web/server/pages.mjs:1629.
+        Registered at apps/console/server/pages.mjs:1629.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: projectId
@@ -4140,7 +4140,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/pages.mjs
+        file: apps/console/server/pages.mjs
         line: 1629
       x-body-schema: unmodelled
       responses:
@@ -4160,7 +4160,7 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/projects/{projectId}/keys/{keyId}/disable"
       description: |
-        Registered at apps/react-web/server/pages.mjs:1644.
+        Registered at apps/console/server/pages.mjs:1644.
         Expanded from the template `/api/pages/projects/:projectId/keys/:keyId/${kact}`.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
@@ -4175,7 +4175,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/pages.mjs
+        file: apps/console/server/pages.mjs
         line: 1644
       x-body-schema: unmodelled
       responses:
@@ -4195,7 +4195,7 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/projects/{projectId}/keys/{keyId}/enable"
       description: |
-        Registered at apps/react-web/server/pages.mjs:1644.
+        Registered at apps/console/server/pages.mjs:1644.
         Expanded from the template `/api/pages/projects/:projectId/keys/:keyId/${kact}`.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
@@ -4210,7 +4210,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/pages.mjs
+        file: apps/console/server/pages.mjs
         line: 1644
       x-body-schema: unmodelled
       responses:
@@ -4230,7 +4230,7 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/projects/{projectId}/keys/{keyId}/revoke"
       description: |
-        Registered at apps/react-web/server/pages.mjs:1644.
+        Registered at apps/console/server/pages.mjs:1644.
         Expanded from the template `/api/pages/projects/:projectId/keys/:keyId/${kact}`.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
@@ -4245,7 +4245,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/pages.mjs
+        file: apps/console/server/pages.mjs
         line: 1644
       x-body-schema: unmodelled
       responses:
@@ -4265,7 +4265,7 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/projects/{projectId}/keys/{keyId}/rotate"
       description: |
-        Registered at apps/react-web/server/pages.mjs:1644.
+        Registered at apps/console/server/pages.mjs:1644.
         Expanded from the template `/api/pages/projects/:projectId/keys/:keyId/${kact}`.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
@@ -4280,7 +4280,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/pages.mjs
+        file: apps/console/server/pages.mjs
         line: 1644
       x-body-schema: unmodelled
       responses:
@@ -4300,7 +4300,7 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/projects/{projectId}/keys/create"
       description: |
-        Registered at apps/react-web/server/pages.mjs:905.
+        Registered at apps/console/server/pages.mjs:905.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: projectId
@@ -4310,7 +4310,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/pages.mjs
+        file: apps/console/server/pages.mjs
         line: 905
       x-body-schema: unmodelled
       responses:
@@ -4330,7 +4330,7 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/projects/{projectId}/keys/disable"
       description: |
-        Registered at apps/react-web/server/pages.mjs:932.
+        Registered at apps/console/server/pages.mjs:932.
         Expanded from the template `/api/pages/projects/:projectId/keys/${st}`.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
@@ -4341,7 +4341,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/pages.mjs
+        file: apps/console/server/pages.mjs
         line: 932
       x-body-schema: unmodelled
       responses:
@@ -4361,7 +4361,7 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/projects/{projectId}/keys/enable"
       description: |
-        Registered at apps/react-web/server/pages.mjs:932.
+        Registered at apps/console/server/pages.mjs:932.
         Expanded from the template `/api/pages/projects/:projectId/keys/${st}`.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
@@ -4372,7 +4372,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/pages.mjs
+        file: apps/console/server/pages.mjs
         line: 932
       x-body-schema: unmodelled
       responses:
@@ -4392,7 +4392,7 @@ paths:
       tags: [pages]
       summary: "GET /api/pages/projects/{projectId}/limits"
       description: |
-        Registered at apps/react-web/server/pages.mjs:949.
+        Registered at apps/console/server/pages.mjs:949.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: projectId
@@ -4402,7 +4402,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/pages.mjs
+        file: apps/console/server/pages.mjs
         line: 949
       x-body-schema: unmodelled
       responses:
@@ -4422,7 +4422,7 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/projects/{projectId}/limits/remove"
       description: |
-        Registered at apps/react-web/server/pages.mjs:1061.
+        Registered at apps/console/server/pages.mjs:1061.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: projectId
@@ -4432,7 +4432,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/pages.mjs
+        file: apps/console/server/pages.mjs
         line: 1061
       x-body-schema: unmodelled
       responses:
@@ -4452,7 +4452,7 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/projects/{projectId}/limits/save"
       description: |
-        Registered at apps/react-web/server/pages.mjs:1023.
+        Registered at apps/console/server/pages.mjs:1023.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: projectId
@@ -4462,7 +4462,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/pages.mjs
+        file: apps/console/server/pages.mjs
         line: 1023
       x-body-schema: unmodelled
       responses:
@@ -4482,7 +4482,7 @@ paths:
       tags: [pages]
       summary: "GET /api/pages/projects/{projectId}/playground"
       description: |
-        Registered at apps/react-web/server/pages.mjs:1317.
+        Registered at apps/console/server/pages.mjs:1317.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: projectId
@@ -4492,7 +4492,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/pages.mjs
+        file: apps/console/server/pages.mjs
         line: 1317
       x-body-schema: unmodelled
       responses:
@@ -4512,7 +4512,7 @@ paths:
       tags: [pages]
       summary: "GET /api/pages/projects/{projectId}/requests"
       description: |
-        Registered at apps/react-web/server/pages.mjs:1181.
+        Registered at apps/console/server/pages.mjs:1181.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: projectId
@@ -4522,7 +4522,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/pages.mjs
+        file: apps/console/server/pages.mjs
         line: 1181
       x-body-schema: unmodelled
       responses:
@@ -4542,7 +4542,7 @@ paths:
       tags: [pages]
       summary: "GET /api/pages/projects/{projectId}/requests/{requestId}"
       description: |
-        Registered at apps/react-web/server/pages.mjs:1669.
+        Registered at apps/console/server/pages.mjs:1669.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: projectId
@@ -4556,7 +4556,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/pages.mjs
+        file: apps/console/server/pages.mjs
         line: 1669
       x-body-schema: unmodelled
       responses:
@@ -4576,7 +4576,7 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/projects/{projectId}/restore"
       description: |
-        Registered at apps/react-web/server/pages.mjs:853.
+        Registered at apps/console/server/pages.mjs:853.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: projectId
@@ -4586,7 +4586,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/pages.mjs
+        file: apps/console/server/pages.mjs
         line: 853
       x-body-schema: unmodelled
       responses:
@@ -4606,7 +4606,7 @@ paths:
       tags: [pages]
       summary: "GET /api/pages/projects/{projectId}/routing"
       description: |
-        Registered at apps/react-web/server/pages.mjs:1083.
+        Registered at apps/console/server/pages.mjs:1083.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: projectId
@@ -4616,7 +4616,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/pages.mjs
+        file: apps/console/server/pages.mjs
         line: 1083
       x-body-schema: unmodelled
       responses:
@@ -4636,7 +4636,7 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/projects/{projectId}/routing/create"
       description: |
-        Registered at apps/react-web/server/pages.mjs:1105.
+        Registered at apps/console/server/pages.mjs:1105.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: projectId
@@ -4646,7 +4646,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/pages.mjs
+        file: apps/console/server/pages.mjs
         line: 1105
       x-body-schema: unmodelled
       responses:
@@ -4666,7 +4666,7 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/projects/{projectId}/routing/delete"
       description: |
-        Registered at apps/react-web/server/pages.mjs:1161.
+        Registered at apps/console/server/pages.mjs:1161.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: projectId
@@ -4676,7 +4676,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/pages.mjs
+        file: apps/console/server/pages.mjs
         line: 1161
       x-body-schema: unmodelled
       responses:
@@ -4696,7 +4696,7 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/projects/{projectId}/routing/update"
       description: |
-        Registered at apps/react-web/server/pages.mjs:1127.
+        Registered at apps/console/server/pages.mjs:1127.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: projectId
@@ -4706,7 +4706,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/pages.mjs
+        file: apps/console/server/pages.mjs
         line: 1127
       x-body-schema: unmodelled
       responses:
@@ -4726,7 +4726,7 @@ paths:
       tags: [pages]
       summary: "GET /api/pages/projects/{projectId}/settings"
       description: |
-        Registered at apps/react-web/server/pages.mjs:1268.
+        Registered at apps/console/server/pages.mjs:1268.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: projectId
@@ -4736,7 +4736,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/pages.mjs
+        file: apps/console/server/pages.mjs
         line: 1268
       x-body-schema: unmodelled
       responses:
@@ -4756,7 +4756,7 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/projects/{projectId}/switch"
       description: |
-        Registered at apps/react-web/server/pages.mjs:863.
+        Registered at apps/console/server/pages.mjs:863.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: projectId
@@ -4766,7 +4766,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/pages.mjs
+        file: apps/console/server/pages.mjs
         line: 863
       x-body-schema: unmodelled
       responses:
@@ -4786,7 +4786,7 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/projects/{projectId}/update"
       description: |
-        Registered at apps/react-web/server/pages.mjs:819.
+        Registered at apps/console/server/pages.mjs:819.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: projectId
@@ -4796,7 +4796,7 @@ paths:
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/pages.mjs
+        file: apps/console/server/pages.mjs
         line: 819
       x-body-schema: unmodelled
       responses:
@@ -4816,12 +4816,12 @@ paths:
       tags: [pages]
       summary: "GET /api/pages/shell"
       description: |
-        Registered at apps/react-web/server/index.mjs:835.
+        Registered at apps/console/server/index.mjs:835.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/index.mjs
+        file: apps/console/server/index.mjs
         line: 835
       x-body-schema: unmodelled
       responses:
@@ -4841,7 +4841,7 @@ paths:
       tags: [palette]
       summary: "GET /api/palette/{type}"
       description: |
-        Registered at apps/react-web/server/index.mjs:666.
+        Registered at apps/console/server/index.mjs:666.
         PUBLIC — rate-limited by client IP (_publicRead).
       parameters:
         - name: type
@@ -4850,7 +4850,7 @@ paths:
           schema: { type: string }
       security: []
       x-source:
-        file: apps/react-web/server/index.mjs
+        file: apps/console/server/index.mjs
         line: 666
       x-body-schema: unmodelled
       responses:
@@ -4870,12 +4870,12 @@ paths:
       tags: [playground]
       summary: "POST /api/playground/stream"
       description: |
-        Registered at apps/react-web/server/playground.mjs:323.
+        Registered at apps/console/server/playground.mjs:323.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/playground.mjs
+        file: apps/console/server/playground.mjs
         line: 323
       x-body-schema: unmodelled
       responses:
@@ -4895,11 +4895,11 @@ paths:
       tags: [pricing]
       summary: "GET /api/pricing"
       description: |
-        Registered at apps/react-web/server/public.mjs:1342.
+        Registered at apps/console/server/public.mjs:1342.
         PUBLIC — rate-limited by client IP (_publicRead).
       security: []
       x-source:
-        file: apps/react-web/server/public.mjs
+        file: apps/console/server/public.mjs
         line: 1342
       x-body-schema: unmodelled
       responses:
@@ -4919,11 +4919,11 @@ paths:
       tags: [providers]
       summary: "GET /api/providers"
       description: |
-        Registered at apps/react-web/server/public.mjs:1238.
+        Registered at apps/console/server/public.mjs:1238.
         PUBLIC — rate-limited by client IP (_publicRead).
       security: []
       x-source:
-        file: apps/react-web/server/public.mjs
+        file: apps/console/server/public.mjs
         line: 1238
       x-body-schema: unmodelled
       responses:
@@ -4943,7 +4943,7 @@ paths:
       tags: [providers]
       summary: "GET /api/providers/{slug}"
       description: |
-        Registered at apps/react-web/server/public.mjs:1244.
+        Registered at apps/console/server/public.mjs:1244.
         PUBLIC — rate-limited by client IP (_publicRead).
       parameters:
         - name: slug
@@ -4952,7 +4952,7 @@ paths:
           schema: { type: string }
       security: []
       x-source:
-        file: apps/react-web/server/public.mjs
+        file: apps/console/server/public.mjs
         line: 1244
       x-body-schema: unmodelled
       responses:
@@ -4972,11 +4972,11 @@ paths:
       tags: [status]
       summary: "GET /api/status"
       description: |
-        Registered at apps/react-web/server/public.mjs:1371.
+        Registered at apps/console/server/public.mjs:1371.
         PUBLIC — rate-limited by client IP (_publicRead).
       security: []
       x-source:
-        file: apps/react-web/server/public.mjs
+        file: apps/console/server/public.mjs
         line: 1371
       x-body-schema: unmodelled
       responses:
@@ -4996,7 +4996,7 @@ paths:
       tags: [status]
       summary: "GET /api/status/incidents/{id}"
       description: |
-        Registered at apps/react-web/server/public.mjs:1423.
+        Registered at apps/console/server/public.mjs:1423.
         PUBLIC — rate-limited by client IP (_publicRead).
       parameters:
         - name: id
@@ -5005,7 +5005,7 @@ paths:
           schema: { type: string }
       security: []
       x-source:
-        file: apps/react-web/server/public.mjs
+        file: apps/console/server/public.mjs
         line: 1423
       x-body-schema: unmodelled
       responses:
@@ -5025,12 +5025,12 @@ paths:
       tags: [seo]
       summary: "GET /robots.txt"
       description: |
-        Registered at apps/react-web/server/index.mjs:945.
+        Registered at apps/console/server/index.mjs:945.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/index.mjs
+        file: apps/console/server/index.mjs
         line: 945
       x-body-schema: unmodelled
       responses:
@@ -5050,12 +5050,12 @@ paths:
       tags: [seo]
       summary: "GET /sitemap.xml"
       description: |
-        Registered at apps/react-web/server/index.mjs:949.
+        Registered at apps/console/server/index.mjs:949.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
-        file: apps/react-web/server/index.mjs
+        file: apps/console/server/index.mjs
         line: 949
       x-body-schema: unmodelled
       responses:

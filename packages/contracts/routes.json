@@ -13,43 +13,43 @@
       "method": "*",
       "path": "/v1/",
       "handler": "p.ServeGeneric",
-      "file": "services/router/internal/proxy/proxy.go"
+      "file": "apps/router/internal/proxy/proxy.go"
     },
     {
       "method": "GET",
       "path": "/health",
       "handler": "health",
-      "file": "services/router/internal/proxy/proxy.go"
+      "file": "apps/router/internal/proxy/proxy.go"
     },
     {
       "method": "GET",
       "path": "/v1/models",
       "handler": "p.ServeModels",
-      "file": "services/router/internal/proxy/proxy.go"
+      "file": "apps/router/internal/proxy/proxy.go"
     },
     {
       "method": "GET",
       "path": "/v1/models/",
       "handler": "p.ServeModel",
-      "file": "services/router/internal/proxy/proxy.go"
+      "file": "apps/router/internal/proxy/proxy.go"
     },
     {
       "method": "POST",
       "path": "/v1/chat/completions",
       "handler": "p.ServeCompletions",
-      "file": "services/router/internal/proxy/proxy.go"
+      "file": "apps/router/internal/proxy/proxy.go"
     },
     {
       "method": "POST",
       "path": "/v1/messages",
       "handler": "p.ServeMessages",
-      "file": "services/router/internal/proxy/proxy.go"
+      "file": "apps/router/internal/proxy/proxy.go"
     },
     {
       "method": "POST",
       "path": "/v1/messages/count_tokens",
       "handler": "p.ServeCountTokens",
-      "file": "services/router/internal/proxy/proxy.go"
+      "file": "apps/router/internal/proxy/proxy.go"
     }
   ],
   "management": [
@@ -1286,12 +1286,12 @@
     }
   ],
   "sources": {
-    "apps/react-web/server/admin.mjs": "a8befbf9ec3440fabe9995f802dfea58f43c6cdda90dc07aa469a7d0090d51ef",
-    "apps/react-web/server/index.mjs": "b483c2c2140b19bd92f6fc4d30efe06c9ff8801c1aaa2a50aac40ff3801222c1",
-    "apps/react-web/server/pages.mjs": "863ea90ce7fc5eef1b6ea0f6f629ced1854dc72f09a783f4684361c9485b6534",
-    "apps/react-web/server/playground.mjs": "351dd2cfa5dbb2f4bc0d1926c54820aa5d979873b34859fdf3072e9925ffb07d",
-    "apps/react-web/server/public.mjs": "769b53d2570bb397cd33ce479164ecaf9d0a8f06db9e7ed08d5015084bd36775",
-    "apps/react-web/server/rate-limit.mjs": "13e192bdb361642c374ffa660fce076940e7c345752c203b6182f5d0f817550f",
-    "services/router/internal/proxy/proxy.go": "5edd904847d1ad4e8ea04750083a93a40b7c062fa34cb7efa820f3ba292188d5"
+    "apps/console/server/admin.mjs": "ea8e7df4d9593f69846d800cd90e1bd00675d8a42dd59b91c2aa1fb338425544",
+    "apps/console/server/index.mjs": "de6b428fb39299b808d90738b6ba174a553751513df2904c3bd4415c636db34d",
+    "apps/console/server/pages.mjs": "3abc6c0110daae8995af971b04fdae58c666c39c0cda7c66105bb2823a79e678",
+    "apps/console/server/playground.mjs": "351dd2cfa5dbb2f4bc0d1926c54820aa5d979873b34859fdf3072e9925ffb07d",
+    "apps/console/server/public.mjs": "769b53d2570bb397cd33ce479164ecaf9d0a8f06db9e7ed08d5015084bd36775",
+    "apps/console/server/rate-limit.mjs": "72545a3d910a086142a322a28938fb01b4f81cff750225afd39915e3203e3bbd",
+    "apps/router/internal/proxy/proxy.go": "cbd17ac1f3b9f693f5db17c3eb387db30984004cdac5e42de307c7d9e93676ff"
   }
 }

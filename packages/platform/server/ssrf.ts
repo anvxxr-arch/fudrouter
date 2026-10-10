@@ -5,7 +5,7 @@ import { lookup } from 'node:dns/promises';
  * SSRF guard for admin-initiated requests to a provider's base_url.
  *
  * The router already refuses to dial loopback/RFC1918/link-local/CGNAT
- * (services/router/internal/proxy/guard.go, enforced at the socket via
+ * (apps/router/internal/proxy/guard.go, enforced at the socket via
  * net.Dialer.Control). This is the same rule for the web side, which fetches
  * with the global fetch and therefore has no dial hook to hang the check on.
  *

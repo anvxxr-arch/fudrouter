@@ -10,9 +10,9 @@
 //
 // Read-only apart from the handler's own writes. Usage:
 //   set -a && . .env && set +a && node scratch/verify-credential-cooldown.mjs
-import { installTsHooks, libUrl } from '/home/dwizzy/fudrouter/scripts/ts-hooks.mjs';
+import { installTsHooks, libUrl } from '/home/dwizzy/fudrouter/packages/platform/ts-hooks.mjs';
 
-const { libRoot } = installTsHooks('/home/dwizzy/fudrouter/scripts');
+const { libRoot } = installTsHooks();
 
 const { db } = await import(libUrl(libRoot, 'server/db/index.ts'));
 const { JOB_HANDLERS } = await import(libUrl(libRoot, 'server/workers.ts'));
@@ -20,7 +20,7 @@ const { credential } = await import(libUrl(libRoot, 'server/db/schema.ts'));
 const { eq, sql } = await import('drizzle-orm');
 
 // The router's own predicate, in SQL, so "usable" here means what the data plane
-// means by it (services/router/internal/store).
+// means by it (apps/router/internal/store).
 const USABLE = sql`status not in ('disabled','invalid') and (cooldown_until is null or cooldown_until <= now())`;
 
 const connArg = process.argv[2] ?? '';

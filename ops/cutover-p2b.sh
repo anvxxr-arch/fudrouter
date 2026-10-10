@@ -72,18 +72,29 @@ grep -q "apps/workers" "$ECO" && ok "workers script updated"     || bad "workers
 grep -q "apps/scheduler" "$ECO" && ok "scheduler script updated" || bad "scheduler still on scripts/run-scheduler.sh"
 
 echo
-echo "=== 4. external references (the part a repo-only refactor misses) ==="
+echo "=== 4. external references -- the ones --apply rewrites ==="
+# These must still hold the OLD path: the seds in steps 6 and 7 are what change
+# them. Testing for the NEW path here would deadlock the script -- --check would
+# fail until --apply had run, and --apply refuses while --check fails.
 CT="$(crontab -l 2>/dev/null || true)"
-echo "$CT" | grep -q 'fudrouter/ops/backup-db.sh' \
-	&& ok "crontab points at ops/backup-db.sh" \
-	|| bad "crontab still points at scripts/backup-db.sh — nightly DB backup would silently stop"
+if echo "$CT" | grep -q 'fudrouter/scripts/backup-db.sh'; then
+	ok "crontab: scripts/backup-db.sh found -> will rewrite to ops/"
+elif echo "$CT" | grep -q 'fudrouter/ops/backup-db.sh'; then
+	note "crontab: already on ops/backup-db.sh (re-run, no change)"
+else
+	bad "crontab: no backup-db.sh entry at all -- nightly DB backup is NOT configured"
+fi
 UNITS=(gonka24-merge tt-merge freeai-merge mingles-merge)
 for u in "${UNITS[@]}"; do
 	f="$HOME/.config/systemd/user/$u.service"
-	[ -f "$f" ] || { note "$u.service absent, skipping"; continue; }
-	grep -q 'fudrouter/ops/onboard-' "$f" \
-		&& ok "$u.service points at ops/onboard-*" \
-		|| bad "$u.service still points at scripts/onboard-*"
+	if [ ! -f "$f" ]; then note "$u.service absent, skipping"; continue; fi
+	if grep -q 'fudrouter/scripts/onboard-' "$f"; then
+		ok "$u.service: scripts/onboard-* found -> will rewrite to ops/"
+	elif grep -q 'fudrouter/ops/onboard-' "$f"; then
+		note "$u.service: already on ops/ (re-run, no change)"
+	else
+		bad "$u.service: no onboard-* ExecStart -- was the unit ever rewired?"
+	fi
 done
 
 echo
@@ -109,9 +120,10 @@ pm2 start ecosystem.config.cjs || { echo "FATAL: pm2 start failed."; exit 1; }
 pm2 save || { echo "FATAL: pm2 save failed — dump.pm2 still holds old paths."; exit 1; }
 
 echo
-echo "=== 6. crontab (backup first) ==="
-cp <(echo "$CT") /tmp/fudrouter-crontab.bak 2>/dev/null || true
-echo "$CT" | sed 's|fudrouter/scripts/backup-db.sh|fudrouter/ops/backup-db.sh|' | crontab -
+echo "=== 6. crontab (keep the old copy, and a timestamped one) ==="
+printf '%s\n' "$CT" > /tmp/fudrouter-crontab.bak
+cp /tmp/fudrouter-crontab.bak "/tmp/fudrouter-crontab.bak.$(date -u +%Y%m%d-%H%M%S)"
+printf '%s\n' "$CT" | sed 's|fudrouter/scripts/backup-db.sh|fudrouter/ops/backup-db.sh|' | crontab -
 crontab -l | grep backup-db.sh
 
 echo
@@ -128,6 +140,10 @@ done
 
 echo
 echo "=== 8. verify ==="
+# The console pins its port from .env.console; if the rename missed, it starts on
+# the index.mjs default (3000) instead of 3002 and the public host breaks. Check
+# the file exists before trusting the curl below.
+[ -f .env.console ] && ok ".env.console present" || bad ".env.console missing -- console would start on the wrong port"
 bash ops/verify/pm2-env-hygiene.sh
 sleep 3
 curl -fsS -o /dev/null -w '  router  /health -> %{http_code}\n' http://127.0.0.1:8100/health || echo "  router /health FAILED"

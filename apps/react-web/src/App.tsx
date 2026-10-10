@@ -1,5 +1,5 @@
-import { lazy } from 'react';
-import { BrowserRouter, Route, Routes, useParams } from 'react-router-dom';
+import { lazy, useEffect } from 'react';
+import { BrowserRouter, Link, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { RequireAuth, RequireRouteCap } from './components/guards';
 import { LoginPage, SignupPage } from './routes/Auth';
@@ -41,9 +41,43 @@ function ProjectSubRoute() {
   const { name } = useParams();
   return <ProjectSubPage name={name ?? ''} />;
 }
+const TITLES: [RegExp, string][] = [
+  [/^\/models\/compare/, 'Compare models — fudrouter'],
+  [/^\/models\//, 'Model detail — fudrouter'],
+  [/^\/models/, 'Models — fudrouter'],
+  [/^\/providers\//, 'Provider detail — fudrouter'],
+  [/^\/providers/, 'Providers — fudrouter'],
+  [/^\/pricing/, 'Pricing — fudrouter'],
+  [/^\/playground/, 'Playground — fudrouter'],
+  [/^\/docs/, 'Docs — fudrouter'],
+  [/^\/status/, 'Status — fudrouter'],
+  [/^\/changelog/, 'Changelog — fudrouter'],
+  [/^\/login/, 'Log in — fudrouter'],
+  [/^\/signup/, 'Create your account — fudrouter'],
+  [/^\/dashboard/, 'Dashboard — fudrouter'],
+  [/^\/admin/, 'Admin — fudrouter'],
+];
+function RouteTitles() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    const hit = TITLES.find(([re]) => re.test(pathname));
+    document.title = hit ? hit[1] : 'fudrouter — one API key, every model';
+  }, [pathname]);
+  return null;
+}
+function NotFoundPage() {
+  return (
+    <div className="stack">
+      <h1>Page not found</h1>
+      <p className="muted">No page lives at this URL.</p>
+      <p><Link to="/">Back to home.</Link></p>
+    </div>
+  );
+}
 export default function App() {
   return (
     <BrowserRouter>
+      <RouteTitles />
       <Routes>
         <Route element={<Layout />}>
           <Route index element={<HomePage />} />
@@ -84,6 +118,7 @@ export default function App() {
           <Route path="admin" element={<RequireRouteCap><AdminHome /></RequireRouteCap>} />
           <Route path="admin/:name" element={<RequireRouteCap><AdminSectionRoute /></RequireRouteCap>} />
           <Route path="admin/:section/:id" element={<RequireRouteCap><AdminDetail /></RequireRouteCap>} />
+          <Route path="*" element={<NotFoundPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

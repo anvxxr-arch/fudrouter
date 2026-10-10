@@ -24,7 +24,7 @@ export function StatusPage() {
       else setError(true);
     });
   }, []);
-  if (error) return <div className="stack"><h1>Status</h1><p className="error">The status page could not be loaded — reload in a moment.</p></div>;
+  if (error) return <div className="stack"><h1>Status</h1><p className="error" role="alert">The status page could not be loaded — reload in a moment.</p></div>;
   if (!data) return <div className="stack"><h1>Status</h1><p className="muted">Checking the data plane…</p></div>;
   return (
     <Reveal>

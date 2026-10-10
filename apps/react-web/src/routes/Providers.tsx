@@ -19,7 +19,7 @@ export function ProvidersPage() {
       <div className="stack">
         <h1>Providers</h1>
         <p className="lede muted">The upstream AI providers this network routes to, and how each one is doing.</p>
-        {error ? <p className="error">The provider directory could not be loaded — reload in a moment.</p> : null}
+        {error ? <p className="error" role="alert">The provider directory could not be loaded — reload in a moment.</p> : null}
         <div className="table-wrap">
           <Table
             head={['Provider', 'Status', 'Models', 'Latency (P50 / P95)', 'Availability']}

@@ -9,7 +9,7 @@ import { Table } from "../components/ui/table";
 const SECTIONS = ["analytics","billing","connections","health","incidents","keys","models","projects","providers","requests","routing","security","settings","system","traffic","users","workspaces"];
 
 export function AdminNav() {
-  return (<nav className="row" style={{ flexWrap: "wrap" }}>
+  return (<nav className="row" aria-label="Admin" style={{ flexWrap: "wrap" }}>
     <Link to="/admin"><Button variant="ghost" size="sm">Overview</Button></Link>
     {SECTIONS.map((s) => <Link key={s} to={"/admin/" + s}><Button variant="ghost" size="sm">{s}</Button></Link>)}
   </nav>);
@@ -63,8 +63,8 @@ function AnalyticsView() {
   const { d, err } = useLoad<Analytics>("/api/admin/analytics" + (qs ? "?" + qs : ""));
   return (<>
     <form className="row" onSubmit={(e) => e.preventDefault()}>
-      <Input placeholder="from YYYY-MM-DD" value={from} onChange={(e) => setFrom(e.currentTarget.value)} />
-      <Input placeholder="to YYYY-MM-DD" value={to} onChange={(e) => setTo(e.currentTarget.value)} />
+      <Input aria-label="from YYYY-MM-DD" placeholder="from YYYY-MM-DD" value={from} onChange={(e) => setFrom(e.currentTarget.value)} />
+      <Input aria-label="to YYYY-MM-DD" placeholder="to YYYY-MM-DD" value={to} onChange={(e) => setTo(e.currentTarget.value)} />
     </form>
     <State err={err} d={d}>{(v: Analytics) => (<>
       <Card desc={"Window " + v.from + " → " + v.to + " · source: " + (v.usingRollups ? "usage_daily rollups" : "request_log fallback")} />
@@ -103,7 +103,7 @@ type Health = { providers: { id: string; name: string; status: string; requests:
 function HealthView() {
   const { d, err } = useLoad<Health>("/api/admin/health");
   return (<State err={err} d={d}>{(v: Health) => (<>
-    <Card title="Observed outcomes" desc="Last 24h from the request log — not synthetic probes." />
+    <Card titleAs="h2" title="Observed outcomes" desc="Last 24h from the request log — not synthetic probes." />
     <h2>Providers</h2>
     <Table head={["Provider", "Status", "Req/OK", "p95 ms", "Error mix"]} rows={v.providers.map((p) => [p.name, p.status, p.requests + "/" + p.successes, String(p.p95), p.errorMix.map((e) => e.code + "×" + e.n).join(", ") || "—"])} />
     <h2>Connections</h2>
@@ -167,8 +167,8 @@ function RequestsView() {
   const { d, err } = useLoad<Requests>("/api/admin/requests" + (qs ? "?" + qs : ""));
   return (<>
     <form className="row" onSubmit={(e) => e.preventDefault()}>
-      <Input placeholder="status filter" value={status} onChange={(e) => setStatus(e.currentTarget.value)} />
-      <Input placeholder="model filter" value={model} onChange={(e) => setModel(e.currentTarget.value)} />
+      <Input aria-label="status filter" placeholder="status filter" value={status} onChange={(e) => setStatus(e.currentTarget.value)} />
+      <Input aria-label="model filter" placeholder="model filter" value={model} onChange={(e) => setModel(e.currentTarget.value)} />
     </form>
     <State err={err} d={d}>{(v: Requests) => (
       <Table head={["ID", "At", "User", "Model", "Provider", "Status", "Latency", "Tokens", "Cost"]} rows={v.rows.map((r) => [r.id.slice(0, 12) + "…", fmtDate(r.createdAt), r.email ?? "—", r.modelSlug ?? r.requestedModel ?? "—", r.providerName ?? "—", r.errorCode ? r.status + ":" + r.errorCode : r.status, String(r.latencyMs), (r.tokensIn + r.tokensOut).toString(), fmtUsd(r.cost)])} />
@@ -180,7 +180,7 @@ type Routing = { policies: { id: string; name: string; strategy: string; enabled
 function RoutingView() {
   const { d, err } = useLoad<Routing>("/api/admin/routing");
   return (<State err={err} d={d}>{(v: Routing) => (<>
-    <Card title="Platform default" desc={v.platformDefaultName ?? v.platformDefaultId ?? "none"} />
+    <Card titleAs="h2" title="Platform default" desc={v.platformDefaultName ?? v.platformDefaultId ?? "none"} />
     <h2>Policies</h2>
     <Table head={["Name", "Scope", "Strategy", "Enabled", "Attempts", "Fallback"]} rows={v.policies.map((p) => [p.name, p.scopeName, p.strategy, String(p.enabled), String(p.maxAttempts), String(p.fallbackEnabled)])} />
     <h2>Resolution chain (environment → policy)</h2>
@@ -201,11 +201,11 @@ function SettingsView() {
   const { d, err } = useLoad<Settings>("/api/admin/settings");
   return (<State err={err} d={d}>{(v: Settings) => (<>
     <div className="row" style={{ flexWrap: "wrap" }}>
-      <Card title="maintenance" desc={String(v.maintenance)} />
-      <Card title="generic_passthrough" desc={String(v.genericPassthrough)} />
-      <Card title="registration" desc={String(v.registration)} />
-      <Card title="default_routing_policy" desc={v.defaultRoutingPolicyId || "none"} />
-      <Card title="hard limits" desc={"rpm " + v.hardLimits.rpm + " · tpm " + v.hardLimits.tpm + " · concurrency " + v.hardLimits.concurrency} />
+      <Card titleAs="h2" title="maintenance" desc={String(v.maintenance)} />
+      <Card titleAs="h2" title="generic_passthrough" desc={String(v.genericPassthrough)} />
+      <Card titleAs="h2" title="registration" desc={String(v.registration)} />
+      <Card titleAs="h2" title="default_routing_policy" desc={v.defaultRoutingPolicyId || "none"} />
+      <Card titleAs="h2" title="hard limits" desc={"rpm " + v.hardLimits.rpm + " · tpm " + v.hardLimits.tpm + " · concurrency " + v.hardLimits.concurrency} />
     </div>
     <h2>Retention (days)</h2>
     <Table head={["Scope", "Days"]} rows={Object.entries(v.retention).map(([k, n]) => [k, String(n)])} />
@@ -221,9 +221,9 @@ function SystemView() {
   const { d, err } = useLoad<System>("/api/admin/system");
   return (<State err={err} d={d}>{(v: System) => (<>
     <div className="row" style={{ flexWrap: "wrap" }}>
-      <Card title="database" desc={v.database ? v.database.size + " · " + v.database.connections + " conns" : "unavailable"} />
-      <Card title="valkey" desc={v.valkey} />
-      <Card title="job backlog" desc={String(v.backlog)} />
+      <Card titleAs="h2" title="database" desc={v.database ? v.database.size + " · " + v.database.connections + " conns" : "unavailable"} />
+      <Card titleAs="h2" title="valkey" desc={v.valkey} />
+      <Card titleAs="h2" title="job backlog" desc={String(v.backlog)} />
     </div>
     <h2>Jobs by status</h2>
     <Table head={["Status", "Count"]} rows={v.jobCounts.map((j) => [j.status, String(j.n)])} />
@@ -238,7 +238,7 @@ type Traffic = { hard: { rpm: number; tpm: number; concurrency: number } | null 
 function TrafficView() {
   const { d, err } = useLoad<Traffic>("/api/admin/traffic");
   return (<State err={err} d={d}>{(v: Traffic) => (
-    <Card title="Platform hard limits" desc={v.hard ? "rpm " + v.hard.rpm + " · tpm " + v.hard.tpm + " · concurrency " + v.hard.concurrency : "not set — no platform ceiling configured"} />
+    <Card titleAs="h2" title="Platform hard limits" desc={v.hard ? "rpm " + v.hard.rpm + " · tpm " + v.hard.tpm + " · concurrency " + v.hard.concurrency : "not set — no platform ceiling configured"} />
   )}</State>);
 }
 

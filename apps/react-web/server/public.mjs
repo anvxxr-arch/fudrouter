@@ -1172,7 +1172,24 @@ export function registerPublicRoutes(app, ctx) {
 		res.json({ metrics, sampleModels });
 	}));
 
-	// Catalog (models): query params mirror the public filters.
+	// Field Web-Vitals beacon (src/lib/vitals.ts, 10% sample). Best-effort:
+	// validates bounds, logs, never throws. No PII — path + numbers only.
+	app.post('/api/metrics/vitals', (req, res) => {
+		try {
+			const b = req.body && typeof req.body === 'object' ? req.body : {};
+			const num = (v, lo, hi) => (typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi ? v : null);
+			const vitals = {
+				path: String(b.path ?? '').slice(0, 120),
+				cls: num(b.cls, 0, 10), lcp: num(b.lcp, 0, 120000),
+				inp: num(b.inp, 0, 60000), fcp: num(b.fcp, 0, 120000),
+				ttfb: num(b.ttfb, 0, 120000),
+			};
+			if (vitals.path && (vitals.lcp !== null || vitals.cls !== null)) {
+				console.log('[vitals]', JSON.stringify(vitals));
+			}
+		} catch { /* beacon must never fail the page */ }
+		res.json({ ok: true });
+	});
 	app.get('/api/models', handler(async (database, req, res) => {
 		const models = await servedModels(database);
 		const q = req.query ?? {};

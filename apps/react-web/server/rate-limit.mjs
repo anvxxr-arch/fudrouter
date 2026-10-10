@@ -1,4 +1,8 @@
 // In-process fixed-window rate limiter (no dependencies).
+// Single-instance deployment (one PM2 process per app): in-process buckets are
+// correct here. If the control plane ever scales horizontally, back this with
+// Valkey (INCR + PEXPIRE, see shared/control-lib/server/vk.ts allowRate) —
+// until then a Redis dependency would add failure modes for zero benefit.
 // One bucket per key (session user id, else request IP), scoped to ONE limiter
 // instance: the map is created per `rateLimit()` call, so two limiters that
 // derive the same key for a client (e.g. the strict and loose `/api/auth`

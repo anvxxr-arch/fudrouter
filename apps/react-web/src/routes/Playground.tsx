@@ -11,6 +11,7 @@ export function PlaygroundPage() {
   const [models, setModels] = useState<Model[]>([]);
   const [loadError, setLoadError] = useState(false);
   const [model, setModel] = useState('');
+  const [filter, setFilter] = useState('');
   const [prompt, setPrompt] = useState('Say OK.');
   const [streaming, setStreaming] = useState(false);
   const [text, setText] = useState('');
@@ -79,19 +80,24 @@ export function PlaygroundPage() {
       <div className="stack">
         <h1>Playground</h1>
         <p className="lede muted">Run a real request through the router — same auth, limits, routing and billing as production.</p>
-        {loadError ? <p className="error">The model catalog could not be loaded — reload in a moment.</p> : null}
+        {loadError ? <p className="error" role="alert">The model catalog could not be loaded — reload in a moment.</p> : null}
         <div className="panels">
           <section>
             <h2>Configuration</h2>
+            <label className="muted">Filter models
+              <Input value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Filter models" placeholder="type to filter" style={{ display: 'block', width: '100%' }} />
+            </label>
             <label className="muted">Model
-              <select value={model} onChange={(e) => setModel(e.target.value)} style={{ display: 'block', width: '100%', height: 'var(--control-h-md)' }}>
-                {models.map((m) => <option key={m.slug} value={m.slug}>{m.name}</option>)}
+              <select value={model} onChange={(e) => setModel(e.target.value)} aria-label="Model" style={{ display: 'block', width: '100%', height: 'var(--control-h-md)' }}>
+                {models.filter((m) => filter.trim() === '' || m.name.toLowerCase().includes(filter.trim().toLowerCase()) || m.slug.toLowerCase().includes(filter.trim().toLowerCase())).map((m) => <option key={m.slug} value={m.slug}>{m.name}</option>)}
               </select>
             </label>
           </section>
           <section>
             <h2>Prompt</h2>
-            <Input value={prompt} onChange={(e) => setPrompt(e.target.value)} aria-label="User prompt" />
+            <label className="muted">User prompt
+              <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} aria-label="User prompt" rows={5} style={{ display: 'block', width: '100%' }} />
+            </label>
             <div className="row" style={{ marginTop: 'var(--space-md)' }}>
               <Button onClick={() => void run()} disabled={streaming || model === ''}>{streaming ? 'Running…' : 'Run (stream)'}</Button>
             </div>

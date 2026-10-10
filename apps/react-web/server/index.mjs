@@ -561,6 +561,12 @@ function paletteParams(url) {
 
 // ------------------------------------------------------------------ app -----
 const app = express();
+app.disable('x-powered-by');
+// Security headers (X-Content-Type-Options, X-Frame-Options,
+// Referrer-Policy, CSP) are owned SOLELY by Caddy (header block in the
+// Caddyfile): emitting them here too would send duplicates. Only the
+// fingerprint stays off here; HSTS/CSP stay at the edge (Caddy/cloudflared)
+// so the app never contradicts the TLS terminator.
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 
 // ------------------------------------------------------- rate limiting ----
@@ -581,8 +587,11 @@ app.use('/api/auth', (req, res, next) => {
 // the raw body stream stays intact for the Web Request we forward).
 app.all('/api/auth/{*path}', async (req, res) => {
 	try {
-		const proto = req.headers['x-forwarded-proto'] || req.protocol || 'http';
-		const url = `${proto}://${req.get('host')}${req.originalUrl}`;
+		// The origin better-auth sees is fixed to ORIGIN, never derived from
+		// the request Host header: Host is attacker-controllable and would
+		// otherwise poison origin/redirect checks (reset links, OAuth
+		// redirect_uri, CSRF-origin validation).
+		const url = `${ORIGIN}${req.originalUrl}`;
 		const headers = new Headers();
 		for (const [k, v] of Object.entries(req.headers)) {
 			if (v === undefined || k === 'content-length' || k === 'connection') continue;
@@ -617,13 +626,34 @@ app.all('/api/auth/{*path}', async (req, res) => {
 });
 
 app.use(express.json({ limit: '1mb' }));
+// Malformed JSON otherwise reaches Express's default HTML error page (with a
+// stack trace when NODE_ENV is unset). API callers get JSON, never HTML.
+app.use((err, req, res, next) => {
+  if (req.path.startsWith('/api/')) {
+    const status = err && typeof err.status === 'number' ? err.status : 400;
+    return res.status(status).json({ error: 'Invalid request body' });
+  }
+  next(err);
+});
 
 // Rate limiting for the authenticated surfaces: keyed on the session user id
 // when one is present, else the real client IP, so shared NATs count together.
 const _limitKey = async (req) => {
-	try { const u = await getSessionUser(req); if (u?.id) return `u:${u.id}`; } catch {}
-	return _ipKey(req);
+  try { const u = await getSessionUser(req); if (u?.id) return `u:${u.id}`; } catch {}
+  return _ipKey(req);
 };
+// Public read surfaces are DB-backed aggregates; cap them per IP so one client
+// cannot amplify into Postgres unbounded. Generous ceiling: normal browsing
+// never approaches it.
+const _publicRead = rateLimit({ windowMs: 60_000, max: 600, key: _ipKey });
+app.use('/api/models', _publicRead);
+app.use('/api/providers', _publicRead);
+app.use('/api/pricing', _publicRead);
+app.use('/api/metrics', _publicRead);
+app.use('/api/status', _publicRead);
+app.use('/api/docs', _publicRead);
+app.use('/api/changelog', _publicRead);
+app.use('/api/palette', _publicRead);
 app.use('/api/pages', rateLimit({ windowMs: 60_000, max: 300, key: _limitKey }));
 app.use('/api/admin', rateLimit({ windowMs: 60_000, max: 300, key: _limitKey }));
 app.use('/api/playground', rateLimit({ windowMs: 60_000, max: 10, key: _limitKey }));
@@ -902,10 +932,30 @@ registerAdminRoutes(app, { needDb, authedUser, requireCap, HttpError });
 registerPages(app, { getDb: () => db, needDb, authedUser, requireCap, requireMemberPermission, currentWorkspaceId, parseCookies, newId, writeAudit, ID_PREFIXES, HttpError });
 registerPublicRoutes(app, { needDb, HttpError });
 
-// Generic page-mirror fallback so React useLoad() calls degrade to empty data, never 404 HTML.
-app.get('/api/pages/{*path}', (req, res) => res.json({ empty: true }));
+// Unknown page APIs are a contract break (typo, removed endpoint): 404 + log,
+// never a silent 200 {empty:true} that the client renders as an empty state.
+app.get('/api/pages/{*path}', (req, res) => {
+  console.warn('[pages] unknown endpoint', req.path);
+  res.status(404).json({ error: 'Unknown endpoint' });
+});
+
+// Crawler files must precede the SPA fallback, which would otherwise serve
+// index.html with a 200 for these paths.
+const SITE_ROUTES = ['', '/models', '/providers', '/pricing', '/playground', '/docs', '/status', '/changelog', '/login', '/signup'];
+app.get('/robots.txt', (req, res) => {
+  const origin = `${req.protocol}://${req.get('host')}`;
+  res.type('text/plain').send(`User-agent: *\nAllow: /\nSitemap: ${origin}/sitemap.xml\n`);
+});
+app.get('/sitemap.xml', (req, res) => {
+  const origin = `${req.protocol}://${req.get('host')}`;
+  const urls = SITE_ROUTES.map((r) => `  <url><loc>${origin}${r || '/'}</loc></url>`).join('\n');
+  res.type('application/xml').send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>`);
+});
 
 // --- static React build ---
+// Hashed /assets/* files are content-addressed: immutable 1y. index.html and
+// all other paths keep the default (revalidate) so deploys take effect.
+app.use('/assets', express.static(path.join(DIST, 'assets'), { maxAge: '1y', immutable: true }));
 app.use(express.static(DIST));
 app.get('{*path}', async (req, res, next) => {
 	if (req.path.startsWith('/api/')) return next();

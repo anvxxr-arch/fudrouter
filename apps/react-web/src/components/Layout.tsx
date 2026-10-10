@@ -26,7 +26,6 @@ export function Layout() {
               key={l.to}
               to={l.to}
               className={({ isActive }) => (isActive ? 'active' : undefined)}
-              aria-current={undefined}
             >
               {l.label}
             </NavLink>
@@ -40,7 +39,7 @@ export function Layout() {
       </header>
       <main className="shell">
         <div id="content">
-          <Suspense fallback={<p className="muted">Loading…</p>}>
+          <Suspense fallback={<p className="muted" role="status" aria-live="polite">Loading…</p>}>
             <Outlet />
           </Suspense>
         </div>

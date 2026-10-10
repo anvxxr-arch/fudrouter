@@ -1,25 +1,41 @@
 /**
  * Compat API client. Base /api served by the Express compat server (S1b);
  * JSON shapes mirror the control-plane `load` payloads so routes keep their logic
- * when the server lands. All fetches degrade to empty data, never throw.
+ * when the server lands.
+ *
+ * Failures are distinguishable from empty data: `get` records the reason in
+ * `lastApiError` AND routes surface it via `useApiError` — an operator seeing
+ * "could not be loaded" can tell an outage (500/network) from an empty DB.
  */
 const BASE = '/api';
 let lastApiError: string | null = null;
+const errorListeners = new Set<(msg: string | null) => void>();
+function setLastApiError(msg: string | null) {
+  lastApiError = msg;
+  for (const fn of errorListeners) {
+    try { fn(msg); } catch { /* listener must not break fetches */ }
+  }
+}
 /** Last failure reason recorded by `get` — null after a success. */
 export function getLastApiError(): string | null {
   return lastApiError;
+}
+/** Subscribe to failure-reason changes; returns an unsubscribe fn. UI error states use this. */
+export function onApiError(fn: (msg: string | null) => void): () => void {
+  errorListeners.add(fn);
+  return () => { errorListeners.delete(fn); };
 }
 async function get<T>(path: string): Promise<T | null> {
   try {
     const res = await fetch(`${BASE}${path}`);
     if (!res.ok) {
-      lastApiError = `${path}: ${res.status}`;
+      setLastApiError(`${path}: ${res.status}`);
       return null;
     }
-    lastApiError = null;
+    setLastApiError(null);
     return (await res.json()) as T;
   } catch (e) {
-    lastApiError = `${path}: ${e instanceof Error ? e.message : 'network error'}`;
+    setLastApiError(`${path}: ${e instanceof Error ? e.message : 'network error'}`);
     return null;
   }
 }
@@ -27,10 +43,10 @@ async function get<T>(path: string): Promise<T | null> {
 async function getWithStatus<T>(path: string): Promise<{ data: T | null; status: number | null }> {
   try {
     const res = await fetch(`${BASE}${path}`);
-    lastApiError = res.ok ? null : `${path}: ${res.status}`;
+    setLastApiError(res.ok ? null : `${path}: ${res.status}`);
     return { data: res.ok ? ((await res.json()) as T) : null, status: res.status };
   } catch (e) {
-    lastApiError = `${path}: ${e instanceof Error ? e.message : 'network error'}`;
+    setLastApiError(`${path}: ${e instanceof Error ? e.message : 'network error'}`);
     return { data: null, status: null };
   }
 }

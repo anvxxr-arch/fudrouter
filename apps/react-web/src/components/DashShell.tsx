@@ -36,7 +36,7 @@ export function DashShell({ children }: { children: ReactNode }) {
           <Switcher label="Project" items={shell.projects} active={pid} onPick={switchProj} />
         </>) : <span className="muted">Loading shell…</span>}
       </div>
-      <nav className="row" style={{ flexWrap: "wrap" }}>
+      <nav className="row" aria-label="Dashboard" style={{ flexWrap: "wrap" }}>
         <Link to="/dashboard"><Button variant="ghost" size="sm">Overview</Button></Link>
         <Link to="/dashboard/keys"><Button variant="ghost" size="sm">Keys</Button></Link>
         <Link to="/dashboard/usage"><Button variant="ghost" size="sm">Usage</Button></Link>

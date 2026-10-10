@@ -17,7 +17,7 @@ export function ChangelogPage() {
       <div className="stack">
         <h1>Changelog</h1>
         <p className="lede muted">One entry per shipped release, newest first.</p>
-        {error ? <p className="error">The changelog could not be loaded — reload in a moment.</p> : null}
+        {error ? <p className="error" role="alert">The changelog could not be loaded — reload in a moment.</p> : null}
         {entries.map((e) => (
           <section key={e.slug}>
             <p className="muted num">{e.date}</p>

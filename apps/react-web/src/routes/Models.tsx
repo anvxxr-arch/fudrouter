@@ -5,17 +5,17 @@ import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Table } from '../components/ui/table';
-import { api, formatContext, formatPricePer1M, API_BASE_DISPLAY, type CatalogModel } from '../lib/api';
+import { api, formatContext, formatPricePer1M, getLastApiError, API_BASE_DISPLAY, type CatalogModel } from '../lib/api';
 
 export function ModelsPage() {
   const [params, setParams] = useSearchParams();
   const [models, setModels] = useState<CatalogModel[]>([]);
-  const [error, setError] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const search = params.get('search') ?? '';
   useEffect(() => {
     void api.models().then((d) => {
-      if (d) setModels(d.models);
-      else setError(true);
+      if (d) { setModels(d.models); setError(null); }
+      else setError(getLastApiError() ?? 'unknown error');
     });
   }, []);
   const q = search.trim().toLowerCase();
@@ -27,7 +27,7 @@ export function ModelsPage() {
       <div className="stack">
         <h1>Models</h1>
         <p className="lede muted">Every model this deployment serves through the OpenAI-compatible API.</p>
-        {error ? <p className="error">The model catalog could not be loaded — reload in a moment.</p> : null}
+        {error ? <p className="error" role="alert">The model catalog could not be loaded ({error}) — reload in a moment.</p> : null}
         <form className="row" onSubmit={(e) => e.preventDefault()}>
           <Input type="search" placeholder="name, slug, developer" value={search} aria-label="Search models"
             onChange={(e) => setParams(e.target.value ? { search: e.target.value } : {})} style={{ maxWidth: 320 }} />

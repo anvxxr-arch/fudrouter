@@ -15,14 +15,14 @@ export function useSession() {
 export function RequireAuth({ children }: { children: ReactNode }) {
   const user = useSession();
   const loc = useLocation();
-  if (user === undefined) return <p className="muted">Loading…</p>;
+  if (user === undefined) return <p className="muted" role="status" aria-live="polite">Loading…</p>;
   if (!user) return <Navigate to="/login" state={{ from: loc.pathname }} replace />;
   return <>{children}</>;
 }
 export function RequireCap({ cap, children }: { cap: Capability; children: ReactNode }) {
   const user = useSession();
   const loc = useLocation();
-  if (user === undefined) return <p className="muted">Loading…</p>;
+  if (user === undefined) return <p className="muted" role="status" aria-live="polite">Loading…</p>;
   if (!user) return <Navigate to="/login" state={{ from: loc.pathname }} replace />;
   if (!hasCap(user.role ?? null, cap)) return <Navigate to="/" replace />;
   return <>{children}</>;

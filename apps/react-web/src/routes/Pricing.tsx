@@ -19,7 +19,7 @@ export function PricingPage() {
       <div className="stack">
         <h1>Pricing</h1>
         <p className="lede muted">Pay per token — no seat fees. One API key, every model. All prices normalized per 1M tokens.</p>
-        {error ? <p className="error">Pricing could not be loaded — reload in a moment.</p> : null}
+        {error ? <p className="error" role="alert">Pricing could not be loaded — reload in a moment.</p> : null}
         {groups.map((g) => (
           <section key={g.developer}>
             <h2>{g.developer} <span className="muted">· {g.models.length}</span></h2>

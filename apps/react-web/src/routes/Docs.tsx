@@ -54,14 +54,14 @@ export function DocsPage() {
       <div className="stack">
         <h1>{entry ? entry.title : 'Documentation'}</h1>
         <p className="lede muted">{entry ? entry.categoryTitle : 'How this platform works, one page per topic.'}</p>
-        {loadError ? <p className="error">The documentation index could not be loaded — reload in a moment.</p> : null}
+        {loadError ? <p className="error" role="alert">The documentation index could not be loaded — reload in a moment.</p> : null}
         <div className="doc-layout">
           {sidebar}
-          <main className="doc-body">
+          <div className="doc-body">
             {entry ? (
               <>
                 <pre style={{ whiteSpace: 'pre-wrap' }}>{entry.markdown}</pre>
-                <nav className="doc-pager">
+                <nav className="doc-pager" aria-label="Documentation pages">
                   {prev ? <Link to={`/docs/${prev.path}`}>← {prev.title}</Link> : <span />}
                   <Link to="/docs">Docs index</Link>
                   {next ? <Link to={`/docs/${next.path}`}>{next.title} →</Link> : <span />}
@@ -82,7 +82,7 @@ export function DocsPage() {
                 </section>
               ))
             )}
-          </main>
+          </div>
         </div>
       </div>
     </Reveal>

@@ -13,12 +13,13 @@ import {
 	_parseEnum, _parseInt, _parseBool, _cleanField, _parseSlug, _parseJson, _parseFlags, _parseMicros,
 	_usdToMicro, _microToUsd, _microsToInput, _matchKey, _isIpOrCidr, _rowsOf, _num
 } from './lib/validate.mjs';
-import { _encCred, _decCred, _tokenAt, _headersFor } from './lib/credentials.mjs';
-import { _isBlockedLiteral, _assertPublic, _fetchCatalog } from './lib/ssrf.mjs';
+
+import { _fetchCatalog } from './lib/ssrf.mjs';
+import { _isBlockedLiteral, _assertPublic, _encCred, _decCred, _tokenAt, _headersFor } from './lib/shared-ts.mjs';
 import { clientIp } from './lib/ip.mjs';
 import { _sanitizeAudit, _dropRedacted, _auditView, makeAudit } from './lib/audit.mjs';
 import { SECTION_CAPS, _dominates, _canAdminister, _guardUser } from './lib/rbac.mjs';
-import { _deriveHealth, _evalSignals, _vkPing } from './lib/format.mjs';
+import { _deriveHealth, _evalSignals, _vkPing, _vkSend } from './lib/format.mjs';
 import {
 	pgTable,
 	text,
@@ -1803,12 +1804,7 @@ export function registerAdminRoutes(app, ctx) {
 		let states = rows.map(() => null);
 		if (process.env.VALKEY_URL) {
 			try {
-				const u = new URL(process.env.VALKEY_URL);
-				const send = (cmd) => new Promise((res, rej) => {
-					const sock = net.createConnection({ host: u.hostname, port: Number(u.port) || 6379 });
-					let buf = ''; const t = setTimeout(() => { try { sock.destroy(); } catch {} rej(new Error('timeout')); }, 3000);
-					sock.on('connect', () => sock.write(cmd)); sock.on('data', (d) => { buf += d.toString(); clearTimeout(t); try { sock.destroy(); } catch {} res(buf); }); sock.on('error', (e) => { clearTimeout(t); rej(e); });
-				});
+				const send = (cmd) => _vkSend(cmd, 3000);
 				states = await Promise.all(rows.map(async (r) => {
 					try {
 						const key = `circuit:${r.target}:${r.target_id}`;
@@ -2435,12 +2431,7 @@ export function registerAdminRoutes(app, ctx) {
 	app.get('/api/admin/system/valkey', handler('system', async () => {
 		if (!process.env.VALKEY_URL) return { configured: false, latencyMs: null, dbsize: null, info: { usedMemory: null, maxMemory: null, connectedClients: null, opsPerSec: null, hitRate: null, evictedKeys: null }, namespaces: [], sampled: 0 };
 		try {
-			const u = new URL(process.env.VALKEY_URL);
-			const send = (cmd) => new Promise((res, rej) => {
-				const sock = net.createConnection({ host: u.hostname, port: Number(u.port) || 6379 });
-				let buf = ''; const t = setTimeout(() => { try { sock.destroy(); } catch {} rej(new Error('timeout')); }, 4000);
-				sock.on('connect', () => sock.write(cmd)); sock.on('data', (d) => { buf += d.toString(); clearTimeout(t); try { sock.destroy(); } catch {} res(buf); }); sock.on('error', (e) => { clearTimeout(t); rej(e); });
-			});
+			const send = (cmd) => _vkSend(cmd, 4000);
 			const t0 = Date.now();
 			await send('*1\r\n$4\r\nPING\r\n');
 			const latencyMs = Date.now() - t0;
@@ -2566,16 +2557,13 @@ export function registerAdminRoutes(app, ctx) {
 		let valkeyUp = false;
 		if (process.env.VALKEY_URL) {
 			try {
-				const u = new URL(process.env.VALKEY_URL);
-				const send = (cmd) => new Promise((res, rej) => {
-					const sock = net.createConnection({ host: u.hostname, port: Number(u.port) || 6379 });
-					let buf = ''; const t = setTimeout(() => { try { sock.destroy(); } catch {} rej(new Error('timeout')); }, 4000);
-					sock.on('connect', () => sock.write(cmd)); sock.on('data', (d) => { buf += d.toString(); }); sock.on('error', (e) => { clearTimeout(t); rej(e); });
-					setTimeout(() => { clearTimeout(t); try { sock.destroy(); } catch {} res(buf); }, 3500);
-				});
+				const send = (cmd) => _vkSend(cmd, 4000);
 				const raw = await send('*2\r\n$4\r\nKEYS\r\n$7\r\nconc:*\r\n');
 				const keys = raw.split('\r\n').filter((l) => l.startsWith('conc:'));
-				valkeyUp = true;
+				// An error reply is not "up": a RESP error means the command was
+				// rejected (wrong credentials, NOAUTH), and the panel must not
+				// paint a healthy badge over an instance it cannot read.
+				valkeyUp = !raw.startsWith('-');
 				if (keys.length) {
 					const parts = [`*${keys.length * 2 + 1}`, '$4', 'MGET'];
 					for (const k of keys) parts.push(`$${Buffer.byteLength(k)}`, k);
@@ -2632,8 +2620,9 @@ export function registerAdminRoutes(app, ctx) {
 		const billing = [];
 		for (const a of accounts) {
 			let live = String(a.cached_balance ?? '0');
-			try { live = String(_rowsOf(await database.execute(sql`select coalesce(sum(amount_micro),0)::text as total from credit_ledger where billing_account_id = ${a.account_id}`))[0]?.total ?? live); } catch {}
-			billing.push({ workspaceId: a.workspace_id, workspaceName: a.workspace_name, accountId: a.account_id, currency: String(a.currency).trim(), status: a.status, cachedBalanceMicro: String(a.cached_balance ?? '0'), balanceMicro: live });
+			let balanceStale = false;
+			try { live = String(_rowsOf(await database.execute(sql`select coalesce(sum(amount_micro),0)::text as total from credit_ledger where billing_account_id = ${a.account_id}`))[0]?.total ?? live); } catch { balanceStale = true; }
+			billing.push({ workspaceId: a.workspace_id, workspaceName: a.workspace_name, accountId: a.account_id, currency: String(a.currency).trim(), status: a.status, cachedBalanceMicro: String(a.cached_balance ?? '0'), balanceMicro: live, balanceStale });
 		}
 		const keys = _rowsOf(await database.execute(sql`select id, name, prefix, status, last_used_at, revoked_at, created_at from api_key where user_id = ${id} order by created_at`));
 		let sessionCount = 0;
@@ -2706,8 +2695,9 @@ export function registerAdminRoutes(app, ctx) {
 		let billing = null;
 		if (acct) {
 			let live = String(acct.balance_micro ?? '0');
-			try { live = String(_rowsOf(await database.execute(sql`select coalesce(sum(amount_micro),0)::text as total from credit_ledger where billing_account_id = ${acct.id}`))[0]?.total ?? live); } catch {}
-			billing = { accountId: acct.id, currency: String(acct.currency).trim(), status: acct.status, cachedBalanceMicro: String(acct.balance_micro ?? '0'), balanceMicro: live };
+			let balanceStale = false;
+			try { live = String(_rowsOf(await database.execute(sql`select coalesce(sum(amount_micro),0)::text as total from credit_ledger where billing_account_id = ${acct.id}`))[0]?.total ?? live); } catch { balanceStale = true; }
+			billing = { accountId: acct.id, currency: String(acct.currency).trim(), status: acct.status, cachedBalanceMicro: String(acct.balance_micro ?? '0'), balanceMicro: live, balanceStale };
 		}
 		return { workspace: { id: w.id, name: w.name, slug: w.slug, status: w.status, settings: w.settings, createdAt: w.created_at, updatedAt: w.updated_at, ownerId: w.owner_user_id, ownerEmail: w.owner_email }, members: members.map((m) => ({ memberId: m.member_id, userId: m.user_id, userEmail: m.user_email, userName: m.user_name, role: m.role, status: m.status })), projects, usage: { requests: _num(usage.requests), tokensIn: _num(usage.tokens_in), tokensOut: _num(usage.tokens_out), cost: String(usage.cost ?? '0') }, billing, statuses: WORKSPACE_STATUSES };
 	}));

@@ -52,7 +52,7 @@ export function HomePage() {
           <AuroraBackground />
           <p className="fr-label">Commercial AI router</p>
           <ShinyText text="Unified API for AI models." tag="h1" className="display-xl" speed={3} />
-          <ShinyText text="Connect once. Route anywhere." tag="h1" className="display-xl" speed={3} />
+          <ShinyText text="Connect once. Route anywhere." tag="p" className="display-xl" speed={3} />
           <div className="hero-split">
             <div className="hero-copy">
               <p className="lede">One OpenAI-compatible key reaches every model and provider in the network — routed, metered and logged per request.</p>

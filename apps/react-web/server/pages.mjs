@@ -675,8 +675,22 @@ export function registerPages(app, ctx) {
 		const member = rowsOf(await database.execute(sql`select id, user_id, role_id from workspace_member where id = ${memberId} and workspace_id = ${workspace.id} limit 1`))[0];
 		if (!member) return fail(res, 404, 'Member not found');
 		if (member.user_id === (workspace.owner_user_id ?? workspace.ownerUserId)) return fail(res, 403, "The workspace owner's role cannot be changed");
-		const role = rowsOf(await database.execute(sql`select id from workspace_role where id = ${roleId} and (workspace_id is null or workspace_id = ${workspace.id}) limit 1`))[0];
+		const role = rowsOf(await database.execute(sql`select id, name, permissions from workspace_role where id = ${roleId} and (workspace_id is null or workspace_id = ${workspace.id}) limit 1`))[0];
 		if (!role) return fail(res, 400, 'Unknown role');
+		// No dominance check existed here: any holder of `workspace.write` (the
+		// builtin `admin` role) could grant itself `owner` and gain
+		// `workspace.delete`. The owner role is grantable only by the owner,
+		// and no one may grant permissions they do not hold themselves.
+		const ownerId = workspace.owner_user_id ?? workspace.ownerUserId;
+		const isOwner = userRow.id === ownerId;
+		const targetIsOwner = role.id === 'rol_owner' || String(role.name ?? '').toLowerCase() === 'owner';
+		if (targetIsOwner && !isOwner) return fail(res, 403, 'Only the workspace owner can grant the owner role');
+		if (!isOwner) {
+			const actor = rowsOf(await database.execute(sql`select r.permissions from workspace_member m inner join workspace_role r on r.id = m.role_id where m.workspace_id = ${workspace.id} and m.user_id = ${userRow.id} limit 1`))[0];
+			const held = new Set(Array.isArray(actor?.permissions) ? actor.permissions.filter((p) => typeof p === 'string') : []);
+			const wanted = Array.isArray(role.permissions) ? role.permissions.filter((p) => typeof p === 'string') : [];
+			if (wanted.some((p) => !held.has(p))) return fail(res, 403, 'You cannot grant permissions you do not hold');
+		}
 		await database.execute(sql`update workspace_member set role_id = ${roleId}, updated_at = now() where id = ${member.id}`);
 		res.json({ changed: member.id });
 	}));

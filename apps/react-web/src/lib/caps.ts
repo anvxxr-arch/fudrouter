@@ -50,6 +50,3 @@ export function requiredCap(pathname: string): Capability | null {
   }
   return best ? best.cap : null;
 }
-export function landingFor(role?: string | null): string {
-  return hasCap(role, "admin.view") ? "/admin" : "/dashboard";
-}

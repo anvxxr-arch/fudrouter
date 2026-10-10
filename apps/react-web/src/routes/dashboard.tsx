@@ -26,7 +26,7 @@ function useLoad<T>(path: string, tick = 0): { data: T | null; error: string | n
   return { data, error, loading };
 }
 function LoadState({ loading, error }: { loading: boolean; error: string | null }) {
-  if (loading) return <p className="muted">Loading…</p>;
+  if (loading) return <p className="muted" role="status" aria-live="polite">Loading…</p>;
   if (error) return <p className="error">{error}</p>;
   return null;
 }
@@ -56,10 +56,10 @@ export function DashboardHome() {
     <LoadState loading={loading} error={error} />
     {d ? (<>
       <div className="row" style={{ flexWrap: "wrap" }}>
-        <Card title="Requests" desc={String(d.totals.requests)} />
-        <Card title="Tokens in" desc={String(d.totals.tokensIn)} />
-        <Card title="Tokens out" desc={String(d.totals.tokensOut)} />
-        <Card title="Active keys" desc={String(d.activeKeys)} />
+        <Card titleAs="h2" title="Requests" desc={String(d.totals.requests)} />
+        <Card titleAs="h2" title="Tokens in" desc={String(d.totals.tokensIn)} />
+        <Card titleAs="h2" title="Tokens out" desc={String(d.totals.tokensOut)} />
+        <Card titleAs="h2" title="Active keys" desc={String(d.activeKeys)} />
       </div>
       <h2>Recent requests</h2>
       <Table head={["ID", "When", "Model", "Tokens", "Status"]} rows={d.recent.map((r) => [r.id.slice(0, 12) + "…", fmtDate(r.createdAt), r.model_slug ?? "—", String(Number(r.tokens_in) + Number(r.tokens_out)), r.status])} />
@@ -85,7 +85,7 @@ export function KeysPage() {
         .then((r) => { setCreated({ key: r.created, name: r.name }); (e.target as HTMLFormElement).reset(); refresh(); })
         .catch((ex) => setErr(ex instanceof Error ? ex.message : "Create failed"));
     }}>
-      <div className="row"><Input name="name" placeholder="Key name" required /><Button type="submit">Create</Button></div>
+      <div className="row"><Input aria-label="Key name" name="name" placeholder="Key name" required /><Button type="submit">Create</Button></div>
     </form>
     {err ? <p className="error">{err}</p> : null}
     {created ? <Card title="New key — copy it now, it will never be shown again" desc={created.key} /> : null}
@@ -103,10 +103,10 @@ export function UsagePage() {
     <LoadState loading={loading} error={error} />
     {d ? (<>
       <div className="row" style={{ flexWrap: "wrap" }}>
-        <Card title="Requests" desc={String(d.totals.requests)} />
-        <Card title="Tokens in" desc={String(d.totals.tokensIn)} />
-        <Card title="Tokens out" desc={String(d.totals.tokensOut)} />
-        <Card title="Cost" desc={fmtMicro(d.totals.costMicro)} />
+        <Card titleAs="h2" title="Requests" desc={String(d.totals.requests)} />
+        <Card titleAs="h2" title="Tokens in" desc={String(d.totals.tokensIn)} />
+        <Card titleAs="h2" title="Tokens out" desc={String(d.totals.tokensOut)} />
+        <Card titleAs="h2" title="Cost" desc={fmtMicro(d.totals.costMicro)} />
       </div>
       <h2>By day</h2>
       <Table head={["Day", "Requests", "Tokens", "Cost"]} rows={d.breakdowns.byDay.map((r) => [r.day, String(r.requests), String(r.totalTokens), fmtMicro(r.costMicro)])} />
@@ -129,9 +129,9 @@ export function BillingPage() {
     <LoadState loading={loading} error={error} />
     {d ? (<>
       <div className="row" style={{ flexWrap: "wrap" }}>
-        <Card title="Balance" desc={fmtMicro(d.balanceMicro)} />
-        <Card title="Status" desc={d.status} />
-        <Card title="This month" desc={`${fmtMicro(d.period.spentMicro)} · ${d.period.requests} reqs`} />
+        <Card titleAs="h2" title="Balance" desc={fmtMicro(d.balanceMicro)} />
+        <Card titleAs="h2" title="Status" desc={d.status} />
+        <Card titleAs="h2" title="This month" desc={`${fmtMicro(d.period.spentMicro)} · ${d.period.requests} reqs`} />
       </div>
       {d.canWrite ? (
         <form onSubmit={(e) => {
@@ -141,7 +141,7 @@ export function BillingPage() {
             .then(() => setTick((t) => t + 1))
             .catch((ex) => setErr(ex instanceof Error ? ex.message : "Save failed"));
         }}>
-          <div className="row"><Input name="warn" placeholder="Warn threshold" /><Input name="suspend" placeholder="Suspend threshold" /><Button type="submit">Save</Button></div>
+          <div className="row"><Input aria-label="Warn threshold" name="warn" placeholder="Warn threshold" /><Input aria-label="Suspend threshold" name="suspend" placeholder="Suspend threshold" /><Button type="submit">Save</Button></div>
         </form>
       ) : <p className="muted">Read-only: you need billing.write to change thresholds.</p>}
       {err ? <p className="error">{err}</p> : null}
@@ -155,7 +155,7 @@ export function CreditsPage() {
   const { data: d, error, loading } = useLoad<{ balanceMicro: string; rows: { id: string; type: string; amountMicro: string; currency: string; description: string | null; createdAt: string }[] }>("/api/pages/dashboard/billing/credits", tick);
   return (<DashShell><Page title="Credits" lede="Ledger and balance.">
     <LoadState loading={loading} error={error} />
-    {d ? <Card title="Balance" desc={fmtMicro(d.balanceMicro)} /> : null}
+    {d ? <Card titleAs="h2" title="Balance" desc={fmtMicro(d.balanceMicro)} /> : null}
     <form onSubmit={(e) => {
       e.preventDefault(); setErr(null);
       const f = new FormData(e.currentTarget);
@@ -163,7 +163,7 @@ export function CreditsPage() {
         .then(() => { (e.target as HTMLFormElement).reset(); setTick((t) => t + 1); })
         .catch((ex) => setErr(ex instanceof Error ? ex.message : "Add failed"));
     }}>
-      <div className="row"><Input name="amount" placeholder="Amount" required /><Button type="submit">Add</Button></div>
+      <div className="row"><Input aria-label="Amount" name="amount" placeholder="Amount" required /><Button type="submit">Add</Button></div>
     </form>
     {err ? <p className="error">{err}</p> : null}
     <Table head={["When", "Type", "Amount", "Description"]} rows={(d?.rows ?? []).map((r) => [fmtDate(r.createdAt), r.type, fmtMicro(r.amountMicro), r.description ?? "—"])} />
@@ -179,7 +179,7 @@ export function InvoicesPage() {
     <LoadState loading={loading} error={error} />
     <Button onClick={() => apiPost("/api/pages/dashboard/billing/invoices/generate", {}).then(refresh).catch((ex) => setErr(ex instanceof Error ? ex.message : "Generate failed"))}>Generate</Button>
     {err ? <p className="error">{err}</p> : null}
-    <Table head={["Number", "Period", "Amount", "Status", ""]} rows={(d?.invoices ?? []).map((i) => [i.number, `${fmtDate(i.periodStart)} → ${fmtDate(i.periodEnd)}`, fmtMicro(i.amountMicro), i.status, <span key={i.id} className="row"><Button size="sm" variant="secondary" onClick={() => apiPost("/api/pages/dashboard/billing/invoices/markPaid", { id: i.id }).then(refresh)}>Paid</Button><Button size="sm" variant="ghost" onClick={() => apiPost("/api/pages/dashboard/billing/invoices/void", { id: i.id }).then(refresh)}>Void</Button></span>])} />
+    <Table head={["Number", "Period", "Amount", "Status", ""]} rows={(d?.invoices ?? []).map((i) => [i.number, `${fmtDate(i.periodStart)} → ${fmtDate(i.periodEnd)}`, fmtMicro(i.amountMicro), i.status, <span key={i.id} className="row"><Button size="sm" variant="secondary" onClick={() => apiPost("/api/pages/dashboard/billing/invoices/markPaid", { id: i.id }).then(refresh).catch((ex) => setErr(ex instanceof Error ? ex.message : "Mark-paid failed"))}>Paid</Button><Button size="sm" variant="ghost" onClick={() => apiPost("/api/pages/dashboard/billing/invoices/void", { id: i.id }).then(refresh).catch((ex) => setErr(ex instanceof Error ? ex.message : "Void failed"))}>Void</Button></span>])} />
   </Page></DashShell>);
 }
 
@@ -197,7 +197,7 @@ export function PayMethodsPage() {
         .then(() => setTick((t) => t + 1))
         .catch((ex) => setErr(ex instanceof Error ? ex.message : "Record failed"));
     }}>
-      <div className="row"><Input name="method" placeholder="Method" required /><Input name="contact" placeholder="Contact" required /><Input name="note" placeholder="Note" /><Button type="submit">Record</Button></div>
+      <div className="row"><Input aria-label="Method" name="method" placeholder="Method" required /><Input aria-label="Contact" name="contact" placeholder="Contact" required /><Input aria-label="Note" name="note" placeholder="Note" /><Button type="submit">Record</Button></div>
     </form>
     {err ? <p className="error">{err}</p> : null}
   </Page></DashShell>);
@@ -218,7 +218,7 @@ export function AccountPage() {
         .then(() => { setOk(true); setTick((t) => t + 1); })
         .catch((ex) => setErr(ex instanceof Error ? ex.message : "Save failed"));
     }}>
-      <div className="row"><Input name="name" placeholder="Name" defaultValue={d?.account?.name ?? ""} /><Input name="timezone" placeholder="Timezone" defaultValue={d?.timezone ?? ""} /><Button type="submit">Save</Button></div>
+      <div className="row"><Input aria-label="Name" name="name" placeholder="Name" defaultValue={d?.account?.name ?? ""} /><Input aria-label="Timezone" name="timezone" placeholder="Timezone" defaultValue={d?.timezone ?? ""} /><Button type="submit">Save</Button></div>
     </form>
     {err ? <p className="error">{err}</p> : null}
     {ok ? <p className="muted">Saved.</p> : null}
@@ -238,11 +238,11 @@ export function WorkspacePage() {
       const f = new FormData(e.currentTarget);
       apiPost("/api/pages/dashboard/workspace/rename", { name: String(f.get("name") ?? "") }).then(refresh).catch((ex) => setErr(ex instanceof Error ? ex.message : "Rename failed"));
     }}>
-      <div className="row"><Input name="name" placeholder="Workspace name" /><Button type="submit">Rename</Button></div>
+      <div className="row"><Input aria-label="Workspace name" name="name" placeholder="Workspace name" /><Button type="submit">Rename</Button></div>
     </form>
     <div className="row" style={{ flexWrap: "wrap" }}>
-      <Button variant="secondary" onClick={() => apiPost("/api/pages/dashboard/workspace/archive", {}).then(refresh)}>Archive</Button>
-      <Button variant="secondary" onClick={() => apiPost("/api/pages/dashboard/workspace/restore", {}).then(refresh)}>Restore</Button>
+      <Button variant="secondary" onClick={() => apiPost("/api/pages/dashboard/workspace/archive", {}).then(refresh).catch((ex) => setErr(ex instanceof Error ? ex.message : "Archive failed"))}>Archive</Button>
+      <Button variant="secondary" onClick={() => apiPost("/api/pages/dashboard/workspace/restore", {}).then(refresh).catch((ex) => setErr(ex instanceof Error ? ex.message : "Restore failed"))}>Restore</Button>
     </div>
     {err ? <p className="error">{err}</p> : null}
   </Page></DashShell>);
@@ -264,15 +264,15 @@ export function TeamMembersPage() {
         .catch((ex) => setErr(ex instanceof Error ? ex.message : "Invite failed"));
     }}>
       <div className="row">
-        <Input name="email" placeholder="Email" required />
-        <select name="roleId">{(d?.roles ?? []).map((r) => (<option key={r.id} value={r.id}>{r.name}</option>))}</select>
+        <Input aria-label="Email" name="email" placeholder="Email" required />
+        <select aria-label="Role for new member" name="roleId">{(d?.roles ?? []).map((r) => (<option key={r.id} value={r.id}>{r.name}</option>))}</select>
         <Button type="submit">Invite</Button>
       </div>
     </form>
     {inviteLink ? <Card title="Invite link — copy it now" desc={inviteLink} /> : null}
     {err ? <p className="error">{err}</p> : null}
     <Table head={["Name", "Email", "Role", "Status", "Actions"]} rows={(d?.members ?? []).map((m) => [m.name, m.email, m.role, m.status, <span key={m.id} className="row">
-      <select defaultValue={m.roleId} onChange={(e) => apiPost("/api/pages/dashboard/team/members/changeRole", { memberId: m.id, roleId: e.target.value }).then(refresh).catch((ex) => setErr(ex instanceof Error ? ex.message : "Role change failed"))}>
+      <select aria-label={`Role for ${m.name}`} defaultValue={m.roleId} onChange={(e) => apiPost("/api/pages/dashboard/team/members/changeRole", { memberId: m.id, roleId: e.target.value }).then(refresh).catch((ex) => setErr(ex instanceof Error ? ex.message : "Role change failed"))}>
         {(d?.roles ?? []).map((r) => (<option key={r.id} value={r.id}>{r.name}</option>))}
       </select>
       <Button size="sm" variant="ghost" onClick={() => {
@@ -308,7 +308,7 @@ export function TeamRolesPage() {
         .then(() => { (e.target as HTMLFormElement).reset(); setTick((t) => t + 1); })
         .catch((ex) => setErr(ex instanceof Error ? ex.message : "Create failed"));
     }}>
-      <div className="row"><Input name="name" placeholder="Role name" required /><Button type="submit">Create</Button></div>
+      <div className="row"><Input aria-label="Role name" name="name" placeholder="Role name" required /><Button type="submit">Create</Button></div>
     </form>
     {err ? <p className="error">{err}</p> : null}
     <Table head={["Name", "Custom", "Permissions", "Members"]} rows={(d?.roles ?? []).map((r) => [r.name, r.custom ? "yes" : "builtin", String(r.permissions.length), String(r.memberCount)])} />
@@ -326,7 +326,7 @@ export function ProjectNewPage() {
         .then((r) => setCreatedId(r.id))
         .catch((ex) => setErr(ex instanceof Error ? ex.message : "Create failed"));
     }}>
-      <div className="row"><Input name="name" placeholder="Project name" required /><Input name="description" placeholder="Description" /><Button type="submit">Create</Button></div>
+      <div className="row"><Input aria-label="Project name" name="name" placeholder="Project name" required /><Input aria-label="Description" name="description" placeholder="Description" /><Button type="submit">Create</Button></div>
     </form>
     {err ? <p className="error">{err}</p> : null}
     {createdId ? <p><Link to={"/dashboard/projects/" + createdId}>Open project</Link></p> : null}
@@ -364,7 +364,7 @@ export function ProjectPage() {
         .then(() => setTick((t) => t + 1))
         .catch((ex) => setErr(ex instanceof Error ? ex.message : "Update failed"));
     }}>
-      <div className="row"><Input name="name" placeholder="New name" /><Input name="slug" placeholder="Slug" /><Input name="description" placeholder="Description" /><Input name="status" placeholder="Status" /><Button type="submit">Save</Button></div>
+      <div className="row"><Input aria-label="New name" name="name" placeholder="New name" /><Input aria-label="Slug" name="slug" placeholder="Slug" /><Input aria-label="Description" name="description" placeholder="Description" /><Input aria-label="Status" name="status" placeholder="Status" /><Button type="submit">Save</Button></div>
     </form>
     <Button variant="secondary" onClick={() => apiPost("/api/pages/projects/" + projectId + "/archive", {}).then(() => setTick((t) => t + 1)).catch((ex) => setErr(ex instanceof Error ? ex.message : "Archive failed"))}>Archive</Button>
     {err ? <p className="error">{err}</p> : null}
@@ -387,16 +387,16 @@ function ProjectKeys({ projectId }: { projectId: string }) {
         .catch((ex) => setErr(ex instanceof Error ? ex.message : "Create failed"));
     }}>
       <div className="row">
-        <Input name="name" placeholder="Key name" required />
-        <select name="environmentId">{(d?.environments ?? []).map((env) => (<option key={env.id} value={env.id}>{env.name}</option>))}</select>
+        <Input aria-label="Key name" name="name" placeholder="Key name" required />
+        <select aria-label="Environment for new key" name="environmentId">{(d?.environments ?? []).map((env) => (<option key={env.id} value={env.id}>{env.name}</option>))}</select>
         <Button type="submit">Create</Button>
       </div>
     </form>
     {created ? <Card title="New key — copy it now" desc={created} /> : null}
     {err ? <p className="error">{err}</p> : null}
     <Table head={["Name", "Prefix", "Status", "Env", "Created", ""]} rows={(d?.keys ?? []).map((k) => [k.name, k.prefix, k.status, k.environmentName ?? "—", fmtDate(k.createdAt), <span key={k.id} className="row">
-      <Button size="sm" variant="secondary" onClick={() => apiPost(`/api/pages/projects/${projectId}/keys/enable`, { id: k.id }).then(refresh)}>Enable</Button>
-      <Button size="sm" variant="ghost" onClick={() => apiPost(`/api/pages/projects/${projectId}/keys/disable`, { id: k.id }).then(refresh)}>Disable</Button>
+      <Button size="sm" variant="secondary" onClick={() => apiPost(`/api/pages/projects/${projectId}/keys/enable`, { id: k.id }).then(refresh).catch((ex) => setErr(ex instanceof Error ? ex.message : "Enable failed"))}>Enable</Button>
+      <Button size="sm" variant="ghost" onClick={() => apiPost(`/api/pages/projects/${projectId}/keys/disable`, { id: k.id }).then(refresh).catch((ex) => setErr(ex instanceof Error ? ex.message : "Disable failed"))}>Disable</Button>
     </span>])} />
   </>);
 }
@@ -441,7 +441,7 @@ function ProjectRouting({ projectId }: { projectId: string }) {
         .then(() => { (e.target as HTMLFormElement).reset(); setTick((t) => t + 1); })
         .catch((ex) => setErr(ex instanceof Error ? ex.message : "Create failed"));
     }}>
-      <div className="row"><Input name="name" placeholder="Policy name" required /><Input name="strategy" placeholder="Strategy" /><Input name="scope" placeholder="project|workspace" /><Button type="submit">Create</Button></div>
+      <div className="row"><Input aria-label="Policy name" name="name" placeholder="Policy name" required /><Input aria-label="Strategy" name="strategy" placeholder="Strategy" /><Input aria-label="project|workspace" name="scope" placeholder="project|workspace" /><Button type="submit">Create</Button></div>
     </form>
     {err ? <p className="error">{err}</p> : null}
     <Table head={["Name", "Strategy", "Enabled", "Scope", "Bound envs", ""]} rows={(d?.policies ?? []).map((p) => [p.name, p.strategy, p.enabled ? "yes" : "no", p.scope, p.boundEnvironments.join(", ") || "—", <Button key={p.id} size="sm" variant="ghost" onClick={() => apiPost(`/api/pages/projects/${projectId}/routing/delete`, { id: p.id }).then(() => setTick((t) => t + 1))}>Delete</Button>])} />
@@ -471,7 +471,7 @@ function ProjectSettings({ projectId }: { projectId: string }) {
         .then(() => setOk(true))
         .catch((ex) => setErr(ex instanceof Error ? ex.message : "Update failed"));
     }}>
-      <div className="row"><Input name="name" placeholder="Name" defaultValue={d?.project?.name ?? ""} /><Input name="slug" placeholder="Slug" defaultValue={d?.project?.slug ?? ""} /><Input name="description" placeholder="Description" defaultValue={d?.project?.description ?? ""} /><Input name="status" placeholder="Status" defaultValue={d?.project?.status ?? ""} /><Button type="submit">Save</Button></div>
+      <div className="row"><Input aria-label="Name" name="name" placeholder="Name" defaultValue={d?.project?.name ?? ""} /><Input aria-label="Slug" name="slug" placeholder="Slug" defaultValue={d?.project?.slug ?? ""} /><Input aria-label="Description" name="description" placeholder="Description" defaultValue={d?.project?.description ?? ""} /><Input aria-label="Status" name="status" placeholder="Status" defaultValue={d?.project?.status ?? ""} /><Button type="submit">Save</Button></div>
     </form>
     {err ? <p className="error">{err}</p> : null}
     {ok ? <p className="muted">Saved.</p> : null}
@@ -540,7 +540,7 @@ export function PlaygroundPage2() {
       const f = new FormData(e.currentTarget);
       void run(String(f.get("model") ?? "").trim(), String(f.get("prompt") ?? ""));
     }}>
-      <div className="row"><Input name="model" placeholder="Model slug" required /><Input name="prompt" placeholder="Prompt" required /><Button type="submit" disabled={busy}>{busy ? "Running…" : "Run"}</Button></div>
+      <div className="row"><Input aria-label="Model slug" name="model" placeholder="Model slug" required /><Input aria-label="Prompt" name="prompt" placeholder="Prompt" required /><Button type="submit" disabled={busy}>{busy ? "Running…" : "Run"}</Button></div>
     </form>
     {error ? <p className="error">{error}</p> : null}
     {out ? <Card desc={out.slice(0, 4000)} /> : null}
@@ -548,10 +548,12 @@ export function PlaygroundPage2() {
 }
 export function InvitePage() {
   const { token } = useParams();
+  const [inviteErr, setInviteErr] = useState<string | null>(null);
   return (<Page title="Invitation" lede="Accept or decline.">
+    {inviteErr ? <p className="error" role="alert">{inviteErr}</p> : null}
     <div className="row">
-      <Button onClick={() => apiPost("/api/invite/" + token + "/accept", {}).then(() => (location.href = "/dashboard"))}>Accept</Button>
-      <Button variant="secondary" onClick={() => apiPost("/api/invite/" + token + "/decline", {}).then(() => (location.href = "/"))}>Decline</Button>
+      <Button onClick={() => apiPost("/api/invite/" + token + "/accept", {}).then(() => (location.href = "/dashboard")).catch((ex) => setInviteErr(ex instanceof Error ? ex.message : "Accept failed"))}>Accept</Button>
+      <Button variant="secondary" onClick={() => apiPost("/api/invite/" + token + "/decline", {}).then(() => (location.href = "/")).catch((ex) => setInviteErr(ex instanceof Error ? ex.message : "Decline failed"))}>Decline</Button>
     </div>
   </Page>);
 }

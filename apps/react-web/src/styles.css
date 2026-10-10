@@ -368,7 +368,7 @@ textarea { resize: vertical; }
 
 /* ---- Layout chrome (moved from Layout.tsx inline <style>) ---- */
 .pub { display: flex; flex-wrap: wrap; gap: var(--space-md); align-items: center; padding: var(--space-md) var(--space-lg); border-bottom: 1px solid var(--color-border); }
-.pub a { display: inline-flex; align-items: center; min-height: 24px; }
+.pub a { display: inline-flex; align-items: center; min-height: 44px; }
 .brand { color: var(--color-text); font-weight: 700; }
 .brand:hover { text-decoration: none; }
 .pub nav { display: flex; flex-wrap: wrap; gap: var(--space-md); }
@@ -395,10 +395,12 @@ textarea { resize: vertical; }
 @keyframes rb-shine { to { background-position: -200% 0; } }
 
 /* ---- home (moved from Home.tsx inline <style>) ---- */
-.hero { position: relative; }
+.hero { position: relative; overflow: clip; }
 .hero-split { display: flex; flex-wrap: wrap; gap: var(--space-xl); align-items: flex-start; }
-.hero-copy { flex: 1 1 20rem; display: grid; gap: var(--space-md); }
-.hero-code { flex: 1 1 24rem; margin: 0; max-width: 34rem; }
+.hero-copy { flex: 1 1 20rem; display: grid; gap: var(--space-md); min-width: 0; }
+.hero-copy .row { flex-wrap: wrap; }
+.hero-code { flex: 1 1 24rem; margin: 0; max-width: 34rem; min-width: 0; }
+@media (max-width: 480px) { .hero-copy .row { flex-direction: column; align-items: stretch; } .hero-copy .row > * { width: 100%; } }
 .metrics-strip { display: flex; flex-wrap: wrap; gap: var(--space-lg); padding: var(--space-lg); }
 .grid3 { display: grid; gap: var(--space-md); grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); }
 .display-xl { font-size: var(--text-display); letter-spacing: var(--tracking-display); line-height: var(--lh-display); }

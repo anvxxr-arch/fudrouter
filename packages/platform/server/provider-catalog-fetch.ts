@@ -7,14 +7,14 @@
  * admin-supplied, so an unvalidated request is a request-forgery primitive.
  */
 import { eq } from 'drizzle-orm';
-import { guardedUpstreamFetch } from './ssrf';
-import { allowPrivateUpstreams } from './publish-env';
-import { safeUpstreamUrl } from './admin-limits';
-import { parseUpstreamModels, type UpstreamModel } from '../provider-catalog';
-import type { Credentials } from './credentials';
-import { headersFor, tokenAt } from './provider-credentials';
-import { db } from './db';
-import { provider } from './db/schema';
+import { guardedUpstreamFetch } from './ssrf.ts';
+import { allowPrivateUpstreams } from './publish-env.ts';
+import { safeUpstreamUrl } from './admin-limits.ts';
+import { parseUpstreamModels, type UpstreamModel } from '../provider-catalog.ts';
+import type { Credentials } from './credentials.ts';
+import { headersFor, tokenAt } from './provider-credentials.ts';
+import { db } from './db/index.ts';
+import { provider } from './db/schema.ts';
 
 /** How long any single upstream call may take. */
 export const UPSTREAM_TIMEOUT_MS = 15_000;

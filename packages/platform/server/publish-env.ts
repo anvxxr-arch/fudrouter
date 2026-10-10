@@ -1,4 +1,4 @@
-import { devProvidersAllowed, privateUpstreamsAllowed } from '../publish';
+import { devProvidersAllowed, privateUpstreamsAllowed } from '../publish.ts';
 /**
  * Environment reads for the publish rule.
  *

@@ -3,27 +3,23 @@
 //
 // Why this exists: the server is untyped .mjs (tsconfig covers src/ only) while
 // the canonical security logic (SSRF guard, AES credential envelope, id
-// prefixes, validators) lives in packages/platform/*.ts. Node >= 22 strips types natively
-// (verified: `node --input-type=module < import('packages/platform/.../id.ts')` resolves),
-// and packages/platform/ts-hooks.mjs already uses the same mechanism for workers — so
-// the server can import the canonical modules instead of carrying local copies.
+// prefixes, validators) lives in packages/platform/*.ts. Node >= 22 strips the
+// types natively, so the server imports the canonical modules instead of
+// carrying local copies.
 //
 // The bridge re-exports the shared symbols under the `_`-prefixed names the
 // server already uses, so call sites do not change. Where the shared API
 // differs in shape (tokenAt/headersFor live in provider-credentials.ts, not
 // credentials.ts), the bridge adapts — the adaptation is HERE, in one place,
 // not smeared across four server files.
-import { installTsHooks } from '../../../../packages/platform/ts-hooks.mjs';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-
-const { libRoot } = installTsHooks();
-const libUrl = (sub) => pathToFileURL(fileURLToPath(new URL(`../../../../packages/platform/${sub}`, import.meta.url))).href;
-
-const ssrf = await import(libUrl('server/ssrf.ts'));
-const creds = await import(libUrl('server/credentials.ts'));
-const provCreds = await import(libUrl('server/provider-credentials.ts'));
-const ids = await import(libUrl('server/id.ts'));
-const audit = await import(libUrl('server/audit.ts'));
+// The imports below go through the package's exports map, not a relative path:
+// @fudrouter/platform is a real workspace package, so plain node resolves it the
+// same way it resolves any other dependency.
+const ssrf = await import('@fudrouter/platform/server/ssrf.ts');
+const creds = await import('@fudrouter/platform/server/credentials.ts');
+const provCreds = await import('@fudrouter/platform/server/provider-credentials.ts');
+const ids = await import('@fudrouter/platform/server/id.ts');
+const audit = await import('@fudrouter/platform/server/audit.ts');
 
 // SSRF: shared isBlockedLiteral + assertPublicUpstream carry the same rule as
 // the local _isBlockedLiteral/_assertPublic (IANA special-use + intranet TLDs
@@ -76,6 +72,4 @@ export function _dropRedacted(v) {
 	}
 	return v;
 }
-
-export { libRoot };
 void net;

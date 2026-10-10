@@ -1,7 +1,7 @@
 import type { PgDatabase } from 'drizzle-orm/pg-core';
 import type { PostgresJsQueryResultHKT } from 'drizzle-orm/postgres-js';
-import { auditLog } from './db/schema';
-import { newId, ID_PREFIXES } from './id';
+import { auditLog } from './db/schema.ts';
+import { newId, ID_PREFIXES } from './id.ts';
 
 /**
  * Anything that can run queries: the drizzle `db` singleton or a transaction

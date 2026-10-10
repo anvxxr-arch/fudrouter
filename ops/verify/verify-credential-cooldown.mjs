@@ -9,14 +9,10 @@
 // already rejected. This asserts the handler now parks the credential.
 //
 // Read-only apart from the handler's own writes. Usage:
-//   set -a && . .env && set +a && node scratch/verify-credential-cooldown.mjs
-import { installTsHooks, libUrl } from '/home/dwizzy/fudrouter/packages/platform/ts-hooks.mjs';
-
-const { libRoot } = installTsHooks();
-
-const { db } = await import(libUrl(libRoot, 'server/db/index.ts'));
-const { JOB_HANDLERS } = await import(libUrl(libRoot, 'server/workers.ts'));
-const { credential } = await import(libUrl(libRoot, 'server/db/schema.ts'));
+//   set -a && . .env && set +a && node ops/verify/verify-credential-cooldown.mjs
+const { db } = await import('@fudrouter/platform/server/db/index.ts');
+const { JOB_HANDLERS } = await import('@fudrouter/platform/server/workers.ts');
+const { credential } = await import('@fudrouter/platform/server/db/schema.ts');
 const { eq, sql } = await import('drizzle-orm');
 
 // The router's own predicate, in SQL, so "usable" here means what the data plane

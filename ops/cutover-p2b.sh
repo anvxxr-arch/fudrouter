@@ -46,7 +46,7 @@ NEW_PATHS=(
 	"apps/router/run.sh:router entrypoint"
 	"apps/workers/run.sh:worker fleet entrypoint"
 	"apps/scheduler/run.sh:scheduler entrypoint"
-	"packages/platform/ts-hooks.mjs:TS loader"
+	"packages/platform/package.json:platform package manifest"
 	"ops/migrate.sh:migration runner"
 	"ops/backup-db.sh:nightly backup"
 	"db/migrations:SQL migrations"
@@ -106,7 +106,13 @@ echo "=== 4b. apply-time prerequisites (fail-fast before any destructive step) =
 for f in apps/console/run.sh apps/router/run.sh apps/workers/run.sh apps/scheduler/run.sh; do
 	[ -x "$f" ] && ok "$f executable" || bad "$f missing or not executable"
 done
-[ -f packages/platform/ts-hooks.mjs ] && ok "packages/platform/ts-hooks.mjs present" || bad "packages/platform/ts-hooks.mjs missing"
+# The entrypoints reach the platform package through its exports map, so prove
+# RESOLUTION here, not the existence of a hook file a boot path no longer needs.
+if node --input-type=module -e "await import('@fudrouter/platform/server/id.ts')" >/dev/null 2>&1; then
+	ok "@fudrouter/platform/server/id.ts resolves through the exports map"
+else
+	bad "@fudrouter/platform does not resolve -- every PM2 entrypoint would fail at boot"
+fi
 command -v pm2 >/dev/null 2>&1 && ok "pm2 in PATH" || bad "pm2 not in PATH"
 command -v crontab >/dev/null 2>&1 && ok "crontab in PATH" || bad "crontab not in PATH"
 # --check must not write anything: only prove the rollback backup WOULD succeed.

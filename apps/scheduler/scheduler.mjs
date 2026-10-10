@@ -13,10 +13,6 @@
 //
 // Usage: node apps/scheduler/scheduler.mjs
 //   SCHEDULER_TICK_MS=15000    # scheduling pass interval
-import { installTsHooks, libUrl } from '../../packages/platform/ts-hooks.mjs';
-
-const { libRoot } = installTsHooks();
-
 if (!process.env.DATABASE_URL) {
 	console.error('missing env: DATABASE_URL');
 	process.exit(1);
@@ -27,11 +23,9 @@ const LOCK_KEY = 'lock:scheduler';
 const LOCK_TTL_MS = 60_000;
 const IDENTITY = String(process.pid);
 
-const { schedulerTick, describeSchedule } = await import(
-	libUrl(libRoot, 'server/scheduler.ts')
-);
-const { db } = await import(libUrl(libRoot, 'server/db/index.ts'));
-const { vk } = await import(libUrl(libRoot, 'server/vk.ts'));
+const { schedulerTick, describeSchedule } = await import('@fudrouter/platform/server/scheduler.ts');
+const { db } = await import('@fudrouter/platform/server/db/index.ts');
+const { vk } = await import('@fudrouter/platform/server/vk.ts');
 
 /**
  * Take (or refresh) the scheduler lock. Degrades OPEN without Valkey: the

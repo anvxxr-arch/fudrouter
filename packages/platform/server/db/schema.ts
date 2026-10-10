@@ -15,7 +15,7 @@ import {
 	unique,
 	primaryKey
 } from 'drizzle-orm/pg-core';
-import { user } from './auth.schema';
+import { user } from './auth.schema.ts';
 
 // profile — 1:1 with Better Auth user
 export const profile = pgTable('profile', {
@@ -947,4 +947,4 @@ export const systemSetting = pgTable('system_setting', {
 	updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
 });
 
-export { user, session, account, verification } from './auth.schema';
+export { user, session, account, verification } from './auth.schema.ts';

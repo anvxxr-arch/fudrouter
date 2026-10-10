@@ -1,10 +1,10 @@
 import { and, eq, inArray, lte, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase, PostgresJsQueryResultHKT } from 'drizzle-orm/postgres-js';
 import type { PgTransaction } from 'drizzle-orm/pg-core';
-import { db } from './db';
-import { job } from './db/schema';
-import { newId } from './id';
-import { vk } from './vk';
+import { db } from './db/index.ts';
+import { job } from './db/schema.ts';
+import { newId } from './id.ts';
+import { vk } from './vk.ts';
 
 /**
  * PostgreSQL job queue (PRD §75, spec §11).

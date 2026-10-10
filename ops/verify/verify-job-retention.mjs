@@ -8,14 +8,10 @@
 // row is live work and must survive a retention sweep.
 //
 // Self-contained: it plants its own rows and removes them afterwards.
-//   set -a && . .env && set +a && node scratch/verify-job-retention.mjs
-import { installTsHooks, libUrl } from '/home/dwizzy/fudrouter/packages/platform/ts-hooks.mjs';
-
-const { libRoot } = installTsHooks();
-
-const { db } = await import(libUrl(libRoot, 'server/db/index.ts'));
-const { JOB_HANDLERS } = await import(libUrl(libRoot, 'server/workers.ts'));
-const { job, systemEvent } = await import(libUrl(libRoot, 'server/db/schema.ts'));
+//   set -a && . .env && set +a && node ops/verify/verify-job-retention.mjs
+const { db } = await import('@fudrouter/platform/server/db/index.ts');
+const { JOB_HANDLERS } = await import('@fudrouter/platform/server/workers.ts');
+const { job, systemEvent } = await import('@fudrouter/platform/server/db/schema.ts');
 const { eq, sql, desc } = await import('drizzle-orm');
 
 const tag = `job_verify_${Date.now()}`;

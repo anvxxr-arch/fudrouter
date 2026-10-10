@@ -21,7 +21,7 @@
  * these helpers mirror just enough of it for the console to talk to an upstream
  * the same way the router would.
  */
-import type { Credentials } from './credentials';
+import type { Credentials } from './credentials.ts';
 
 /** One credential inside a pooled blob. */
 export interface Account {

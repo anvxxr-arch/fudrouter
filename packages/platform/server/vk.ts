@@ -1,4 +1,8 @@
-import Redis from 'ioredis';
+// Named import, not default: under `moduleResolution: nodenext` (which models the
+// runtime, plain node ESM) the default import of this CJS module is typed as the
+// namespace, not the constructor. Both bindings exist at runtime; the named one is
+// the one TS can type.
+import { Redis } from 'ioredis';
 /**
  * Valkey client — the runtime acceleration layer (docs/specs/2026-09-30-
  * platform-schema.md §12). Caches, counters, locks and transient state ONLY;

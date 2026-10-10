@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
-import { db } from './db';
-import { systemSetting } from './db/schema';
+import { db } from './db/index.ts';
+import { systemSetting } from './db/schema.ts';
 
 /**
  * Platform settings (PRD §105, §138) — a typed view over the

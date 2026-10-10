@@ -13,8 +13,8 @@ import {
 	systemEvent,
 	usageDaily,
 	usageHourly
-} from './db/schema';
-import { db } from './db';
+} from './db/schema.ts';
+import { db } from './db/index.ts';
 import {
 	claimJobs,
 	completeJob,
@@ -25,21 +25,21 @@ import {
 	type JobHandle,
 	type JobRow,
 	type JobType
-} from './jobs';
-import { evaluateAlerts } from './alerts';
-import { deliverWebhook, pendingDeliveriesReady } from './webhooks';
-import { getSetting } from './settings';
-import { newId } from './id';
-import { decryptCredentials, type Credentials } from './credentials';
-import { headersFor, isExpiredOAuth, tokenAt } from './provider-credentials';
+} from './jobs.ts';
+import { evaluateAlerts } from './alerts.ts';
+import { deliverWebhook, pendingDeliveriesReady } from './webhooks.ts';
+import { getSetting } from './settings.ts';
+import { newId } from './id.ts';
+import { decryptCredentials, type Credentials } from './credentials.ts';
+import { headersFor, isExpiredOAuth, tokenAt } from './provider-credentials.ts';
 import {
 	fetchUpstreamCatalog,
 	getProvider,
 	UPSTREAM_TIMEOUT_MS
-} from './provider-catalog-fetch';
-import { allowPrivateUpstreams } from './publish-env';
-import { guardedUpstreamFetch } from './ssrf';
-import { reconcile } from './billing';
+} from './provider-catalog-fetch.ts';
+import { allowPrivateUpstreams } from './publish-env.ts';
+import { guardedUpstreamFetch } from './ssrf.ts';
+import { reconcile } from './billing.ts';
 
 /**
  * Worker fleet (PRD §75–76, spec §11/§13).

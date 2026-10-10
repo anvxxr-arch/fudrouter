@@ -1,8 +1,8 @@
 import { and, eq, gte, lt, sql } from 'drizzle-orm';
-import { writeAudit, type DbTx } from './audit';
-import { db } from './db';
-import { billingAccount, creditLedger } from './db/schema';
-import { ID_PREFIXES, newId } from './id';
+import { writeAudit, type DbTx } from './audit.ts';
+import { db } from './db/index.ts';
+import { billingAccount, creditLedger } from './db/schema.ts';
+import { ID_PREFIXES, newId } from './id.ts';
 
 /**
  * The credit ledger (spec §10, PRD §47–48, §118, §128).

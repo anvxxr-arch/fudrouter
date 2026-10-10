@@ -22,16 +22,12 @@
 // Run it with the root .env loaded (it reads DATABASE_URL and
 // CREDENTIALS_MASTER_KEY):
 //   set -a && . .env && set +a && node ops/probe-credentials.mjs
-import { installTsHooks, libUrl } from '../packages/platform/ts-hooks.mjs';
-
-const { libRoot } = installTsHooks();
-
-const { db } = await import(libUrl(libRoot, 'server/db/index.ts'));
-const { credential, connection, provider } = await import(libUrl(libRoot, 'server/db/schema.ts'));
-const { decryptCredentials } = await import(libUrl(libRoot, 'server/credentials.ts'));
-const { headersFor, tokenAt } = await import(libUrl(libRoot, 'server/provider-credentials.ts'));
-const { guardedUpstreamFetch } = await import(libUrl(libRoot, 'server/ssrf.ts'));
-const { allowPrivateUpstreams } = await import(libUrl(libRoot, 'server/publish-env.ts'));
+const { db } = await import('@fudrouter/platform/server/db/index.ts');
+const { credential, connection, provider } = await import('@fudrouter/platform/server/db/schema.ts');
+const { decryptCredentials } = await import('@fudrouter/platform/server/credentials.ts');
+const { headersFor, tokenAt } = await import('@fudrouter/platform/server/provider-credentials.ts');
+const { guardedUpstreamFetch } = await import('@fudrouter/platform/server/ssrf.ts');
+const { allowPrivateUpstreams } = await import('@fudrouter/platform/server/publish-env.ts');
 const { eq, asc } = await import('drizzle-orm');
 
 const providerFilter = process.argv[2] ?? '';

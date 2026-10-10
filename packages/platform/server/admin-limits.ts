@@ -14,7 +14,7 @@
  * Rejecting is a 400 with a reason; clamping is used only where a sane value
  * exists and refusing would block legitimate work.
  */
-import { isBlockedLiteral } from './ssrf';
+import { isBlockedLiteral } from './ssrf.ts';
 
 /** Models accepted in one enable/disable POST. Above this the request is truncated. */
 export const MAX_BATCH_MODELS = 500;

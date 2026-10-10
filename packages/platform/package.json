@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Domain, persistence, dan job runtime milik platform: Drizzle schema, AES-256-GCM credential envelope, SSRF guard, id prefixes, jobs/workers/scheduler, billing, alerts, webhooks, audit. Dimuat saat RUNTIME oleh daemon PM2 dan server Express lewat ops/ts-hooks.mjs (node strip-types), bukan lewat resolusi paket — karena itu exports di bawah opsional.",
+  "description": "Domain, persistence, dan job runtime milik platform: Drizzle schema, AES-256-GCM credential envelope, SSRF guard, id prefixes, jobs/workers/scheduler, billing, alerts, webhooks, audit. Dimuat saat RUNTIME oleh daemon PM2 dan server Express lewat resolusi paket (@fudrouter/platform/server/*.ts), dijalankan plain node dengan type stripping; setiap modul memakai ekstensi .ts eksplisit sehingga node resolve sendiri.",
   "exports": {
     ".": "./publish.ts",
     "./publish": "./publish.ts",

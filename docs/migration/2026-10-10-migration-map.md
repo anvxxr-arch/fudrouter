@@ -1,6 +1,28 @@
 # FUDRouter — Migration Map (Phase 0)
 
-- **Date:** 2026-10-10 · **HEAD:** `32282a0` · read-only analysis. **No move in this document has been executed.**
+- **Date:** 2026-10-10 · **HEAD:** `32282a0` when written · read-only analysis at the time.
+
+## 0. Status — the plan has since been executed
+
+Carried out the next day, in one line of commits. The plan below is left exactly as
+written (a plan, not a record); this section is the record.
+
+| step | state | evidence |
+|---|---|---|
+| Phase 2b-2 — the move to the role-first top level | done | `2d5793d`: 176 renames, 23 modified, **0 new files** |
+| cutover — PM2 + crontab + the four systemd units | done | `d72e356`: `--apply` exit 0, `pm2-env-hygiene.sh` PASS |
+| M1 — `packages/` is real | done | `node -e "import('@fudrouter/platform/server/ssrf.ts')"` resolves |
+| M2 — real module resolution, `ts-hooks.mjs` deleted | done | `6a7c114`: the worker fleet and scheduler each processed a REAL job afterwards, which is the only proof the boot path works |
+| M3 — `tools/` folded into `ops/verify/` | done | part of `2d5793d` |
+| M4 — workers/scheduler as real dirs | done | part of `2d5793d` |
+| M5 — Go module path | done | `go build ./...`, `go vet ./...`, `go test ./...` all clean |
+| M6 — migrations → `db/migrations` | done | drizzle `out:` + `migrate.sh` follow |
+| M7 — env consolidation | done, approved | `.env.console` is `PORT` alone; the 14-key effective env hashes **byte-identical** before and after |
+| M8 — structure gate | done | `b2bec7f`: `ops/verify/structure.sh` wired into `npm run check` |
+| naming leftovers — `fudrouter-react`, `react-web` log lines | done | `9748175` |
+
+Deliberately still open: **V3** — fold the duplicated `control-lib` into the console.
+That is a behavioural refactor of the control plane, not a layout change (§4).
 
 ---
 
@@ -92,4 +114,4 @@ Every step is a `git mv` plus text updates on one branch, so rollback is `git re
 - **M7 (env consolidation)** — the only step with an effect outside git. Rollback = restore `.env.react-web` and re-`pm2 restart fudrouter-react` from a shell that is not an agent shell (see inventory §4.2). Record the previous effective env before touching it.
 - **M5 (Go module path)** — rollback is safe but re-requires a full `go build`; keep the binary at `services/router/bin/fudrouter-router` until the new path builds green.
 
-No step in this plan drops, recreates, or rewrites a production table. No step changes a production config beyond M7 (which needs explicit approval).
+No step in this plan drops, recreates, or rewrites a production table. No step changes a production config beyond M7 — which was approved and executed (§0).

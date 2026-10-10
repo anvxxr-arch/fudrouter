@@ -9,7 +9,10 @@ on:
 # DATABASE_URL is absent, so a CI without a database would report green while
 # never exercising the code that actually serves traffic.
 jobs:
-  react-web:
+  console:
+    # Named for the app it exercises: apps/console (was react-web, a name that
+    # outlived the directory). If branch protection still requires the old check
+    # name, update it there — the job's identity is the app, not the history.
     runs-on: ubuntu-latest
     services:
       postgres:

@@ -21,7 +21,11 @@ import { readFileSync } from 'node:fs';
 import postgres from 'postgres';
 
 const DRY = process.argv.includes('--dry-run');
-const KEY_FILE = process.env.MINGLES_KEY_FILE ?? '/home/dwizzy/mingles-router-farmer/mingles_keys.json';
+// The herd lives under one root since 2026-10-10 (this was still the old
+// ~/mingles-router-farmer path, so the merge job died with ENOENT while the farm
+// kept writing -- 414 rows waited). One root = one edit on the next move.
+const FARM_DIR = process.env.FARM_PROVIDERS_DIR ?? '/home/dwizzy/farm/providers';
+const KEY_FILE = process.env.MINGLES_KEY_FILE ?? `${FARM_DIR}/mingles-router-farmer/mingles_keys.json`;
 const PROVIDER_ID = 'prv_mingles';
 const CONNECTION_ID = 'con_prv_mingles-default';
 const BASE_URL = 'https://router.mingles.ai/v1';

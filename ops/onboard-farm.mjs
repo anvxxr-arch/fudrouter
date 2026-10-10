@@ -22,6 +22,13 @@ import postgres from 'postgres';
 // Registry. base_url / connection ids mirror what is already in the DB, so the
 // upsert refreshes an existing row instead of creating a twin.
 // ---------------------------------------------------------------------------
+// The farm herd was consolidated under one root on 2026-10-10. Three entries here
+// still pointed at the old ~/<name> paths, so the merge jobs died with ENOENT while
+// the farms kept producing (free.ai alone had 4,260 rows waiting). Keep the root in
+// ONE place so the next move is one edit -- a hardcoded absolute path with no shared
+// root is exactly how this rots silently. FARM_KEY_FILE still overrides per run.
+const FARM_DIR = process.env.FARM_PROVIDERS_DIR ?? '/home/dwizzy/farm/providers';
+
 const REGISTRY = {
   freeai: {
     providerId: 'prv_freeai',
@@ -30,7 +37,7 @@ const REGISTRY = {
     headers: {},
     keys: {
       kind: 'jsonl',
-      file: '/home/dwizzy/freeai-farm/out/freeai_accounts.jsonl',
+      file: `${FARM_DIR}/freeai-farm/out/freeai_accounts.jsonl`,
       field: 'api_key',
       emailField: 'email'
     }
@@ -78,7 +85,7 @@ const REGISTRY = {
     headers: {},
     keys: {
       kind: 'lines',
-      file: '/home/dwizzy/cline-farm/cline_keys.txt',
+      file: `${FARM_DIR}/cline-farm/cline_keys.txt`,
       rx: /(sk_[A-Za-z0-9_-]{8,})/
     }
   },

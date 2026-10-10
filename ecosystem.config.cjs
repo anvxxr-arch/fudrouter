@@ -113,7 +113,7 @@ module.exports = {
 			// is not inherited from whatever shell started the process. Do not
 			// add PORT to `env` here: .env.console is sourced after this env
 			// is applied and would silently win, leaving two sources of truth.
-			name: 'fudrouter-react',
+			name: 'fudrouter-console',
 			cwd: path.join(ROOT, 'apps/console'),
 			script: 'run.sh',
 			interpreter: 'bash',

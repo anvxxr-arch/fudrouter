@@ -184,7 +184,7 @@ export const auditLog = pgTable('audit_log', {
 
 // ------------------------------------------------------------------- db -----
 const DATABASE_URL = process.env.DATABASE_URL ?? '';
-if (!DATABASE_URL) console.warn('[react-web/server] DATABASE_URL is not set; DB routes will 500');
+if (!DATABASE_URL) console.warn('[console/server] DATABASE_URL is not set; DB routes will 500');
 const client = DATABASE_URL ? postgres(DATABASE_URL) : null;
 export const db = client
 	? drizzle(client, {
@@ -973,4 +973,4 @@ const PORT = process.env.PORT || 3000;
 // Bind loopback only (caddy reaches it at 127.0.0.1:3002). The default `::` bind
 // exposed the control plane on the LAN, against the box's loopback-only rule.
 const HOST = process.env.HOST || '127.0.0.1';
-app.listen(PORT, HOST, () => console.log(`react-web server listening on ${HOST}:${PORT}`));
+app.listen(PORT, HOST, () => console.log(`fudrouter-console listening on ${HOST}:${PORT}`));

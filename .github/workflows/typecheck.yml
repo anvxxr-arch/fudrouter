@@ -8,9 +8,10 @@
 # defines a `check` script.
 #
 # `packages/platform` holds the control plane's domain + persistence code and is
-# loaded at RUNTIME by the PM2 daemons through packages/platform/ts-hooks.mjs, so nothing
-# used to type-check it: a type error in the control plane (workers, billing,
-# ssrf, credentials) was invisible until the code path ran in production.
+# loaded at RUNTIME by the PM2 daemons through its own exports map
+# (@fudrouter/platform/server/*.ts, stripped by plain node), so nothing used to
+# type-check it: a type error in the control plane (workers, billing, ssrf,
+# credentials) was invisible until the code path ran in production.
 #
 # It used to be reached by a hard-coded `check:shared` path because it had no
 # package.json. Per ADR-0001 it is now a workspace with its own `check` script,

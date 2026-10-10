@@ -155,11 +155,30 @@ for u in "${UNITS[@]}"; do
 	sed -i 's|fudrouter/scripts/onboard-|fudrouter/ops/onboard-|g' "$f" || { echo "FATAL: failed to rewrite $f"; exit 1; }
 done
 systemctl --user daemon-reload || { echo "FATAL: systemctl --user daemon-reload failed"; exit 1; }
+# A failed restart is NOT a failed migration. These units are Type=oneshot and
+# run a merge job that exits non-zero whenever the farm has produced no input
+# file yet -- a condition with nothing to do with where the script lives.
+# Conflating the two aborts the cutover AFTER the unit files were rewritten, and
+# then the verify below never runs: the step that actually proves the cutover.
+# Abort only if the file did not take. A job that exits non-zero is a note.
 RESTART_FAILS=0
 for u in "${UNITS[@]}"; do
-	if systemctl --user restart "$u"; then echo "  restarted $u"; else echo "  FAIL restart $u -- unit file rewritten but restart failed"; RESTART_FAILS=$((RESTART_FAILS + 1)); fi
+	f="$HOME/.config/systemd/user/$u.service"
+	[ -f "$f" ] || continue
+	# --no-block: these units are Type=oneshot and their job fetches from the
+	# network, so a plain `restart` BLOCKS systemd until the job finishes --
+	# long enough to hang a caller and kill the cutover mid-run. The migration
+	# only needs the file rewritten + daemon-reload; the timer re-runs the job.
+	if systemctl --user restart --no-block "$u"; then
+		ok "restarted $u"
+	elif grep -q 'fudrouter/ops/onboard-' "$f"; then
+		note "$u: file migrated to ops/ but the job exited non-zero (pre-existing farm data; the timer re-runs it)"
+		RESTART_FAILS=$((RESTART_FAILS + 1))
+	else
+		bad "$u: restart failed AND the file still points at scripts/ -- migration did not land"
+		echo "FATAL: $u not migrated"; exit 1
+	fi
 done
-if [ "$RESTART_FAILS" -gt 0 ]; then echo "FATAL: $RESTART_FAILS unit restart(s) failed -- see above"; exit 1; fi
 
 echo
 echo "=== 8. verify ==="

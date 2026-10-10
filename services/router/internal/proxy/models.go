@@ -19,7 +19,7 @@ import (
 
 // ServeModels lists the published catalogue.
 func (h *Handler) ServeModels(w http.ResponseWriter, r *http.Request) {
-	models, err := h.store.ActiveModels(r.Context())
+	models, err := h.cachedModels(r.Context())
 	if err != nil {
 		h.writeErrCode(w, "INTERNAL_ERROR", "database error")
 		return
@@ -45,7 +45,7 @@ func (h *Handler) ServeModel(w http.ResponseWriter, r *http.Request) {
 		h.ServeModels(w, r)
 		return
 	}
-	m, err := h.store.PublishedModel(r.Context(), slug)
+	m, err := h.cachedModel(r.Context(), slug)
 	if err != nil {
 		// A truthful 404 for unknown AND unpublished slugs (spec §6 P1) — the
 		// answer must not distinguish "never existed" from "not published".

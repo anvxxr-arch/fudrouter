@@ -116,6 +116,10 @@ func (h *Handler) begin(w http.ResponseWriter, r *http.Request, start time.Time,
 	authStart := time.Now()
 	key, err := h.authenticate(r)
 	if err != nil {
+		if errors.Is(err, errAuthRateLimited) {
+			lc.reject(routing.ErrCodeRateLimited, err.Error(), "rate_limited", http.StatusTooManyRequests)
+			return lc, false
+		}
 		lc.reject(routing.ErrCodeAuthError, err.Error(), "client_error", int(statusCodeFor(routing.ErrCodeAuthError)))
 		return lc, false
 	}
@@ -170,7 +174,7 @@ func (h *Handler) begin(w http.ResponseWriter, r *http.Request, start time.Time,
 	lc.timing["rate_limit"] = time.Since(limStart).Milliseconds()
 
 	routeStart := time.Now()
-	pol, err := h.store.RoutingPolicyFor(r.Context(), key)
+	pol, err := h.cachedRoutingPolicy(r.Context(), key)
 	if err != nil {
 		pol = store.DefaultRoutingPolicy()
 	}
@@ -217,6 +221,22 @@ func (h *Handler) begin(w http.ResponseWriter, r *http.Request, start time.Time,
 				merged = append(merged, rc)
 			}
 			_ = i
+		}
+		// Per-candidate prices drive the cost-aware strategies. Resolved here
+		// through the Valkey cache (fail-open to DB) so N candidates cost N
+		// cache hits instead of N pricing queries; the request's own billing
+		// snapshot in buildRow is untouched.
+		for i := range merged {
+			if merged[i].Store == nil {
+				continue
+			}
+			if p, err := h.cachedPricing(r.Context(), merged[i].Store.ModelID, merged[i].Store.ProviderModelID); err == nil {
+				merged[i].Store.Price = p
+				// LoadSignals snapshots Store.Price into the scoring fields,
+				// so reload them now that the price is known — otherwise
+				// lowest_cost scores every candidate at zero.
+				merged[i].LoadSignals()
+			}
 		}
 		// The alias's own target order is the model preference when the policy
 		// declares none (spec §5: alias targets are ordered by position).

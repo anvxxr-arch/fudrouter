@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/anvxxr-arch/fudrouter/services/router/internal/keys"
 	"github.com/anvxxr-arch/fudrouter/services/router/internal/store"
@@ -31,36 +32,59 @@ import (
 func (h *Handler) authenticate(r *http.Request) (*store.APIKeyRow, error) {
 	raw, err := bearerOrAPIKey(r)
 	if err != nil {
-		return nil, err
+		return nil, h.authFail(r, err)
 	}
 	k, ok := keys.Parse(raw)
 	if !ok {
-		return nil, errors.New("malformed api key")
+		return nil, h.authFail(r, errors.New("malformed api key"))
 	}
 	row, err := h.store.LookupAPIKey(r.Context(), k.Prefix)
 	if err != nil {
 		if errors.Is(err, store.ErrKeyInactive) {
-			return nil, errors.New("api key is disabled or revoked")
+			return nil, h.authFail(r, errors.New("api key is disabled or revoked"))
 		}
 		if errors.Is(err, store.ErrKeyExpired) {
-			return nil, errors.New("api key expired")
+			return nil, h.authFail(r, errors.New("api key expired"))
 		}
 		if errors.Is(err, store.ErrKeyScope) {
-			return nil, errors.New("api key's workspace, project or environment is not active")
+			return nil, h.authFail(r, errors.New("api key's workspace, project or environment is not active"))
 		}
 		// A lookup FAILURE (bad SQL, missing column) is not "invalid api key":
 		// say so loudly here while the client still gets the no-key-oracle
 		// answer below (spec §3).
 		if !errors.Is(err, store.ErrNotFound) {
 			log.Printf("[proxy] api key lookup failed for prefix %s: %v", k.Prefix, err)
-			return nil, errors.New("invalid api key")
+			return nil, h.authFail(r, errors.New("invalid api key"))
 		}
-		return nil, errors.New("invalid api key")
+		return nil, h.authFail(r, errors.New("invalid api key"))
 	}
 	if !keys.Equal(row.KeyHash, keys.Hash(k.Secret)) {
-		return nil, errors.New("invalid api key")
+		return nil, h.authFail(r, errors.New("invalid api key"))
 	}
 	return row, nil
+}
+
+// errAuthRateLimited signals that one client IP burned through its
+// failed-authentication budget. Mapped to 429 RATE_LIMITED by begin —
+// authenticate runs before limiter.Check, so without this a key-guessing
+// loop never touches any counter.
+var errAuthRateLimited = errors.New("too many failed authentication attempts")
+
+// authFail records one failed authentication from the caller and returns the
+// error the client should see: the original failure, or errAuthRateLimited
+// once the IP passes 30 failures/minute. A Valkey outage degrades to the
+// original error (fail-open would hide a brute force; failing closed would
+// turn a cache blip into a 429 storm — the original 401 stays truthful
+// either way). Only the prefix is ever logged, never the secret.
+func (h *Handler) authFail(r *http.Request, err error) error {
+	ok, rerr := h.vk.AllowRate(r.Context(), "rl:authfail:"+clientIP(r), 30, time.Minute)
+	if rerr != nil {
+		return err
+	}
+	if !ok {
+		return errAuthRateLimited
+	}
+	return err
 }
 
 // bearerOrAPIKey extracts the raw key from whichever carrier the client used.

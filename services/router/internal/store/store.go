@@ -14,8 +14,10 @@ import (
 	"errors"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -40,10 +42,29 @@ type Store struct {
 	// allowDevProviders (see providerServableSQLFor). Every catalogue query
 	// interpolates it, so rebuilding the string per call was pure waste.
 	providerServable string
+	// hardLimits caches `system_setting['platform_hard_limits']` in-process
+	// (see hardLimitCache). Guarded by hardLimitsMu; expiry bounds the skew.
+	hardLimitsMu  sync.RWMutex
+	hardLimits    hardLimitCache
+	hardLimitsExp time.Time
+}
+
+// hardLimitCache is one cached copy of
+// `system_setting['platform_hard_limits']`. The row changes only when an
+// operator edits it, so a short TTL bounds the skew without an
+// invalidation channel.
+type hardLimitCache struct {
+	RPM         *int64
+	TPM         *int64
+	Concurrency *int64
 }
 
 func New(ctx context.Context, dsn string) (*Store, error) {
-	pool, err := pgxpool.New(ctx, dsn)
+	cfg, err := poolConfig(dsn)
+	if err != nil {
+		return nil, err
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -53,6 +74,46 @@ func New(ctx context.Context, dsn string) (*Store, error) {
 		allowDevProviders: allowDev,
 		providerServable:  providerServableSQLFor(allowDev),
 	}, nil
+}
+
+// poolConfig parses the DSN and applies the project's pool bounds.
+//
+// pgxpool.ParseConfig fills nonzero pgx defaults (MaxConns=max(4,NumCPU),
+// lifetime 1h, idle 30m) when the URL carries no pool_* parameter, so a
+// naive `== 0` check can never tell "absent" from "pgx default". Presence
+// is detected on the raw pgconn parse instead: a pool_* key in the URL wins
+// verbatim (pgx validates it), and only an absent key gets the project
+// default — one source of truth, no silent override either way.
+func poolConfig(dsn string) (*pgxpool.Config, error) {
+	raw, err := pgconn.ParseConfig(dsn)
+	if err != nil {
+		return nil, err
+	}
+	_, hasMax := raw.RuntimeParams["pool_max_conns"]
+	_, hasMin := raw.RuntimeParams["pool_min_conns"]
+	_, hasLife := raw.RuntimeParams["pool_max_conn_lifetime"]
+	_, hasIdle := raw.RuntimeParams["pool_max_conn_idle_time"]
+	_, hasHealth := raw.RuntimeParams["pool_health_check_period"]
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return nil, err
+	}
+	if !hasMax {
+		cfg.MaxConns = 20
+	}
+	if !hasMin {
+		cfg.MinConns = 2
+	}
+	if !hasLife {
+		cfg.MaxConnLifetime = 30 * time.Minute
+	}
+	if !hasIdle {
+		cfg.MaxConnIdleTime = 5 * time.Minute
+	}
+	if !hasHealth {
+		cfg.HealthCheckPeriod = time.Minute
+	}
+	return cfg, nil
 }
 
 // envBool accepts only explicit truthy values, so a typo or an empty string

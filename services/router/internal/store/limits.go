@@ -39,20 +39,35 @@ func (s *Store) EffectiveLimits(ctx context.Context, k *APIKeyRow) (*Limits, err
 
 	// Platform hard limits: system_setting['platform_hard_limits'] =
 	// {"rpm":…,"tpm":…,"concurrency":…} (0007 seed). Every level below is
-	// clamped by these.
-	var raw []byte
-	err := s.pool.QueryRow(ctx,
-		`select value from system_setting where key = 'platform_hard_limits'`).Scan(&raw)
-	if err == nil {
-		var hard struct {
-			RPM         *int64 `json:"rpm"`
-			TPM         *int64 `json:"tpm"`
-			Concurrency *int64 `json:"concurrency"`
-		}
-		if json.Unmarshal(raw, &hard) == nil {
-			minInto(&lim.RPM, hard.RPM)
-			minInto(&lim.TPM, hard.TPM)
-			minInto(&lim.Concurrency, hard.Concurrency)
+	// clamped by these. Cached in-process with a 60s TTL — the row changes
+	// only via operator edit, so the skew is bounded by the TTL and no
+	// invalidation channel is needed.
+	s.hardLimitsMu.RLock()
+	cached, exp := s.hardLimits, s.hardLimitsExp
+	s.hardLimitsMu.RUnlock()
+	if time.Now().Before(exp) {
+		minInto(&lim.RPM, cached.RPM)
+		minInto(&lim.TPM, cached.TPM)
+		minInto(&lim.Concurrency, cached.Concurrency)
+	} else {
+		var raw []byte
+		err := s.pool.QueryRow(ctx,
+			`select value from system_setting where key = 'platform_hard_limits'`).Scan(&raw)
+		if err == nil {
+			var hard struct {
+				RPM         *int64 `json:"rpm"`
+				TPM         *int64 `json:"tpm"`
+				Concurrency *int64 `json:"concurrency"`
+			}
+			if json.Unmarshal(raw, &hard) == nil {
+				s.hardLimitsMu.Lock()
+				s.hardLimits = hardLimitCache{RPM: hard.RPM, TPM: hard.TPM, Concurrency: hard.Concurrency}
+				s.hardLimitsExp = time.Now().Add(60 * time.Second)
+				s.hardLimitsMu.Unlock()
+				minInto(&lim.RPM, hard.RPM)
+				minInto(&lim.TPM, hard.TPM)
+				minInto(&lim.Concurrency, hard.Concurrency)
+			}
 		}
 	}
 

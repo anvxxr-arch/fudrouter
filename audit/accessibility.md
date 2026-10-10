@@ -1,0 +1,3 @@
+# Accessibility (weight 10% → 10.0)
+
+All 5/5 on code evidence: h1=1 all routes; titleAs=h2 on section-leading cards; every input/select labelled (incl. Role/Environment role selects); live regions on loading + errors; nav landmarks labelled (Primary, Dashboard, Admin, Documentation pages); aria-current default; skip/focus/motion; native selects; zero img debt. Landmark design: exactly one <main> per document (Layout's .shell); Docs' former nested <main> demoted to div (nested mains are invalid HTML). Caveat (confidence only): no live screen-reader walk — code-complete, AT-walk recommended next.

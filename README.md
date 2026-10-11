@@ -57,15 +57,18 @@ see `internal/netguard`).
 ## Development
 
 ```sh
-# both planes need this
-docker compose -f infra/docker-compose.yml up -d     # stack (Postgres is consolidated)
+# The stack is external and already running — do NOT `docker compose up`.
+# infra/docker-compose.yml is a stub (services: {}); Postgres is the
+# consolidated `postgres-hardened` container on 127.0.0.1:5432 and Valkey is
+# host-native systemd on 127.0.0.1:6379 (logical DB 1). Consumers read
+# VALKEY_URL, so the endpoint is configuration, never hardcoded.
 
-npm ci --workspace apps/web          # installs react-web from the root lockfile
+npm ci --workspace apps/web          # installs @fudrouter/web from the root lockfile
 npm run build --workspace apps/web   # vite build (dist/ served by server/index.mjs)
 npm run dev --workspace apps/web     # vite dev
 
 cd backend/go
-go test ./... -race    # the data-plane suite is DB-backed; see below
+GOTOOLCHAIN=auto go test ./... -race    # the data-plane suite is DB-backed; see below
 ```
 
 **The data-plane tests need a throwaway database.** They insert and delete rows,

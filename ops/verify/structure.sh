@@ -22,7 +22,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT" || { echo "FAIL: cannot cd to $ROOT"; exit 1; }
 
-ALLOWED_DIRS=( .github apps backend docs infra ops packages )
+ALLOWED_DIRS=( .github .omp apps backend docs infra ops packages )
 ALLOWED_FILES=( .env.console.example .gitignore DESIGN.md README.md
                 ecosystem.config.cjs package-lock.json package.json )
 # apps/* are runnable units, so each must carry its PM2 entrypoint. The Go data

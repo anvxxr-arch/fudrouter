@@ -54,13 +54,18 @@ export function databaseName(dsn) {
 }
 
 /**
- * The DSN the suite may run against. Skips locally when unset (so the 34
- * server/lib unit tests still run for a developer with no throwaway database)
- * but FAILS in CI: a silent skip lets the pipeline go green while the control
- * plane was never exercised, which is exactly the failure mode the baseline
- * records. Mirrors backend/go/tests/helpers.go RequireDB.
+ * Whether the integration suite may run. One predicate, read by both the
+ * harness and every test file, so the "must never write to prod" rule lives in
+ * exactly one place instead of being re-derived per file.
+ *
+ * - no DSN            -> skip locally, THROW in CI (a silent skip lets the
+ *                        pipeline go green while the control plane was never
+ *                        exercised — the failure mode the baseline records)
+ * - DSN naming the app database -> THROW always, unless FUDROUTER_ALLOW_PROD_TESTS
+ *
+ * Mirrors backend/go/tests/helpers.go RequireDB.
  */
-export function requireTestDatabase() {
+export function integrationEnabled() {
 	const dsn = process.env.DATABASE_URL ?? '';
 	if (!dsn) {
 		if (process.env.CI) {
@@ -69,9 +74,9 @@ export function requireTestDatabase() {
 					'Point it at a throwaway database (see backend/go/README.md).',
 			);
 		}
-		return null;
+		return false;
 	}
-	if (process.env.FUDROUTER_ALLOW_PROD_TESTS) return dsn;
+	if (process.env.FUDROUTER_ALLOW_PROD_TESTS) return true;
 	const name = databaseName(dsn);
 	if (PRODUCTION_DATABASES.has(name)) {
 		throw new Error(
@@ -81,7 +86,7 @@ export function requireTestDatabase() {
 				'FUDROUTER_ALLOW_PROD_TESTS=1 to accept the risk explicitly.',
 		);
 	}
-	return dsn;
+	return true;
 }
 
 /** A free loopback port, so the suite never collides with a running console. */
@@ -100,14 +105,17 @@ async function freePort() {
 /**
  * Boot the real server as a subprocess and wait until it answers /api/health.
  * Returns { baseUrl, port, stop, log }, or null when no throwaway database is
- * configured (the caller skips the file — see requireTestDatabase).
+ * configured (the caller skips the file — see integrationEnabled).
  */
 export async function startServer(env = {}) {
-	const dsn = requireTestDatabase();
-	// No DSN locally: the caller must skip. Returning null rather than spawning
-	// with a bogus DSN matters — `DATABASE_URL: null` serializes to the string
-	// "null", which index.mjs:186 reads as truthy and hands to postgres(), so
-	// every DB route would 500 with a connection error instead of skipping.
+	// Gate first: this throws when the DSN names the application database, and
+	// returns false when there is no DSN at all.
+	if (!integrationEnabled()) return null;
+	const dsn = process.env.DATABASE_URL;
+	// Returning null rather than spawning with a bogus DSN matters —
+	// `DATABASE_URL: null` serializes to the string "null", which index.mjs:186
+	// reads as truthy and hands to postgres(), so every DB route would 500 with
+	// a connection error instead of skipping.
 	if (!dsn) return null;
 	const port = await freePort();
 	// better-auth's trustedOrigins is a hardcoded allowlist for non-production

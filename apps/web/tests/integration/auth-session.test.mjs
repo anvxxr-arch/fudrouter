@@ -3,8 +3,8 @@
 // The baseline records "better-auth session + Discord OAuth callback: no
 // coverage". This suite drives the real /api/auth/* endpoints over HTTP and
 // asserts the two things that must hold for every other management route: a
-// session cookie authenticates, and sign-up provisions the workspace tree the
-// dashboard depends on.
+// session cookie authenticates, and sign-up provisions the workspace tree that
+// /api/pages/workspace reports.
 //
 // Gating: every test carries `{ skip: !hasDb && '…' }`. A skip inside
 // test.before does NOT work in Node 22 — the hook runs after the test bodies
@@ -14,9 +14,12 @@
 // still FAILS under CI (see requireTestDatabase).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { startServer, signUp, uniqueEmail } from './harness.mjs';
+import { startServer, signUp, uniqueEmail, integrationEnabled } from './harness.mjs';
 
-const hasDb = Boolean(process.env.DATABASE_URL);
+// One predicate, shared with the harness: it throws when DATABASE_URL names the
+// application database (so a prod DSN fails loudly rather than writing to
+// production) and returns false when there is no DSN at all.
+const hasDb = integrationEnabled();
 const SKIP = 'no throwaway DATABASE_URL — integration suite skipped';
 
 let server;
@@ -37,11 +40,11 @@ test.after(async () => {
 	await server?.stop();
 });
 
-test('sign-up provisions the workspace tree the dashboard reads', { skip: !hasDb && SKIP }, async () => {
+test('sign-up provisions the workspace tree /api/pages/workspace reads', { skip: !hasDb && SKIP }, async () => {
 	// The user.create.after hook (index.mjs:391-400) provisions workspace,
 	// project, environments, role, member and billing account. If that hook
-	// regresses, every /api/pages/* route returns an empty shell and the
-	// dashboard silently renders nothing — so assert the tree exists.
+	// regresses, every /api/pages/* route that resolves the ownership tree
+	// fails, so assert the tree exists.
 	//
 	// /api/pages/workspace is the endpoint that reports it: it returns
 	// { workspace, owner, isOwner, projectCount, memberCount, members }

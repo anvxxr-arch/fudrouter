@@ -16,7 +16,7 @@ Two stateless planes over one Postgres, plus Valkey for counters/caches only.
 
 | Plane | Path | Port | Owns |
 |---|---|---|---|
-| Control | `apps/web` — React 19 SPA (Vite) + Express 5 server | 3002 | UI, auth, billing, admin |
+| Control | `apps/web` — React 19 SPA (Vite) + Express 5 server | 3002 (PM2) / 3000 (direct) | UI, auth, billing, admin |
 | Data | `backend/go` — Go 1.25, `cmd/gateway` | 8100 | `/v1/*` hot path |
 | Jobs | `apps/workers`, `apps/scheduler` (Node) | — | Postgres job queue (`FOR UPDATE SKIP LOCKED`) |
 
@@ -79,9 +79,12 @@ node --test apps/web/server/lib/rbac.test.mjs   # one file
 npm run check -w @fudrouter/contracts
 npm test  -w @fudrouter/contracts
 
-# Go (needs a throwaway DB)
-cd backend/go && go vet ./... && go build ./... && go test ./... -race
-env -u DATABASE_URL go test ./... -count=1        # unit-only, DB tests skip
+# Go (needs a throwaway DB). GOTOOLCHAIN=auto matters: go.mod declares
+# toolchain go1.26.9 and the local box may run an older Go, which would
+# otherwise refuse to build. CI pins 1.26.9 to match deliberately.
+cd backend/go && GOTOOLCHAIN=auto go vet ./... && GOTOOLCHAIN=auto go build ./...
+GOTOOLCHAIN=auto go test ./... -race
+env -u DATABASE_URL GOTOOLCHAIN=auto go test ./... -count=1   # unit-only, DB tests skip
 
 # Migrations — the ONLY path. Never drizzle-kit.
 DATABASE_URL=postgres://... ops/migrate.sh [status]
@@ -89,6 +92,13 @@ DATABASE_URL=postgres://... ops/migrate.sh [status]
 # Layout gate alone
 bash ops/verify/structure.sh
 ```
+
+**The stack is external — do not run `docker compose up`.** `infra/docker-compose.yml`
+is a stub whose entire content is comments and `services: {}`; the command exits 0
+and starts nothing. Postgres is the consolidated `postgres-hardened` container
+(`127.0.0.1:5432`, db `fudrouter`, role `fudrouter`) and Valkey is
+host-native systemd `valkey-server` on `127.0.0.1:6379` DB 1. Both are already
+running; consumers read `VALKEY_URL`, never a hardcoded endpoint.
 
 Scratch DB (the `fudrouter` role has **no** createdb right — `createdb -T` fails):
 
@@ -114,8 +124,22 @@ export DATABASE_URL=postgres://fudrouter:fudrouter@127.0.0.1:5432/fudrouter_test
   `omit=dev`. Every `apps/web` dependency is a devDependency, so a bare
   `npm install`/`ci` silently empties `node_modules` while exiting 0. Always prefix
   `NODE_ENV=development`.
+- **`npm run check` / `npm test` do NOT cover `apps/workers` or `apps/scheduler`.**
+  Only `apps/web` and `packages/*` have a `package.json`; the worker fleet and
+  scheduler are bare `.mjs` scripts launched by PM2 via `run.sh` (each `cd`s to the
+  repo root, sources `./.env`, then `exec node apps/<name>/<name>.mjs`). They are
+  invisible to `--workspaces`, so "typecheck everything" silently skips two of three
+  Node apps. `workers.mjs` installs its own module hooks
+  (`registerHooks` + `stripTypeScriptTypes`) to load the TypeScript graph, so it
+  needs no `--experimental-strip-types` — and equally cannot be typechecked by the
+  `apps/web` tsconfig, and has no test runner of its own.
 - **`--if-present` is banned in CI scripts** — an absent script would silently pass.
-- Ports: web 3000 / console 3002, router 8100, Valkey 6379. Never bind
+- **Ports.** The console binds `process.env.PORT || 3000` (`index.mjs:972`), so a
+  bare `npm run server --workspace apps/web` listens on **3000**. Under PM2 the
+  `fudrouter-console` app deliberately omits `PORT` from its `env` block
+  (`ecosystem.config.cjs:113-115`) because `.env.console` is sourced *after* PM2's
+  env and would silently win — so the deployed process binds `.env.console`'s
+  **3002**. Router 8100, Valkey 6379. Never bind
   `8011 8012 443 5432 5433 8080 8443 9177`.
 - PM2 process names: `fudrouter-router`, `fudrouter-workers`,
   `fudrouter-scheduler`, `fudrouter-console`.
@@ -133,7 +157,7 @@ one concern each. DB `snake_case` in SQL, `camelCase` in Drizzle. IDs are
 it is unusual: a comment names the bug that was fixed, the alternative rejected, and
 why the current shape is load-bearing. Match it. Examples to read first:
 `apps/web/server/rate-limit.mjs:1-12`, `apps/web/server/lib/ip.mjs:1-14`,
-`packages/platform/rbac.ts:1-21`, `backend/go/internal/netguard.go:1-22`,
+`packages/platform/rbac.ts:1-21`, `backend/go/internal/netguard/netguard.go:1-22`,
 `backend/go/internal/cost/cost.go:1-18`.
 
 **Error handling — one idiom per plane.** Node: `HttpError(status, message)` thrown
@@ -153,6 +177,26 @@ which is why the route extractor records mounts separately.
 loops are explicit `while (running)` with injectable sleep and a `stop()` that
 drains in-flight work. Go uses context propagation and `sync.Map`/`sync.RWMutex`
 for the pool registry and hard-limit cache.
+
+**The SSRF boundary is one shared rule, never a local copy.** `backend/go/internal/netguard`
+is the data plane's boundary and every outbound upstream client must carry it. The
+guard is a `net.Dialer.Control` hook, not a URL pre-check: `Control` receives the
+address **after** DNS resolution and before the socket connects, which is what
+catches DNS-rebinding names, and because every redirect opens a new connection
+through the same transport, redirects are covered for free. The non-obvious rule:
+`Control` must **refuse an unresolved hostname** — by the time it runs, resolution
+has already happened, so a name means the guard cannot vouch for the target
+(`netguard.go:118-121`). The OpenAI client reaches the guard through the one-line
+aliases in `internal/proxy/guard.go`; the freebuff client wires it directly in
+`internal/freebuff/transport.go:56-61`. That asymmetry is the historical reason the
+rule lives in one package: the freebuff client was originally unguarded, so a
+provider blob declaring `protocol="freebuff"` could dial the internal network
+(`guard.go:10-14`). On the TS side the equivalent boundary is
+`packages/platform/server/ssrf.ts`, re-exported by `apps/web/server/lib/ip.mjs` —
+the platform module **owns** the rule and nothing may carry a local copy. A prior
+audit found the console carrying a *shorter* blocklist than the shared one, which
+accepted 23 addresses the console refused, NAT64/6to4 spellings of the metadata
+address among them (`platform-ts.mjs:25-32`).
 
 **Pure rule vs env read are deliberately split** (`publish.ts` +
 `server/publish-env.ts`) so the rule stays unit-testable. Keep that split.
@@ -288,11 +332,11 @@ per page.
   `/api/admin/*` routes stay in Express.
 - **No e2e/load harness** despite `tests/{e2e,integration,load}` existing as empty
   dirs at the repo root.
-- **Stale docs** (known, not yet corrected): `README.md:8` says the control plane is
-  on :3000 while `.env.console` pins `PORT=3002`; `docs/architecture/*` and
+- **Stale docs** (known, not yet corrected): `docs/architecture/*` and
   `docs/audit/*` reference pre-rename paths (`apps/react-web`, `services/router`,
-  `tools/`); `docs/specs/*` reference `infra/migrations` (now
-  `backend/go/migrations`) and `shared/control-lib` (now `packages/platform`).
+  `tools/`, `shared/control-lib`); `docs/specs/*` reference `infra/migrations`
+  (now `backend/go/migrations`). `README.md:8`'s `:3000` is **not** stale — it is
+  the direct-run port; see the Ports note above.
 - `ops/onboard-farm.mjs:12` documents a `FARM_PROVIDER_STATUS` knob the code never
   reads.
 - `apps/web/server/lib/ssrf.mjs:11` — `_fetchCatalog` untested by the author's own

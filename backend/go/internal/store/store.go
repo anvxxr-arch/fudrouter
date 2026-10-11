@@ -1,6 +1,6 @@
 // Package store is the data plane's only database access.
 //
-// The schema is `db/migrations/0006_platform_schema.sql` +
+// The schema is `backend/go/migrations/0006_platform_schema.sql` +
 // `0007_platform_backfill.sql` (literal source of truth:
 // docs/specs/2026-09-30-platform-schema.md §3–§10). Legacy S0 columns
 // (`provider.base_url`, `provider.credentials_enc`, `api_key.limits`,

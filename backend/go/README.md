@@ -67,7 +67,7 @@ docker exec postgres-hardened psql -U postgres -d postgres \
   -c "create database fudrouter_test owner fudrouter"
 
 export DATABASE_URL=postgres://fudrouter:fudrouter@127.0.0.1:5432/fudrouter_test
-for f in ../../db/migrations/*.sql; do psql "$DATABASE_URL" -q -f "$f"; done
+for f in migrations/*.sql; do psql "$DATABASE_URL" -q -f "$f"; done
 
 go test ./... -race
 ```

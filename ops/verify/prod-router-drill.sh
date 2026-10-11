@@ -11,12 +11,12 @@
 set -uo pipefail
 
 # Moved from tools/ to ops/verify/ (one level deeper): the root derivation below
-# had to grow a level with it, or ROOT/backend/go and ROOT/db/migrations
+# had to grow a level with it, or ROOT/backend/go and ROOT/backend/go/migrations
 # both resolve to nothing.
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DB=fudrouter_drill
 ROUTER_DIR="$ROOT/backend/go"
-MIGRATIONS="$ROOT/db/migrations"
+MIGRATIONS="$ROOT/backend/go/migrations"
 ENV_FILE="$ROOT/.env"
 PG_CONTAINER="${FUDROUTER_PG_CONTAINER:-postgres-hardened}"
 PG_USER="${FUDROUTER_PG_SUPERUSER:-postgres}"

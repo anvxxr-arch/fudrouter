@@ -42,7 +42,7 @@ jobs:
       - run: npm ci --workspace apps/web
       - name: Apply the schema
         # ops/migrate.sh is the ONLY migration path (spec §13): it applies
-        # every db/migrations/*.sql in order and records each in
+        # every backend/go/migrations/*.sql in order and records each in
         # schema_migration.
         run: |
           command -v psql >/dev/null 2>&1 || {

@@ -1,0 +1,3 @@
+modelRoles:
+  default: jerouter/step-5-preview:xhigh
+  task: jerouter/muse-unrestricted

@@ -58,7 +58,7 @@ echo "### 1. fresh database"
 $PG -q -c "drop database if exists $DB;" -c "create database $DB owner fudrouter;" || exit 1
 
 echo "### 2. migrations (as the app role; gated files skipped like ops/migrate.sh)"
-shopt -s nullglob; MIGS=("$ROOT"/db/migrations/*.sql); shopt -u nullglob
+shopt -s nullglob; MIGS=("$ROOT"/backend/go/migrations/*.sql); shopt -u nullglob
 napplied=0
 for f in "${MIGS[@]}"; do
   # Mirror ops/migrate.sh's gate — it is the single source of truth. A file

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ops/migrate.sh — apply db/migrations/*.sql in lexical order.
+# ops/migrate.sh — apply backend/go/migrations/*.sql in lexical order.
 #
 # Replaces `drizzle-kit migrate`: the drizzle journal only knew 0000–0003 while
 # 0004/0005 shipped as plain SQL, so the web plane silently skipped them
@@ -17,7 +17,7 @@ set -euo pipefail
 
 MODE="${1:-apply}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-MIGRATIONS="$ROOT/db/migrations"
+MIGRATIONS="$ROOT/backend/go/migrations"
 : "${DATABASE_URL:?DATABASE_URL is required}"
 
 PSQL=(psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q)

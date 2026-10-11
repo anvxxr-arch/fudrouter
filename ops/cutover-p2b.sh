@@ -49,7 +49,7 @@ NEW_PATHS=(
 	"packages/platform/package.json:platform package manifest"
 	"ops/migrate.sh:migration runner"
 	"ops/backup-db.sh:nightly backup"
-	"db/migrations:SQL migrations"
+	"backend/go/migrations:SQL migrations"
 )
 for spec in "${NEW_PATHS[@]}"; do
 	p="${spec%%:*}"; d="${spec#*:}"

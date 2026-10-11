@@ -41,7 +41,7 @@ paths:
       tags: [app]
       summary: "GET {*path}"
       description: |
-        Registered at apps/web/server/index.mjs:960.
+        Registered at apps/web/server/index.mjs:975.
         Express 5 splat route: the trailing path segment is greedy.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
@@ -53,7 +53,7 @@ paths:
         - session: []
       x-source:
         file: apps/web/server/index.mjs
-        line: 960
+        line: 975
       x-body-schema: unmodelled
       responses:
         "200":
@@ -3242,7 +3242,7 @@ paths:
       tags: [auth]
       summary: "ALL /api/auth/{*path}"
       description: |
-        Registered at apps/web/server/index.mjs:588.
+        Registered at apps/web/server/index.mjs:603.
         Express 5 splat route: the trailing path segment is greedy.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
@@ -3254,7 +3254,7 @@ paths:
         - session: []
       x-source:
         file: apps/web/server/index.mjs
-        line: 588
+        line: 603
       x-body-schema: unmodelled
       responses:
         "200":
@@ -3380,13 +3380,13 @@ paths:
       tags: [health]
       summary: "GET /api/health"
       description: |
-        Registered at apps/web/server/index.mjs:570.
+        Registered at apps/web/server/index.mjs:585.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/index.mjs
-        line: 570
+        line: 585
       x-body-schema: unmodelled
       responses:
         "200":
@@ -3530,7 +3530,7 @@ paths:
       tags: [pages]
       summary: "GET /api/pages/{*path}"
       description: |
-        Registered at apps/web/server/index.mjs:937.
+        Registered at apps/web/server/index.mjs:952.
         Express 5 splat route: the trailing path segment is greedy.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
@@ -3542,7 +3542,7 @@ paths:
         - session: []
       x-source:
         file: apps/web/server/index.mjs
-        line: 937
+        line: 952
       x-body-schema: unmodelled
       responses:
         "200":
@@ -4816,13 +4816,13 @@ paths:
       tags: [pages]
       summary: "GET /api/pages/shell"
       description: |
-        Registered at apps/web/server/index.mjs:835.
+        Registered at apps/web/server/index.mjs:850.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/index.mjs
-        line: 835
+        line: 850
       x-body-schema: unmodelled
       responses:
         "200":
@@ -4841,7 +4841,7 @@ paths:
       tags: [palette]
       summary: "GET /api/palette/{type}"
       description: |
-        Registered at apps/web/server/index.mjs:666.
+        Registered at apps/web/server/index.mjs:681.
         PUBLIC — rate-limited by client IP (_publicRead).
       parameters:
         - name: type
@@ -4851,7 +4851,7 @@ paths:
       security: []
       x-source:
         file: apps/web/server/index.mjs
-        line: 666
+        line: 681
       x-body-schema: unmodelled
       responses:
         "200":
@@ -5025,13 +5025,13 @@ paths:
       tags: [seo]
       summary: "GET /robots.txt"
       description: |
-        Registered at apps/web/server/index.mjs:945.
+        Registered at apps/web/server/index.mjs:960.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/index.mjs
-        line: 945
+        line: 960
       x-body-schema: unmodelled
       responses:
         "200":
@@ -5050,13 +5050,13 @@ paths:
       tags: [seo]
       summary: "GET /sitemap.xml"
       description: |
-        Registered at apps/web/server/index.mjs:949.
+        Registered at apps/web/server/index.mjs:964.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/index.mjs
-        line: 949
+        line: 964
       x-body-schema: unmodelled
       responses:
         "200":

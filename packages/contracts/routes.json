@@ -57,13 +57,13 @@
       "method": "ALL",
       "path": "/api/auth/{*path}",
       "file": "index.mjs",
-      "line": 588
+      "line": 603
     },
     {
       "method": "GET",
       "path": "{*path}",
       "file": "index.mjs",
-      "line": 960
+      "line": 975
     },
     {
       "method": "GET",
@@ -387,7 +387,7 @@
       "method": "GET",
       "path": "/api/health",
       "file": "index.mjs",
-      "line": 570
+      "line": 585
     },
     {
       "method": "GET",
@@ -417,7 +417,7 @@
       "method": "GET",
       "path": "/api/pages/{*path}",
       "file": "index.mjs",
-      "line": 937
+      "line": 952
     },
     {
       "method": "GET",
@@ -519,13 +519,13 @@
       "method": "GET",
       "path": "/api/pages/shell",
       "file": "index.mjs",
-      "line": 835
+      "line": 850
     },
     {
       "method": "GET",
       "path": "/api/palette/:type",
       "file": "index.mjs",
-      "line": 666
+      "line": 681
     },
     {
       "method": "GET",
@@ -561,13 +561,13 @@
       "method": "GET",
       "path": "/robots.txt",
       "file": "index.mjs",
-      "line": 945
+      "line": 960
     },
     {
       "method": "GET",
       "path": "/sitemap.xml",
       "file": "index.mjs",
-      "line": 949
+      "line": 964
     },
     {
       "method": "POST",
@@ -1209,85 +1209,85 @@
     {
       "path": "/api/admin",
       "file": "index.mjs",
-      "line": 658,
+      "line": 673,
       "kind": "rate-limit"
     },
     {
       "path": "/api/auth",
       "file": "index.mjs",
-      "line": 581,
+      "line": 596,
       "kind": "middleware"
     },
     {
       "path": "/api/changelog",
       "file": "index.mjs",
-      "line": 655,
+      "line": 670,
       "kind": "rate-limit"
     },
     {
       "path": "/api/docs",
       "file": "index.mjs",
-      "line": 654,
+      "line": 669,
       "kind": "rate-limit"
     },
     {
       "path": "/api/metrics",
       "file": "index.mjs",
-      "line": 652,
+      "line": 667,
       "kind": "rate-limit"
     },
     {
       "path": "/api/models",
       "file": "index.mjs",
-      "line": 649,
+      "line": 664,
       "kind": "middleware"
     },
     {
       "path": "/api/pages",
       "file": "index.mjs",
-      "line": 657,
+      "line": 672,
       "kind": "rate-limit"
     },
     {
       "path": "/api/palette",
       "file": "index.mjs",
-      "line": 656,
+      "line": 671,
       "kind": "rate-limit"
     },
     {
       "path": "/api/playground",
       "file": "index.mjs",
-      "line": 659,
+      "line": 674,
       "kind": "rate-limit"
     },
     {
       "path": "/api/pricing",
       "file": "index.mjs",
-      "line": 651,
+      "line": 666,
       "kind": "middleware"
     },
     {
       "path": "/api/providers",
       "file": "index.mjs",
-      "line": 650,
+      "line": 665,
       "kind": "middleware"
     },
     {
       "path": "/api/status",
       "file": "index.mjs",
-      "line": 653,
+      "line": 668,
       "kind": "rate-limit"
     },
     {
       "path": "/assets",
       "file": "index.mjs",
-      "line": 958,
+      "line": 973,
       "kind": "static"
     }
   ],
   "sources": {
     "apps/web/server/admin.mjs": "06befca73498d1ccbcd4a2d210ab944e2262d2d780ae538b30821cb9531cd506",
-    "apps/web/server/index.mjs": "919e75bd90bfd7e04310eaa9ce0b281fca43c842b54995c7808d01b630617ee3",
+    "apps/web/server/index.mjs": "b94d3898548003dadf68e00d28a138a8d3a15e0b4644bb2e06568328561efcb1",
     "apps/web/server/pages.mjs": "3abc6c0110daae8995af971b04fdae58c666c39c0cda7c66105bb2823a79e678",
     "apps/web/server/playground.mjs": "351dd2cfa5dbb2f4bc0d1926c54820aa5d979873b34859fdf3072e9925ffb07d",
     "apps/web/server/public.mjs": "769b53d2570bb397cd33ce479164ecaf9d0a8f06db9e7ed08d5015084bd36775",

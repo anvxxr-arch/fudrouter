@@ -373,6 +373,21 @@ export const auth = betterAuth({
 	baseURL: ORIGIN,
 	secret: process.env.BETTER_AUTH_SECRET,
 	database: drizzleAdapter(db ?? {}, { provider: 'pg', schema: authSchema }),
+	// better-auth returns ONLY the fields it knows about. `role` was never
+	// declared, so getSessionUser() handed the admin gate a user object whose
+	// keys were [name,email,emailVerified,image,createdAt,updatedAt,id] --
+	// requireCap(userRow.role) then read undefined and EVERY /api/admin/* route
+	// answered 403, for every role including admin (measured over HTTP: the row
+	// in the database said 'admin' while the route said Forbidden). Declaring it
+	// is what makes the app's own role whitelist reachable at all.
+	//
+	// input:false is load-bearing: with better-auth's default the sign-up body
+	// could set its own role, which is privilege escalation by another name.
+	user: {
+		additionalFields: {
+			role: { type: 'string', required: false, input: false }
+		}
+	},
 	advanced: {
 		database: {
 			generateId: ({ model: m }) => newId(AUTH_ID_PREFIX[m] ?? 'id_')

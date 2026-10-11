@@ -21,6 +21,7 @@ const provCreds = await import('@fudrouter/platform/server/provider-credentials.
 const ids = await import('@fudrouter/platform/server/id.ts');
 const audit = await import('@fudrouter/platform/server/audit.ts');
 const rbac = await import('@fudrouter/platform/rbac');
+const vkmod = await import('@fudrouter/platform/server/vk.ts');
 
 // SSRF: the platform module OWNS the rule, including the literal blocklist --
 // isBlockedIp and the range arithmetic are re-exported below for the request
@@ -65,6 +66,13 @@ export function _headersFor(cred, token) {
 	if (token) h.authorization = `Bearer ${token}`;
 	return h;
 }
+
+// Valkey: the shared ioredis client (packages/platform/server/vk.ts). It owns
+// VALKEY_URL, lazy connect and the degrade-open policy; vk() returns null when
+// Valkey is not deployed, which is the "disabled" branch the call sites want.
+// The console adds only the per-call deadline the client deliberately does not
+// set (a shared commandTimeout would change the workers' and scheduler's too).
+export const _vk = () => vkmod.vk();
 
 // RBAC: the role -> capability table is the platform's (@fudrouter/platform/rbac),
 // the same object the SPA's route guards import. Re-exported under the plain names

@@ -19,7 +19,7 @@ import { _isBlockedLiteral, _assertPublic, _encCred, _decCred, _tokenAt, _header
 import { clientIp } from './lib/ip.mjs';
 import { _sanitizeAudit, _dropRedacted, _auditView, makeAudit } from './lib/audit.mjs';
 import { SECTION_CAPS, _dominates, _canAdminister, _guardUser } from './lib/rbac.mjs';
-import { _deriveHealth, _evalSignals, _vkPing, _vkSend } from './lib/format.mjs';
+import { _deriveHealth, _evalSignals, _vk, _vkPing, _vkReady, _vkWait } from './lib/format.mjs';
 import {
 	pgTable,
 	text,
@@ -1802,20 +1802,16 @@ export function registerAdminRoutes(app, ctx) {
 		const connections = _rowsOf(await database.execute(sql`select id, name, provider_id from connection order by name`));
 		const models = _rowsOf(await database.execute(sql`select id, name, slug from model order by slug`));
 		let states = rows.map(() => null);
-		if (process.env.VALKEY_URL) {
-			try {
-				const send = (cmd) => _vkSend(cmd, 3000);
-				states = await Promise.all(rows.map(async (r) => {
-					try {
-						const key = `circuit:${r.target}:${r.target_id}`;
-						const raw = await send(`*2\r\n$3\r\nGET\r\n$${Buffer.byteLength(key)}\r\n${key}\r\n`);
-						const i = raw.indexOf('\r\n');
-						const n = parseInt(raw.slice(1, i), 10);
-						if (Number.isNaN(n) || n < 0) return null;
-						return raw.slice(i + 2, i + 2 + n);
-					} catch { return null; }
-				}));
-			} catch {}
+		const vkClient = _vk();
+		if (vkClient) {
+			await _vkReady(vkClient);
+			states = await Promise.all(rows.map(async (r) => {
+				try {
+					// get() returns the value or null for a missing key; the raw
+					// version had to read the bulk header to tell "$-1" from a value.
+					return await _vkWait(vkClient.get(`circuit:${r.target}:${r.target_id}`), 3000, 'get');
+				} catch { return null; }
+			}));
 		}
 		return { breakers: rows.map((r, i) => ({ ...r, state: states[i] === null ? 'closed (or unavailable)' : states[i] })), providers, connections, models, targets: CIRCUIT_TARGETS };
 	}));
@@ -2427,30 +2423,32 @@ export function registerAdminRoutes(app, ctx) {
 		const requests = _num(fb.requests); const fallbacks = _num(fb.fallbacks);
 		return { hourly: hourly.map((r) => ({ bucket: String(r.bucket), requests: _num(r.requests), successes: _num(r.successes) })), errorMix: errorMix.map((r) => ({ status: String(r.status), errorCode: String(r.error_code), requests: _num(r.requests) })), latency: { p50: pct(lat, 'p50'), p95: pct(lat, 'p95'), p99: pct(lat, 'p99'), ttftP50: pct(lat, 'ttft_p50'), ttftP95: pct(lat, 'ttft_p95') }, fallback: { requests, fallbacks, rate: requests > 0 ? (100 * fallbacks) / requests : null }, perProvider: perProvider.map((r) => ({ providerId: String(r.provider_id), providerName: providerNames.get(String(r.provider_id)) ?? String(r.provider_id), requests: _num(r.requests), successes: _num(r.successes), p50: pct(r, 'p50'), p95: pct(r, 'p95') })) };
 	}));
-	// Valkey (admin/system/valkey): live INFO/DBSIZE/PING + namespace SCAN.
+		// Valkey (admin/system/valkey): live INFO/DBSIZE/PING + namespace SCAN.
 	app.get('/api/admin/system/valkey', handler('system', async () => {
-		if (!process.env.VALKEY_URL) return { configured: false, latencyMs: null, dbsize: null, info: { usedMemory: null, maxMemory: null, connectedClients: null, opsPerSec: null, hitRate: null, evictedKeys: null }, namespaces: [], sampled: 0 };
+		// The disabled and unreachable shapes are the same object: the panel renders
+		// dashes either way, and `configured` is the only difference that matters.
+		const blank = { latencyMs: null, dbsize: null, info: { usedMemory: null, maxMemory: null, connectedClients: null, opsPerSec: null, hitRate: null, evictedKeys: null }, namespaces: [], sampled: 0 };
+		const c = _vk();
+		if (!c) return { configured: false, ...blank };
 		try {
-			const send = (cmd) => _vkSend(cmd, 4000);
+			await _vkReady(c);
 			const t0 = Date.now();
-			await send('*1\r\n$4\r\nPING\r\n');
+			await _vkWait(c.ping(), 4000, 'ping');
 			const latencyMs = Date.now() - t0;
-			const bulk = (s) => { const i = s.indexOf('\r\n'); const n = parseInt(s.slice(1, i), 10); if (Number.isNaN(n) || n < 0) return null; return s.slice(i + 2, i + 2 + n); };
-			const infoRaw = bulk(await send('*1\r\n$4\r\nINFO\r\n')) ?? '';
 			const parsed = {};
-			for (const line of infoRaw.split('\n')) { const m = /^([^:#\s]+):([^\r]*)/.exec(line.trim()); if (m) parsed[m[1]] = m[2]; }
+			for (const line of String((await _vkWait(c.info(), 4000, 'info')) ?? '').split('\n')) { const m = /^([^:#\s]+):([^\r]*)/.exec(line.trim()); if (m) parsed[m[1]] = m[2]; }
 			const numOrNull = (k) => { const v = parsed[k]; if (v === undefined || v === '') return null; const n = Number(v); return Number.isFinite(n) ? n : null; };
 			let dbsize = null;
-			try { const d = await send('*1\r\n$6\r\nDBSIZE\r\n'); const m = /^:(\d+)/.exec(d); if (m) dbsize = Number(m[1]); } catch {}
+			try { const n = Number(await _vkWait(c.dbsize(), 4000, 'dbsize')); if (Number.isFinite(n)) dbsize = n; } catch {}
 			let namespaces = [], sampled = 0;
 			try {
 				let cursor = '0'; const counts = {}; let seen = 0;
 				do {
-					const cmd = `*6\r\n$4\r\nSCAN\r\n$${cursor.length}\r\n${cursor}\r\n$5\r\nMATCH\r\n$1\r\n*\r\n$5\r\nCOUNT\r\n$3\r\n500\r\n`;
-					const raw = await send(cmd);
-					const lines = raw.split('\r\n');
-					cursor = lines[2] ?? '0';
-					for (let i = 4; i < lines.length; i++) { const k = lines[i]; if (!k || k.startsWith(':') || k.startsWith('*') || k.startsWith('$')) continue; const ns = k.split(':')[0]; counts[ns] = (counts[ns] ?? 0) + 1; if (++seen >= 5000) break; }
+					// ioredis frames the reply itself; the raw version parsed lines 2
+					// and 4+ out of the RESP array by hand.
+					const [next, keys] = await _vkWait(c.scan(cursor, 'MATCH', '*', 'COUNT', 500), 4000, 'scan');
+					cursor = String(next);
+					for (const k of keys) { const ns = String(k).split(':')[0]; counts[ns] = (counts[ns] ?? 0) + 1; if (++seen >= 5000) break; }
 					if (seen >= 5000) break;
 				} while (cursor !== '0');
 				namespaces = VK_NAMESPACES.map((prefix) => ({ prefix, count: counts[prefix] ?? 0 }));
@@ -2458,7 +2456,7 @@ export function registerAdminRoutes(app, ctx) {
 			} catch {}
 			const hits = numOrNull('keyspace_hits'), misses = numOrNull('keyspace_misses');
 			return { configured: true, latencyMs, dbsize, info: { usedMemory: numOrNull('used_memory'), maxMemory: numOrNull('maxmemory'), connectedClients: numOrNull('connected_clients'), opsPerSec: numOrNull('instantaneous_ops_per_sec'), hitRate: (hits !== null && misses !== null && hits + misses > 0) ? hits / (hits + misses) : null, evictedKeys: numOrNull('evicted_keys') }, namespaces, sampled };
-		} catch { return { configured: true, latencyMs: null, dbsize: null, info: { usedMemory: null, maxMemory: null, connectedClients: null, opsPerSec: null, hitRate: null, evictedKeys: null }, namespaces: [], sampled: 0 }; }
+		} catch { return { configured: true, ...blank }; }
 	}));
 	// Workers (admin/system/workers): read-only GET.
 	app.get('/api/admin/system/workers', handler('system', async (database) => {
@@ -2555,21 +2553,29 @@ export function registerAdminRoutes(app, ctx) {
 		const hourly = _rowsOf(await database.execute(sql`select date_trunc('hour', r.created_at) as hour, r.api_key_id, k.name as key_name, r.project_id, p.name as project_name, count(*)::int as n from request_log r left join api_key k on k.id = r.api_key_id left join project p on p.id = r.project_id where (r.status = 'rate_limited' or r.error_code = 'RATE_LIMITED') and r.created_at >= ${since.toISOString()} group by date_trunc('hour', r.created_at), r.api_key_id, k.name, r.project_id, p.name order by date_trunc('hour', r.created_at) desc, count(*) desc limit 100`));
 		let concurrency = [];
 		let valkeyUp = false;
-		if (process.env.VALKEY_URL) {
+		const vkClient = _vk();
+		if (vkClient) {
 			try {
-				const send = (cmd) => _vkSend(cmd, 4000);
-				const raw = await send('*2\r\n$4\r\nKEYS\r\n$7\r\nconc:*\r\n');
-				const keys = raw.split('\r\n').filter((l) => l.startsWith('conc:'));
-				// An error reply is not "up": a RESP error means the command was
-				// rejected (wrong credentials, NOAUTH), and the panel must not
-				// paint a healthy badge over an instance it cannot read.
-				valkeyUp = !raw.startsWith('-');
+				await _vkReady(vkClient);
+				// SCAN, not KEYS. KEYS is O(N) over the whole keyspace and blocks the
+				// single-threaded server -- on the instance serving the router's
+				// rate-limit counters and concurrency gauges that is a latency spike on
+				// live traffic every time this panel loads. The valkey panel next door
+				// already scans for the same reason, and 5000 is its bound.
+				const keys = [];
+				let cursor = '0';
+				do {
+					const [next, batch] = await _vkWait(vkClient.scan(cursor, 'MATCH', 'conc:*', 'COUNT', 500), 4000, 'scan');
+					cursor = String(next);
+					keys.push(...batch);
+					if (keys.length >= 5000) break;
+				} while (cursor !== '0');
+				// Reaching this line is the "up" assertion: ioredis rejects on
+				// -WRONGPASS/-NOAUTH, so only a real reply gets here.
+				valkeyUp = true;
 				if (keys.length) {
-					const parts = [`*${keys.length * 2 + 1}`, '$4', 'MGET'];
-					for (const k of keys) parts.push(`$${Buffer.byteLength(k)}`, k);
-					const mraw = await send(parts.join('\r\n') + '\r\n');
-					const vals = mraw.split('\r\n').filter((l) => /^-?\d+$/.test(l)).map(Number);
-					concurrency = keys.map((key, i) => ({ key, inFlight: vals[i] ?? 0 })).filter((c) => c.inFlight > 0).sort((a, b) => b.inFlight - a.inFlight).slice(0, 50);
+					const vals = await _vkWait(vkClient.mget(...keys), 4000, 'mget');
+					concurrency = keys.map((key, i) => ({ key, inFlight: Number(vals[i] ?? 0) })).filter((x) => x.inFlight > 0).sort((a, b) => b.inFlight - a.inFlight).slice(0, 50);
 				}
 			} catch { concurrency = []; }
 		}

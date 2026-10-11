@@ -67,7 +67,14 @@ except Exception as e:
 total = 0
 for app in dump:
     f = filters.get(app["name"], allf)
-    keys = set(app) | set(app.get("env") or {})
+    # ENV only. The dump entry's TOP-LEVEL keys are pm2's own bookkeeping, not a
+    # captured client environment: pm2 7.0.3 writes `_tree_pids` (and `_`) there
+    # itself when it kills a process tree (God/Methods.js:250), which collides
+    # with the `_tree_pids` filter substring and made this check report a leak
+    # that was not one. The live check below reads /proc/<pid>/environ for the
+    # same reason -- the thing being guarded is an environment, so read the
+    # environment.
+    keys = set(app.get("env") or {})
     hits = sorted(k for k in keys if any(s in k for s in f))
     if hits:
         print(f"FAIL: {app['name']} dump entry carries {len(hits)} filtered key(s): {hits[:6]}")

@@ -20,7 +20,12 @@ jobs:
         env:
           POSTGRES_USER: fudrouter
           POSTGRES_PASSWORD: fudrouter
-          POSTGRES_DB: fudrouter
+          # NOT `fudrouter`: the integration suite signs users up, which
+          # provisions workspace/project/environment rows, and its harness
+          # refuses a database named after the application one (the same guard
+          # backend/go/tests/helpers.go carries). CI's database is already a
+          # throwaway container, so it just has to be named like one.
+          POSTGRES_DB: fudrouter_test
         ports:
           - 5434:5432
         options: >-
@@ -29,7 +34,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      DATABASE_URL: postgres://fudrouter:fudrouter@127.0.0.1:5434/fudrouter
+      DATABASE_URL: postgres://fudrouter:fudrouter@127.0.0.1:5434/fudrouter_test
       ORIGIN: http://127.0.0.1:3000
       BETTER_AUTH_SECRET: ci-only-not-a-real-secret
       CREDENTIALS_MASTER_KEY: ZnVkcm91dGVyLWNpLXRlc3QtbWFzdGVyLWtleS0zMmI=

@@ -31,8 +31,28 @@ Owner explicitly selected Target A literal. Brief also says: repo is source of t
 ## Consequences
 
 - Positive: single authorized target, gate enforces it, layout-agnostic safety work (integration suite, DB-backed Go suite, SSE first-flush, admin/auth checks) survives either way.
-- Negative: `apps/console→apps/web`, `apps/router→backend/go`, `db/migrations→backend/go/migrations`, `ops/→infra/scripts`, `infra/docker-compose.yml→infra/containers/` churn ~200 files + module path + PM2 cwd; rollback = `git revert` per step (M7 env + M5 module path notes in migration-map §5 hold).
+- Negative: `apps/console→apps/web`, `apps/router→backend/go`, `db/migrations→backend/go/migrations` churn ~200 files + module path + PM2 cwd; rollback = `git revert` per step (M7 env + M5 module path notes in migration-map §5 hold).
 - Negative: `backend/rust/**` + 14 domain dirs stay unbuilt until real code; Target A tree is partially deferred by brief's own bans.
+
+## Deliberate deviations from Target A
+
+Two Target A paths are **not** taken, because they are production-bound rather than
+layout choices:
+
+1. **`ops/` stays at the repo root** (Target A names `infra/scripts`). The host
+   crontab entry and the four systemd farm units were already rewritten to
+   `/home/dwizzy/fudrouter/ops/{backup-db,onboard-*}` by
+   `ops/cutover-p2b.sh`; moving the directory stops the nightly DB backup and
+   provider onboarding silently, and only a crontab edit plus
+   `systemctl --user daemon-reload` outside the repo can fix it. Both CI jobs
+   also call `./ops/migrate.sh`.
+2. **`ecosystem.config.cjs` stays at the repo root** (Target A names
+   `infra/deploy`). It derives `ROOT = __dirname`, so moving it resolves all four
+   PM2 `cwd`s to `infra/deploy/*` and every app fails to start. The migration map
+   §1 already pinned it root for exactly this reason.
+
+`infra/containers/` is free to move (no host binding) and is the only part of
+Target A's `infra/{containers,deploy,scripts}` that is safe to take now.
 
 ## Evidence
 

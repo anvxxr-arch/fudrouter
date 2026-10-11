@@ -17,7 +17,7 @@
  * both the flat and the pooled form; a reader that only understands
  * `accounts[]` silently produces an empty token for the entire table.
  *
- * The data plane's own reader is `apps/router/internal/proxy/pool.go`;
+ * The data plane's own reader is `backend/go/internal/proxy/pool.go`;
  * these helpers mirror just enough of it for the console to talk to an upstream
  * the same way the router would.
  */
@@ -74,7 +74,7 @@ export function tokenAt(cred: Credentials, index: number): string {
  *
  * A probe cannot judge such a credential: the data plane refreshes it from
  * `refresh_token` on demand (see `poolAccount.token` in
- * `apps/router/internal/proxy/pool.go`), so a 401 here means "the stale
+ * `backend/go/internal/proxy/pool.go`), so a 401 here means "the stale
  * access token was rejected", not "the account is dead". Recording that as
  * `auth_failed` is a false negative — and anything that skips parked
  * credentials would then skip a perfectly live account.
@@ -92,7 +92,7 @@ export function isExpiredOAuth(cred: Credentials): boolean {
  * `default_headers` carries upstream requirements that are not auth — e.g. the
  * xAI Grok CLI proxy rejects every completion without `x-grok-client-version`.
  * The data plane folds them in the same way (see `reservedHeaders` in
- * `apps/router/internal/proxy/proxy.go`, which also refuses to let a stored
+ * `backend/go/internal/proxy/proxy.go`, which also refuses to let a stored
  * header override Authorization).
  */
 export function headersFor(cred: Credentials, token: string): Record<string, string> {

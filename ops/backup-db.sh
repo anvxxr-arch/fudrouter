@@ -63,7 +63,7 @@ echo "$STAMP  $SIZE  ${TABLES} tables  $OUT.gz"
 #
 # Both env files are backed up: the router/workers/scheduler PM2 entrypoints
 # source the root .env, and the React control plane sources .env.console
-# (apps/console/run.sh). The master key lives in each.
+# (apps/web/run.sh). The master key lives in each.
 for src in /home/dwizzy/fudrouter/.env /home/dwizzy/fudrouter/.env.console; do
   [ -f "$src" ] || continue
   suffix="${src##*/}"; suffix="${suffix#.}"

@@ -31,8 +31,8 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..', '..');
-const WEB_DIR = join(REPO, 'apps', 'console', 'server');
-const GO_SURFACE = join(REPO, 'apps', 'router', 'internal', 'proxy', 'proxy.go');
+const WEB_DIR = join(REPO, 'apps', 'web', 'server');
+const GO_SURFACE = join(REPO, 'backend', 'go', 'internal', 'proxy', 'proxy.go');
 const OUT = join(REPO, 'packages', 'contracts', 'routes.json');
 
 const METHODS = ['get', 'post', 'put', 'patch', 'delete', 'all', 'options', 'head'];
@@ -140,7 +140,7 @@ for (const m of goSrc.matchAll(RE_GO)) {
     method: m[1] ?? '*',
     path: m[2],
     handler,
-    file: 'apps/router/internal/proxy/proxy.go',
+    file: 'backend/go/internal/proxy/proxy.go',
   });
 }
 

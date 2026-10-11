@@ -22,11 +22,14 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT" || { echo "FAIL: cannot cd to $ROOT"; exit 1; }
 
-ALLOWED_DIRS=( .github apps db docs infra ops packages )
+ALLOWED_DIRS=( .github apps backend db docs infra ops packages )
 ALLOWED_FILES=( .env.console.example .gitignore DESIGN.md README.md
                 ecosystem.config.cjs package-lock.json package.json )
-# apps/* are runnable units, so each must carry its PM2 entrypoint.
-APPS=( console router workers scheduler )
+# apps/* are runnable units, so each must carry its PM2 entrypoint. The Go data
+# plane moved to backend/go (Target A, ADR-0006) and is checked separately.
+APPS=( web workers scheduler )
+# backend/go is the Go module; its command lives in cmd/<name>.
+GO_CMDS=( gateway )
 
 fails=0
 say() { printf '%s\n' "$*"; }
@@ -78,6 +81,23 @@ while IFS= read -r d; do
 	[ -n "$d" ] || continue
 	contains "$d" "${APPS[@]}" || bad "unexpected app: apps/$d — add it to APPS here and to the ADR"
 done < <(git ls-files | awk -F/ 'NF>2 && $1=="apps" {print $2}' | sort -u)
+
+say
+say "=== backend/go is the Go module ==="
+if [ ! -f "backend/go/go.mod" ]; then
+	bad "backend/go/go.mod is missing — the data plane lives at backend/go (Target A, ADR-0006)"
+else
+	ok "backend/go/go.mod"
+fi
+for c in "${GO_CMDS[@]}"; do
+	if [ -f "backend/go/cmd/$c/main.go" ]; then ok "backend/go/cmd/$c/main.go"; else
+		bad "backend/go/cmd/$c/main.go is missing — every command is a real main package"
+	fi
+done
+while IFS= read -r c; do
+	[ -n "$c" ] || continue
+	contains "$c" "${GO_CMDS[@]}" || bad "unexpected Go command: backend/go/cmd/$c — add it to GO_CMDS here and to the ADR"
+done < <(git ls-files | awk -F/ 'NF>4 && $1=="backend" && $2=="go" && $3=="cmd" {print $4}' | sort -u)
 
 say
 say "=== packages/ are real packages ==="

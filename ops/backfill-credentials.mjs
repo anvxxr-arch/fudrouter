@@ -12,7 +12,7 @@
 // credential rows is skipped entirely; each provider splits in one transaction.
 //
 // Envelope compatibility: this file duplicates the AES-256-GCM envelope from
-// packages/platform/server/credentials.ts and apps/router/internal/crypt
+// packages/platform/server/credentials.ts and backend/go/internal/crypt
 // (base64(iv[12] || ct || tag[16])) because a plain-node script cannot import
 // TS. Nothing here cross-checks the copy against credentials.ts: the
 // `backfill-credentials.test.ts` this comment used to cite has never existed in
@@ -69,7 +69,7 @@ export function decryptJson(enc) {
 /**
  * One S0 blob -> the rows it becomes.
  *
- * S0 blob shape (apps/router/internal/proxy/pool.go `credentials`):
+ * S0 blob shape (backend/go/internal/proxy/pool.go `credentials`):
  *   { api_key?, auth_kind?, protocol?, default_headers?, accounts?: [{email,
  *     access_token, refresh_token, id_token, expired}] }
  * Shared fields (protocol/default_headers/auth_kind) belong to the CONNECTION

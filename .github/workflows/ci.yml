@@ -10,7 +10,7 @@ on:
 # never exercising the code that actually serves traffic.
 jobs:
   console:
-    # Named for the app it exercises: apps/console (was react-web, a name that
+    # Named for the app it exercises: apps/web (was react-web, a name that
     # outlived the directory). If branch protection still requires the old check
     # name, update it there — the job's identity is the app, not the history.
     runs-on: ubuntu-latest
@@ -39,7 +39,7 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-      - run: npm ci --workspace apps/console
+      - run: npm ci --workspace apps/web
       - name: Apply the schema
         # ops/migrate.sh is the ONLY migration path (spec §13): it applies
         # every db/migrations/*.sql in order and records each in
@@ -54,8 +54,8 @@ jobs:
       # security helpers (IP/SSRF classification, the rate limiter, the RBAC
       # table) import nothing from the database, so they run here with no schema
       # and still catch a regression in the code that guards the loopback.
-      - run: npm run build --workspace apps/console
-      - run: npm test --workspace apps/console
+      - run: npm run build --workspace apps/web
+      - run: npm test --workspace apps/web
 
   contracts:
     # No database and no `npm ci`: the contract gate imports node builtins only,
@@ -107,13 +107,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          # Must match the `toolchain` directive in apps/router/go.mod.
+          # Must match the `toolchain` directive in backend/go/go.mod.
           # CI pinned 1.23 while production moved to 1.26.6, which built a
           # different compiler than the one the binary ships — a green CI run
           # then said nothing about the artifact. setup-go installs the
           # toolchain; the directive in go.mod selects it for the build.
           go-version: "1.26.9"
-          cache-dependency-path: apps/router/go.sum
+          cache-dependency-path: backend/go/go.sum
       # The data-plane tests are DB-backed on purpose, and they seed users, models
       # and providers. Without the schema every one of them dies on
       # `relation "user" does not exist` and the log reads like a code failure
@@ -129,19 +129,19 @@ jobs:
           # this job has no npm ci, so the `postgres` package is absent.
           ./ops/migrate.sh
       - run: go vet ./...
-        working-directory: apps/router
+        working-directory: backend/go
       - run: go build ./...
-        working-directory: apps/router
+        working-directory: backend/go
       # Dependency vulns are not visible to build, vet or test: a module that
       # compiles and passes every test can still carry a known CVE. This one
       # scan is what took the router from 30 advisories to 0; without it in CI
       # the next `go get` silently puts them back.
       - name: Scan dependencies for known vulnerabilities
-        working-directory: apps/router
+        working-directory: backend/go
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
           "$HOME/go/bin/govulncheck" ./...
       # -v so that any remaining t.Skip is visible in the log rather than
       # indistinguishable from a pass.
       - run: go test ./... -race -v
-        working-directory: apps/router
+        working-directory: backend/go

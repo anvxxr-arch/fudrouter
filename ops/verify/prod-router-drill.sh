@@ -11,11 +11,11 @@
 set -uo pipefail
 
 # Moved from tools/ to ops/verify/ (one level deeper): the root derivation below
-# had to grow a level with it, or ROOT/apps/router and ROOT/db/migrations
+# had to grow a level with it, or ROOT/backend/go and ROOT/db/migrations
 # both resolve to nothing.
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DB=fudrouter_drill
-ROUTER_DIR="$ROOT/apps/router"
+ROUTER_DIR="$ROOT/backend/go"
 MIGRATIONS="$ROOT/db/migrations"
 ENV_FILE="$ROOT/.env"
 PG_CONTAINER="${FUDROUTER_PG_CONTAINER:-postgres-hardened}"
@@ -128,7 +128,7 @@ unset ROUTER_ALLOW_DEV_PROVIDERS
 
 # Build to a SCRATCH path: outputting to bin/ would silently replace the
 # binary production is deployed from (with whatever is in the working tree).
-(cd "$ROUTER_DIR" && go build -o "$BIN" .) || { fail "go build"; exit 1; }
+(cd "$ROUTER_DIR" && go build -o "$BIN" ./cmd/gateway) || { fail "go build"; exit 1; }
 echo "  go build OK -> $BIN"
 
 "$BIN" >/tmp/drill-router.log 2>&1 &

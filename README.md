@@ -5,11 +5,11 @@ Commercial AI router — one API key, many model providers.
 Two stateless processes over one Postgres (plus shared Valkey for runtime state):
 
 ```
-client ──► apps/console (React, :3000)    control plane: UI, auth, billing, admin
+client ──► apps/web (React, :3000)    control plane: UI, auth, billing, admin
            │  ▲
            │  └── reads/writes workspace · project · api_key · model · provider · user
            ▼
-client ──► apps/router (Go, :8100)   data plane: /v1/* hot path
+client ──► backend/go (Go, :8100)   data plane: /v1/* hot path
               ▲  │
               │  └── decrypts provider credentials, routes across
               │      connections/credentials, writes request_log + credit_ledger
@@ -29,13 +29,13 @@ see `internal/netguard`).
 
 | Path | What lives there |
 |---|---|
-| `apps/console/src/` | React control plane: routes, components, compat API client |
-| `apps/console/server/` | Express compat server: admin, pages, public, playground APIs |
+| `apps/web/src/` | React control plane: routes, components, compat API client |
+| `apps/web/server/` | Express compat server: admin, pages, public, playground APIs |
 | `packages/platform/` | Shared server modules: jobs, workers, scheduler, credentials, SSRF, billing |
 | `packages/platform/server/db/` | Drizzle schema + connection |
-| `apps/router/internal/proxy/` | The hot path, split by concern: `proxy.go` handler, `auth.go` auth+failover policy, `billing.go` the cost funnel, `generic.go` the non-chat passthrough |
-| `apps/router/internal/netguard/` | The SSRF dial guard, shared by every upstream client |
-| `apps/router/internal/freebuff/` | The native Codebuff protocol (split into protocol/transport/classify) |
+| `backend/go/internal/proxy/` | The hot path, split by concern: `proxy.go` handler, `auth.go` auth+failover policy, `billing.go` the cost funnel, `generic.go` the non-chat passthrough |
+| `backend/go/internal/netguard/` | The SSRF dial guard, shared by every upstream client |
+| `backend/go/internal/freebuff/` | The native Codebuff protocol (split into protocol/transport/classify) |
 | `db/migrations/` | SQL migrations, applied in order by `ops/migrate.sh` (both CI jobs and deploys use this runner — drizzle-kit's journal is retired) |
 | `docs/specs/` | Design specs. The endpoint-surface spec is the source of truth for what the API actually supports |
 
@@ -49,7 +49,7 @@ see `internal/netguard`).
   the rule stays unit-testable outside the worker runtime.
 - **Money never touches a float.** Tokens are `int64`, prices are
   `numeric(18,6)`, and cost is computed through `math/big` in
-  `apps/router/internal/cost`.
+  `backend/go/internal/cost`.
 - **API keys are hash-only.** `sk-ar-<prefix>_<secret>`, only `sha256(secret)`
   is stored. The TS and Go sides must stay byte-compatible — both re-parse every
   key the other mints.
@@ -60,11 +60,11 @@ see `internal/netguard`).
 # both planes need this
 docker compose -f infra/docker-compose.yml up -d     # stack (Postgres is consolidated)
 
-npm ci --workspace apps/console          # installs react-web from the root lockfile
-npm run build --workspace apps/console   # vite build (dist/ served by server/index.mjs)
-npm run dev --workspace apps/console     # vite dev
+npm ci --workspace apps/web          # installs react-web from the root lockfile
+npm run build --workspace apps/web   # vite build (dist/ served by server/index.mjs)
+npm run dev --workspace apps/web     # vite dev
 
-cd apps/router
+cd backend/go
 go test ./... -race    # the data-plane suite is DB-backed; see below
 ```
 

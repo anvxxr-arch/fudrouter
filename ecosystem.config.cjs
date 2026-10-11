@@ -35,7 +35,7 @@ module.exports = {
 	apps: [
 		{
 			name: 'fudrouter-router',
-			cwd: path.join(ROOT, 'apps/router'),
+			cwd: path.join(ROOT, 'backend/go'),
 			script: 'run.sh',
 			interpreter: 'bash',
 			env: {
@@ -114,7 +114,7 @@ module.exports = {
 			// add PORT to `env` here: .env.console is sourced after this env
 			// is applied and would silently win, leaving two sources of truth.
 			name: 'fudrouter-console',
-			cwd: path.join(ROOT, 'apps/console'),
+			cwd: path.join(ROOT, 'apps/web'),
 			script: 'run.sh',
 			interpreter: 'bash',
 			env: {

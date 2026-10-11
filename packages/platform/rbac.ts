@@ -17,7 +17,7 @@
  * Capabilities are the enforcement vocabulary; keep them in step with
  * SECTION_CAPS (server, which section needs which extra cap) and ROUTE_CAPS
  * (SPA, which route prefix). Both are checked against this list by
- * apps/console/server/lib/rbac.test.mjs.
+ * apps/web/server/lib/rbac.test.mjs.
  */
 
 export type Capability =

@@ -6,7 +6,7 @@ bin/
 .env.*
 !.env.example
 # The control plane's template: `.env.*` would otherwise hide it, and without a
-# tracked template a fresh clone cannot see which keys apps/console needs.
+# tracked template a fresh clone cannot see which keys apps/web needs.
 !.env.console.example
 *.log
 .DS_Store

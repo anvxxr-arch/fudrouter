@@ -3,7 +3,7 @@ info:
   title: FUDRouter Inference API
   version: 1.0.0
   description: |
-    The data plane served by the Go binary `apps/router` (PM2 app
+    The data plane served by the Go binary `backend/go` (PM2 app
     `fudrouter-router`, default `127.0.0.1:8100`).
 
     Every field, status code and taxonomy code in this document was read out of

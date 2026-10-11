@@ -16,7 +16,7 @@ const { credential } = await import('@fudrouter/platform/server/db/schema.ts');
 const { eq, sql } = await import('drizzle-orm');
 
 // The router's own predicate, in SQL, so "usable" here means what the data plane
-// means by it (apps/router/internal/store).
+// means by it (backend/go/internal/store).
 const USABLE = sql`status not in ('disabled','invalid') and (cooldown_until is null or cooldown_until <= now())`;
 
 const connArg = process.argv[2] ?? '';

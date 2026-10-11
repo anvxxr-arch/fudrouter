@@ -41,9 +41,9 @@ note(){ printf '  --    %s\n' "$*"; }
 echo "=== 1. files at their post-move paths ==="
 # new-path:description — each must exist after the P2b-2 commit.
 NEW_PATHS=(
-	"apps/console/run.sh:console entrypoint"
-	"apps/console/server/index.mjs:console server"
-	"apps/router/run.sh:router entrypoint"
+	"apps/web/run.sh:console entrypoint"
+	"apps/web/server/index.mjs:console server"
+	"backend/go/run.sh:router entrypoint"
 	"apps/workers/run.sh:worker fleet entrypoint"
 	"apps/scheduler/run.sh:scheduler entrypoint"
 	"packages/platform/package.json:platform package manifest"
@@ -66,8 +66,8 @@ done
 echo
 echo "=== 3. ecosystem.config.cjs points at the new paths ==="
 ECO=ecosystem.config.cjs
-grep -q "apps/console" "$ECO" && ok "console cwd/script updated" || bad "console still on apps/react-web"
-grep -q "apps/router"  "$ECO" && ok "router cwd/script updated"  || bad "router still on services/router"
+grep -q "apps/web" "$ECO" && ok "console cwd/script updated" || bad "console still on apps/react-web"
+grep -q "backend/go"  "$ECO" && ok "router cwd/script updated"  || bad "router still on services/router"
 grep -q "apps/workers" "$ECO" && ok "workers script updated"     || bad "workers still on scripts/run-workers.sh"
 grep -q "apps/scheduler" "$ECO" && ok "scheduler script updated" || bad "scheduler still on scripts/run-scheduler.sh"
 
@@ -103,7 +103,7 @@ echo "=== 4b. apply-time prerequisites (fail-fast before any destructive step) =
 # A missing file there leaves the fleet deleted with the console on the wrong
 # port. Check it here so --apply refuses before anything destructive.
 [ -f .env.console ] && ok ".env.console present" || bad ".env.console missing -- console would start on the wrong port"
-for f in apps/console/run.sh apps/router/run.sh apps/workers/run.sh apps/scheduler/run.sh; do
+for f in apps/web/run.sh backend/go/run.sh apps/workers/run.sh apps/scheduler/run.sh; do
 	[ -x "$f" ] && ok "$f executable" || bad "$f missing or not executable"
 done
 # The entrypoints reach the platform package through its exports map, so prove

@@ -78,8 +78,8 @@ done
 echo "  $napplied migrations OK"
 
 echo "### 3. build router from the working tree (what is about to ship)"
-(cd "$ROOT/apps/router" && GOTOOLCHAIN=auto go build -trimpath -o "$BIN" .) || { echo "build failed"; exit 1; }
-echo "  build: walk-bound=$(strings "$BIN" | grep -c 'pool walk stopped') failover=$(strings "$BIN" | grep -c shouldFailover) | deployed: walk-bound=$(strings "$ROOT/apps/router/bin/fudrouter-router" 2>/dev/null | grep -c 'pool walk stopped') failover=$(strings "$ROOT/apps/router/bin/fudrouter-router" 2>/dev/null | grep -c shouldFailover)"
+(cd "$ROOT/backend/go" && GOTOOLCHAIN=auto go build -trimpath -o "$BIN" ./cmd/gateway) || { echo "build failed"; exit 1; }
+echo "  build: walk-bound=$(strings "$BIN" | grep -c 'pool walk stopped') failover=$(strings "$BIN" | grep -c shouldFailover) | deployed: walk-bound=$(strings "$ROOT/backend/go/bin/fudrouter-router" 2>/dev/null | grep -c 'pool walk stopped') failover=$(strings "$ROOT/backend/go/bin/fudrouter-router" 2>/dev/null | grep -c shouldFailover)"
 
 echo "### 4. seed key + providers + connections + credentials + models"
 # seed.mjs is self-contained: it mints the drill API key (the Svelte-era

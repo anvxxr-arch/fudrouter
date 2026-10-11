@@ -6,7 +6,7 @@
 // ciphertext (`provider.credentials_enc`, `credential.secret_enc`) whose
 // envelope only code holding CREDENTIALS_MASTER_KEY can produce — the same
 // base64(iv[12] || ct || tag[16]) format as packages/platform/server/credentials.ts
-// and apps/router/internal/crypt.
+// and backend/go/internal/crypt.
 //
 // Idempotent by construction (the farm appends keys continuously and REVOKES a
 // key when it re-mints for the same account, so this must be safe to re-run at

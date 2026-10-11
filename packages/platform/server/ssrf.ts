@@ -5,7 +5,7 @@ import { lookup } from 'node:dns/promises';
  * SSRF guard for admin-initiated requests to a provider's base_url.
  *
  * The router already refuses to dial loopback/RFC1918/link-local/CGNAT
- * (apps/router/internal/proxy/guard.go, enforced at the socket via
+ * (backend/go/internal/proxy/guard.go, enforced at the socket via
  * net.Dialer.Control). This is the same rule for the web side, which fetches
  * with the global fetch and therefore has no dial hook to hang the check on.
  *
@@ -44,7 +44,7 @@ import { lookup } from 'node:dns/promises';
  * worker's connection probes AND to webhook delivery, so the hole was reachable
  * from every user-configurable URL, not just the admin console.
  *
- * Every range below is pinned by a case in apps/console/server/lib/ip.test.mjs.
+ * Every range below is pinned by a case in apps/web/server/lib/ip.test.mjs.
  */
 export function isBlockedLiteral(host: string): boolean {
 	const ip = literalOrNull(host);

@@ -205,6 +205,30 @@ test('withHead replaces the shell head instead of appending a second set', () =>
 	assert.equal((fixed.match(/rel="canonical"/g) ?? []).length, 1);
 });
 
+test('withHead strips a stale JSON-LD block instead of appending a second one', () => {
+	// HEAD_MARKERS owns `application/ld+json`, so a shell that still carries a
+	// block must lose it: two blocks on one page is duplicate structured data
+	// served to every crawler. The current index.html carries no such tag (that
+	// is asserted by `the shell carries only tags the head rewrite leaves alone`
+	// below), which makes this synthetic shell the ONLY thing exercising the
+	// strip. Drop the marker from HEAD_MARKERS and the stale block survives,
+	// turning this red.
+	const stale =
+		'<!doctype html><html lang="en"><head>\n' +
+		'<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebSite","name":"STALE"}</script>\n' +
+		'</head><body>x</body></html>';
+	const stripped = head.withHead(stale, '/models', ORIGIN);
+	assert.equal(
+		(stripped.match(/application\/ld\+json/g) ?? []).length,
+		1,
+		'a stale JSON-LD block survived the rewrite',
+	);
+	assert.ok(!stripped.includes('STALE'), 'the shell block is still in the head');
+	// The survivor must be the ROUTE block, not a rewritten shell block.
+	const kept = JSON.parse(/<script type="application\/ld\+json">(.*?)<\/script>/s.exec(stripped)[1]);
+	assert.equal(kept['@type'], 'ItemList', 'the surviving block is not the route block');
+});
+
 test('a JSON-LD block is emitted exactly for the routes that declare one', () => {
 	// Derived from the registry, never from a hardcoded path list. A previous
 	// version pinned `/pricing` as "the route that declares no block" while the

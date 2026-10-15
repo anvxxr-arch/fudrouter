@@ -8,7 +8,7 @@
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
-    "check": "npm run check --workspaces --if-present && bash ops/verify/structure.sh",
+    "check": "npm run check --workspaces && bash ops/verify/structure.sh",
     "test": "npm run test --workspaces --if-present"
   },
   "engines": {

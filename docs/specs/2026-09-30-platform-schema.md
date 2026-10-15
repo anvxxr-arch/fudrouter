@@ -123,7 +123,7 @@ jsonb is kept as a **legacy column** until its last caller migrates (§3).
   legacy `active`/`dev` stay consistent; a PRD `operational`/`degraded` provider
   is served-but-catalogued-dark as a known transition gap.
 
-  The 0010 cutover is staged at `infra/migrations/0010_platform_status_narrow.sql`
+  The 0010 cutover is staged at `backend/go/migrations/0010_platform_status_narrow.sql`
   (ready to apply, NOT applied). Do not run it until the writer/predicate flips
   land in the same commit.
 - Final wave — **legacy column drops; number `0012` reserved, migration NOT yet

@@ -135,7 +135,7 @@ func (h *Handler) ServeMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 50<<20))
+	respBody, err := lc.readUpstreamBody(resp)
 	if err != nil {
 		lc.fail(fmt.Errorf("read upstream: %w", err))
 		return

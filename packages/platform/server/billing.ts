@@ -259,25 +259,44 @@ export async function balanceMicro(accountId: string, dbtx: BillingHandle = db):
 }
 
 /**
- * Repair the `billing_account.balance_micro` cache from the ledger sum and
- * report whether it had drifted. Safe to run at any time — the ledger is the
- * record, this only re-derives the cache from it.
+ * Repair `billing_account.balance_micro` for EVERY account in ONE statement and
+ * return the ids whose cache had actually drifted. Safe to run at any time —
+ * the ledger is the record, this only re-derives the cache from it.
+ *
+ * This replaces the loop that called `reconcile(accountId)` per account: three
+ * round trips each (read the cached value, sum the ledger, write it back), so
+ * the `billing_aggregation` job's N accounts cost 3N sequential round trips
+ * every hour. One set-based statement does the same work in one round trip and
+ * has a second, stronger property — the whole fleet is either repaired or not,
+ * where the loop could be killed halfway and leave the caches half-old.
+ *
+ * The rule itself is still written exactly once (the `derived` CTE below), and
+ * only rows whose value actually changes are written, so a steady-state run
+ * updates nothing and does not churn `updated_at` across every account.
+ *
+ * The sum is `sum(bigint) -> numeric`, cast back to bigint: micro-unit amounts
+ * are integers, so the cast is lossless, and it is the same figure
+ * `balanceMicro()` returns (it goes through `::text` and `BigInt`, same value).
  */
-export async function reconcile(
-	accountId: string,
-	dbtx: BillingHandle = db
-): Promise<{ balanceMicro: bigint; repaired: boolean }> {
-	const [before] = await dbtx
-		.select({ cached: billingAccount.balanceMicro })
-		.from(billingAccount)
-		.where(eq(billingAccount.id, accountId))
-		.limit(1);
-	const total = await balanceMicro(accountId, dbtx);
-	await dbtx
-		.update(billingAccount)
-		.set({ balanceMicro: total, updatedAt: new Date() })
-		.where(eq(billingAccount.id, accountId));
-	return { balanceMicro: total, repaired: before !== undefined && before.cached !== total };
+export async function reconcileAll(dbtx: BillingHandle = db): Promise<string[]> {
+	const rows = await dbtx.execute(sql`
+		with derived as (
+			select c.billing_account_id as account_id, sum(c.amount_micro) as total
+			from credit_ledger c
+			group by c.billing_account_id
+		),
+		wanted as (
+			select b2.id, coalesce(d.total, 0)::bigint as total
+			from billing_account b2
+			left join derived d on d.account_id = b2.id
+		)
+		update billing_account b
+		set balance_micro = w.total, updated_at = now()
+		from wanted w
+		where w.id = b.id and w.total <> b.balance_micro
+		returning b.id
+	`);
+	return (rows as unknown as { id: string }[]).map((r) => r.id);
 }
 
 /** The usage charges (customer cost, positive) billed in [since, until). */

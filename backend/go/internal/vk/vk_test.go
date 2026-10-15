@@ -37,8 +37,11 @@ func TestEmptyURLDisablesCleanly(t *testing.T) {
 		if err := c.SetJSON(context.Background(), "k", v, time.Second); !errors.Is(err, ErrDisabled) {
 			t.Errorf("SetJSON err = %v, want ErrDisabled", err)
 		}
-		if _, err := c.Lua(context.Background(), "return 1", "k", 1); !errors.Is(err, ErrDisabled) {
-			t.Errorf("Lua err = %v, want ErrDisabled", err)
+		if _, err := c.IncrByBucket(context.Background(), []string{"spend:k:day"}, 1, time.Minute); !errors.Is(err, ErrDisabled) {
+			t.Errorf("IncrByBucket err = %v, want ErrDisabled", err)
+		}
+		if err := c.ReplaceBuckets(context.Background(), []string{"spend:k:day"}, 1, time.Minute); !errors.Is(err, ErrDisabled) {
+			t.Errorf("ReplaceBuckets err = %v, want ErrDisabled", err)
 		}
 	}
 }

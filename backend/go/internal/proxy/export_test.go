@@ -17,6 +17,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anvxxr-arch/fudrouter/backend/go/internal/routing"
+	"github.com/anvxxr-arch/fudrouter/backend/go/internal/store"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -41,6 +43,13 @@ func ClampTokensForTest(n int64) int64 { return clampTokens(n) }
 
 // MaxTokensPerRequestForTest reports the ceiling the clamp forces counts into.
 func MaxTokensPerRequestForTest() int64 { return maxTokensPerRequest }
+
+// CheckBudgetsForTest runs the admission budget gate for one key, exactly as
+// begin does — the exported door onto the unexported method, so the budget
+// benchmarks measure the real gate instead of a re-implementation.
+func (h *Handler) CheckBudgetsForTest(ctx context.Context, key *store.APIKeyRow) error {
+	return h.checkBudgets(ctx, &lifecycle{h: h, key: key})
+}
 
 // BilledCostForTest reports the cost stored for `env`'s most recent request_log
 // row, so a test can prove what was actually billed.
@@ -67,4 +76,16 @@ func BilledCostForTest(t *testing.T, dsn string, apiKeyID string) (tokensIn, tok
 		t.Fatalf("last request_log row: %v", err)
 	}
 	return tokensIn, tokensOut, costMicro
+}
+
+// FillCandidatePricingForTest drives the per-candidate pricing pass directly.
+//
+// It exists because the measurement that justified batching it needs a Handler
+// and a candidate slice but NO seeded database: the cost under test is the
+// Valkey round trip per candidate, and the state that matters — a COLD cache,
+// where each miss also becomes a pricing DB read — cannot be produced through a
+// public path without a live DSN, which package proxy cannot obtain (it cannot
+// import `tests`, which imports proxy).
+func (h *Handler) FillCandidatePricingForTest(ctx context.Context, merged []routing.Candidate) {
+	h.fillCandidatePricing(ctx, merged)
 }

@@ -129,10 +129,19 @@ func newUpstreamClient() *http.Client {
 	return &http.Client{
 		CheckRedirect: guardedRedirectPolicy,
 		Transport: &http.Transport{
-			Proxy:                 http.ProxyFromEnvironment,
-			DialContext:           dialer.DialContext,
-			ForceAttemptHTTP2:     true,
-			MaxIdleConns:          100,
+			// NO environment proxy. `http.ProxyFromEnvironment` would make Go
+			// dial the PROXY address, so the dial guard would inspect the proxy
+			// and never the provider — the guard stops being a guard on base_url
+			// at all, and CONNECT-tunnelled traffic hands the rotated provider
+			// bearer tokens to a third party. The other two upstream clients
+			// (freebuff/transport.go, pool.go) already omit it, so this made the
+			// chat path the only one whose target was unpinned.
+			//
+			// A proxy deployment, if one is ever wanted, must instead be an
+			// explicit, reviewed setting that keeps the real target verifiable.
+			DialContext:       dialer.DialContext,
+			ForceAttemptHTTP2: true,
+			MaxIdleConns:      100,
 			// Go's per-host idle default is 2: without this, concurrent
 			// requests to the same upstream serialize on dials while the
 			// global pool sits mostly empty.
@@ -306,7 +315,7 @@ func (h *Handler) ServeCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 50<<20))
+	respBody, err := lc.readUpstreamBody(resp)
 	if err != nil {
 		lc.fail(fmt.Errorf("read upstream: %w", err))
 		return
@@ -365,6 +374,3 @@ func (h *Handler) poolFor(key string, cred credentials, persist func(ctx context
 	actual, _ := h.pools.LoadOrStore(key, build())
 	return actual.(*Pool)
 }
-
-// healthHealth is a tiny helper used by the health endpoint in main.go via the
-// store's Ping; kept here so the file count stays flat.

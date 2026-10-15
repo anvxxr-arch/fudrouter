@@ -6,9 +6,8 @@
 // rbac.mjs SECTION_CAPS for the server). A nav item the guard refuses is a
 // button that 403s; a guarded route with no nav entry is unreachable. The
 // registry keeps the *listing* in one place and the *enforcement* in the
-// existing tables: every item names the capability the server enforces, and
-// the suite in navigation.test.mjs asserts each one is real and agrees with
-// requiredCap() longest-prefix match.
+// existing tables: every item names the capability the server enforces, so the
+// cap must agree with requiredCap()'s longest-prefix match on the same path.
 //
 // Server remains the enforcement path: filtering here only hides controls.
 // Guards (RequireAuth/RequireCap/RequireRouteCap in components/guards.tsx +
@@ -30,20 +29,17 @@ export interface NavItem {
 }
 
 // Public chrome mirrors components/Layout.tsx links verbatim so the refactor
-// changes no pixels: Models, Providers, Pricing, Playground, Docs, Status.
+// changes no pixels: Models, Providers, Pricing, Docs.
 export const PUBLIC_NAV: readonly NavItem[] = [
   { to: "/", label: "Home", scope: "public", cap: null, nav: false },
   { to: "/models", label: "Models", scope: "public", cap: null, nav: true },
   { to: "/models/compare", label: "Compare", scope: "public", cap: null, nav: false },
   { to: "/models/:slug", label: "Model detail", scope: "public", cap: null, nav: false },
-  { to: "/providers", label: "Providers", scope: "public", cap: null, nav: true },
+  { to: "/providers", label: "Providers", scope: "public", cap: null, nav: false },
   { to: "/providers/:slug", label: "Provider detail", scope: "public", cap: null, nav: false },
   { to: "/pricing", label: "Pricing", scope: "public", cap: null, nav: true },
-  { to: "/playground", label: "Playground", scope: "public", cap: null, nav: true },
   { to: "/docs", label: "Docs", scope: "public", cap: null, nav: true },
   { to: "/docs/*", label: "Docs section", scope: "public", cap: null, nav: false },
-  { to: "/status", label: "Status", scope: "public", cap: null, nav: true },
-  { to: "/status/incidents/:id", label: "Incident detail", scope: "public", cap: null, nav: false },
   { to: "/changelog", label: "Changelog", scope: "public", cap: null, nav: false },
   { to: "/changelog/:slug", label: "Changelog entry", scope: "public", cap: null, nav: false },
   { to: "/legal/terms", label: "Terms", scope: "public", cap: null, nav: false },

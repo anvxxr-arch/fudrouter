@@ -198,9 +198,25 @@ if (mode === 'check') {
     console.error('gen-openapi-management --check: management.yaml is missing.');
     process.exit(1);
   }
-  if (current !== doc) {
-    const a = current.split('\n');
-    const b = doc.split('\n');
+  // Normalise away the line numbers before comparing. They are emitted into the
+  // document on purpose (a human tracing an operation wants the registration
+  // address), but they are not part of the API contract, and comparing them
+  // verbatim made this gate red whenever an unrelated edit above a registration
+  // shifted its line number.
+  //
+  // There are TWO sinks for the same number and both must be normalised:
+  // `      line: 416` (:128) and the prose ``Registered at .../admin.mjs:416.``
+  // (:128's description block). Normalising only the first left the prose
+  // comparing verbatim -- 187 operations' worth -- so the gate stayed
+  // line-sensitive while looking fixed. Verified by shifting a `line` in
+  // routes.json without regenerating: the prose line was the first difference.
+  const norm = (s) =>
+    s
+      .replace(/^(\s*)line: \d+$/gm, '$1line: <n>')
+      .replace(/^(.*Registered at \S+?):\d+\.$/gm, '$1:<n>.');
+  if (norm(current) !== norm(doc)) {
+    const a = norm(current).split('\n');
+    const b = norm(doc).split('\n');
     const firstDiff = a.findIndex((line, i) => line !== b[i]);
     console.error(
       `gen-openapi-management --check: management.yaml is STALE (first difference at line ${firstDiff + 1}).\n` +

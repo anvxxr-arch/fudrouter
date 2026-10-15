@@ -95,13 +95,6 @@ export interface Metrics {
   latencyMs: number | null;
 }
 
-export interface StatusPayload {
-  probe: { ok: boolean; error: string | null; service: string; models: number | null; latencyMs: number; checkedAt: string };
-  components: { key: string; label: string; description: string; state: string | null; stateLabel: string; basis: string }[];
-  overall: { state: string | null; label: string };
-  incidents: { id: string; title: string; severity: string; status: string; statusLabel: string; componentLabel: string; startedAt: string; resolvedAt: string | null }[] | null;
-}
-
 export interface DocEntry {
   path: string;
   title: string;
@@ -139,7 +132,6 @@ export const api = {
   providers: () => get<{ providers: ProviderRow[] }>('/providers'),
   provider: (slug: string) => getWithStatus<{ provider: ProviderRow | null }>(`/providers/${encodeURIComponent(slug)}`),
   pricing: () => get<{ groups: { developer: string; models: { slug: string; name: string; price: PriceMicro; context: number | null; variesByProvider: boolean }[] }[]; hasReasoning: boolean }>('/pricing'),
-  status: () => get<StatusPayload>('/status'),
   docs: () => get<{ categories: { slug: string; title: string; pages: DocEntry[] }[] }>('/docs'),
   doc: (path: string) => getWithStatus<{ entry: DocEntry | null; prev: DocEntry | null; next: DocEntry | null }>(`/docs/${path}`),
   changelog: () => get<{ entries: ChangelogEntry[] }>('/changelog'),

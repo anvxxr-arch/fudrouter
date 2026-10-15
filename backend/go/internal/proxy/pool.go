@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -553,7 +554,29 @@ type XAIRefresher struct {
 
 func NewXAIRefresher() *XAIRefresher {
 	return &XAIRefresher{
-		Client:   &http.Client{Timeout: 30 * time.Second},
+		// The endpoint is env-overridable (XAI_TOKEN_ENDPOINT), so it is an
+		// admin-supplied URL like a provider base_url and gets the same dial
+		// guard. Without it this was the one outbound client in the binary with
+		// no netguard: a spoofed endpoint could exfiltrate the refresh_token
+		// grant (a live credential) to loopback or the cloud metadata address.
+		// netguard.DialControl runs after resolution and before connect, so a
+		// rejected target never receives the form body.
+		Client: &http.Client{
+			Timeout:       30 * time.Second,
+			CheckRedirect: guardedRedirectPolicy,
+			Transport: &http.Transport{
+				DialContext: (&net.Dialer{
+					Timeout:   15 * time.Second,
+					KeepAlive: 30 * time.Second,
+					Control:   dialControl(allowPrivateUpstreams()),
+				}).DialContext,
+				ForceAttemptHTTP2:     true,
+				MaxIdleConns:          100,
+				IdleConnTimeout:       90 * time.Second,
+				TLSHandshakeTimeout:   15 * time.Second,
+				ResponseHeaderTimeout: 30 * time.Second,
+			},
+		},
 		Endpoint: envOr("XAI_TOKEN_ENDPOINT", "https://auth.x.ai/oauth2/token"),
 		ClientID: envOr("XAI_OAUTH_CLIENT_ID", "b1a00492-073a-47ea-816f-4c329264a828"),
 	}

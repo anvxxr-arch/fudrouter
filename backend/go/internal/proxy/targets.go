@@ -3,9 +3,7 @@ package proxy
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"log"
-	"strings"
 	"time"
 
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/routing"
@@ -251,6 +249,3 @@ func parseUsage(b []byte) (usageCounts, bool) {
 	}
 	return u, true
 }
-
-var _ = strings.TrimSpace
-var _ = errors.New

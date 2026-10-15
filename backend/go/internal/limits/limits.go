@@ -14,6 +14,7 @@ package limits
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log"
 	"sync"
@@ -66,15 +67,25 @@ func (noopClient) AllowRate(context.Context, string, int, time.Duration) (bool, 
 func (noopClient) IncrConc(context.Context, string, time.Duration) (int64, error) {
 	return 0, vk.ErrDisabled
 }
-func (noopClient) DecrConc(context.Context, string) error      { return vk.ErrDisabled }
+func (noopClient) DecrConc(context.Context, string) error { return vk.ErrDisabled }
 func (noopClient) GetJSON(context.Context, string, any, time.Duration) error {
 	return vk.ErrDisabled
 }
 func (noopClient) SetJSON(context.Context, string, any, time.Duration) error {
 	return vk.ErrDisabled
 }
-func (noopClient) Lua(context.Context, string, string, ...any) ([]any, error) {
+func (noopClient) IncrByBucket(context.Context, []string, int64, time.Duration) ([]int64, error) {
 	return nil, vk.ErrDisabled
+}
+func (noopClient) ReplaceBuckets(context.Context, []string, int64, time.Duration) error {
+	return vk.ErrDisabled
+}
+
+// GetJSONMany completes the Client surface for the "no cache configured" client.
+// It is written out rather than one-lined so the aligned block above stays
+// aligned under gofmt.
+func (noopClient) GetJSONMany(context.Context, []string, map[string]json.RawMessage, time.Duration) error {
+	return vk.ErrDisabled
 }
 
 // Admission is the handle that owns a request's in-flight concurrency slot.
@@ -191,17 +202,28 @@ func (l *Limiter) Check(ctx context.Context, k *APIKeyIdentity, lim *store.Limit
 // SpendAdd records completed spend against the daily/monthly counters so the
 // next request's fast path sees it. Best-effort: a failure here only makes the
 // next check fall back to the DB sum.
+//
+// It also carried the ARGV comparison bug the other counters had, so neither
+// counter ever got a TTL: a monthly spend total written once stayed authoritative
+// for the life of the process, and the only way back was the DB sum behind a MISS
+// that could never happen.
 func (l *Limiter) SpendAdd(ctx context.Context, k *APIKeyIdentity, micro int64) {
 	if micro == 0 || k == nil {
 		return
 	}
-	for _, suffix := range []string{"day", "month"} {
-		ck := key(nsSpend, "api_key", k.KeyID, suffix)
-		_, err := l.vk.Lua(ctx, `
-			local v = redis.call('INCRBY', KEYS[1], ARGV[1])
-			if v == ARGV[1] then redis.call('PEXPIRE', KEYS[1], ARGV[2]) end
-			return v`, ck, micro, ttlFor(suffix))
-		if err != nil && !errors.Is(err, vk.ErrDisabled) {
+	// Two calls rather than one: the script takes a single TTL and these two
+	// windows genuinely differ (25h vs 32d). Sharing the day TTL would make a
+	// month-to-date counter expire mid-month.
+	for _, w := range [2]struct {
+		suffix string
+		ttl    time.Duration
+	}{
+		{"day", 25 * time.Hour},
+		{"month", 32 * 24 * time.Hour},
+	} {
+		ck := key(nsSpend, "api_key", k.KeyID, w.suffix)
+		if _, err := l.vk.IncrByBucket(ctx, []string{ck}, micro, w.ttl); err != nil &&
+			!errors.Is(err, vk.ErrDisabled) {
 			log.Printf("[limits] spend counter update failed for %s: %v", ck, err)
 		}
 	}
@@ -280,7 +302,7 @@ func (l *Limiter) spendMicro(ctx context.Context, k *APIKeyIdentity, cacheKey st
 	if ttl < time.Minute {
 		ttl = time.Minute
 	}
-	_ = l.vk.SetJSON(ctx, cacheKey, used, ttl)
+	_ = l.vk.ReplaceBuckets(ctx, []string{cacheKey}, used, ttl)
 	return used, nil
 }
 
@@ -296,25 +318,26 @@ func (l *Limiter) allow(ctx context.Context, cacheKey string, limit int, window 
 
 // allowTokens is allow() for token-count windows: the counter must advance by
 // `weight`, so it is an INCRBY-fixed-window rather than a plain INCR.
+//
+// The script's `if v == ARGV[1]` guard compared a Lua number against a string
+// (ARGV is always a string at the server), so it was never true, so PEXPIRE never
+// ran: the TPM/TPD counters had no expiry at all and never rolled over. A key
+// that reached its daily token cap once stayed capped for the life of the
+// process — and since the key name carries no bucket (rl:api_key:<id>:tpd), the
+// counter was the ONLY thing that could end the window. The fix lives in
+// vk.incrByBucketScript (tonumber + a real server test).
 func (l *Limiter) allowTokens(ctx context.Context, cacheKey string, limit int64, window time.Duration, weight int64, localKey string) (bool, error) {
-	res, err := l.vk.Lua(ctx, `
-		local v = redis.call('INCRBY', KEYS[1], ARGV[1])
-		if v == ARGV[1] then redis.call('PEXPIRE', KEYS[1], ARGV[2]) end
-		return v`, cacheKey, weight, window.Milliseconds())
+	totals, err := l.vk.IncrByBucket(ctx, []string{cacheKey}, weight, window)
 	if errors.Is(err, vk.ErrDisabled) {
 		return l.local.allow(localKey, int(limit), window, weight), nil
 	}
 	if err != nil {
 		return true, err // degrade OPEN
 	}
-	if len(res) == 0 {
+	if len(totals) == 0 {
 		return true, nil
 	}
-	v, ok := toInt64(res[0])
-	if !ok {
-		return true, nil
-	}
-	return v <= limit, nil
+	return totals[0] <= limit, nil
 }
 
 func toInt64(v any) (int64, bool) {
@@ -350,21 +373,68 @@ func key(parts ...string) string {
 // localLimiter is the S0 in-process limiter: a sliding window per key and an
 // in-flight gauge. It is the fallback when Valkey is disabled — still
 // enforcing, still local to one instance.
+//
+// The window is a slice of {timestamp, weight} PER KEY, and the running total is
+// kept beside it. Three defects this replaced, all found by measuring rather
+// than reading:
+//
+//   - The weights lived in a PACKAGE-LEVEL map (`slots`) keyed by the key name
+//     only, so two Limiter instances shared bookkeeping and the second one's
+//     slot overwrote the first's weight (measured: `slots["shared-key"]` held
+//     one entry after two limiters wrote to it). It also could not be
+//     garbage-collected while the process lived.
+//   - Slot indices were derived from the OLD slice (`len(ts)-1` before the
+//     append), so the first weight landed at index -1 and every later one was
+//     shifted by one. With weight=1 on the RPM path the arithmetic happened to
+//     stay correct; on the TOKEN path (allowTokens passes the token estimate as
+//     the weight) the pruned weight belonged to a different request, so the
+//     window could under- or over-count a key's token budget.
+//   - Nothing ever evicted a key: `window`, `weights` and `slots` grew by one
+//     entry per key ever seen, forever (measured: 500 keys → 501 slot maps that
+//     still existed after their windows had aged out).
 type localLimiter struct {
-	mu     sync.Mutex
-	window map[string][]time.Time
-	weights map[string]int64
+	mu sync.Mutex
+	// keys holds each key's live window, oldest slot first. `used` is the sum of
+	// the slot weights, maintained in lockstep so a check is O(pruned) and
+	// allocates nothing in the steady state.
+	keys map[string]*keyWindow
+	// inFlight is the concurrency gauge.
 	inFlight map[string]int
+	// calls drives the opportunistic sweep below.
+	calls int
 }
 
+// keyWindow is one key's sliding window.
+type keyWindow struct {
+	slots []slot
+	used  int64
+	// dur is the window the key was last seen with. Stored so the sweep can tell
+	// an abandoned key from an active one without knowing the caller's config.
+	dur time.Duration
+}
+
+// slot is one admitted request inside a window: when it landed and how much of
+// the limit it consumed.
+type slot struct {
+	at time.Time
+	w  int64
+}
+
+// sweepEvery is how many allow calls pass between opportunistic sweeps. The
+// sweep is what stops a key that never comes back from keeping its entry
+// forever — lazy deletion alone would only reclaim keys that are called again.
+const sweepEvery = 1024
+
 func newLocalLimiter() localLimiter {
-	return localLimiter{window: map[string][]time.Time{}, weights: map[string]int64{}, inFlight: map[string]int{}}
+	return localLimiter{
+		keys:     map[string]*keyWindow{},
+		inFlight: map[string]int{},
+	}
 }
 
 // allow records `weight` units against the key's window and reports whether it
-// is still under `limit`. The window is a sliding list of timestamps (the S0
-// shape); a weight > 1 occupies one slot but consumes `limit` units, tracked in
-// weights.
+// is still under `limit`. A weight > 1 occupies one slot but consumes `limit`
+// units — that is the token window's shape (allowTokens).
 func (l *localLimiter) allow(k string, limit int, window time.Duration, weight int64) bool {
 	if limit <= 0 {
 		return true
@@ -375,25 +445,63 @@ func (l *localLimiter) allow(k string, limit int, window time.Duration, weight i
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	ts := l.window[k]
-	ws := l.weights[k]
+	l.calls++
+	if l.calls%sweepEvery == 0 {
+		l.sweepLocked(now)
+	}
+
+	w := l.keys[k]
+	if w == nil {
+		w = &keyWindow{}
+		l.keys[k] = w
+	}
+	w.dur = window
+
 	i := 0
-	for i < len(ts) && ts[i].Before(cutoff) {
-		ws -= slotWeight(k, i)
+	for i < len(w.slots) && w.slots[i].at.Before(cutoff) {
+		w.used -= w.slots[i].w
 		i++
 	}
 	if i > 0 {
-		ts = append([]time.Time(nil), ts[i:]...)
-		l.weights[k] = ws
+		// Reslice rather than reallocate: append below reuses the spare capacity
+		// and only reallocates when the window genuinely grows, so a key at a
+		// steady rate stops allocating instead of copying its slice per call.
+		w.slots = w.slots[i:]
 	}
-	if ws+weight > int64(limit) {
-		l.window[k] = ts
+	if w.used+weight > int64(limit) {
+		l.evictIfEmpty(k, w)
 		return false
 	}
-	l.window[k] = append(ts, now)
-	l.weights[k] = ws + weight
-	slotWeights(k, len(ts)-1, weight)
+	w.slots = append(w.slots, slot{at: now, w: weight})
+	w.used += weight
 	return true
+}
+
+// evictIfEmpty drops a key once its window holds nothing, so a key that is
+// refused (or that simply ages out) does not keep a map entry.
+func (l *localLimiter) evictIfEmpty(k string, w *keyWindow) {
+	if len(w.slots) == 0 {
+		delete(l.keys, k)
+	}
+}
+
+// sweepLocked reclaims keys whose window is empty or whose newest slot is older
+// than their own window — the abandoned-key case, which lazy eviction cannot
+// reach because nothing calls allow for that key again.
+func (l *localLimiter) sweepLocked(now time.Time) {
+	for k, w := range l.keys {
+		if len(w.slots) == 0 || now.Sub(w.slots[len(w.slots)-1].at) > w.dur {
+			delete(l.keys, k)
+		}
+	}
+}
+
+// size reports how many keys hold a window. Test-only accessor for the
+// eviction assertions.
+func (l *localLimiter) size() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return len(l.keys)
 }
 
 // tryIncr takes an in-flight slot under `limit`. Second result is true when the
@@ -411,33 +519,11 @@ func (l *localLimiter) tryIncr(k string, limit int) (int, bool) {
 func (l *localLimiter) decr(k string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.inFlight[k] > 0 {
-		l.inFlight[k]--
+	// Delete at zero rather than storing it: the gauge is keyed per API key, and
+	// a key that is idle forever must not keep an entry forever.
+	if n := l.inFlight[k]; n > 1 {
+		l.inFlight[k] = n - 1
+	} else {
+		delete(l.inFlight, k)
 	}
-}
-
-// slot weights bookkeeping: the sliding window must forget a slot's weight
-// when it ages out, so the two maps cannot drift.
-var (
-	slotMu sync.Mutex
-	slots  = map[string]map[int]int64{}
-)
-
-func slotWeights(k string, i int, w int64) {
-	slotMu.Lock()
-	defer slotMu.Unlock()
-	m := slots[k]
-	if m == nil {
-		m = map[int]int64{}
-		slots[k] = m
-	}
-	m[i] = w
-}
-
-func slotWeight(k string, i int) int64 {
-	slotMu.Lock()
-	defer slotMu.Unlock()
-	w := slots[k][i]
-	delete(slots[k], i)
-	return w
 }

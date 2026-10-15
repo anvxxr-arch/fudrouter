@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"sort"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -200,52 +199,99 @@ func (s *Store) ResolveModel(ctx context.Context, k *APIKeyRow, name string) (*M
 	name = strings.TrimSpace(name)
 	res := &ModelResolution{Requested: name}
 
-	// 1–2: project, then workspace alias. Targets are ordered by `position`.
-	var aliasID string
-	var kind string
-	err := s.pool.QueryRow(ctx, `
-		select a.id,
-		       case when a.project_id is not null then 'project'
-		            when a.workspace_id is not null then 'workspace'
-		            else 'global' end as kind
-		from model_alias a
-		where a.enabled and a.name = $1
-		  and (a.project_id = $2 or (a.project_id is null and a.workspace_id = $3)
-		       or (a.project_id is null and a.workspace_id is null))
-		order by (a.project_id is not null) desc, (a.workspace_id is not null) desc
-		limit 1`, name, k.ProjectID, k.WorkspaceID,
-	).Scan(&aliasID, &kind)
-	switch {
-	case err == nil:
-		rows, err := s.pool.Query(ctx, `
-			select t.model_id, m.slug
-			from model_alias_target t join model m on m.id = t.model_id
-			where t.alias_id = $1
-			order by t.position`, aliasID)
-		if err != nil {
+	// 1–4: alias (project → workspace → global) or, failing that, the literal
+	// canonical slug — all in ONE round trip.
+	//
+	// Two things drove this shape. The alias branch was originally two queries
+	// (pick the winner, then read its targets) where the second existed only to
+	// carry an id the first had just produced. The literal branch then added
+	// another round trip AFTER the alias query came back empty, on the path a
+	// canonical slug always takes: measured at 2 queries for one literal slug.
+	//
+	// UNION ALL rather than a join: the two branches read different tables and a
+	// left join would have to fan both out. The CTE below pins its own winner
+	// with `limit 1` on the SAME scope ordering the alias branch always used, so
+	// first-match-wins is unchanged; `b` numbers the branch grids and `pos` the
+	// alias targets so the result can be reassembled in order.
+	rows, err := s.pool.Query(ctx, `
+		with picked as (
+			select a.id,
+			       case when a.project_id is not null then 'project'
+			            when a.workspace_id is not null then 'workspace'
+			            else 'global' end as kind
+			from model_alias a
+			where a.enabled and a.name = $1
+			  and (a.project_id = $2 or (a.project_id is null and a.workspace_id = $3)
+			       or (a.project_id is null and a.workspace_id is null))
+			order by (a.project_id is not null) desc, (a.workspace_id is not null) desc
+			limit 1
+		)
+		select b, kind, model_id, slug from (
+			select 0 as b, p.kind, coalesce(t.model_id, '') as model_id,
+			       coalesce(m.slug, '') as slug, coalesce(t.position, 0) as pos
+			from picked p
+			left join model_alias_target t on t.alias_id = p.id
+			left join model m on m.id = t.model_id
+			union all
+			-- Only reached when no alias matched: the exists() guards on the SAME
+			-- predicate the CTE used, so a name that is both an alias and a
+			-- model.slug still resolves as the alias (spec §5 precedence is unchanged).
+			select 1 as b, 'model' as kind, m2.id as model_id, m2.slug as slug, 0 as pos
+			from model m2
+			where m2.slug = $1 and m2.status = 'active'
+			  and not exists (
+				select 1 from model_alias a2
+				where a2.enabled and a2.name = $1
+				  and (a2.project_id = $2 or (a2.project_id is null and a2.workspace_id = $3)
+				       or (a2.project_id is null and a2.workspace_id is null))
+			  )
+		) x
+		order by b, pos`, name, k.ProjectID, k.WorkspaceID)
+	if err != nil {
+		return nil, err
+	}
+	var (
+		kind  string
+		found bool
+	)
+	for rows.Next() {
+		var branch int
+		var mv, sv string
+		if err := rows.Scan(&branch, &kind, &mv, &sv); err != nil {
+			rows.Close()
 			return nil, err
 		}
-		defer rows.Close()
-		for rows.Next() {
-			var id, slug string
-			if err := rows.Scan(&id, &slug); err != nil {
-				return nil, err
-			}
-			res.ModelIDs = append(res.ModelIDs, id)
-			res.ModelSlugs = append(res.ModelSlugs, slug)
+		found = true
+		if branch == 1 {
+			// The literal branch is authoritative and single-row.
+			res.Kind = "model"
+			res.ModelIDs = []string{mv}
+			res.ModelSlugs = []string{sv}
+			continue
 		}
-		if err := rows.Err(); err != nil {
-			return nil, err
+		if mv != "" {
+			res.ModelIDs = append(res.ModelIDs, mv)
+			res.ModelSlugs = append(res.ModelSlugs, sv)
 		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+	if res.Kind == "model" {
+		return res, nil
+	}
+	if found {
 		if len(res.ModelIDs) > 0 {
 			res.Kind = "alias"
 			return res, nil
 		}
-		// A global row with no targets is a `fudrouter/*` virtual descriptor:
+		// A global row with no targets is a `[NAME]/*` virtual descriptor:
 		// the row exists so the catalogue can describe the name, and its
 		// candidate set is strategy-resolved below rather than pinned. Only a
 		// non-virtual empty alias is unroutable — returning early here made
-		// every `fudrouter/*` name a 404.
+		// every `[NAME]/*` name a 404.
 		if kind != "global" {
 			return nil, ErrNotFound // an alias with no targets is not routable
 		}
@@ -253,10 +299,6 @@ func (s *Store) ResolveModel(ctx context.Context, k *APIKeyRow, name string) (*M
 			return nil, ErrNotFound
 		}
 		// fall through to the virtual branch (3)
-	case errors.Is(err, pgx.ErrNoRows):
-		// fall through
-	default:
-		return nil, err
 	}
 
 	// 3: global virtual. Target set is every active model; the strategy picks
@@ -368,17 +410,158 @@ type Candidate struct {
 }
 
 // Credential is one usable secret for a connection (spec §4).
+//
+// The json tags are load-bearing: Candidates builds these through
+// `json_agg(json_build_object(...))` in the same query that selects the
+// candidate rows (one round trip instead of a second batched credential
+// query), so these names are part of the SQL contract. Renaming a field
+// without the tag silently yields a zero-valued credential.
 type Credential struct {
-	ID       string
-	Name     string
-	SecretEnc string
-	Status   string
-	Weight   int
-	Priority int
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	SecretEnc string `json:"secret_enc"`
+	Status    string `json:"status"`
+	Weight    int    `json:"weight"`
+	Priority  int    `json:"priority"`
+}
+
+// CandidatesBatch is Candidates for MANY models in ONE query, keyed by model id.
+//
+// Why it exists: a `[NAME]/*` virtual request — the name the docs and the
+// playground advertise — resolves its candidate set from every active model
+// (store.activeModelIDs). The admission loop then called Candidates once per
+// model, so the fan-out was one round trip per model IN THE CATALOGUE: measured
+// at 251 queries for a single request against a 251-model catalogue, with each
+// query carrying the credential json_agg. That is the difference between a
+// router that scales and one that does not.
+//
+// The result is byte-for-byte what N calls to Candidates would produce:
+//
+//   - the same filters (the model-id predicate becomes `= any($1)`),
+//   - the same per-model order (`p.priority asc, pm.id` — Candidates' own outer
+//     order, now a window function so it restarts per model),
+//   - the same credential order (ordered INSIDE json_agg).
+//
+// A model with no routable target is ABSENT from the map rather than present as
+// an empty slice, which mirrors Candidates returning ErrNotFound: the caller
+// skips the same models either way.
+func (s *Store) CandidatesBatch(ctx context.Context, modelIDs []string, requiredCaps map[string]bool) (map[string][]Candidate, error) {
+	out := map[string][]Candidate{}
+	if len(modelIDs) == 0 {
+		return out, nil
+	}
+	rows, err := s.pool.Query(ctx, `
+		select * from (
+			select m.id as model_id, m.slug, pm.id, pm.provider_model_id,
+			       p.id, p.name, coalesce(p.slug, ''), p.tier, p.priority,
+			       c.id, c.base_url, c.auth_type, c.timeout_ms, c.config::text,
+			       coalesce(c.region, ''), coalesce(c.health_status, 'unknown'),
+			       coalesce(pm.capabilities_override, '{}'::jsonb),
+			       m.capabilities,
+			       coalesce(pm.context_override, m.context, 0),
+			       coalesce(p.credentials_enc, ''),
+			       coalesce(creds.items, '[]'::json),
+			       row_number() over (partition by m.id order by p.priority asc, pm.id) as rn
+			from model m
+			join provider_model pm on pm.model_id = m.id
+			join provider p on p.id = pm.provider_id
+			left join connection c on c.id = pm.connection_id
+			left join lateral (
+				select json_agg(json_build_object(
+				           'id', cr.id, 'name', cr.name, 'secret_enc', cr.secret_enc,
+				           'status', cr.status, 'weight', cr.weight, 'priority', cr.priority
+				       ) order by cr.priority asc, cr.weight desc, cr.id) as items
+				from credential cr
+				where cr.connection_id = c.id
+				  and cr.status not in ('disabled', 'invalid')
+				  and (cr.cooldown_until is null or cr.cooldown_until <= now())
+			) creds on true
+			where m.id = any($1)
+			  and m.status = 'active'
+			  and pm.enabled
+			  and pm.status not in ('disabled', 'unavailable')
+			  and (c.id is null or c.enabled)
+			  and (c.id is null or c.health_status is distinct from 'unhealthy')
+			  and `+s.providerServableSQL()+`
+		) ranked
+		-- Ordered across the whole set so the map is built in one pass and every
+		-- model's slice comes out in its own rank order.
+		order by model_id, rn`, modelIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var c Candidate
+		var overrideJSON, capsJSON, credsJSON []byte
+		var baseURL *string
+		var authType *string
+		var timeoutMs *int
+		var connID *string
+		var rn int
+		if err := rows.Scan(&c.ModelID, &c.ModelSlug, &c.ProviderModelID, &c.UpstreamModel,
+			&c.ProviderID, &c.ProviderName, &c.ProviderSlug, &c.ProviderTier, &c.Priority,
+			&connID, &baseURL, &authType, &timeoutMs, &c.ConfigJSON,
+			&c.Region, &c.HealthStatus,
+			&overrideJSON, &capsJSON, &c.Context, &c.LegacyBlob, &credsJSON, &rn,
+		); err != nil {
+			return nil, err
+		}
+		if connID != nil {
+			c.ConnectionID = *connID
+		}
+		if baseURL != nil {
+			c.BaseURL = *baseURL
+		}
+		if authType != nil {
+			c.AuthType = *authType
+		}
+		if timeoutMs != nil {
+			c.TimeoutMs = *timeoutMs
+		}
+		if err := json.Unmarshal(credsJSON, &c.Credentials); err != nil {
+			return nil, err
+		}
+		// Effective capabilities = canonical, overridden per key by the mapping
+		// (spec §5). Same rule as Candidates: an override key replaces the
+		// canonical claim entirely, so `false` can veto even a canonical `true`.
+		c.Capabilities = map[string]any{}
+		_ = json.Unmarshal(capsJSON, &c.Capabilities)
+		var override map[string]any
+		_ = json.Unmarshal(overrideJSON, &override)
+		for k, v := range override {
+			c.Capabilities[k] = v
+		}
+		if !CapabilitySatisfied(c.Capabilities, requiredCaps) {
+			continue
+		}
+		// A connection with no usable credential row and no legacy blob cannot be
+		// attempted at all — drop it rather than fail later on every request.
+		if len(c.Credentials) == 0 && c.LegacyBlob == "" {
+			continue
+		}
+		out[c.ModelID] = append(out[c.ModelID], c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // Candidates returns the routable targets for one canonical model, in a stable
 // order (provider priority, then credential priority).
+//
+// One round trip. This was two — the candidate rows, then a batched credential
+// query for every distinct connection — and both sit before the first upstream
+// byte. The credentials ride along as a json_agg, ordered INSIDE the aggregate
+// (`order by cr.priority asc, cr.weight desc, cr.id`) so the pool's pick order
+// is unchanged; the outer `order by` is the candidate order, which is the
+// attempt order and therefore load-bearing on its own.
+//
+// json_agg over a LEFT JOIN lateral, not a plain LEFT JOIN: a connection with
+// several credentials would otherwise multiply the candidate row, and one with
+// none would disappear instead of staying reachable through its legacy blob.
 func (s *Store) Candidates(ctx context.Context, modelID string, requiredCaps map[string]bool) ([]Candidate, error) {
 	rows, err := s.pool.Query(ctx, `
 		select m.id, m.slug, pm.id, pm.provider_model_id,
@@ -388,11 +571,22 @@ func (s *Store) Candidates(ctx context.Context, modelID string, requiredCaps map
 		       coalesce(pm.capabilities_override, '{}'::jsonb),
 		       m.capabilities,
 		       coalesce(pm.context_override, m.context, 0),
-		       coalesce(p.credentials_enc, '')
+		       coalesce(p.credentials_enc, ''),
+		       coalesce(creds.items, '[]'::json)
 		from model m
 		join provider_model pm on pm.model_id = m.id
 		join provider p on p.id = pm.provider_id
 		left join connection c on c.id = pm.connection_id
+		left join lateral (
+			select json_agg(json_build_object(
+			           'id', cr.id, 'name', cr.name, 'secret_enc', cr.secret_enc,
+			           'status', cr.status, 'weight', cr.weight, 'priority', cr.priority
+			       ) order by cr.priority asc, cr.weight desc, cr.id) as items
+			from credential cr
+			where cr.connection_id = c.id
+			  and cr.status not in ('disabled', 'invalid')
+			  and (cr.cooldown_until is null or cr.cooldown_until <= now())
+		) creds on true
 		where m.id = $1
 		  and m.status = 'active'
 		  and pm.enabled
@@ -409,7 +603,7 @@ func (s *Store) Candidates(ctx context.Context, modelID string, requiredCaps map
 	var out []Candidate
 	for rows.Next() {
 		var c Candidate
-		var overrideJSON, capsJSON []byte
+		var overrideJSON, capsJSON, credsJSON []byte
 		var baseURL *string
 		var authType *string
 		var timeoutMs *int
@@ -418,7 +612,7 @@ func (s *Store) Candidates(ctx context.Context, modelID string, requiredCaps map
 			&c.ProviderID, &c.ProviderName, &c.ProviderSlug, &c.ProviderTier, &c.Priority,
 			&connID, &baseURL, &authType, &timeoutMs, &c.ConfigJSON,
 			&c.Region, &c.HealthStatus,
-			&overrideJSON, &capsJSON, &c.Context, &c.LegacyBlob,
+			&overrideJSON, &capsJSON, &c.Context, &c.LegacyBlob, &credsJSON,
 		); err != nil {
 			return nil, err
 		}
@@ -434,6 +628,9 @@ func (s *Store) Candidates(ctx context.Context, modelID string, requiredCaps map
 		if timeoutMs != nil {
 			c.TimeoutMs = *timeoutMs
 		}
+		if err := json.Unmarshal(credsJSON, &c.Credentials); err != nil {
+			return nil, err
+		}
 		// Effective capabilities = canonical, overridden per key by the mapping
 		// (spec §5). An override key replaces the canonical claim entirely, so
 		// `false` can veto even a canonical `true`.
@@ -447,90 +644,23 @@ func (s *Store) Candidates(ctx context.Context, modelID string, requiredCaps map
 		if !CapabilitySatisfied(c.Capabilities, requiredCaps) {
 			continue
 		}
+		// Per-candidate prices are filled by the caller through cachedPricing
+		// (proxy): the request's own billing snapshot in buildRow still resolves
+		// and freezes its price at request time.
+		// A connection with no usable credential row and no legacy blob cannot be
+		// attempted at all — drop it rather than fail later on every request.
+		if len(c.Credentials) == 0 && c.LegacyBlob == "" {
+			continue
+		}
 		out = append(out, c)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	// Release the candidate result before the batch credential query below:
-	// holding it defers the connection back to the pool while a second query
-	// runs, defeating part of the pool-efficiency goal.
-	rows.Close()
 	if len(out) == 0 {
 		return nil, ErrNotFound
 	}
-
-	// Credential usability is a per-candidate filter (spec §5: "credential
-	// (usable: not disabled/invalid, cooldown_until past/NULL)").
-	// One batch query for every distinct connection instead of one round trip
-	// per candidate.
-	byConn, err := s.usableCredentialsBatch(ctx, connectionIDs(out))
-	if err != nil {
-		return nil, err
-	}
-	for i := range out {
-		out[i].Credentials = byConn[out[i].ConnectionID]
-	}
-	// Per-candidate prices are filled by the caller through cachedPricing
-	// (proxy): the request's own billing snapshot in buildRow still resolves
-	// and freezes its price at request time.
-	// A connection with no usable credential row and no legacy blob cannot be
-	// attempted at all — drop it rather than fail later on every request.
-	filtered := out[:0]
-	for _, c := range out {
-		if len(c.Credentials) == 0 && c.LegacyBlob == "" {
-			continue
-		}
-		filtered = append(filtered, c)
-	}
-	return filtered, nil
-}
-
-// connectionIDs collects the distinct non-empty connection ids of a
-// candidate set, sorted for a stable query plan.
-func connectionIDs(cands []Candidate) []string {
-	seen := map[string]bool{}
-	var ids []string
-	for _, c := range cands {
-		if c.ConnectionID == "" || seen[c.ConnectionID] {
-			continue
-		}
-		seen[c.ConnectionID] = true
-		ids = append(ids, c.ConnectionID)
-	}
-	sort.Strings(ids)
-	return ids
-}
-
-// usableCredentialsBatch is the batched form of usableCredentials: one query
-// for every distinct connection, grouped by connection id in the same order
-// (priority asc, weight desc, id). An empty input returns an empty map with
-// no query.
-func (s *Store) usableCredentialsBatch(ctx context.Context, ids []string) (map[string][]Credential, error) {
-	out := map[string][]Credential{}
-	if len(ids) == 0 {
-		return out, nil
-	}
-	rows, err := s.pool.Query(ctx, `
-		select id, name, secret_enc, status, weight, priority, connection_id
-		from credential
-		where connection_id = any($1)
-		  and status not in ('disabled', 'invalid')
-		  and (cooldown_until is null or cooldown_until <= now())
-		order by priority asc, weight desc, id`, ids)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var c Credential
-		var connID string
-		if err := rows.Scan(&c.ID, &c.Name, &c.SecretEnc, &c.Status, &c.Weight, &c.Priority, &connID); err != nil {
-			return nil, err
-		}
-		out[connID] = append(out[connID], c)
-	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // CapabilitySatisfied implements spec §5: a required capability eliminates a

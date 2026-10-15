@@ -181,6 +181,13 @@ func (s *Store) BudgetsFor(ctx context.Context, k *APIKeyRow) ([]Budget, error) 
 // EnvironmentMonthlyBudgetMicro is the environment's flat monthly budget column
 // (spec §2 `environment.monthly_budget_micro`), which predates the `budget`
 // table and is honoured as a monthly budget with default thresholds.
+//
+// NO LONGER CALLED by the budget gate: BudgetGateState carries this value in
+// the same query as the billing account it already had to read, which removed a
+// round trip from every request's admission path (BENCH: 2699 → 2416 ns/op
+// mean, one fewer query). Kept because it is the only reader of the column
+// outside the control plane and the admin surfaces still expect it to exist;
+// delete it with the next caller audit, not silently.
 func (s *Store) EnvironmentMonthlyBudgetMicro(ctx context.Context, environmentID string) (int64, bool, error) {
 	if environmentID == "" {
 		return 0, false, nil

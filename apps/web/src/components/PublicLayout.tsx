@@ -44,7 +44,6 @@ export function PublicLayout() {
       <footer className="foot">
         <span>© fudrouter — commercial AI router</span>
         <span className="legal">
-          <NavLink to="/status">Status</NavLink>
           <NavLink to="/docs">Docs</NavLink>
           <NavLink to="/pricing">Pricing</NavLink>
         </span>

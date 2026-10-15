@@ -1,0 +1,32 @@
+-- Invoice period uniqueness — the idempotency key `invoice_generation` already
+-- assumes but never declared.
+--
+-- `invoice_generation` (packages/platform/server/workers.ts) bills each account
+-- once per period. Before this migration it enforced that with a SELECT-then-
+-- INSERT: it queried `invoice` by (billing_account_id, period_start,
+-- period_end) and skipped the account if a row came back. That is a race — two
+-- workers can both find nothing and both insert — and it had no index to
+-- support it either. `EXPLAIN` on the live server, plan shape:
+--
+--   Seq Scan on invoice
+--     Filter: (billing_account_id = … AND period_start = … AND period_end = …)
+--
+-- N accounts = N sequential scans per run. There was no index on
+-- `billing_account_id` or `period_start` at all; `invoice` carried only its PK
+-- and `invoice_number_idx (number)`.
+--
+-- The UNIQUE index is the fix rather than the query: `ON CONFLICT DO NOTHING`
+-- on this target makes "one invoice per account per period" a database
+-- invariant instead of an application check, which drops the pre-INSERT SELECT
+-- entirely and closes the race.
+--
+-- Safe to add: the index is IF NOT EXISTS and no duplicate
+-- (billing_account_id, period_start, period_end) triples were found in the test
+-- DB (which held 0 invoice rows at the time — an empty table proves nothing
+-- about production). Verify against the production table before applying.
+--
+-- Plain CREATE UNIQUE INDEX, not CONCURRENTLY: ops/migrate.sh feeds each file to
+-- `psql -f`, which wraps it in a transaction, where CONCURRENTLY is refused
+-- (0015 documents the same constraint against the live server).
+CREATE UNIQUE INDEX IF NOT EXISTS "invoice_account_period_idx"
+	ON "invoice" USING btree ("billing_account_id", "period_start", "period_end");

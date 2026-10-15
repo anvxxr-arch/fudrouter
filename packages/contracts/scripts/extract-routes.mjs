@@ -31,6 +31,12 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..', '..');
+// The note below tells a reader how to regenerate this file, so it has to name
+// THIS package. It was a literal, and the literal drifted off the real name —
+// `npm run extract -w <that literal>` does not resolve, so the documented fix
+// for a stale lock simply failed. Read it from package.json instead: the note
+// can no longer name a package this script does not belong to.
+const PKG_NAME = JSON.parse(readFileSync(join(HERE, '..', 'package.json'), 'utf8')).name;
 const WEB_DIR = join(REPO, 'apps', 'web', 'server');
 const GO_SURFACE = join(REPO, 'backend', 'go', 'internal', 'proxy', 'proxy.go');
 const OUT = join(REPO, 'packages', 'contracts', 'routes.json');
@@ -91,10 +97,12 @@ for (const name of webFiles) {
         : 'middleware';
     middleware.push({ path: m[2], file: name, line, kind });
   }
-  // express.static(DIST) with no path string, and the SPA fallback.
-  if (/express\.static\(\s*DIST\s*\)/.test(src)) {
-    middleware.push({ path: '/', file: name, kind: 'static-spa-fallback' });
-  }
+  // The bare `express.static(DIST)` mount is GONE and must not be re-detected:
+  // it served index.html before the SPA fallback, so `/` answered with the
+  // shell's own landing-page tags and skipped the per-request head rewrite
+  // (server/lib/head.mjs). Only /assets is mounted statically now; every page
+  // path goes through the fallback below, so there is one code path that
+  // produces HTML.
 
   // 3. routes.
   for (const m of src.matchAll(RE_ROUTE)) {
@@ -182,9 +190,15 @@ const byPrefix = (rows) => {
 const doc = {
   generated_by: 'packages/contracts/scripts/extract-routes.mjs',
   note:
-    'Mechanical extraction of the live HTTP surface. Regenerate with `npm run extract -w @fudrouter/contracts`. ' +
+    `Mechanical extraction of the live HTTP surface. Regenerate with \`npm run extract -w ${PKG_NAME}\`. ` +
     'A changed hash in `sources` with an unchanged route list means the surface survived an edit; ' +
-    'a changed route list means the public API changed and downstream clients/OpenAPI must follow.',
+    'a changed route list means the public API changed and downstream clients/OpenAPI must follow. ' +
+    '`line` is RECORDED but deliberately NOT part of the staleness comparison: it is what the OpenAPI ' +
+    'entries cite ("Registered at <file>:<line>"), so it is kept for a human tracing an operation, ' +
+    'while a registration that merely SHIFTED because an unrelated edit added a line above it is not ' +
+    'a surface change and must not turn this lock red — a lock that fails on a moved line number ' +
+    'teaches people to regenerate it without reading the diff, which is the failure mode a lock ' +
+    'exists to prevent. What IS compared is the route set, both directions, and the middleware set.',
   counts: {
     inference: inf.rows.length,
     management: mg.rows.length,
@@ -211,9 +225,15 @@ if (mode === 'check') {
     process.exit(1);
   }
   const a = JSON.parse(current);
-  const strip = ({ generated_by, ...rest }) => rest;
   // Compare the route SET, not just the totals: a message that prints identical
   // counts for a stale lock is worse than no message at all.
+  //
+  // `line` is deliberately excluded from BOTH comparisons. It is recorded (the
+  // OpenAPI generator reads it) but it is not part of the surface: inserting a
+  // single line above a registration — a new `app.use()`, a comment — shifted
+  // every later `line` and made `npm run check` red for a change that added and
+  // removed no route at all. A lock that fails on a shifted line number trains
+  // people to regenerate it without reading the diff, which defeats the lock.
   const keyset = (d) => [
     ...d.inference.map((r) => `inference ${r.method} ${r.path} -> ${r.handler}`),
     ...d.management.map((r) => `management ${r.method} ${r.path} (${r.file})`),
@@ -222,10 +242,10 @@ if (mode === 'check') {
   const liveKeys = new Set(keyset(doc));
   const added = [...liveKeys].filter((k) => !lockKeys.has(k));
   const removed = [...lockKeys].filter((k) => !liveKeys.has(k));
-  const mw = (d) => JSON.stringify(d.middleware);
-  if (mw(a) !== mw(doc)) {
-    added.push(`middleware table changed (${a.middleware.length} -> ${doc.middleware.length})`);
-  }
+  const lockMw = new Set(a.middleware.map((m) => `${m.kind} ${m.path} (${m.file})`));
+  const liveMw = new Set(doc.middleware.map((m) => `${m.kind} ${m.path} (${m.file})`));
+  for (const k of liveMw) if (!lockMw.has(k)) added.push(`middleware ${k}`);
+  for (const k of lockMw) if (!liveMw.has(k)) removed.push(`middleware ${k}`);
   if (added.length || removed.length) {
     console.error(
       'extract-routes --check: routes.json is STALE — the live surface no longer matches the lock.\n' +

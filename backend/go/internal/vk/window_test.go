@@ -109,22 +109,22 @@ func TestConcurrencyGaugeStacksAndFrees(t *testing.T) {
 	}
 }
 
-// The spend fast path reads its own counter via GetJSON after a Lua INCRBY, so
-// the fake must mirror the counter into the JSON store — real Valkey holds ONE
-// value per key and a fake that kept two would hide a read-after-write bug.
-func TestLuaCounterIsReadableViaGetJSON(t *testing.T) {
+// The spend fast path reads its own counter via GetJSON after an INCRBY, so the
+// fake must mirror the counter into the JSON store — real Valkey holds ONE value
+// per key and a fake that kept two would hide a read-after-write bug.
+func TestCounterIsReadableViaGetJSON(t *testing.T) {
 	f := NewFake()
 	ctx := context.Background()
-	out, err := f.Lua(ctx, "local v=redis.call('INCRBY',KEYS[1],ARGV[1]) redis.call('PEXPIRE',KEYS[1],ARGV[2]) return v", "spend:ws", 500, 60000)
-	if err != nil || len(out) != 1 || toInt64Or(out[0], -1) != 500 {
-		t.Fatalf("Lua incr = (%v, %v), want [500]", out, err)
+	out, err := f.IncrByBucket(ctx, []string{"spend:ws"}, 500, time.Minute)
+	if err != nil || len(out) != 1 || out[0] != 500 {
+		t.Fatalf("IncrByBucket = (%v, %v), want [500]", out, err)
 	}
 	var v int64
 	if err := f.GetJSON(ctx, "spend:ws", &v, 0); err != nil || v != 500 {
-		t.Errorf("GetJSON after Lua = (%d, %v), want (500, nil)", v, err)
+		t.Errorf("GetJSON after IncrByBucket = (%d, %v), want (500, nil)", v, err)
 	}
-	if out, err = f.Lua(ctx, "local v=redis.call('INCRBY',KEYS[1],ARGV[1]) redis.call('PEXPIRE',KEYS[1],ARGV[2]) return v", "spend:ws", 250, 60000); err != nil || toInt64Or(out[0], -1) != 750 {
-		t.Fatalf("second Lua incr = (%v, %v), want [750]", out, err)
+	if out, err = f.IncrByBucket(ctx, []string{"spend:ws"}, 250, time.Minute); err != nil || out[0] != 750 {
+		t.Fatalf("second IncrByBucket = (%v, %v), want [750]", out, err)
 	}
 }
 

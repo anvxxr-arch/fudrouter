@@ -1,17 +1,29 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Link, useParams } from "react-router-dom";
+import { NavLink, useParams } from "react-router-dom";
 import { apiGet } from "../lib/server";
+import { ADMIN_NAV, filterNav } from "../lib/navigation";
+import { useSession } from "../components/guards";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { Table } from "../components/ui/table";
 
-const SECTIONS = ["analytics","billing","connections","health","incidents","keys","models","projects","providers","requests","routing","security","settings","system","traffic","users","workspaces"];
-
+// The admin bar is the registry's "admin" scope filtered by the session's role,
+// exactly as ConsoleLayout does for "console". It used to render a local
+// SECTIONS array with no cap check at all, so every admin-role user saw links to
+// all 17 sections and the ones their role lacked bounced to "/" via
+// RequireRouteCap -- a button that 403s, on every admin page (Page wraps this).
+// ADMIN_NAV carries the same labels and the caps, so filtering here renders the
+// same bar for `admin` and hides what the guard would refuse.
 export function AdminNav() {
+  const user = useSession();
+  const items = filterNav(ADMIN_NAV, user?.role ?? null);
   return (<nav className="row" aria-label="Admin" style={{ flexWrap: "wrap" }}>
-    <Link to="/admin"><Button variant="ghost" size="sm">Overview</Button></Link>
-    {SECTIONS.map((s) => <Link key={s} to={"/admin/" + s}><Button variant="ghost" size="sm">{s}</Button></Link>)}
+    {items.map((i) => (
+      <NavLink key={i.to} to={i.to} end={i.to === "/admin"}>
+        <Button variant="ghost" size="sm">{i.label}</Button>
+      </NavLink>
+    ))}
   </nav>);
 }
 

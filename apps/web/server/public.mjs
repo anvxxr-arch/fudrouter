@@ -10,6 +10,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sql } from 'drizzle-orm';
+import { served as _served, allowDevProviders as _allowDevProviders } from './lib/platform-ts.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -30,18 +31,16 @@ function num(v) {
 	const n = Number(v);
 	return Number.isFinite(n) ? n : null;
 }
-/** Data-plane dev-provider opt-in, same truthy parse as the Go router. */
-function devAllowed() {
-	return ['1', 'true', 'yes', 'on'].includes(
-		String(process.env.ROUTER_ALLOW_DEV_PROVIDERS ?? '').trim().toLowerCase()
-	);
-}
-/** Publish gate mirror (shared $lib/publish reachability). */
+/**
+ * Publish gate — the shared one. packages/platform/publish.ts OWNS the rule and
+ * the Go router's SQL mirrors it; this file used to carry a third copy
+ * (`served`), which is exactly the "mirrored SQL"/hand-copy drift the module's
+ * header warns about. `allowDevProviders` is read from the platform's own
+ * publish-env, so the console and the router parse ROUTER_ALLOW_DEV_PROVIDERS
+ * identically.
+ */
 function served(modelStatus, providerStatus) {
-	if (modelStatus !== 'active') return false;
-	if (providerStatus === 'active') return true;
-	if (providerStatus === 'dev' && devAllowed()) return true;
-	return false;
+	return _served(modelStatus, providerStatus, _allowDevProviders());
 }
 function toPrice(raw) {
 	const r = raw ?? {};
@@ -107,6 +106,17 @@ function parseCompareList(raw) {
  * the one query layer behind /models, /providers, /pricing and /metrics.
  */
 async function servedModels(database) {
+	// The structural half of the router's provider gate (providerServableSQLFor,
+	// backend/go/internal/store/catalog.go) belongs HERE, in SQL, because
+	// reachability()'s three arguments cannot see p.enabled or p.tier at all.
+	// Before this predicate a model served ONLY through a disabled provider
+	// (p.enabled = false) or a dev-tier one (p.tier = 'dev' with the
+	// ROUTER_ALLOW_DEV_PROVIDERS opt-in off) still appeared on the public
+	// catalogue while the router refused to serve it — probed against the test
+	// database: GET /api/models listed both probe models, GET /v1/models
+	// excluded both. Filtering in the SPA would be worse: the page must not be
+	// a security boundary.
+	const allowDev = _allowDevProviders();
 	const rows = rowsOf(
 		await database.execute(sql`
 			select m.id as model_id, m.slug, m.name, m.family, m.developer, m.description,
@@ -155,6 +165,8 @@ async function servedModels(database) {
 			inner join provider_model pm on pm.model_id = m.id and pm.enabled = true
 			inner join provider p on p.id = pm.provider_id
 			left join connection c on c.id = pm.connection_id
+			where p.enabled = true
+			  and (p.tier = 'commercial' or ${allowDev})
 			order by m.slug, p.name`)
 	);
 	const gated = rows.filter((r) => served(r.model_status, r.provider_status));
@@ -848,8 +860,7 @@ not published and reachable — so the catalog and the request path always
 agree.
 
 Browse what is live at [/models](/models) and compare models side by side at
-[/models/compare](/models/compare). The provider network behind them is on
-[/providers](/providers).
+[/models/compare](/models/compare).
 
 Prices are normalized to micro-units per 1M tokens so routes can be compared
 (and billed) without floating-point money.`;
@@ -1012,7 +1023,7 @@ const REFERENCE_REFERENCE = `The short answers, in one place.
 - \`POST /v1/responses\` — forwarded pass-through. [Responses](/docs/api/responses)
 - \`POST /v1/embeddings\` — forwarded pass-through. [Embeddings](/docs/api/embeddings)
 - \`GET /health\` — unauthenticated liveness probe (pings the database; \`503\`
-  when it is unreachable). Used by the [status page](/status).
+  when it is unreachable).
 
 ## Conventions
 

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/store"
+	"github.com/anvxxr-arch/fudrouter/backend/go/internal/vk"
 )
 
 // Budget enforcement (spec §7, §10; PRD §40, §129).
@@ -26,13 +27,35 @@ import (
 // checkBudgets gates admission on every budget in the key's chain plus the
 // workspace billing account's hard stop.
 func (h *Handler) checkBudgets(ctx context.Context, lc *lifecycle) error {
-	// The billing hard stop (spec §10): at/under hard_stop_threshold_micro the
-	// router rejects with normalized INSUFFICIENT_CREDITS (HTTP 402).
-	if err := h.store.CheckSpendable(ctx, lc.key.WorkspaceID); err != nil {
+	// ONE query for the billing hard stop (spec §10) AND the environment's flat
+	// monthly budget (spec §2): two reads that used to be two round trips for
+	// two rows that never interact. Both are needed on every request, so this
+	// is the common-case path a workspace with no `budget` rows pays.
+	//
+	// The read is CACHED in-process (store.AdmissionGateState): it was 525µs of
+	// the hot path — Postgres round-trip latency, paid per request — against
+	// single-digit microseconds for everything around it. The account carries
+	// the balance, so its entry is short-lived and the charge path drops it the
+	// moment the hard stop is crossed; see store/admission.go.
+	//
+	// The account read keeps its fail-CLOSED behaviour: an error here refuses
+	// the request rather than admitting unbounded spend (spec §10). That was
+	// already true when it was the first statement of this function, and the
+	// cache never stores an error.
+	acct, envBudget, err := h.store.AdmissionGateState(ctx, lc.key.WorkspaceID, lc.key.EnvironmentID)
+	if err != nil {
 		return err
 	}
+	if acct != nil {
+		if acct.Status != "active" {
+			return store.ErrInsufficientCredits
+		}
+		if acct.BalanceMicro <= acct.HardStopThresholdMicro {
+			return store.ErrInsufficientCredits
+		}
+	}
 
-	budgets, err := h.store.BudgetsFor(ctx, lc.key)
+	budgets, err := h.store.AdmissionBudgets(ctx, lc.key)
 	if err != nil {
 		log.Printf("[proxy] budget lookup failed for key %s: %v", lc.key.ID, err)
 		return nil // fail open: a budget read error is not a billing error
@@ -51,15 +74,27 @@ func (h *Handler) checkBudgets(ctx context.Context, lc *lifecycle) error {
 	}
 
 	// The environment's flat monthly_budget_micro column (spec §2) is honoured
-	// as a monthly budget with default thresholds.
-	if amount, ok, err := h.store.EnvironmentMonthlyBudgetMicro(ctx, lc.key.EnvironmentID); err == nil && ok {
-		used, err := h.sinceMicro(ctx, lc, "environment", lc.key.EnvironmentID, monthStart())
-		if err == nil {
-			b := &store.Budget{Scope: "environment", ScopeID: lc.key.EnvironmentID,
-				Period: "monthly", AmountMicro: amount, WarnPercent: 70, CriticalPercent: 90,
-				ActionAt100: "block"}
+	// as a monthly budget with default thresholds. Its value rode the same
+	// query as the account above.
+	//
+	// The spend read goes through budgetSpent, NOT sinceMicro: the column is
+	// nullable and an operator sets it, so before this every request for such an
+	// environment paid a Postgres SUM over request_log — the exact round trip
+	// admission stopped paying elsewhere — while budgetSpendAdd already maintains
+	// `spend:environment:<id>:month`, which is the key budgetSpent builds here.
+	// The error path is the loop's above, not silence: a failed read is logged
+	// and the request admitted (fail open, spec §12), the same as a failed
+	// budget-row sum.
+	if envBudget != nil && *envBudget > 0 {
+		b := &store.Budget{Scope: "environment", ScopeID: lc.key.EnvironmentID,
+			Period: "monthly", AmountMicro: *envBudget, WarnPercent: 70, CriticalPercent: 90,
+			ActionAt100: "block"}
+		used, err := h.budgetSpent(ctx, lc, b)
+		if err != nil {
+			log.Printf("[proxy] env budget sum failed for %s: %v", b.ScopeID, err)
+		} else {
 			h.budgetEvaluate(ctx, lc, b, used)
-			if used >= amount {
+			if used >= *envBudget {
 				return errBudgetBlocked
 			}
 		}
@@ -71,9 +106,26 @@ var errBudgetBlocked = errors.New("budget exhausted for this scope")
 
 // budgetSpent returns the spend against one budget for its period, preferring
 // the Valkey counter and falling back to the durable sum.
+//
+// A `weekly` budget goes STRAIGHT to the durable sum. `budgetSpendAdd` mirrors
+// day+month counters for each scope, so there is no `week` key to read, and the
+// `period` this used to compute for a non-daily budget was `month` — which for a
+// weekly row answered month-to-date. The fallback below counts from
+// PeriodStart's own Monday boundary, so the two halves of this function
+// disagreed by up to a month, and it is the number the block decision uses.
+// `weekly` is in the schema's CHECK and in Budget's documented vocabulary,
+// while nothing in either plane writes such a row today: this is the one state
+// where a stale literal would have been silently wrong, so it pays a Postgres sum
+// per request instead of a counter read — correct at the cost of the round trip
+// only for the period nothing maintains a counter for.
 func (h *Handler) budgetSpent(ctx context.Context, lc *lifecycle, b *store.Budget) (int64, error) {
 	period := "day"
-	if b.Period != "daily" {
+	switch b.Period {
+	case "daily":
+		period = "day"
+	case "weekly":
+		return h.sinceMicro(ctx, lc, b.Scope, b.ScopeID, b.PeriodStart(time.Now()))
+	default:
 		period = "month"
 	}
 	var cached int64
@@ -92,10 +144,23 @@ func (h *Handler) sinceMicro(ctx context.Context, lc *lifecycle, scope, scopeID 
 
 // budgetSpendAdd mirrors completed spend into the counters for the scopes a
 // request belongs to (workspace, project, environment).
+//
+// ONE round trip for all six counters. The per-counter Lua call this replaced
+// made every request pay 6 sequential round trips (3 scopes x day/month) after
+// the client already had its answer — and it carried the same ARGV comparison bug
+// the token windows had, so `if v == ARGV[1]` never armed a TTL and the counters
+// could not roll over: a month-to-date total written once stayed authoritative
+// forever, which made replacing dozens of rows in `request_log` — the one
+// statement this whole change was meant to avoid — the only way to dent it.
 func (h *Handler) budgetSpendAdd(ctx context.Context, lc *lifecycle, micro int64) {
 	if micro == 0 || lc.key == nil {
 		return
 	}
+	keys := make([]string, 0, 6)
+	ttls := make([]time.Duration, 0, 6)
+	// One TTL per key: the day buckets age out in 25h, the month buckets in 32d.
+	// A shared TTL would either expire today's counter early or keep a day bucket
+	// alive for a month, and the day/month pair is read separately.
 	for _, pair := range [][2]string{
 		{"workspace", lc.key.WorkspaceID},
 		{"project", lc.key.ProjectID},
@@ -105,28 +170,41 @@ func (h *Handler) budgetSpendAdd(ctx context.Context, lc *lifecycle, micro int64
 			continue
 		}
 		for _, period := range []string{"day", "month"} {
-			key := "spend:" + pair[0] + ":" + pair[1] + ":" + period
-			_, err := h.vk.Lua(ctx, `
-				local v = redis.call('INCRBY', KEYS[1], ARGV[1])
-				if v == ARGV[1] then redis.call('PEXPIRE', KEYS[1], ARGV[2]) end
-				return v`, key, micro, ttlMs(period))
-			if err != nil {
-				return // degrade: the DB sum stays authoritative
-			}
+			keys = append(keys, "spend:"+pair[0]+":"+pair[1]+":"+period)
+			ttls = append(ttls, ttlOf(period))
+		}
+	}
+	if len(keys) == 0 {
+		return
+	}
+	// The script takes one TTL argument, so keys sharing a TTL are written in one
+	// call: at most two calls (day, month), never six.
+	h.spendIncr(ctx, keys, ttls, micro)
+}
+
+// spendIncr groups keys by TTL and writes each group in one round trip.
+func (h *Handler) spendIncr(ctx context.Context, keys []string, ttls []time.Duration, micro int64) {
+	groups := map[time.Duration][]string{}
+	order := make([]time.Duration, 0, 2)
+	for i, k := range keys {
+		if _, seen := groups[ttls[i]]; !seen {
+			order = append(order, ttls[i])
+		}
+		groups[ttls[i]] = append(groups[ttls[i]], k)
+	}
+	for _, ttl := range order {
+		if _, err := h.vk.IncrByBucket(ctx, groups[ttl], micro, ttl); err != nil &&
+			!errors.Is(err, vk.ErrDisabled) {
+			return // degrade: the DB sum stays authoritative
 		}
 	}
 }
 
-func ttlMs(period string) int64 {
+func ttlOf(period string) time.Duration {
 	if period == "day" {
-		return int64((25 * time.Hour).Milliseconds())
+		return 25 * time.Hour
 	}
-	return int64((32 * 24 * time.Hour).Milliseconds())
-}
-
-func monthStart() time.Time {
-	now := time.Now().UTC()
-	return time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	return 32 * 24 * time.Hour
 }
 
 // budgetEvaluate raises the threshold alerts (spec §7: 70%/90% → alert_event +
@@ -207,9 +285,9 @@ func (h *Handler) raiseLowBalance(ctx context.Context, res *store.ChargeResult, 
 	}
 	alertID, err := h.store.FindOrCreateAlert(ctx, workspaceID, "Low balance", "low_balance",
 		map[string]any{
-			"type":                         "low_balance",
-			"threshold_micro":              b.WarningThresholdMicro,
-			"hard_stop_threshold_micro":    b.HardStopThresholdMicro,
+			"type":                      "low_balance",
+			"threshold_micro":           b.WarningThresholdMicro,
+			"hard_stop_threshold_micro": b.HardStopThresholdMicro,
 		})
 	if err != nil {
 		log.Printf("[proxy] low-balance alert lookup failed: %v", err)
@@ -239,8 +317,8 @@ func (h *Handler) raiseLowBalance(ctx context.Context, res *store.ChargeResult, 
 		kind = "budget.hard_stop"
 	}
 	_ = h.store.InsertSystemEvent(ctx, kind, "workspace", workspaceID, workspaceID, map[string]any{
-		"balance_micro": res.BalanceMicro,
-		"warning_threshold_micro": b.WarningThresholdMicro,
+		"balance_micro":             res.BalanceMicro,
+		"warning_threshold_micro":   b.WarningThresholdMicro,
 		"hard_stop_threshold_micro": b.HardStopThresholdMicro,
 	})
 }

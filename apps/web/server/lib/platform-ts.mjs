@@ -21,6 +21,8 @@ const provCreds = await import('@fudrouter/platform/server/provider-credentials.
 const ids = await import('@fudrouter/platform/server/id.ts');
 const audit = await import('@fudrouter/platform/server/audit.ts');
 const rbac = await import('@fudrouter/platform/rbac');
+const publish = await import('@fudrouter/platform/publish');
+const publishEnv = await import('@fudrouter/platform/server/publish-env.ts');
 const vkmod = await import('@fudrouter/platform/server/vk.ts');
 
 // SSRF: the platform module OWNS the rule, including the literal blocklist --
@@ -85,6 +87,21 @@ export const capsFor = rbac.capsFor;
 // IDs: single canonical prefix table.
 export const ID_PREFIXES = ids.ID_PREFIXES;
 export const newId = (prefix) => ids.newId(prefix);
+
+// The publish gate: packages/platform/publish.ts OWNS the rule (model active
+// AND provider servable), and it is the same predicate the Go router's SQL
+// mirrors. The console used to carry TWO hand copies of it — admin.mjs's `_reach`
+// and public.mjs's `served` — which is exactly the drift the module's header
+// warns about. Both now call this.
+//
+// `reachability` is the reason-carrying form (the admin surfaces show WHY a row
+// is hidden); `served` is the boolean the catalogue filters on.
+export const reachability = (modelStatus, providerStatus, allowDevProviders) =>
+	publish.reachability(modelStatus, providerStatus, allowDevProviders);
+export const served = (modelStatus, providerStatus, allowDevProviders) =>
+	publish.reachability(modelStatus, providerStatus, allowDevProviders).served;
+// The env read for the opt-in, from the same module that owns the rule.
+export const allowDevProviders = () => publishEnv.allowDevProviders();
 
 // Audit redaction: shared redactSecrets covers the same key vocabulary
 // (secret|token|password|key_hash|credentials? + exact api_key/authorization).

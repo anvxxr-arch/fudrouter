@@ -215,6 +215,41 @@ export async function deliverWebhook(deliveryId: string): Promise<DeliveryOutcom
 	const row = rows[0];
 	if (!row || row.status !== 'pending') return { kind: 'skipped' };
 
+	// CLAIM the row before the network call, with a compare-and-swap on the
+	// attempts counter that was just read.
+	//
+	// The doc above used to claim this function was "idempotent across
+	// redelivery: only the transition `pending → delivered|failed|pending` ever
+	// POSTs". That was not true — the read above and the `finalizeAttempt`
+	// write below are separate statements with the POST between them, so two
+	// runs of this row could both pass the `status !== 'pending'` test and both
+	// send. Rows have no `sending` state to serialize on (the CHECK allows only
+	// pending/delivered/failed/cancelled), and the job-level dedup lock is a
+	// Valkey hint that DEGRADES OPEN with no cache configured — exactly the
+	// deployment where two workers would both POST.
+	//
+	// The counter is the interlock: `attempts` is read here and written below,
+	// so an UPDATE ... where attempts = <read> matches exactly one caller. Every
+	// path that finishes an attempt writes `attempts` (the delivered update and
+	// both finalizeAttempt branches, which are the function's only writes), so
+	// this CAS cannot deadlock a row against its own completion.
+	const claimed = await db
+		.update(webhookDelivery)
+		.set({ attempts: row.attempts + 1 })
+		.where(
+			and(
+				eq(webhookDelivery.id, row.id),
+				eq(webhookDelivery.status, 'pending'),
+				eq(webhookDelivery.attempts, row.attempts)
+			)
+		)
+		.returning({ id: webhookDelivery.id });
+	if (claimed.length === 0) {
+		// Another run of this row is already sending it. Re-POSTing here is the
+		// duplicate the receiver cannot dedupe.
+		return { kind: 'skipped' };
+	}
+
 	const attempts = row.attempts + 1;
 	// One canonical serialization, hashed and sent (see header).
 	const body = JSON.stringify({ id: row.id, event: row.event, payload: row.payload });

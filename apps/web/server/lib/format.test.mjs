@@ -107,9 +107,25 @@ test('the panel path reads and writes a live instance', { skip: !hasVk && SKIP }
 		await _vkWait(c.set(key, '1', 'PX', 10_000), 4000, 'set');
 		assert.equal(await _vkWait(c.get(key), 4000, 'get'), '1');
 
-		const [cursor, keys] = await _vkWait(c.scan('0', 'MATCH', 'fudrouter:selftest:*', 'COUNT', 10), 4000, 'scan');
-		assert.equal(typeof cursor, 'string', 'SCAN must return a cursor as a string');
-		assert.ok(keys.includes(key), `SCAN must find the key just written; got ${JSON.stringify(keys)}`);
+		// SCAN is a cursor, not a list: one page is not obliged to contain any
+		// particular key. A single `scan(0, …)` page was asserted here before, and
+		// it passed only while the instance was nearly empty. On an instance with a
+		// couple of hundred keys the first page walked a bucket range that did not
+		// include the key just written, and the test failed while the instance was
+		// perfectly healthy — the expensive kind of wrong, since the fix is to read
+		// the cursor. Production already does (admin.mjs's two panels iterate until
+		// the cursor returns to "0"); this pins that the helper is usable that way.
+		const found = [];
+		let cursor = '0';
+		for (let page = 0; page < 200; page++) {
+			const [next, keys] = await _vkWait(c.scan(cursor, 'MATCH', 'fudrouter:selftest:*', 'COUNT', 10), 4000, 'scan');
+			assert.equal(typeof next, 'string', 'SCAN must return a cursor as a string');
+			found.push(...keys);
+			cursor = String(next);
+			// "0" is the end of the iteration, not the start of the next page.
+			if (cursor === '0') break;
+		}
+		assert.ok(found.includes(key), `a full SCAN iteration must find the key just written; got ${JSON.stringify(found)}`);
 
 		assert.deepEqual(await _vkWait(c.mget(key), 4000, 'mget'), ['1']);
 		assert.match(String(await _vkWait(c.info(), 4000, 'info')), /used_memory:/, 'INFO must carry the fields the panel parses');

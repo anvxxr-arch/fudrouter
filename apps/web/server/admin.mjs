@@ -15,7 +15,10 @@ import {
 } from './lib/validate.mjs';
 
 import { _fetchCatalog } from './lib/ssrf.mjs';
-import { _isBlockedLiteral, _assertPublic, _encCred, _decCred, _tokenAt, _headersFor } from './lib/platform-ts.mjs';
+import {
+	_isBlockedLiteral, _assertPublic, _encCred, _decCred, _tokenAt, _headersFor,
+	reachability as _reachability, allowDevProviders as _allowDevProviders,
+} from './lib/platform-ts.mjs';
 import { clientIp } from './lib/ip.mjs';
 import { _sanitizeAudit, _dropRedacted, _auditView, makeAudit } from './lib/audit.mjs';
 import { SECTION_CAPS, _dominates, _canAdminister, _guardUser } from './lib/rbac.mjs';
@@ -312,13 +315,13 @@ const TIMING_KEYS = ['auth', 'rate_limit', 'routing', 'queue', 'connection', 'ge
 const VK_NAMESPACES = ['rl', 'conc', 'spend', 'usage', 'health', 'credential', 'circuit', 'model', 'catalog', 'session', 'idem', 'lock', 'metric', 'ver'];
 const _IDP = { model: 'mdl_', providerModel: 'pmdl_', pricingRule: 'prc_', provider: 'prv_', connection: 'con_', credential: 'cred_', routingPolicy: 'rte_', rateLimit: 'lim_', securityRule: 'rul_', circuitBreaker: 'cbr_', featureFlag: 'flg_', budget: 'bdg_' };
 const _newId = (p) => p + _uuidv7();
-const _reach = (modelStatus, providerStatus, allowDev) => {
-	if (modelStatus !== 'active') return { served: false, reason: 'unpublished' };
-	if (providerStatus === 'active') return { served: true, reason: null };
-	if (providerStatus === 'dev' && allowDev) return { served: true, reason: null };
-	return { served: false, reason: 'provider-off' };
-};
-const _allowDev = () => ['1', 'true', 'yes', 'on'].includes(String(process.env.ROUTER_ALLOW_DEV_PROVIDERS ?? '').trim().toLowerCase());
+// The publish gate comes from packages/platform (via the bridge), NOT a local
+// copy. `_reach` and public.mjs's `served` were two hand-maintained mirrors of
+// the same rule, which is what publish.ts's header warns about; both call the
+// shared one now, and it is the predicate the Go router's SQL mirrors.
+const _reach = (modelStatus, providerStatus, allowDev) =>
+	_reachability(modelStatus, providerStatus, allowDev);
+const _allowDev = _allowDevProviders;
 const _allowPrivate = () => ['1', 'true', 'yes', 'on'].includes(String(process.env.ALLOW_PRIVATE_UPSTREAMS ?? '').trim().toLowerCase());
 
 export function registerAdminRoutes(app, ctx) {
@@ -855,6 +858,24 @@ export function registerAdminRoutes(app, ctx) {
 				lastBy.set(id, ds.length > 0 ? new Date(Math.max(...ds.map((d) => d.getTime()))) : null);
 			}
 		}
+		// The maps above were built and then thrown away: this handler had no
+		// `return`, so `handler()`'s `res.json(await fn(...))` serialised undefined —
+		// Express sent status 200, `Content-Type: application/json`, and ZERO bytes.
+		// The admin Users page's `res.json()` then threw on the empty body, so a
+		// total failure surfaced as a transport error while the server logged
+		// nothing. Every other admin list handler returns (see the workspaces
+		// sibling just below): a handler that builds a payload must hand it back.
+		return {
+			users: users.map((u) => ({
+				...u,
+				requests: usageBy.get(u.id)?.requests ?? 0,
+				cost: usageBy.get(u.id)?.cost ?? '0',
+				workspaces: wsBy.get(u.id) ?? 0,
+				projects: projBy.get(u.id) ?? 0,
+				keys: keyBy.get(u.id) ?? 0,
+				lastSeenAt: lastBy.get(u.id) ?? null
+			}))
+		};
 	}));
 
 	// Workspaces + member/project/request counts + ledger balance.

@@ -391,6 +391,7 @@ export const credential = pgTable(
 		lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
 		lastSuccessAt: timestamp('last_success_at', { withTimezone: true }),
 		lastErrorAt: timestamp('last_error_at', { withTimezone: true }),
+		lastValidatedAt: timestamp('last_validated_at', { withTimezone: true }),
 		cooldownUntil: timestamp('cooldown_until', { withTimezone: true }),
 		metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -398,7 +399,8 @@ export const credential = pgTable(
 	},
 	(t) => [
 		index('credential_connection_idx').on(t.connectionId),
-		index('credential_status_idx').on(t.status)
+		index('credential_status_idx').on(t.status),
+		index('credential_last_validated_idx').on(t.lastValidatedAt.asc().nullsFirst(), t.id)
 	]
 );
 

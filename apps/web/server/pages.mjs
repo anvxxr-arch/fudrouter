@@ -641,13 +641,32 @@ export function registerPages(app, ctx) {
 		const database = needDb(res);
 		if (!database) return;
 		const userRow = await mustAuth(req);
-		const { workspaceId } = await mustWorkspace(database, userRow, req, 'member.invite');
+		const { workspaceId, workspace } = await mustWorkspace(database, userRow, req, 'member.invite');
 		const b = okBody(req);
 		const email = String(b.email ?? '').trim().toLowerCase();
 		const roleId = String(b.roleId ?? b.role ?? '').trim();
 		if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return fail(res, 400, 'Enter a valid email address');
-		const role = rowsOf(await database.execute(sql`select id from workspace_role where id = ${roleId} and (workspace_id is null or workspace_id = ${workspaceId}) limit 1`))[0];
+		const role = rowsOf(await database.execute(sql`select id, name, permissions from workspace_role where id = ${roleId} and (workspace_id is null or workspace_id = ${workspaceId}) limit 1`))[0];
 		if (!role) return fail(res, 400, 'Pick a role for the new member');
+		// The same rule changeRole enforces, and it was missing here, which made
+		// this route its bypass. The role lookup above admits the builtin owner
+		// template (`rol_owner` has workspace_id IS NULL) and any custom role, and
+		// the insert below then trusted roleId with no dominance check — so a
+		// holder of `member.invite` who does NOT hold `workspace.write` (the
+		// builtin `admin`) could invite an address they control straight into the
+		// owner role, or into a custom role carrying permissions they do not have.
+		// Granting on the invite path what the change-role path refuses is not a
+		// lesser hole: it is the same escalation with one extra step.
+		const ownerId = workspace.owner_user_id ?? workspace.ownerUserId ?? null;
+		const isOwner = ownerId !== null && userRow.id === ownerId;
+		const targetIsOwner = role.id === 'rol_owner' || String(role.name ?? '').toLowerCase() === 'owner';
+		if (targetIsOwner && !isOwner) return fail(res, 403, 'Only the workspace owner can grant the owner role');
+		if (!isOwner) {
+			const actor = rowsOf(await database.execute(sql`select r.permissions from workspace_member m inner join workspace_role r on r.id = m.role_id where m.workspace_id = ${workspaceId} and m.user_id = ${userRow.id} limit 1`))[0];
+			const held = new Set(Array.isArray(actor?.permissions) ? actor.permissions.filter((p) => typeof p === 'string') : []);
+			const wanted = Array.isArray(role.permissions) ? role.permissions.filter((p) => typeof p === 'string') : [];
+			if (wanted.some((p) => !held.has(p))) return fail(res, 403, 'You cannot grant permissions you do not hold');
+		}
 		const existingUser = rowsOf(await database.execute(sql`select id from "user" where email = ${email} limit 1`))[0];
 		const token = randomBytes(32).toString('base64url');
 		const identifier = 'invite:' + createHash('sha256').update(token).digest('hex');
@@ -1471,8 +1490,21 @@ export function registerPages(app, ctx) {
 			const existing = rowsOf(await database.execute(sql`select id, name, workspace_id, project_id from model_alias where id = ${id} limit 1`))[0];
 			if (!existing) return fail(res, 404, 'Alias not found');
 			if (existing.workspace_id === null) return fail(res, 403, 'Global virtual aliases are read-only.');
-			if (existing.project_id !== proj.id && existing.project_id !== null) return fail(res, 404, 'Alias not found');
-			await database.execute(sql`delete from model_alias where id = ${id}`);
+			// The missing ownership check. The two guards below it both PASS for
+			// another workspace's WORKSPACE-SCOPED alias, because that row has
+			// workspace_id set (so the global 403 is skipped) and project_id NULL
+			// (so `null !== proj.id && null !== null` is false and the 404 is
+			// skipped) — and `id` comes straight from the request body. Any member
+			// with alias.write could therefore delete a foreign tenant's aliases,
+			// with the audit row filed under their OWN workspaceId so the victim
+			// saw nothing. Ownership is not implied by "not global"; it has to be
+			// stated.
+			if (existing.workspace_id !== workspaceId) return fail(res, 404, 'Alias not found');
+			if (existing.project_id !== null && existing.project_id !== proj.id) return fail(res, 404, 'Alias not found');
+			// The predicate is repeated on the DELETE, not just the lookup: the
+			// row could change between the two statements, and a delete anchored
+			// only by primary key is the same hole one statement later.
+			await database.execute(sql`delete from model_alias where id = ${id} and workspace_id = ${workspaceId} and (project_id = ${proj.id} or project_id is null)`);
 			await audit(database, { actorUserId: userRow.id, action: 'alias.delete', resource: 'model_alias', resourceId: id, workspaceId, before: { name: existing.name } });
 			return res.json({ deleted: existing.name });
 		});

@@ -11,8 +11,7 @@
 --
 -- DANGER: this migration is only HALF the cutover. It MUST land in the SAME
 -- commit that flips every writer of these values and the `publish.ts`
--- reachability predicate + the mirrored SQL in
--- `apps/router/internal/store`. Apply the SQL and flip the code together,
+-- `backend/go/internal/store`. Apply the SQL and flip the code together,
 -- or live writes are rejected by the narrowed CHECKs / the public catalog goes
 -- dark. See docs/specs/2026-09-30-platform-schema.md §0010 for the sweep list.
 --

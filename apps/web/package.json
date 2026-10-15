@@ -27,7 +27,7 @@
   "scripts": {
     "build": "vite build",
     "check": "tsc --noEmit",
-    "test": "node --test",
+    "test": "node --test --test-concurrency=1",
     "dev": "vite",
     "preview": "vite preview",
     "server": "node server/index.mjs"

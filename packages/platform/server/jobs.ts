@@ -82,6 +82,16 @@ export interface JobRow {
 }
 
 /**
+ * How long a `running` job may go untouched before it is considered abandoned.
+ *
+ * Shared with the claim's dedup-lock TTL (see claimJobs), because the two are
+ * not independent: the lock must outlive this threshold or it expires exactly
+ * when a duplicate claim first becomes possible. worker.ts's `staleAfterMs`
+ * option defaults to this same value.
+ */
+export const STALE_AFTER_MS_DEFAULT = 600_000;
+
+/**
  * Cross-process dedup hint on `lock:job:{id}` (spec §12). Returns false when
  * another process holds the lock; DEGRADES OPEN (returns true) without Valkey,
  * because PostgreSQL's claim is the real mutual exclusion and a missing cache
@@ -187,7 +197,15 @@ export async function claimJobs(
 		// Cross-process dedup hint only: if a worker in another process is
 		// already inside this job, hand it back instead of double-running it.
 		// The row is what guarantees safety; this only avoids the duplicate work.
-		if (!(await tryLockJob(id, 300_000))) {
+		//
+		// The TTL must EXCEED the stale threshold (600s by default, see
+		// worker.ts's `staleAfterMs`), because the two clocks answer the same
+		// question from opposite sides: the lock says "someone is running this", the
+		// threshold says "take it back". At the old 300_000 a long-running job's
+		// lock expired 5 minutes BEFORE `requeueStaleJobs` would touch it, so in the
+		// one window where a duplicate claim is possible the hint was already gone.
+		// 2x gives a full stale-period of headroom for a slow sweep.
+		if (!(await tryLockJob(id, STALE_AFTER_MS_DEFAULT * 2))) {
 			await handle
 				.update(job)
 				.set({ status: 'pending', attempts: sql`${job.attempts} - 1`, startedAt: null })
@@ -274,16 +292,37 @@ export async function cancelJob(id: string, handle: JobHandle = db): Promise<voi
  * job stuck `running` for longer than `staleAfterMs` goes back to `pending`.
  * The claim's `attempts` bump already happened, so a crash-looping job still
  * exhausts `max_attempts` instead of bouncing forever.
+ *
+ * `coalesce(started_at, created_at)` because started_at is NULLABLE while the
+ * column is `running`: a row whose worker died between the claim's UPDATE and
+ * the started_at write — or any row inserted straight as `running` by an
+ * operator or a future migration — is invisible to `lte(started_at, cutoff)`
+ * and stays `running` FOREVER. A pending row with started_at NULL is already
+ * ignored (the status predicate filters it), so the coalesce cannot resurrect
+ * something that was never claimed.
+ *
+ * The caller must keep the dedup-lock TTL above this threshold (see
+ * claimJobs): a job requeued while its original handler is still running is
+ * only safe because the lock hint stops the second claimer.
  */
 export async function requeueStaleJobs(
-	staleAfterMs = 600_000,
+	staleAfterMs = STALE_AFTER_MS_DEFAULT,
 	handle: JobHandle = db
 ): Promise<number> {
 	const cutoff = new Date(Date.now() - staleAfterMs);
+	// The comparison is raw SQL with an ISO string rather than `lte(column, Date)`:
+	// the Date is nested inside a fragment that also carries raw SQL, and
+	// postgres-js rejects a Date in that position with ERR_INVALID_ARG_TYPE at
+	// Bind (measured; the same quirk retentionBatch documents).
 	const rows = await handle
 		.update(job)
 		.set({ status: 'pending', startedAt: null, error: 'requeued after worker loss' })
-		.where(and(eq(job.status, 'running'), lte(job.startedAt, cutoff)))
+		.where(
+			and(
+				eq(job.status, 'running'),
+				sql`coalesce(${job.startedAt}, ${job.createdAt}) <= ${cutoff.toISOString()}`
+			)
+		)
 		.returning({ id: job.id });
 	return rows.length;
 }

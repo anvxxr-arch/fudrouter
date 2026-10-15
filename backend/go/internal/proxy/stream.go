@@ -113,8 +113,3 @@ func (lc *lifecycle) streamSSE(w http.ResponseWriter, body io.Reader) {
 	}
 	lc.finish()
 }
-
-// parseUsageBytes is the buffered-path usage parser (chat + generic).
-func parseUsageBytes(b []byte) (usageCounts, bool) { return parseUsage(b) }
-
-var _ = io.EOF

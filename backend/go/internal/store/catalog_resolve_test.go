@@ -76,3 +76,91 @@ func TestVirtualModelsResolve(t *testing.T) {
 		t.Errorf("unknown model err = %v, want ErrNotFound", err)
 	}
 }
+
+// A POPULATED alias — the branch TestVirtualModelsResolve never touches, because
+// the seeded `[NAME]/*` descriptors carry no targets.
+//
+// ResolveModel reads the winning alias and its targets in ONE query now (they
+// were two). The thing that can silently break in that rewrite is
+// `model_alias_target.position` ordering: the CTE pins the winner with the same
+// `limit 1`, but the LEFT JOINs are the only thing left deciding the target
+// order, and an inlined planner would happily return them by physical order.
+// The order is load-bearing: proxy/lifecycle.go copies it onto
+// `Plan.ModelPref.Order` when the policy declares no model preference, so it IS
+// the routing preference. Scope precedence (project beats workspace) rides the
+// same query for the same reason.
+func TestAliasResolutionKeepsScopeAndTargetOrder(t *testing.T) {
+	dsn := tests.RequireDB(t)
+	env := tests.SeedEnv(t, dsn, "http://127.0.0.1:1")
+	ctx := context.Background()
+
+	s, err := store.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	key := &store.APIKeyRow{WorkspaceID: env.WorkspaceID, ProjectID: env.ProjectID}
+
+	// A second model, so an alias has two distinct targets to order. It hangs
+	// off the seeded provider (model.provider_id is the only NOT NULL FK), but
+	// the alias path reads the `model` row by id and never joins the provider.
+	secondID := tests.SeedModel(t, dsn, env, "alias-second", "2.000000")
+
+	// Declare them in the order [second, first] and pin positions 0,1: the
+	// resolution must come back in that order, not creation or uuid order.
+	tests.SeedAlias(t, dsn, env, "customer-chat", []string{secondID, env.ModelID})
+
+	res, err := s.ResolveModel(ctx, key, "customer-chat")
+	if err != nil {
+		t.Fatalf("customer-chat: %v", err)
+	}
+	if res.Kind != "alias" {
+		t.Errorf("kind = %q, want alias", res.Kind)
+	}
+	want := []string{secondID, env.ModelID}
+	if len(res.ModelIDs) != 2 {
+		t.Fatalf("resolved %d targets, want 2: %v", len(res.ModelIDs), res.ModelIDs)
+	}
+	for i, wantID := range want {
+		if res.ModelIDs[i] != wantID {
+			t.Errorf("target[%d] = %q, want %q (position order)", i, res.ModelIDs[i], wantID)
+		}
+	}
+	// The slug list must stay parallel to the id list: the router indexes both.
+	if len(res.ModelSlugs) != len(res.ModelIDs) {
+		t.Fatalf("ModelSlugs=%d ModelIDs=%d, want equal", len(res.ModelSlugs), len(res.ModelIDs))
+	}
+	for i := range res.ModelIDs {
+		if res.ModelSlugs[i] == "" {
+			t.Errorf("slug[%d] empty — the join dropped a target", i)
+		}
+	}
+
+	// Scope precedence: the SAME name at workspace scope must lose to the
+	// project-scoped row above.
+	tests.SeedAliasAtScope(t, dsn, env, "customer-chat", []string{env.ModelID}, "workspace")
+	scoped, err := s.ResolveModel(ctx, key, "customer-chat")
+	if err != nil {
+		t.Fatalf("customer-chat after workspace row: %v", err)
+	}
+	if len(scoped.ModelIDs) != 2 || scoped.ModelIDs[0] != secondID {
+		t.Errorf("project alias must beat the workspace one; got %v", scoped.ModelIDs)
+	}
+
+	// And a key with no project sees the workspace row instead of ErrNotFound.
+	noProject := &store.APIKeyRow{WorkspaceID: env.WorkspaceID}
+	ws, err := s.ResolveModel(ctx, noProject, "customer-chat")
+	if err != nil {
+		t.Fatalf("workspace-scoped lookup: %v", err)
+	}
+	if len(ws.ModelIDs) != 1 || ws.ModelIDs[0] != env.ModelID {
+		t.Errorf("workspace alias targets = %v, want [%s]", ws.ModelIDs, env.ModelID)
+	}
+
+	// A disabled alias is invisible.
+	tests.DisableAlias(t, dsn, "customer-chat")
+	if _, err := s.ResolveModel(ctx, key, "customer-chat"); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("disabled alias err = %v, want ErrNotFound", err)
+	}
+}

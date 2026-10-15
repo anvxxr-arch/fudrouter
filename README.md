@@ -91,7 +91,11 @@ go test ./... -race
 ## CI
 
 `.github/workflows/ci.yml` runs both planes against a real Postgres 17 service.
-Every step that can no-op has been closed: no `--if-present` scripts (an absent
-script would silently pass), the DB-backed Go tests `FAIL` rather than skip when
-`DATABASE_URL` is absent. Both jobs apply the schema
+Steps that can no-op silently are closed where it matters: the DB-backed Go
+tests `FAIL` rather than skip when `DATABASE_URL` is absent, and the `check`
+script runs across every workspace without `--if-present` (every workspace has
+one; an absent script would now fail rather than pass). `build` and `test` still
+carry `--if-present` because `packages/platform` is a runtime library with
+neither — dropping the flag there fails the command instead of gating anything.
+Both jobs apply the schema
 through `ops/migrate.sh`, the single migration path. The `react-web` job builds the React control plane; the `router` job vets, builds, scans and tests the Go data plane.

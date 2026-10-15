@@ -440,12 +440,6 @@ textarea { resize: vertical; }
 .doc-pager { display: flex; justify-content: space-between; margin-top: var(--space-xl); border-top: 1px solid var(--color-border); padding-top: var(--space-md); }
 @media (max-width: 720px) { .doc-layout { grid-template-columns: 1fr; } }
 
-/* ---- playground (moved from Playground.tsx inline <style>) ---- */
-.panels { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-lg); }
-.metrics { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--space-xs) var(--space-md); }
-.metrics dd { margin: 0; }
-@media (max-width: 900px) { .panels { grid-template-columns: 1fr; } }
-
 /* ---- shared page semantics used by the routes ---- */
 .lede { color: var(--color-text-muted); font-size: var(--text-lg); line-height: 1.5; max-width: 60ch; }
 .error { color: var(--color-danger); font-size: var(--text-sm); }

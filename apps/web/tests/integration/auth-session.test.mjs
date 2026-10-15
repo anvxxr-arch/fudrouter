@@ -147,3 +147,50 @@ test('the auth origin is fixed, never taken from the Host header', { skip: !hasD
 		'the session must resolve to the signed-up user even when Host is hostile',
 	);
 });
+
+test('the email endpoint is closed outside NODE_ENV=test', { skip: !hasDb && SKIP }, async () => {
+	// The unit test in lib/auth-config.test.mjs pins the PURE function and is
+	// thorough — 'test' only, near-miss spellings, missing NODE_ENV. What it cannot
+	// see is the call site: index.mjs reads process.env.NODE_ENV, so a regression
+	// there (a hardcoded 'test', a wrong variable) would open email/password
+	// sign-in in production with the whole suite green.
+	//
+	// The Origin header is LOAD-BEARING, and this test was first written without
+	// it — which made it pass for the wrong reason. better-auth refuses a
+	// state-changing request that carries no Origin with
+	// 403 MISSING_OR_NULL_ORIGIN, in EVERY environment, so "not 200 and no cookie"
+	// held whether the gate was open or shut: measured with the call site
+	// deliberately forced to `emailAuthEnabled('test')`, both environments
+	// answered 403 and this test stayed green. With a trusted Origin the two
+	// diverge — gate shut answers 400 EMAIL_PASSWORD_SIGN_UP_DISABLED, gate open
+	// answers 200 with a session cookie.
+	//
+	// So the control below is not decoration: it runs the SAME request against the
+	// test-env server, and if the request shape ever stops being able to succeed
+	// there, the control fails instead of the assertion passing vacuously.
+	const post = (baseUrl, email) =>
+		fetch(`${baseUrl}/api/auth/sign-up/email`, {
+			method: 'POST',
+			// http://127.0.0.1:3000 is one of the two literals in index.mjs's
+			// trustedOrigins for every non-production NODE_ENV.
+			headers: { 'content-type': 'application/json', origin: 'http://127.0.0.1:3000' },
+			body: JSON.stringify({ email, password: 'integration-pw-123', name: 'Closed' })
+		});
+
+	const dev = await startServer({ NODE_ENV: 'development' });
+	try {
+		const closed = await post(dev.baseUrl, uniqueEmail('closed'));
+		const cookies = closed.headers.getSetCookie?.() ?? [];
+		assert.notEqual(closed.status, 200, 'email sign-up answered 200 outside NODE_ENV=test');
+		assert.equal(cookies.length, 0, `email sign-up issued a session cookie: ${cookies.join('; ')}`);
+
+		const open = await post(server.baseUrl, uniqueEmail('open'));
+		assert.equal(open.status, 200, 'control: the same request must succeed under NODE_ENV=test');
+		assert.ok(
+			(open.headers.getSetCookie?.() ?? []).length > 0,
+			'control: the same request must issue a session cookie under NODE_ENV=test'
+		);
+	} finally {
+		await dev.stop();
+	}
+});

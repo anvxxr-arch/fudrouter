@@ -1,0 +1,70 @@
+-- Retention-sweep indexes.
+--
+-- `data_retention_cleanup` (packages/platform/server/workers.ts) has two
+-- unbounded, index-less predicates. Both were measured on a populated table
+-- before this migration, not assumed:
+--
+--   1. The body-blanking UPDATE/DELETE on `request_log` filters on `created_at`
+--      alone. `request_log` indexes every (dimension, created_at) PAIR — the
+--      spend and dashboard reads all scope by a dimension first — but nothing
+--      covers a bare `created_at`.
+--
+--      The shape that matters is the STEADY-STATE tail: the sweep runs on a
+--      schedule, so each pass targets the small band that just aged out, not
+--      most of the table. Measured on 326k rows with the cutoff matching ~1%
+--      (3,362 rows):
+--
+--        without the index:  Seq Scan   (actual time=142.586..144.304 rows=3362)
+--                            trigger time=17.082 calls=3362
+--                            Execution Time: ~165 ms
+--        with the index:     Index Scan using request_log_created_at_idx
+--                            (actual time=0.095..2.840 rows=3362)
+--                            trigger time=18.793 calls=3362
+--                            Execution Time: 24.318 ms
+--
+--      The scan goes 144 ms -> 3 ms because a Seq Scan reads the whole heap to
+--      find 1% of it, while the index seeks the cutoff and walks only the rows
+--      that qualify. The FK trigger stays ~18 ms in BOTH plans — every deleted
+--      row must still be checked — which is why the index is necessary and not
+--      sufficient, and why the handler (workers.ts, retentionBatch) now also
+--      deletes in bounded batches instead of one unbounded transaction.
+--
+--      Sanity-checked once against a live run of the batched handler with a
+--      12,345-row fixture (2.5 batches): it blanked every aged body, left the
+--      fresh row alone, and reported `unfinished: false` in its system_event.
+--
+--      Measured the same way, a pass whose cutoff matches most of the table
+--      (300k rows, 86% stale) still prefers a Seq Scan even with the index
+--      present — and that is correct behaviour, not a failure: reading 86% of a
+--      table through an index is slower. The tail case is the one that repeats.
+--
+--   2. The `job` delete filters on `status in ('completed','failed')` AND
+--      `created_at`, but the only non-PK index is `job_claim_idx`
+--      (status, available_at) — the CLAIM index, keyed for the worker loop's
+--      `status = 'pending' and available_at <= now()` scan. Nothing serves
+--      `created_at`, so the sweep is a Seq Scan of the queue. Measured on 120k
+--      rows:
+--
+--        Seq Scan on job  (rows=51200)
+--        Execution Time: 77.101 ms
+--
+--      Retention for `job` was added in 0013 (the `job_days` setting) without
+--      the index its predicate needs — the setting and the predicate landed
+--      together, the index did not.
+--
+-- `(status, created_at)` and not `(created_at)`: the predicate always carries
+-- the status set, so leading with the more selective equality column keeps the
+-- index usable for the delete while still supporting a plain created_at range.
+--
+-- Plain CREATE INDEX, like 0014. CONCURRENTLY is not merely unnecessary here,
+-- it is impossible: ops/migrate.sh feeds each file to `psql -f` with no
+-- non-transactional modifier, so the statement is wrapped in an implicit
+-- transaction and Postgres refuses — verified against the live server:
+--
+--   begin; CREATE INDEX CONCURRENTLY … ; commit;
+--   ERROR:  CREATE INDEX CONCURRENTLY cannot run inside a transaction block
+CREATE INDEX IF NOT EXISTS "request_log_created_at_idx"
+	ON "request_log" USING btree ("created_at");
+
+CREATE INDEX IF NOT EXISTS "job_status_created_idx"
+	ON "job" USING btree ("status", "created_at");

@@ -37,9 +37,9 @@ type lifecycle struct {
 	endpoint  string
 	requested string // the raw `model` string, or "" for non-model endpoints
 
-	key  *store.APIKeyRow
-	lim  *store.Limits
-	pol  *routing.Plan
+	key   *store.APIKeyRow
+	lim   *store.Limits
+	pol   *routing.Plan
 	polID string
 
 	resolved *store.ModelResolution
@@ -62,11 +62,11 @@ type lifecycle struct {
 	usage     usageCounts
 	usageSeen bool
 
-	status    string // spec §8 vocabulary
-	errCode   string
-	errMsg    string
-	rawErr    string // raw upstream text: request_log.error only (spec §8)
-	httpStat  int
+	status   string // spec §8 vocabulary
+	errCode  string
+	errMsg   string
+	rawErr   string // raw upstream text: request_log.error only (spec §8)
+	httpStat int
 
 	// anthropic makes the error envelope the Anthropic shape
 	// ({"type":"error","error":{…}}) instead of the [OI] one — the /v1/messages
@@ -143,7 +143,7 @@ func (h *Handler) begin(w http.ResponseWriter, r *http.Request, start time.Time,
 	}
 
 	limStart := time.Now()
-	lim, err := h.store.EffectiveLimits(r.Context(), key)
+	lim, err := h.store.AdmissionLimits(r.Context(), key)
 	if err != nil {
 		// A limit lookup failure must not fail the request (fail open, spec
 		// §12): log and continue unbounded at this level.
@@ -208,19 +208,46 @@ func (h *Handler) begin(w http.ResponseWriter, r *http.Request, start time.Time,
 
 		// Candidates: capability filter first (spec §5), then constraints and
 		// scoring (spec §9).
+		//
+		// ONE query for the whole model set. This looped `Candidates` per model
+		// id, and a `[NAME]/*` virtual name resolves its set from EVERY active
+		// model — measured at 251 queries for one request against a 251-model
+		// catalogue, each carrying the credential json_agg. The batch form is the
+		// same SQL with `= any($1)` and a per-model row_number, so the fan-out is
+		// a constant instead of a function of catalogue size.
+		//
+		// ROUND TRIP BUDGET: 5 for a canonical slug request — LookupAPIKey,
+		// ResolveModel, then this batch, then the finish() write path
+		// (request_log and its ledger row in one statement, plus one
+		// request_attempt insert). It was 10, and 14 before that: the literal
+		// slug branch used to be a second ResolveModel query, ChargeRequest used
+		// to be six round trips with a row lock held across five of them, and
+		// admission's three policy reads (limits, gate state, budget rows) are
+		// now served from the in-process cache (store/admission.go) instead of
+		// Postgres. A bare round trip on this box is ~117µs, so 5 is ~0.6ms; the
+		// rest of the request's latency is contention, not query count.
+		// TestFullRequestRoundTrips in internal/store pins the total and lists
+		// every statement.
+		//
+		// The alias ordering below still reads res.ModelSlugs, and the per-model
+		// candidate order is preserved by CandidatesBatch's window function.
+		byModel, err := h.store.CandidatesBatch(r.Context(), res.ModelIDs, res.RequiredCapabilities)
+		if err != nil {
+			// A batch read failure is treated like "no routable target for this
+			// model" was: fall through to the empty-merged rejection below, which
+			// answers the same 404 the per-model loop produced when every call
+			// failed.
+			byModel = nil
+		}
 		var merged []routing.Candidate
-		for i, modelID := range res.ModelIDs {
-			cands, err := h.store.Candidates(r.Context(), modelID, res.RequiredCapabilities)
-			if err != nil {
-				continue // no routable target for this model: try the next
-			}
+		for _, modelID := range res.ModelIDs {
+			cands := byModel[modelID]
 			for j := range cands {
 				c := cands[j]
 				rc := routing.Candidate{Store: &c}
 				rc.LoadSignals()
 				merged = append(merged, rc)
 			}
-			_ = i
 		}
 		// Per-candidate prices drive the cost-aware strategies. Resolved here
 		// through the shared fillCandidatePricing helper (fail-open to DB) so N
@@ -250,17 +277,40 @@ func (h *Handler) begin(w http.ResponseWriter, r *http.Request, start time.Time,
 }
 
 // tokenEstimate is the caller's own upper bound on output tokens (`max_tokens`
-// / `max_completion_tokens`). The router does not count tokens (PRD §87: it
-// bills what the upstream reports), so the TPM window is checked against the
-// bound the CLIENT declared — and skipped when it declared none.
+// / `max_completion_tokens` / `max_output_tokens`). The router does not count
+// tokens (PRD §87: it bills what the upstream reports), so the TPM window is
+// checked against the bound the CLIENT declared — and skipped when it declared
+// none.
+//
+// A struct decode, not `map[string]any`. The map form allocated the ENTIRE
+// body — every message, content string and nested object — to read three
+// numbers (65 allocs / 2.3 kB on a realistic 500-byte chat request, measured by
+// BenchmarkBodyDecode), and admission runs before any upstream byte moves, so
+// that cost sat directly on the request's critical path. The scanner skips
+// unknown fields without allocating them, which is where the win comes from.
+//
+// The error is only fatal when it is NOT a type error. A wrong-typed bound
+// (`"max_tokens": "2048"`) must fall THROUGH to the next key rather than
+// abandon the body — that is the behaviour token_estimate_test.go pins, and
+// encoding/json continues past a field type error, leaving the remaining
+// fields populated. A syntax error means the document is unparseable, which
+// declares no bound at all: 0, and the endpoint's own validate does the
+// rejecting.
 func tokenEstimate(body []byte) int64 {
-	var req map[string]any
-	if json.Unmarshal(body, &req) != nil {
-		return 0
+	var f struct {
+		MaxTokens     *float64 `json:"max_tokens"`
+		MaxCompletion *float64 `json:"max_completion_tokens"`
+		MaxOutput     *float64 `json:"max_output_tokens"`
 	}
-	for _, k := range []string{"max_tokens", "max_completion_tokens", "max_output_tokens"} {
-		if v, ok := req[k].(float64); ok && v > 0 {
-			return int64(v)
+	if err := json.Unmarshal(body, &f); err != nil {
+		var typeErr *json.UnmarshalTypeError
+		if !errors.As(err, &typeErr) {
+			return 0
+		}
+	}
+	for _, bound := range []*float64{f.MaxTokens, f.MaxCompletion, f.MaxOutput} {
+		if bound != nil && *bound > 0 {
+			return int64(*bound)
 		}
 	}
 	return 0
@@ -508,6 +558,7 @@ func (lc *lifecycle) resolvePricing() *store.Pricing {
 	lc.pricing = p
 	return p
 }
+
 // customerCost is the charge the lifecycle computed (or would compute) in
 // micro-units — the value request_log.cost carries. Only surfaced to the
 // client behind the cost-headers flag (PRD §90).
@@ -713,9 +764,17 @@ func (lc *lifecycle) finish() {
 	}
 
 	// Attempts come after the request row: request_attempt.request_id is an FK.
-	for _, a := range lc.attempts {
-		at := attemptRow(row.ID, a)
-		if err := lc.h.store.InsertRequestAttempt(ctx, at); err != nil {
+	//
+	// ONE round trip for the whole chain. This was a loop with one insert per
+	// attempt, so a request that fell over three candidates paid three sequential
+	// round trips after the client already had its answer — and a retry chain is
+	// exactly when the router is already behind.
+	if len(lc.attempts) > 0 {
+		rows := make([]*store.RequestAttempt, 0, len(lc.attempts))
+		for _, a := range lc.attempts {
+			rows = append(rows, attemptRow(row.ID, a))
+		}
+		if err := lc.h.store.InsertRequestAttempts(ctx, rows); err != nil {
 			log.Printf("[proxy] request_attempt insert failed: %v", err)
 		}
 	}
@@ -865,6 +924,25 @@ func attemptRow(requestID string, a *routing.Attempt) *store.RequestAttempt {
 		at.Metadata["upstream_error"] = truncate(a.RawMessage, 500)
 	}
 	return at
+}
+
+// readUpstreamBody reads the winning exchange's buffered body and records
+// timing["generation"] — the upstream's body time, which spec §8 defines as the
+// generation phase for a non-streaming call.
+//
+// Why this exists: the streaming path records `generation` (stream.go) but the
+// buffered path recorded NOTHING for it. Measured on a successful non-streaming
+// request, the stored map was `auth:21 rate_limit:6 routing:10 queue:0
+// connection:0` — no generation, the one phase that is most of a buffered call.
+// A dashboard reading that column reports zero for the largest phase instead of
+// reporting a gap, and the three handlers each did their own io.ReadAll, so
+// there was no single place that could have recorded it.
+//
+// The 50MiB bound is unchanged; it is the ceiling all three call sites used.
+func (lc *lifecycle) readUpstreamBody(resp *http.Response) ([]byte, error) {
+	start := time.Now()
+	defer func() { lc.timing["generation"] = time.Since(start).Milliseconds() }()
+	return io.ReadAll(io.LimitReader(resp.Body, 50<<20))
 }
 
 // serveBuffered relays a buffered upstream body and records the outcome.

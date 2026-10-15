@@ -21,7 +21,6 @@ const res = await client.chat.completions.create({
 });`;
 
 const FEATURES = [
-  { title: 'Provider network', body: 'One key reaches providers across the network. Model availability is published from live catalog data, and a model served by more than one provider keeps every route open.', href: '/providers', link: 'Browse providers' },
   { title: 'Smart routing', body: 'Each request is scored across candidate routes — price, latency, reliability and capacity — under your routing policy.', href: '/docs/routing/routing', link: 'How routing works' },
   { title: 'Fallback', body: 'A rate limit, timeout or outage on one route retries on the next candidate instead of failing your call.', href: '/docs/routing/fallback', link: 'Fallback and retries' },
   { title: 'Observability', body: 'Every call writes one ledger row: model, provider, tokens, cost, latency and an error code when it failed.', href: '/docs/observability/observability', link: 'What gets recorded' },

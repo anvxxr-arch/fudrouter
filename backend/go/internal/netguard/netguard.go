@@ -50,19 +50,29 @@ func AllowPrivate() bool {
 // IsBlockedIP reports whether ip is outside the public internet and therefore
 // must not be dialed as an upstream.
 //
-// Beyond net.IP's own predicates (loopback, private RFC1918/ULA, link-local,
-// multicast, unspecified) this covers carrier-grade NAT and the benchmarking
-// range, both of which reach hosts that are not the caller's to reach. The AWS
-// instance-metadata address 169.254.169.254 is already link-local.
+// IsBlockedIP reports whether an address is one no upstream may reach.
 //
-// Two IPv6 transition mechanisms embed a full IPv4 address that the router
-// would actually reach, so they are unwrapped and re-checked as IPv4:
-// NAT64 (64:ff9b::/96, the IPv4 at bytes 12-15) and 6to4 (2002::/16, the IPv4
-// at bytes 2-5). Without this, a provider base_url of
-// `http://[64:ff9b::7f00:1]/` dials loopback and the guard never notices.
-// Teredo (2001::/32) is deliberately NOT unwrapped: its embedded client IPv4
-// sits at a different offset and its server IPv4 is public, so unwrapping it
-// would block legitimate addresses.
+// The range list is a PORT of the shared rule in
+// packages/platform/server/ssrf.ts (ipv4BlockedBig/ipv6BlockedBig) and must stay
+// one: a prior audit of the console found it carrying a SHORTER blocklist than
+// the shared rule, and this package then repeated the mistake against the TS
+// side. Measured before this port, the Go guard ALLOWED 0.0.0.1, 0.255.255.255,
+// 192.0.2.1, 192.88.99.1, 198.51.100.1, 203.0.113.1, 240.0.0.1,
+// 255.255.255.255, "::127.0.0.1", "::169.254.169.254", 100::1, 2001:db8::1 and
+// 2001::1 — every one of which the TS rule refuses. "::127.0.0.1" and
+// "::169.254.169.254" are the damaging ones: IPv4-compatible spellings of
+// loopback and of the cloud metadata address, which net.IP.To4 does NOT convert
+// (only the ::ffff: mapped form), so they reached the dial unchecked.
+//
+// Two deliberate differences from TS, both noting that TS is the looser side:
+//
+//   - 2001::/32 (Teredo) IS refused here, where V6_BLOCKS in TS lists it. The
+//     embedded server IPv4 is public, which is why an earlier version of this
+//     file left Teredo out, but Teredo is a tunnelling mechanism end to end and
+//     no legitimate provider is reached over it. Refusing it is the safe
+//     direction and cannot break a real upstream.
+//   - 0.0.0.0 and :: stay refused through IsUnspecified; TS's `a === 0` covers
+//     the whole 0/8, and the port covers the rest of that block below.
 func IsBlockedIP(ip net.IP) bool {
 	if ip == nil {
 		return true
@@ -76,27 +86,106 @@ func IsBlockedIP(ip net.IP) bool {
 		return true
 	}
 	if v4 := ip.To4(); v4 != nil {
-		if v4[0] == 100 && v4[1]&0xc0 == 64 { // 100.64.0.0/10 carrier-grade NAT
-			return true
-		}
-		if v4[0] == 198 && (v4[1] == 18 || v4[1] == 19) { // 198.18.0.0/15 benchmarking
-			return true
-		}
-		return false
+		return ipv4Blocked(v4)
 	}
-	// IPv6: unwrap the transition mechanisms that carry a reachable IPv4.
-	// NAT64 is 64:ff9b::/96, so the prefix occupies bytes 1-3 and the embedded
-	// IPv4 is the last four bytes. 6to4 is 2002::/16, so the prefix occupies
-	// bytes 0-1 and the embedded IPv4 follows at bytes 2-5.
+	// IPv6: refuse the whole ::/96 comment space. net.IP.To4 converts only the
+	// ::ffff: mapped form of IPv4, so an IPv4-COMPATIBLE spelling like
+	// ::127.0.0.1 or ::169.254.169.254 would otherwise pass every predicate
+	// above as an ordinary unrecognised v6 address.
 	if len(ip) == net.IPv6len {
-		if ip[1] == 0x64 && ip[2] == 0xff && ip[3] == 0x9b { // 64:ff9b::/96 NAT64
+		hi := uint64(ip[0])<<56 | uint64(ip[1])<<48 | uint64(ip[2])<<40 | uint64(ip[3])<<32 |
+			uint64(ip[4])<<24 | uint64(ip[5])<<16 | uint64(ip[6])<<8 | uint64(ip[7])
+		lo := uint64(ip[8])<<56 | uint64(ip[9])<<48 | uint64(ip[10])<<40 | uint64(ip[11])<<32 |
+			uint64(ip[12])<<24 | uint64(ip[13])<<16 | uint64(ip[14])<<8 | uint64(ip[15])
+		if hi == 0 && lo>>32 == 0 { // ::/96 v4-compatible / unspecified / loopback
+			return true
+		}
+		// Unwrap the transition mechanisms that carry a reachable IPv4, so the
+		// IPv4 rules decide. NAT64 is 64:ff9b::/96 (prefix in bytes 1-3, IPv4 in
+		// the last four); 6to4 is 2002::/16 (prefix in bytes 0-1, IPv4 at 2-5).
+		if ip[1] == 0x64 && ip[2] == 0xff && ip[3] == 0x9b { // 64:ff9b::/96
 			return IsBlockedIP(net.IPv4(ip[12], ip[13], ip[14], ip[15]))
 		}
-		if ip[0] == 0x20 && ip[1] == 0x02 { // 2002::/16 6to4
+		if ip[0] == 0x20 && ip[1] == 0x02 { // 2002::/16
 			return IsBlockedIP(net.IPv4(ip[2], ip[3], ip[4], ip[5]))
 		}
 	}
+
+	// The v6 blocks TS pins in V6_BLOCKS, as prefix/bit comparisons on the raw
+	// bytes so no bigint is needed.
+	for _, b := range v6Blocks {
+		if hasPrefix(ip, b.bytes, b.bits) {
+			return true
+		}
+	}
 	return false
+}
+
+// ipv4Blocked is ipv4BlockedBig from the shared rule, on the 4-byte form. The
+// predicate helpers above already cover loopback, RFC1918, link-local (including
+// 169.254.169.254), multicast and 0.0.0.0, so this covers what they do NOT.
+func ipv4Blocked(v4 net.IP) bool {
+	a, b, c := v4[0], v4[1], v4[2]
+	switch {
+	case a == 0: // 0.0.0.0/8 "this network"
+		return true
+	case a == 192 && b == 0 && (c == 0 || c == 2): // 192.0.0/24, TEST-NET-1
+		return true
+	case a == 192 && b == 88 && c == 99: // 6to4 relay anycast
+		return true
+	case a == 198 && b == 51 && c == 100: // TEST-NET-2
+		return true
+	case a == 203 && b == 0 && c == 113: // TEST-NET-3
+		return true
+	case a >= 224: // multicast 224/4 + reserved 240/4 + broadcast
+		return true
+	case a == 100 && b >= 64 && b <= 127: // 100.64.0.0/10 carrier-grade NAT
+		return true
+	case a == 198 && (b == 18 || b == 19): // 198.18.0.0/15 benchmarking
+		return true
+	}
+	return false
+}
+
+// v6Block bytes/bits mirror V6_BLOCKS in the shared TS rule. 2001::/32 (Teredo)
+// is included here although TS reaches it through the same table; see the
+// comment on IsBlockedIP for why it is refused rather than unwrapped.
+var v6Blocks = []struct {
+	bytes []byte
+	bits  int
+}{
+	{[]byte{0xfc, 0x00}, 7},              // fc00::/7 unique-local
+	{[]byte{0xfe, 0x80}, 10},             // fe80::/10 link-local
+	{[]byte{0xff, 0x00}, 8},              // ff00::/8 multicast
+	{[]byte{0x20, 0x01, 0x0d, 0xb8}, 32}, // 2001:db8::/32 documentation
+	{[]byte{0x20, 0x01}, 32},             // 2001::/32 Teredo
+	{[]byte{0x01, 0x00}, 64},             // 100::/64 discard-only
+}
+
+// hasPrefix reports whether the first `bits` bits of ip match pattern. The
+// pattern is the SHORT form (only the bytes needed), so the loop walks the
+// pattern rather than the bit count: a 32-bit prefix is two bytes.
+func hasPrefix(ip net.IP, pattern []byte, bits int) bool {
+	for i := range pattern {
+		if i >= len(ip) {
+			return false
+		}
+		rem := bits - i*8
+		switch {
+		case rem >= 8:
+			if ip[i] != pattern[i] {
+				return false
+			}
+		case rem > 0:
+			mask := byte(0xff << (8 - rem))
+			if ip[i]&mask != pattern[i]&mask {
+				return false
+			}
+		default:
+			return true // every prefix bit already compared
+		}
+	}
+	return true
 }
 
 // DialControl returns a net.Dialer.Control hook that refuses non-public dial

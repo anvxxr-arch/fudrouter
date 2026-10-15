@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/ids"
@@ -44,15 +46,15 @@ type RequestLog struct {
 	ReasoningTokens   int64
 	TotalTokens       *int64
 
-	InputPriceMicro        *string // numeric(18,6) as stored
-	CachedInputPriceMicro  *string
-	OutputPriceMicro       *string
-	ReasoningPriceMicro    *string
-	PricingRuleID          string
-	ProviderCostMicro      int64
-	Cost                   int64 // customer charge (micro-units)
-	CreditChargedMicro     int64
-	Currency               string
+	InputPriceMicro       *string // numeric(18,6) as stored
+	CachedInputPriceMicro *string
+	OutputPriceMicro      *string
+	ReasoningPriceMicro   *string
+	PricingRuleID         string
+	ProviderCostMicro     int64
+	Cost                  int64 // customer charge (micro-units)
+	CreditChargedMicro    int64
+	Currency              string
 
 	TTFTMs             *int
 	LatencyMs          int64
@@ -243,41 +245,94 @@ type RequestAttempt struct {
 // upstream exchange. A candidate that was filtered out or whose circuit was
 // open never becomes an attempt; the attempt that hit an open circuit DOES,
 // with reason recording why it was chosen and ErrorCode CIRCUIT_OPEN.
-func (s *Store) InsertRequestAttempt(ctx context.Context, a *RequestAttempt) error {
-	meta := []byte("{}")
-	if len(a.Metadata) > 0 {
-		if b, err := json.Marshal(a.Metadata); err == nil {
-			meta = b
+// InsertRequestAttempts appends N attempts in ONE round trip.
+//
+// Why: finish() wrote them in a loop, so a request that fell over three
+// candidates paid three sequential round trips after the client already had its
+// answer. A retry chain is exactly the case where the router is already behind,
+// and it was paying the most.
+//
+// The bound is deliberate: a chain longer than this is pathological (the router
+// caps attempts per request well below it), and an unbounded statement would put
+// an attacker-influenced parameter count into the SQL text. Anything beyond the
+// bound still gets written, one round trip per extra attempt, so a long chain is
+// slower but never silently truncated.
+const maxAttemptsPerInsert = 32
+
+func (s *Store) InsertRequestAttempts(ctx context.Context, attempts []*RequestAttempt) error {
+	if len(attempts) == 0 {
+		return nil
+	}
+	for start := 0; start < len(attempts); start += maxAttemptsPerInsert {
+		end := min(start+maxAttemptsPerInsert, len(attempts))
+		if err := s.insertAttemptBatch(ctx, attempts[start:end]); err != nil {
+			return err
 		}
 	}
-	var ttft any
-	if a.TTFTMs != nil {
-		ttft = *a.TTFTMs
+	return nil
+}
+
+// insertAttemptBatch writes one slice of attempts as a single multi-row insert.
+func (s *Store) insertAttemptBatch(ctx context.Context, attempts []*RequestAttempt) error {
+	values := make([]string, 0, len(attempts))
+	args := make([]any, 0, len(attempts)*17)
+	for i, a := range attempts {
+		meta := []byte("{}")
+		if len(a.Metadata) > 0 {
+			if b, err := json.Marshal(a.Metadata); err == nil {
+				meta = b
+			}
+		}
+		var ttft any
+		if a.TTFTMs != nil {
+			ttft = *a.TTFTMs
+		}
+		var code, cred, conn, pm any
+		if a.ErrorCode != "" {
+			code = a.ErrorCode
+		}
+		if a.CredentialID != "" {
+			cred = a.CredentialID
+		}
+		if a.ConnectionID != "" {
+			conn = a.ConnectionID
+		}
+		if a.ProviderModelID != "" {
+			pm = a.ProviderModelID
+		}
+		base := i * 17
+		values = append(values, "($"+strconv.Itoa(base+1)+",$"+strconv.Itoa(base+2)+",$"+strconv.Itoa(base+3)+
+			",$"+strconv.Itoa(base+4)+",$"+strconv.Itoa(base+5)+",$"+strconv.Itoa(base+6)+
+			",$"+strconv.Itoa(base+7)+",$"+strconv.Itoa(base+8)+",$"+strconv.Itoa(base+9)+
+			",$"+strconv.Itoa(base+10)+",$"+strconv.Itoa(base+11)+",$"+strconv.Itoa(base+12)+
+			",$"+strconv.Itoa(base+13)+",$"+strconv.Itoa(base+14)+",$"+strconv.Itoa(base+15)+
+			",$"+strconv.Itoa(base+16)+",$"+strconv.Itoa(base+17)+")")
+		args = append(args,
+			a.ID, a.RequestID, a.Attempt, nullStr(a.ProviderID), conn, cred,
+			pm, a.HTTPStatus, code, a.Retryable, a.LatencyMs,
+			ttft, a.ProviderCostMicro, nullStr(a.Reason), a.StartedAt, a.FinishedAt, meta)
 	}
-	var code, cred, conn, pm any
-	if a.ErrorCode != "" {
-		code = a.ErrorCode
-	}
-	if a.CredentialID != "" {
-		cred = a.CredentialID
-	}
-	if a.ConnectionID != "" {
-		conn = a.ConnectionID
-	}
-	if a.ProviderModelID != "" {
-		pm = a.ProviderModelID
-	}
+	// Several attempts of one request may share a RequestID, and a replay of the
+	// same request must not duplicate them: ON CONFLICT DO NOTHING keeps the
+	// (request_id, attempt) idempotency the single-row form had.
 	_, err := s.pool.Exec(ctx, `
 		insert into request_attempt
 		  (id, request_id, attempt, provider_id, connection_id, credential_id,
 		   provider_model_id, http_status, error_code, retryable, latency_ms,
 		   ttft_ms, provider_cost_micro, reason, started_at, finished_at, metadata)
-		values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
-		on conflict (request_id, attempt) do nothing`,
-		a.ID, a.RequestID, a.Attempt, nullStr(a.ProviderID), conn, cred,
-		pm, a.HTTPStatus, code, a.Retryable, a.LatencyMs,
-		ttft, a.ProviderCostMicro, nullStr(a.Reason), a.StartedAt, a.FinishedAt, meta)
+		values `+strings.Join(values, ",")+`
+		on conflict (request_id, attempt) do nothing`, args...)
 	return err
+}
+
+// AttemptCount reports how many attempt rows exist for one request. Used by the
+// batch contract tests to prove a replay did not duplicate rows and a long chain
+// was not truncated.
+func (s *Store) AttemptCount(ctx context.Context, requestID string) (int, error) {
+	var n int
+	err := s.pool.QueryRow(ctx,
+		`select count(*) from request_attempt where request_id = $1`, requestID).Scan(&n)
+	return n, err
 }
 
 // placeholders builds "$1,$2,…" for the insert above. Kept next to

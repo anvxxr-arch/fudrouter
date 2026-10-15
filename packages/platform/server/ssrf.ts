@@ -212,6 +212,18 @@ export async function assertPublicUpstream(
 		return { ok: false, reason: `scheme ${url.protocol} is not allowed; use http or https` };
 	}
 
+	// Refuse embedded credentials. The value this guards is persisted
+	// (connection.base_url) and echoed back through the providers API, so
+	// `https://user:pass@host/v1` would put a secret into a row that admin
+	// surfaces render and that every log line about the connection repeats.
+	// admin-limits.ts:127 states this rule for its own URL inputs; it was never
+	// applied to a connection's base_url, so the write path that actually stores
+	// one accepted the shape. Kept in the shared rule so a second caller cannot
+	// reintroduce the gap the way this one did.
+	if (url.username !== '' || url.password !== '') {
+		return { ok: false, reason: 'base_url must not embed credentials (user:pass@host)' };
+	}
+
 	const host = url.hostname;
 	if (!host) return { ok: false, reason: 'base_url has no host' };
 
@@ -219,9 +231,34 @@ export async function assertPublicUpstream(
 		return { ok: false, reason: `refusing to call a non-public address (${host})` };
 	}
 
-	// A name, not a literal. Resolve it ourselves so the check is on the address
-	// the socket will actually use — fetching the name and trusting fetch's own
-	// resolution would check a different lookup than the one that connects.
+	// A name, not a literal. Resolve it here so the pre-flight check sees the
+	// addresses the name currently maps to, and refuse if any of them is
+	// non-public.
+	//
+	// This is a PRE-FLIGHT check, not a dial-time one, and the difference is not
+	// cosmetic. The caller (guardedUpstreamFetch below) hands the URL string to
+	// `fetch`, which performs its OWN lookup with no agent or lookup override, so
+	// the address checked here and the address connected to are two independent
+	// resolutions. A name with a short TTL can therefore answer public here and
+	// loopback/metadata there. An earlier version of this comment claimed the
+	// opposite -- that the check was "on the address the socket will actually
+	// use" -- which was false, and a reader relying on it would mistake this for
+	// a boundary it is not.
+	//
+	// The Go data plane does not have this window: its guard runs at dial time,
+	// after resolution and before the socket connects, so the address it checks
+	// is the address it dials. This side has no dial hook, so the check above is
+	// as far as a URL pre-flight can go; closing the window means pinning the
+	// validated addresses into the connection itself.
+	//
+	// The types Node ships describe that shape -- undici-types/fetch.d.ts has
+	// `dispatcher?: Dispatcher`, undici-types/connector.d.ts's `BuildOptions`
+	// includes `TcpNetConnectOpts`, and @types/node net.d.ts puts
+	// `lookup?: LookupFunction` on it -- so an Agent built with a connector whose
+	// lookup returns only `ips` is the route. Recorded as the route and not as a
+	// proven fix: nothing in this repo exercises it at runtime, so a maintainer
+	// taking it on should verify the runtime path before trusting it. Until then
+	// an admin-supplied base_url is rebindable between this check and the connect.
 	let ips: string[];
 	try {
 		const found = await lookup(host, { all: true, verbatim: true });

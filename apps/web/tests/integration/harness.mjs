@@ -133,8 +133,17 @@ export async function startServer(env = {}) {
 			...process.env,
 			...env,
 			DATABASE_URL: dsn,
-			// test, not production: trustedOrigins must accept the test origin.
-			NODE_ENV: 'test',
+			// test by default: trustedOrigins must accept the test origin, and
+			// the harness's own fixtures go through /api/auth/sign-up/email,
+			// which only exists under this literal (lib/auth-config.mjs).
+			//
+			// `env.NODE_ENV` exists for the one test that has to prove the
+			// OPPOSITE: that the email endpoint is closed in every other
+			// environment. Without a seam here that test would have to spawn its
+			// own server, which is the thing the harness exists to avoid — and
+			// the gate `emailAndPassword.enabled` would stay pinned only in its
+			// pure function, never at the call site that reads it.
+			NODE_ENV: env.NODE_ENV ?? 'test',
 			// A private port, never .env.console's pinned 3002.
 			PORT: String(port),
 			HOST: '127.0.0.1',

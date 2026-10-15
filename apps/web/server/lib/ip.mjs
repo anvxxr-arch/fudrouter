@@ -63,6 +63,38 @@ export function isTrustedProxy(addr) {
 	return false;
 }
 
+// The request's own origin as the CLIENT saw it: scheme + Host.
+//
+// Why this is not just `${req.protocol}://${req.get('host')}`: Express only
+// believes X-Forwarded-Proto when `trust proxy` is set, and setting that would
+// also make `req.ip` trust X-Forwarded-For — which is the spoofing hole this
+// module's right-to-left walk exists to close. So the scheme is derived here
+// under the SAME trusted-peer test as the client IP: the socket peer must be a
+// trusted proxy before its X-Forwarded-Proto is believed.
+//
+// Without this the deployed origin was `http://` on an HTTPS-only host (caddy
+// dials :3002 in plaintext and the tunnel terminates TLS), so every canonical,
+// sitemap <loc> and robots `Sitemap:` line advertised a URL that HSTS
+// redirects — a canonical pointing at a redirect, which is the signal
+// crawlers are told to ignore.
+//
+// The value is taken from the LAST hop, like the XFF walk: that is what the
+// nearest trusted proxy observed. Only http/https are accepted, because the
+// result is interpolated into URLs served to crawlers.
+export function requestOrigin(req) {
+	const host = req?.headers?.host ?? '';
+	const sock = _normalizeIp(req?.socket?.remoteAddress);
+	let proto = req?.protocol === 'https' ? 'https' : 'http';
+	if (isTrustedProxy(sock)) {
+		const raw = req?.headers?.['x-forwarded-proto'];
+		const parts = String(Array.isArray(raw) ? raw.join(',') : raw ?? '')
+			.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+		const last = parts[parts.length - 1];
+		if (last === 'https' || last === 'http') proto = last;
+	}
+	return `${proto}://${host}`;
+}
+
 // Real client IP. Every hop APPENDS to X-Forwarded-For, so a value an attacker
 // sends ends up on the LEFT; walking right-to-left and stopping at the first
 // untrusted entry yields the address the last trusted proxy actually saw. The

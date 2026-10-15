@@ -8,6 +8,13 @@
 // are the regression net for the exact gaps the audit found (CGNAT, TEST-NET,
 // benchmarking, multicast/reserved, IPv4-mapped IPv6) and for the leftmost-hop
 // spoofing bug. Run with `node --test` (no dependencies).
+//
+// KEEP IN STEP WITH THE GO TABLE: backend/go/internal/netguard/netguard_test.go
+// asserts the same range list for the data plane's dial-time guard. The two are
+// separate implementations of one rule (TS pre-flight, Go at dial time), and
+// they HAVE drifted — a security review measured the Go guard allowing
+// 0.0.0.1, 192.0.2.1, 240.0.0.1, ::127.0.0.1 and nine more that this list
+// refuses. If you add a range here, add it there too.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -18,7 +25,8 @@ import {
 	_ipv6BlockedBig,
 	clientIp,
 	isTrustedProxy,
-	_normalizeIp
+	_normalizeIp,
+	requestOrigin
 } from './ip.mjs';
 
 test('isBlockedIp blocks every IANA special-use range', () => {
@@ -120,6 +128,51 @@ test('clientIp walks X-Forwarded-For right-to-left past trusted proxies', () => 
 	assert.equal(clientIp(req('2001:db8::5', '1.2.3.4')), '2001:db8::5');
 	// all hops trusted -> fall back to the socket peer
 	assert.equal(clientIp(req('127.0.0.1', '127.0.0.1, ::1')), '127.0.0.1');
+});
+
+test('requestOrigin believes X-Forwarded-Proto only from a trusted peer', () => {
+	const req = (sock, headers) => ({ socket: { remoteAddress: sock }, protocol: 'http', headers });
+	// Behind caddy: the tunnel terminated TLS and caddy dials this server in
+	// plaintext, so the header is the ONLY evidence of https — without it every
+	// canonical and sitemap URL is an http:// URL that HSTS redirects.
+	assert.equal(
+		requestOrigin(req('127.0.0.1', { host: 'ai.example', 'x-forwarded-proto': 'https' })),
+		'https://ai.example'
+	);
+	// A direct/LAN caller's own header is not believed, same as X-Forwarded-For.
+	assert.equal(
+		requestOrigin(req('203.0.113.9', { host: 'ai.example', 'x-forwarded-proto': 'https' })),
+		'http://ai.example'
+	);
+	// No header -> the listener's own scheme.
+	assert.equal(requestOrigin(req('127.0.0.1', { host: 'ai.example' })), 'http://ai.example');
+	// An explicit `http` from the trusted hop must be believed too: a chain
+	// that says http must never be upgraded to https on our side.
+	assert.equal(
+		requestOrigin(req('127.0.0.1', { host: 'ai.example', 'x-forwarded-proto': 'http' })),
+		'http://ai.example'
+	);
+	// A chain keeps the LAST hop: that is what the nearest trusted proxy saw.
+	assert.equal(
+		requestOrigin(req('127.0.0.1', { host: 'ai.example', 'x-forwarded-proto': 'http, https' })),
+		'https://ai.example'
+	);
+	// Anything that is not a scheme is refused — the value is interpolated into
+	// URLs served to crawlers, so echoing it would be an injection.
+	assert.equal(
+		requestOrigin(req('127.0.0.1', { host: 'ai.example', 'x-forwarded-proto': 'javascript:alert(1)' })),
+		'http://ai.example'
+	);
+	// A repeating header still resolves to a scheme.
+	assert.equal(
+		requestOrigin(req('127.0.0.1', { host: 'ai.example', 'x-forwarded-proto': ['https'] })),
+		'https://ai.example'
+	);
+	// A TLS-terminating listener answers https with no header at all.
+	assert.equal(
+		requestOrigin({ socket: { remoteAddress: '127.0.0.1' }, protocol: 'https', headers: { host: 'ai.example' } }),
+		'https://ai.example'
+	);
 });
 
 test('_normalizeIp and isTrustedProxy', () => {

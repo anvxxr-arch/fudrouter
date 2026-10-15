@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -56,6 +57,11 @@ type Store struct {
 	hardLimitsMu  sync.RWMutex
 	hardLimits    hardLimitCache
 	hardLimitsExp time.Time
+	// admission caches the two reads checkBudgets makes before every dispatch
+	// (the billing account + environment budget, and the scoped budget rows).
+	// It is the difference between one Postgres round trip per request and one
+	// per TTL; see admission.go for the bounds and why the two TTLs differ.
+	admission admissionCache
 }
 
 // hardLimitCache is one cached copy of
@@ -73,6 +79,12 @@ func New(ctx context.Context, dsn string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The tracer must be on the config BEFORE the pool exists: pgxpool copies
+	// the config at creation and pool.Config() hands back a COPY, so setting it
+	// afterwards silently does nothing (measured: 0 traced queries).
+	if tracer := testQueryTracer(); tracer != nil {
+		cfg.ConnConfig.Tracer = tracer
+	}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, err
@@ -84,6 +96,25 @@ func New(ctx context.Context, dsn string) (*Store, error) {
 		cacheNS:           cacheNamespaceFor(dsn),
 		providerServable:  providerServableSQLFor(allowDev),
 	}, nil
+}
+
+// testQueryTracerHook is the hook New consults to install a query tracer. It is
+// nil in production (the variable is only ever set by the export_test.go
+// accessor), so this costs one nil interface compare per Store construction,
+// not per query.
+//
+// Why it exists: the admission half of the lifecycle is a SEQUENCE OF QUERIES,
+// and the honest way to test that a query-count change removed a round trip is
+// to count queries. Loopback timings cannot do it: Candidates measured 322µs
+// (HEAD, two queries) vs 338µs (one query) — the 14µs saved is inside the
+// noise band, so a timing assertion would either always pass or flap.
+var testQueryTracerHook func() pgx.QueryTracer
+
+func testQueryTracer() pgx.QueryTracer {
+	if testQueryTracerHook == nil {
+		return nil
+	}
+	return testQueryTracerHook()
 }
 
 // DevProvidersAllowed reports whether this process serves dev-tier providers.

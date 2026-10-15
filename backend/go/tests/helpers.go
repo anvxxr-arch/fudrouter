@@ -116,13 +116,13 @@ type Env struct {
 	UpstreamKey string
 	// The 0006 chain (spec §2–§4): ownership, billing and the provider
 	// network a request resolves through.
-	WorkspaceID     string
-	ProjectID       string
-	EnvironmentID   string
+	WorkspaceID      string
+	ProjectID        string
+	EnvironmentID    string
 	BillingAccountID string
-	ConnectionID    string
-	ProviderModelID string
-	CredentialID    string
+	ConnectionID     string
+	ProviderModelID  string
+	CredentialID     string
 }
 
 const UpstreamKeyPlain = "sk-upstream-test-key-0123456789"
@@ -144,7 +144,11 @@ func secretHash(s string) string {
 }
 
 // SeedEnv inserts a throwaway user + key + provider + model pointing at upstreamBaseURL.
-func SeedEnv(t *testing.T, dsn, upstreamBaseURL string) *Env {
+//
+// t is testing.TB, not *testing.T, so a benchmark can seed the same way a test
+// does — the store benchmarks need a real environment and the alternative is a
+// second seeder that drifts from this one.
+func SeedEnv(t testing.TB, dsn, upstreamBaseURL string) *Env {
 	t.Helper()
 	return SeedEnvFull(t, dsn, upstreamBaseURL, "active", nil)
 }
@@ -163,7 +167,7 @@ func SeedEnvWithStatus(t *testing.T, dsn, upstreamBaseURL, status string, extraH
 	return SeedEnvFull(t, dsn, upstreamBaseURL, status, extraHeaders)
 }
 
-func SeedEnvFull(t *testing.T, dsn, upstreamBaseURL, status string, extraHeaders map[string]string) *Env {
+func SeedEnvFull(t testing.TB, dsn, upstreamBaseURL, status string, extraHeaders map[string]string) *Env {
 	t.Helper()
 	extra := map[string]any{}
 	if len(extraHeaders) > 0 {
@@ -219,7 +223,7 @@ func SeedEnvFreebuffAccounts(t *testing.T, dsn, upstreamBaseURL string, tokens [
 
 // seedEnvCred is the shared seeder. extraCred is merged into the encrypted
 // credential blob so a test can declare protocol/auth_kind/etc.
-func seedEnvCred(t *testing.T, dsn, upstreamBaseURL, status string, extraCred map[string]any) *Env {
+func seedEnvCred(t testing.TB, dsn, upstreamBaseURL, status string, extraCred map[string]any) *Env {
 	t.Helper()
 	ctx := context.Background()
 	conn, err := pgx.Connect(ctx, dsn)
@@ -436,7 +440,7 @@ func seedAccounts(cred map[string]any) []map[string]any {
 	return []map[string]any{cred}
 }
 
-func testMasterKey(t *testing.T) string {
+func testMasterKey(t testing.TB) string {
 	t.Helper()
 	if v := os.Getenv("CREDENTIALS_MASTER_KEY"); v != "" {
 		return v
@@ -449,7 +453,7 @@ func testMasterKey(t *testing.T) string {
 	return base64.StdEncoding.EncodeToString(b)
 }
 
-func NewProxy(t *testing.T, dsn, _ string) *proxy.Handler {
+func NewProxy(t testing.TB, dsn, _ string) *proxy.Handler {
 	t.Helper()
 	return NewProxyWithRefresher(t, dsn, nil)
 }
@@ -457,7 +461,7 @@ func NewProxy(t *testing.T, dsn, _ string) *proxy.Handler {
 // NewProxyWithRefresher builds the hot-path handler with an explicit token
 // refresher. A nil refresher is correct for static-api_key providers; pass a
 // fake one to exercise the OAuth account pool without touching the network.
-func NewProxyWithRefresher(t *testing.T, dsn string, refresher proxy.TokenRefresher) *proxy.Handler {
+func NewProxyWithRefresher(t testing.TB, dsn string, refresher proxy.TokenRefresher) *proxy.Handler {
 	t.Helper()
 	ctx := context.Background()
 	st, err := store.New(ctx, dsn)
@@ -469,19 +473,25 @@ func NewProxyWithRefresher(t *testing.T, dsn string, refresher proxy.TokenRefres
 	if err != nil {
 		t.Fatal(err)
 	}
-	// VALKEY_URL is empty in tests unless a test sets it: the handler then runs
-	// on the S0 in-process limiter (spec §12 disabled path). A Valkey-backed
-	// test drives internal/limits with the fake client instead of a server.
-	c, err := vk.NewFromEnv()
-	if err != nil {
-		t.Fatal(err)
-	}
+	// The handler must run on the in-process limiter, NOT the deployment's cache.
+	//
+	// This comment used to say "VALKEY_URL is empty in tests unless a test sets
+	// it" — which was true of the CI shell and false of the deployment shell,
+	// where VALKEY_URL is exported. In that environment every proxy test shared
+	// one live Valkey: the catalogue cache (45s) and the counters were global
+	// across tests, so a seeded model was missing from a list another test had
+	// just cached, and a token-window counter from one test bounded the next.
+	// vk.Disabled states the intent — the disabled client returns ErrDisabled,
+	// which every caller already reads as "fall back to in-process behaviour"
+	// (spec §12) — and it is what a test that wants real Valkey must ask for
+	// explicitly.
+	c := vk.Disabled()
 	return proxy.New(st, cr, &http.Client{Timeout: 30 * time.Second}, refresher, c)
 }
 
 // NewProxyDefaultClient builds the handler exactly as main.go does — nil client,
 // so proxy.New uses its production upstream client (no whole-request timeout).
-func NewProxyDefaultClient(t *testing.T, dsn string) *proxy.Handler {
+func NewProxyDefaultClient(t testing.TB, dsn string) *proxy.Handler {
 	t.Helper()
 	ctx := context.Background()
 	st, err := store.New(ctx, dsn)
@@ -493,11 +503,21 @@ func NewProxyDefaultClient(t *testing.T, dsn string) *proxy.Handler {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c, err := vk.NewFromEnv()
+	// vk.Disabled, for the same reason as NewProxyWithRefresher: the deployment
+	// shell exports VALKEY_URL, and a test that silently shared the live cache
+	// would fail on state another test left behind.
+	c := vk.Disabled()
+	return proxy.New(st, cr, nil, nil, c)
+}
+
+func NewStore(t testing.TB, dsn string) *store.Store {
+	t.Helper()
+	st, err := store.New(context.Background(), dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return proxy.New(st, cr, nil, nil, c)
+	t.Cleanup(st.Close)
+	return st
 }
 
 func RevokeKey(t *testing.T, dsn, keyID string) {
@@ -528,6 +548,68 @@ func SetKeyLimits(t *testing.T, dsn, keyID, limitsJSON string) {
 	}
 }
 
+// SetBillingAccountHardStop pins a workspace's billing thresholds and balance,
+// so a test can drive the admission hard stop (spec §10: at/under
+// hard_stop_threshold_micro the request is refused with 402
+// INSUFFICIENT_CREDITS).
+//
+// Nothing else in the suite sets a non-default threshold: the seeded account
+// comes from the migration defaults (hard stop 0, balance 0), which means the
+// gate's REJECT branch — the one that decides whether a customer can spend —
+// had no end-to-end test at all. SetKeyLimits covers the key-level caps, not
+// this.
+func SetBillingAccountHardStop(t *testing.T, dsn, workspaceID string, hardStopMicro, balanceMicro int64) {
+	t.Helper()
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(ctx)
+	if _, err := conn.Exec(ctx,
+		`update billing_account set hard_stop_threshold_micro = $2, balance_micro = $3
+		 where workspace_id = $1`, workspaceID, hardStopMicro, balanceMicro); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// SetBillingAccountStatus flips `billing_account.status` ('active'/'suspended'
+// and whatever the control plane writes next), so a test can prove the
+// admission gate refuses a non-active account independently of its balance.
+func SetBillingAccountStatus(t *testing.T, dsn, workspaceID, status string) {
+	t.Helper()
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(ctx)
+	if _, err := conn.Exec(ctx,
+		`update billing_account set status = $2 where workspace_id = $1`,
+		workspaceID, status); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// SetEnvironmentMonthlyBudgetMicro writes `environment.monthly_budget_micro`,
+// the flat column that predates the `budget` table (spec §2). checkBudgets
+// honours it as a monthly budget with default thresholds, and nothing else in
+// the suite exercised that branch.
+func SetEnvironmentMonthlyBudgetMicro(t *testing.T, dsn, environmentID string, amountMicro int64) {
+	t.Helper()
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(ctx)
+	if _, err := conn.Exec(ctx,
+		`update environment set monthly_budget_micro = $2 where id = $1`,
+		environmentID, amountMicro); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // RequestLogCount returns how many request_log rows belong to a key, so a test
 // can assert that a path actually wrote a usage row (or did not).
 func RequestLogCount(t *testing.T, dsn, apiKeyID string) int {
@@ -545,10 +627,157 @@ func RequestLogCount(t *testing.T, dsn, apiKeyID string) int {
 	return n
 }
 
+// SeedModels inserts `n` extra active models on the environment's provider —
+// each with the `provider_model` mapping that makes it ROUTABLE — and returns
+// their ids.
+//
+// It exists for the SCALE tests: a `[NAME]/*` virtual name resolves its candidate
+// set from every active model (store.activeModelIDs), and the catalogue seeds
+// two — so a fan-out bug (one store query per model) is invisible at that size
+// and fatal at the ~250 a real deployment serves.
+//
+// The provider_model row is NOT optional: activeModelIDs requires an EXISTS on
+// an enabled + servable provider_model, so models seeded without one are
+// silently excluded and a "250 models" fixture would measure one model's fan-out.
+// That is exactly what the first version of this helper did.
+func SeedModels(t testing.TB, dsn string, env *Env, n int) []string {
+	t.Helper()
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(ctx)
+	out := make([]string, 0, n)
+	// One transaction: 250 separate inserts on a loopback box is mostly
+	// round-trip overhead, and the test does not care about partial state.
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // rollback after commit is a no-op
+	for i := range n {
+		modelID := "mdl_bulk_" + randChars(8)
+		slug := "bulk-" + strconv.Itoa(i) + "-" + randChars(4)
+		if _, err := tx.Exec(ctx, `
+			insert into model (id, provider_id, name, slug, context, input_price, output_price, status)
+			values ($1, $2, $3, $4, 8192, '150000.000000', '600000.000000', 'active')`,
+			modelID, env.ProviderID, slug, slug); err != nil {
+			t.Fatalf("seed bulk model %d: %v", i, err)
+		}
+		if _, err := tx.Exec(ctx, `
+			insert into provider_model (id, model_id, provider_id, connection_id, provider_model_id, enabled, status)
+			values ($1, $2, $3, $4, $5, true, 'available')`,
+			ids.New("pmdl"), modelID, env.ProviderID, env.ConnectionID, slug); err != nil {
+			t.Fatalf("seed bulk provider_model %d: %v", i, err)
+		}
+		out = append(out, modelID)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// SeedAlias inserts a project-scoped `model_alias` with its `model_alias_target`
+// rows, in the given order (spec §5: alias targets are ordered by `position`).
+//
+// It exists because the alias branch of ResolveModel was two queries — the row
+// lookup, then the ordered target list — and nothing else in the suite seeded
+// a POPULATED alias: every existing test used the seeded `[NAME]/*` descriptors,
+// which carry no targets and take the virtual fall-through instead. A
+// query-count change there would have had no test to break.
+func SeedAlias(t testing.TB, dsn string, env *Env, name string, modelIDs []string) string {
+	return SeedAliasAtScope(t, dsn, env, name, modelIDs, "project")
+}
+
+// SeedAliasAtScope is SeedAlias with an explicit scope, so a test can prove
+// project beats workspace beats global.
+func SeedAliasAtScope(t testing.TB, dsn string, env *Env, name string, modelIDs []string, scope string) string {
+	t.Helper()
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(ctx)
+
+	aliasID := "als_test_" + randChars(10)
+	var workspaceID, projectID any
+	switch scope {
+	case "project":
+		// Project scope wins in ResolveModel's ORDER BY, so this is the shape a
+		// customer actually creates.
+		workspaceID, projectID = env.WorkspaceID, env.ProjectID
+	case "workspace":
+		workspaceID = env.WorkspaceID
+	case "global":
+		// both NULL — the `[NAME]/*` virtual descriptor shape
+	default:
+		t.Fatalf("unknown alias scope %q", scope)
+	}
+	if _, err := conn.Exec(ctx,
+		`insert into model_alias (id, workspace_id, project_id, name, enabled)
+		 values ($1, $2, $3, $4, true)`,
+		aliasID, workspaceID, projectID, name); err != nil {
+		t.Fatalf("seed %s alias %s: %v", scope, name, err)
+	}
+	for i, modelID := range modelIDs {
+		if _, err := conn.Exec(ctx,
+			`insert into model_alias_target (alias_id, model_id, position) values ($1, $2, $3)`,
+			aliasID, modelID, i); err != nil {
+			t.Fatalf("seed alias target %d: %v", i, err)
+		}
+	}
+	return aliasID
+}
+
+// DisableAlias flips `enabled` off for every row with this name, so a test can
+// prove a disabled alias is invisible to resolution rather than surfacing as an
+// alias with no targets.
+func DisableAlias(t testing.TB, dsn, name string) {
+	t.Helper()
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(ctx)
+	if _, err := conn.Exec(ctx, `update model_alias set enabled = false where name = $1`, name); err != nil {
+		t.Fatalf("disable alias %s: %v", name, err)
+	}
+}
+
+// SeedModel inserts one extra `model` row on the environment's provider, so a
+// test can give an alias more than one distinct target.
+//
+// `model.provider_id` is NOT NULL and is the only FK the insert cannot avoid,
+// so it reuses the seeded provider. The alias path reads `model` by id and
+// never joins the provider, which is why this is enough for an alias test —
+// but it is NOT enough for a routing test, which needs a `provider_model`.
+func SeedModel(t testing.TB, dsn string, env *Env, slug, inputPrice string) string {
+	t.Helper()
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(ctx)
+
+	modelID := "mdl_alias_" + strings.ReplaceAll(slug, "-", "_")
+	if _, err := conn.Exec(ctx, `
+		insert into model (id, provider_id, name, slug, context, input_price, output_price, status)
+		values ($1, $2, $3, $4, 8192, $5::numeric, $5::numeric, 'active')`,
+		modelID, env.ProviderID, slug, slug, inputPrice); err != nil {
+		t.Fatalf("seed model %s: %v", slug, err)
+	}
+	return modelID
+}
+
 // SeedEnvAccounts seeds an [OI]-passthrough provider with an explicit account
 // pool (no native protocol), so a test can exercise per-account failover on the
 // generic /v1/* path. The first token is the one the first Pick returns.
-func SeedEnvAccounts(t *testing.T, dsn, upstreamBaseURL string, tokens []string) *Env {
+func SeedEnvAccounts(t testing.TB, dsn, upstreamBaseURL string, tokens []string) *Env {
 	t.Helper()
 	accts := make([]map[string]any, 0, len(tokens))
 	for _, tok := range tokens {
@@ -582,7 +811,14 @@ type LastLog struct {
 }
 
 // InsertRequestLogRow writes one request_log row with an explicit cost, so a test
-// can set up a month-to-date total that the monthly cost cap is checked against.
+// can set up a month-to-date total that the monthly cost cap is checked against,
+// or spend against a budget scope.
+//
+// workspace_id / project_id / environment_id are populated because the budget
+// sums key off them (store.SpendMicro: `environment_id = $1` and friends). The
+// earlier version set NONE of them, so the row was invisible to every scoped
+// sum and the environment-budget branch could never be exercised — a test
+// written against it silently passed a 200.
 func InsertRequestLogRow(t *testing.T, dsn string, env *Env, costMicro int64) {
 	t.Helper()
 	ctx := context.Background()
@@ -593,10 +829,12 @@ func InsertRequestLogRow(t *testing.T, dsn string, env *Env, costMicro int64) {
 	defer conn.Close(ctx)
 	_, err = conn.Exec(ctx, `
 		insert into request_log
-		  (id, user_id, api_key_id, model_id, provider_id, tokens_in, tokens_out,
+		  (id, user_id, workspace_id, project_id, environment_id, api_key_id,
+		   model_id, provider_id, tokens_in, tokens_out,
 		   cost, currency, latency_ms, status, error)
-		values ($1,$2,$3,$4,$5,0,0,$6,'USD',0,'success','')`,
-		uuid.Must(uuid.NewV7()).String(), env.UserID, env.APIKeyID, env.ModelID, env.ProviderID, costMicro)
+		values ($1,$2,$3,$4,$5,$6,$7,$8,0,0,$9,'USD',0,'success','')`,
+		uuid.Must(uuid.NewV7()).String(), env.UserID, env.WorkspaceID, env.ProjectID,
+		env.EnvironmentID, env.APIKeyID, env.ModelID, env.ProviderID, costMicro)
 	if err != nil {
 		t.Fatalf("insert request_log: %v", err)
 	}

@@ -22,6 +22,7 @@ import {
 	failJob,
 	getJob,
 	requeueStaleJobs,
+	STALE_AFTER_MS_DEFAULT,
 	type JobHandle,
 	type JobRow,
 	type JobType
@@ -39,7 +40,7 @@ import {
 } from './provider-catalog-fetch.ts';
 import { allowPrivateUpstreams } from './publish-env.ts';
 import { guardedUpstreamFetch } from './ssrf.ts';
-import { reconcile } from './billing.ts';
+import { reconcileAll } from './billing.ts';
 
 /**
  * Worker fleet (PRD §75–76, spec §11/§13).
@@ -149,42 +150,63 @@ async function rollupUsage(
 	`);
 }
 
+/** Start of the UTC hour/day containing `d`. */
+function floorTo(d: Date, trunc: 'hour' | 'day'): Date {
+	const x = new Date(d);
+	if (trunc === 'day') x.setUTCHours(0, 0, 0, 0);
+	else x.setUTCMinutes(0, 0, 0);
+	return x;
+}
+
 /**
  * `usage_aggregation`: rebuild hourly + daily buckets for a window.
  * Payload `{from?, to?}` (ISO strings); default = the last two hours ending now,
  * which is the window the periodic scheduler feeds it.
+ *
+ * `from` is FLOORED to the boundary of each granularity, because `rollupUsage`
+ * upserts `requests = excluded.requests` — a bucket is REPLACED, never summed
+ * into. The scheduler feeds `{}` every 5 minutes, so `from` defaults to `to-2h`;
+ * passing that straight through for `trunc='day'` writes only the last two
+ * hours of rows into today's day bucket and overwrites everything else, on
+ * every single run. Measured before this fix: 363 requests in `request_log` for
+ * the day against 16 in `usage_daily` (a 95.6% understatement) — and
+ * `/api/admin/analytics` sums `usage_daily` and does NOT fall back to
+ * `request_log` whenever the rollup has a row for the day, so the whole admin
+ * dashboard under-reports. Flooring widens the window to the containing bucket
+ * so every bucket the statement touches is fully covered, which makes the
+ * replace-idempotent: re-running with `{}` recomputes today whole, and an
+ * explicit backfill `from` merely gets widened down to its own bucket start
+ * (never narrowed — no data is skipped).
  */
 const usageAggregation: JobHandler = async (dbtx, payload) => {
 	const to = payload.to ? new Date(String(payload.to)) : new Date();
 	const from = payload.from
 		? new Date(String(payload.from))
 		: new Date(to.getTime() - 2 * 60 * 60 * 1000);
-	await rollupUsage(dbtx, usageHourly, 'hour', from, to);
-	await rollupUsage(dbtx, usageDaily, 'day', from, to);
+	await rollupUsage(dbtx, usageHourly, 'hour', floorTo(from, 'hour'), to);
+	await rollupUsage(dbtx, usageDaily, 'day', floorTo(from, 'day'), to);
 };
 
 /**
  * `billing_aggregation`: recompute the `balance_micro` cache from
- * `credit_ledger` for every account (spec §10: the ledger is the record). One
- * pass per account through billing.ts `reconcile` — the single implementation
- * of "balance = SUM(ledger)" both planes agree on. Idempotent.
+ * `credit_ledger` for every account (spec §10: the ledger is the record).
+ * One set-based statement (`reconcileAll`) replaces the per-account loop —
+ * N round trips collapsed to one, and the whole fleet is either repaired or
+ * not (the loop could be killed halfway and leave caches half-old). The rule
+ * is still written once in `reconcileAll`'s SQL.
+ * Idempotent.
  */
 const billingAggregation: JobHandler = async (dbtx) => {
-	const accounts = await dbtx
-		.select({ id: billingAccount.id })
-		.from(billingAccount)
-		.orderBy(billingAccount.id);
-	for (const a of accounts) {
-		await reconcile(a.id, dbtx);
-	}
+	await reconcileAll(dbtx);
 };
 
 /**
  * `invoice_generation`: one `invoice` row per billing account for the period
  * (PRD §48). Payload `{periodStart?, periodEnd?, billingAccountId?}`; default =
- * the previous calendar month (UTC). Idempotent via the deterministic number
- * (`INV-<yyyymm>-<account suffix>`, unique) plus an explicit "already issued
- * for this period" check — a redelivery must never double-bill.
+ * the previous calendar month (UTC). Idempotent via the UNIQUE
+ * (billing_account_id, period_start, period_end) index (migration 0016):
+ * `ON CONFLICT DO NOTHING` on that target is the whole guard, so a redelivery
+ * is a no-op by construction and two concurrent runs cannot both bill.
  */
 const invoiceGeneration: JobHandler = async (dbtx, payload) => {
 	const periodStart = payload.periodStart
@@ -216,18 +238,6 @@ const invoiceGeneration: JobHandler = async (dbtx, payload) => {
 		);
 	const yyyymm = `${periodStart.getUTCFullYear()}${String(periodStart.getUTCMonth() + 1).padStart(2, '0')}`;
 	for (const account of accounts) {
-		const existing = await dbtx
-			.select({ id: invoice.id })
-			.from(invoice)
-			.where(
-				and(
-					eq(invoice.billingAccountId, account.id),
-					eq(invoice.periodStart, periodStart),
-					eq(invoice.periodEnd, periodEnd)
-				)
-			)
-			.limit(1);
-		if (existing.length > 0) continue;
 		const rows = await dbtx
 			.select({ total: sql<string>`coalesce(-sum(${creditLedger.amountMicro}), 0)` })
 			.from(creditLedger)
@@ -247,7 +257,19 @@ const invoiceGeneration: JobHandler = async (dbtx, payload) => {
 			.values({
 				id: newId('inv_'),
 				billingAccountId: account.id,
-				number: `INV-${yyyymm}-${account.id.slice(-8)}`,
+				// The FULL account id, not a suffix of it. `invoice.number` is
+				// UNIQUE and this used to be `account.id.slice(-8)` — 8 hex
+				// characters, 2^32 of them, shared by every billing account.
+				// Two accounts whose ids agree in the last 8 characters produce
+				// the same number, and `onConflictDoNothing` on that index then
+				// dropped the SECOND account's invoice: an entire billing
+				// account silently unbilled for the period, with no error and
+				// no row to notice. Deriving the number from the primary key in
+				// full is injective on the account, so within a period distinct
+				// accounts can no longer collide. Existing rows keep their
+				// 8-character numbers and cannot collide with these: the two
+				// shapes differ in length.
+				number: `INV-${yyyymm}-${account.id}`,
 				periodStart,
 				periodEnd,
 				amountMicro: BigInt(amount),
@@ -255,7 +277,9 @@ const invoiceGeneration: JobHandler = async (dbtx, payload) => {
 				status: 'open',
 				issuedAt: new Date()
 			})
-			.onConflictDoNothing({ target: invoice.number });
+			.onConflictDoNothing({
+				target: [invoice.billingAccountId, invoice.periodStart, invoice.periodEnd]
+			});
 	}
 };
 
@@ -434,9 +458,13 @@ const credentialValidation: JobHandler = async (dbtx, payload) => {
 					: sql`true`
 			)
 		)
-		// Least-recently-validated first: because a probe stamps `lastUsedAt`,
-		// this ordering doubles as the cursor that carries progress across runs.
-		.orderBy(sql`${credential.lastUsedAt} asc nulls first`, credential.id)
+		// Least-recently-validated first. This used to order by `lastUsedAt`,
+		// which the probe itself stamps on every run (line ~570) — so after the
+		// nulls drained, the cursor stopped advancing and the same 250 rows
+		// were re-probed hourly with no progress. `lastValidatedAt` is written
+		// only by this handler, so the ordering is a cursor the probe cannot
+		// disturb, and it no longer pollutes the router's LRU signal either.
+		.orderBy(sql`${credential.lastValidatedAt} asc nulls first`, credential.id)
 		.limit(CREDENTIAL_VALIDATION_BATCH);
 	const conns = new Map(
 		(
@@ -483,9 +511,14 @@ const credentialValidation: JobHandler = async (dbtx, payload) => {
 		try {
 			plain = decryptCredentials(cred.secretEnc);
 		} catch (e) {
+			// An undecryptable credential is still a VALIDATED credential: the
+			// probe examined it and reached a verdict (`invalid`). Stamping
+			// `lastValidatedAt` here keeps the cursor advancing past rows that
+			// can never decrypt — otherwise they sit at NULL forever and the
+			// batch re-selects the same undecryptable rows every run.
 			await dbtx
 				.update(credential)
-				.set({ status: 'invalid', lastErrorAt: new Date(), updatedAt: new Date() })
+				.set({ status: 'invalid', lastValidatedAt: new Date(), lastErrorAt: new Date(), updatedAt: new Date() })
 				.where(eq(credential.id, cred.id));
 			await dbtx.insert(systemEvent).values({
 				id: newId('evt_'),
@@ -543,7 +576,7 @@ const credentialValidation: JobHandler = async (dbtx, payload) => {
 			.update(credential)
 			.set({
 				status,
-				lastUsedAt: now,
+				lastValidatedAt: now,
 				lastSuccessAt: status === 'healthy' ? now : undefined,
 				lastErrorAt: status === 'healthy' ? undefined : now,
 				cooldownUntil: failing ? new Date(now.getTime() + CREDENTIAL_PROBE_COOLDOWN_MS) : null,
@@ -727,6 +760,84 @@ const pricingSync: JobHandler = async (dbtx, payload) => {
 };
 
 /**
+ * How many rows ONE retention statement touches.
+ *
+ * Why batching exists at all: the handler ran four unbounded statements and the
+ * DELETE carried an FK check per removed `request_log` row. At 3B tokens/day
+ * `request_log` is the largest table in the system, so a pass whose cutoff
+ * matches millions of rows holds its snapshot, its indexes, its TOAST and every
+ * pending FK check open for the whole pass — and it cannot be interrupted,
+ * because `stop()` drains in-flight handlers rather than killing them, so
+ * SIGTERM waits for the sweep.
+ *
+ * Batching makes each statement commit and release its locks. The work is
+ * idempotent (it selects by age), so a sweep cut short is simply resumed by the
+ * next run and partial progress is progress.
+ *
+ * 5,000 is sized against the measured per-row cost: the FK check on a deleted
+ * `request_log` row measured ~5µs (17ms / 3,362 rows, and stable across query
+ * plans), so one batch is ~25ms of trigger work plus an index seek. At 1M stale
+ * rows that is 200 statements instead of one 5-second transaction.
+ */
+export const RETENTION_BATCH = 5_000;
+
+/**
+ * How many batches one sweep runs before yielding.
+ *
+ * Without a cap, the first sweep against a large backlog is an unbounded loop
+ * that starves the rest of the queue. The caller reports whether it finished, so
+ * an operator can tell "caught up" from "still draining" — silently stopping at
+ * the border would be the same bug in a different costume.
+ */
+export const RETENTION_MAX_BATCHES = 200;
+
+/**
+ * retentionBatch touches `RETENTION_BATCH` aged rows at most: DELETEs them, or
+ * (when `setClause` is given) blanks the named columns instead.
+ *
+ * `set` + a `where id in (select … limit N)` subquery is deliberate. A plain
+ * `update|delete where <predicate>` has no limit, so it cannot be bounded; the
+ * subquery form is what makes each statement bounded AND index-driven, which is
+ * the pair that turns a full heap pass into a seek (measured 144ms -> 3ms on the
+ * same 3,362 rows once `request_log_created_at_idx` exists).
+ *
+ * The cutoff is passed as an ISO STRING, not a Date. postgres-js accepts a Date
+ * as a top-level argument (every drizzle `.where()` in this codebase relies on
+ * that) but rejects one once it is nested inside a `sql.raw`-bearing fragment:
+ * measured `code: 'ERR_INVALID_ARG_TYPE'` at Bind for `new Date(0)`, while
+ * `.toISOString()` binds cleanly and casts to timestamptz by column context.
+ */
+async function retentionBatch(
+	dbtx: JobHandle,
+	table: string,
+	dateCol: string,
+	cutoffDate: Date,
+	extraWhere = '',
+	setClause?: string
+): Promise<{ touched: number; more: boolean }> {
+	let touched = 0;
+	for (let batch = 0; batch < RETENTION_MAX_BATCHES; batch++) {
+		const ids = sql`select id from ${sql.identifier(table)}
+			where ${sql.identifier(dateCol)} < ${cutoffDate.toISOString()} ${sql.raw(extraWhere)}
+			limit ${RETENTION_BATCH}`;
+		// `id` is the only column RETURNING, so the row count is the touched
+		// count. postgres-js hands back an array-like RowList, hence the read
+		// through `.length` rather than a drizzle builder's typed rows.
+		const rows = (setClause
+			? await dbtx.execute<{ id: string }>(sql`update ${sql.identifier(table)} set ${sql.raw(setClause)}
+					where id in (${ids}) returning id`)
+			: await dbtx.execute<{ id: string }>(sql`delete from ${sql.identifier(table)}
+					where id in (${ids}) returning id`)) as unknown as Array<{ id: string }>;
+		const n = rows.length;
+		touched += n;
+		// Fewer than a full batch means the window is empty: stop rather than
+		// issuing one more statement that is guaranteed to match nothing.
+		if (n < RETENTION_BATCH) return { touched, more: false };
+	}
+	return { touched, more: true };
+}
+
+/**
  * `data_retention_cleanup`: enforce `system_setting['retention']`
  * (PRD §93–94). Two different defaults on purpose — the PRD keeps REQUEST
  * METADATA always and makes content capture opt-in, while destroying rows must
@@ -740,7 +851,9 @@ const pricingSync: JobHandler = async (dbtx, payload) => {
  *   opt-in — a zero here must never mean "wipe the ledger"). `job_days` deletes
  *   only TERMINAL (`completed`/`failed`) queue rows, never live work.
  *
- * Idempotent: a second run finds nothing older than the same cutoffs.
+ * Idempotent: a second run finds nothing older than the same cutoffs. Every
+ * branch is batched (see retentionBatch) and reports whether it finished, so a
+ * long backlog drains across runs instead of in one unbounded transaction.
  */
 const dataRetentionCleanup: JobHandler = async (dbtx) => {
 	const retention = await getSetting('retention');
@@ -751,39 +864,32 @@ const dataRetentionCleanup: JobHandler = async (dbtx) => {
 	const jobDays = Number(retention?.job_days ?? 0);
 	const cutoff = (days: number) => new Date(Date.now() - days * 86_400_000);
 
-	await dbtx
-		.update(requestLog)
-		.set({ requestBody: null, responseBody: null })
-		.where(
-			and(
-				sql`(${requestLog.requestBody} is not null or ${requestLog.responseBody} is not null)`,
-				lt(requestLog.createdAt, cutoff(contentDays))
-			)
-		);
+	// Content first, then rows — the original order, now batched. Blanking is
+	// batched for the same reason as deletion: it rewrites the two largest
+	// columns, so one unbounded UPDATE rewrites the whole TOAST relation inside
+	// a single transaction.
+	const blanked = await retentionBatch(
+		dbtx,
+		'request_log',
+		'created_at',
+		cutoff(contentDays),
+		'and (request_body is not null or response_body is not null)',
+		'request_body = null, response_body = null'
+	);
 
 	let deletedRequests = 0;
 	if (metadataDays > 0) {
-		const rows = await dbtx
-			.delete(requestLog)
-			.where(lt(requestLog.createdAt, cutoff(metadataDays)))
-			.returning({ id: requestLog.id });
-		deletedRequests = rows.length;
+		deletedRequests = (
+			await retentionBatch(dbtx, 'request_log', 'created_at', cutoff(metadataDays))
+		).touched;
 	}
 	let deletedEvents = 0;
 	if (eventDays > 0) {
-		const rows = await dbtx
-			.delete(systemEvent)
-			.where(lt(systemEvent.createdAt, cutoff(eventDays)))
-			.returning({ id: systemEvent.id });
-		deletedEvents = rows.length;
+		deletedEvents = (await retentionBatch(dbtx, 'system_event', 'created_at', cutoff(eventDays))).touched;
 	}
 	let deletedAudits = 0;
 	if (auditDays > 0) {
-		const rows = await dbtx
-			.delete(auditLog)
-			.where(lt(auditLog.createdAt, cutoff(auditDays)))
-			.returning({ id: auditLog.id });
-		deletedAudits = rows.length;
+		deletedAudits = (await retentionBatch(dbtx, 'audit_log', 'created_at', cutoff(auditDays))).touched;
 	}
 	// `job` is an internal queue, not a ledger: its completed/failed rows are
 	// pure history and grow ~3-4k/day forever (one row per webhook delivery,
@@ -791,31 +897,41 @@ const dataRetentionCleanup: JobHandler = async (dbtx) => {
 	// pending/running job is live work and a sweep must never drop it.
 	let deletedJobs = 0;
 	if (jobDays > 0) {
-		const rows = await dbtx
-			.delete(job)
-			.where(
-				and(
-					sql`${job.status} in ('completed', 'failed')`,
-					lt(job.createdAt, cutoff(jobDays))
-				)
+		deletedJobs = (
+			await retentionBatch(
+				dbtx,
+				'job',
+				'created_at',
+				cutoff(jobDays),
+				"and status in ('completed', 'failed')"
 			)
-			.returning({ id: job.id });
-		deletedJobs = rows.length;
+		).touched;
 	}
-	if (deletedRequests + deletedEvents + deletedAudits + deletedJobs > 0) {
+	const unfinished =
+		blanked.more ||
+		(metadataDays > 0 && deletedRequests >= RETENTION_BATCH * RETENTION_MAX_BATCHES) ||
+		(eventDays > 0 && deletedEvents >= RETENTION_BATCH * RETENTION_MAX_BATCHES) ||
+		(auditDays > 0 && deletedAudits >= RETENTION_BATCH * RETENTION_MAX_BATCHES) ||
+		(jobDays > 0 && deletedJobs >= RETENTION_BATCH * RETENTION_MAX_BATCHES);
+	if (blanked.touched + deletedRequests + deletedEvents + deletedAudits + deletedJobs > 0) {
 		await dbtx.insert(systemEvent).values({
 			id: newId('evt_'),
 			type: 'data_retention_cleanup',
 			resource: 'system',
 			resourceId: null,
 			metadata: {
+				blankedBodies: blanked.touched,
 				deletedRequests,
 				deletedEvents,
 				deletedAudits,
 				deletedJobs,
 				metadataDays,
 				contentDays,
-				jobDays
+				jobDays,
+				// true = a window still had rows when the batch cap was reached, so
+				// the next scheduled run continues. Distinguishes "caught up" from
+				// "still draining" without a second query.
+				unfinished
 			}
 		});
 	}
@@ -988,7 +1104,7 @@ export function createWorker(options: WorkerOptions = {}): WorkerRuntime {
 	const types = options.types ?? (Object.keys(JOB_HANDLERS) as JobType[]);
 	const concurrency = Math.max(1, options.concurrency ?? 1);
 	const idleSleepMs = options.idleSleepMs ?? 2000;
-	const staleAfterMs = options.staleAfterMs ?? 600_000;
+	const staleAfterMs = options.staleAfterMs ?? STALE_AFTER_MS_DEFAULT;
 	let running = true;
 	let inFlight: Promise<void> = Promise.resolve();
 	let wake: (() => void) | null = null;

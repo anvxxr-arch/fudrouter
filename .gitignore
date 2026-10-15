@@ -28,6 +28,11 @@ node_modules/.pnpm/
 *.orig
 *.rej
 
+# `go test -c` / `go test -o proxy.test` leaves an 18MB unstripped ELF next to the
+# package; the `bin/` entry above does not cover it and a stray one is one
+# `git add -A` away from being committed. Go's test source is the `.go` file.
+*.test
+
 # One-off investigation scratch space. Anything here is a single-sighting probe
 # by definition; real tools get promoted into ops/verify/ and committed from there.
 scratch/

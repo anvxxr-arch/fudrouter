@@ -48,25 +48,64 @@ func (s *Store) BillingAccountByWorkspace(ctx context.Context, workspaceID strin
 	return b, err
 }
 
-// CheckSpendable is the admission gate (spec §10): an account at or under its
-// hard stop must be rejected with INSUFFICIENT_CREDITS (HTTP 402) BEFORE an
-// upstream call is made. ErrNotFound (no account) is not an error here — see
-// BillingAccountByWorkspace.
-func (s *Store) CheckSpendable(ctx context.Context, workspaceID string) error {
-	b, err := s.BillingAccountByWorkspace(ctx, workspaceID)
-	if errors.Is(err, ErrNotFound) {
-		return nil
-	}
+// BudgetGateState is everything the admission budget gate needs beyond the
+// budget rows themselves: the workspace's billing account (hard stop) and the
+// environment's flat monthly budget column. Both are read in ONE query.
+//
+// Why one query: checkBudgets runs before every dispatch, and these two reads
+// were separate round trips for two rows that never interact — a billing
+// account keyed by workspace and an environment row keyed by environment. A
+// `left join` pair off a one-row anchor returns both or neither in a single
+// round trip.
+//
+// `acct` is nil when the workspace has no billing account (the S0 tenant the
+// caller must treat as having no hard stop); `envBudget` is nil when the column
+// is NULL or the environment does not exist.
+//
+// Only the account read keeps its fail-CLOSED behaviour: a query error is
+// returned, and the caller refuses (spec §10 — a billing read that cannot be
+// trusted must not admit spend). That was already true of this path, because
+// the account read was the first thing checkBudgets did.
+func (s *Store) BudgetGateState(ctx context.Context, workspaceID, environmentID string) (*BillingAccount, *int64, error) {
+	var (
+		acct                            *BillingAccount
+		id, wsID, currency, status      *string
+		warnThreshold, hardStop, balance *int64
+		envBudget                       *int64
+	)
+	err := s.pool.QueryRow(ctx, `
+		select ba.id, ba.workspace_id, ba.currency, ba.status,
+		       ba.warning_threshold_micro, ba.hard_stop_threshold_micro, ba.balance_micro,
+		       e.monthly_budget_micro
+		from (select 1) anchor
+		left join billing_account ba on ba.workspace_id = $1
+		left join environment e on e.id = $2`, workspaceID, environmentID,
+	).Scan(&id, &wsID, &currency, &status, &warnThreshold, &hardStop, &balance, &envBudget)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
-	if b.Status != "active" {
-		return ErrInsufficientCredits
+	if id != nil {
+		acct = &BillingAccount{ID: *id}
+		if wsID != nil {
+			acct.WorkspaceID = *wsID
+		}
+		if currency != nil {
+			acct.Currency = *currency
+		}
+		if status != nil {
+			acct.Status = *status
+		}
+		if warnThreshold != nil {
+			acct.WarningThresholdMicro = *warnThreshold
+		}
+		if hardStop != nil {
+			acct.HardStopThresholdMicro = *hardStop
+		}
+		if balance != nil {
+			acct.BalanceMicro = *balance
+		}
 	}
-	if b.BalanceMicro <= b.HardStopThresholdMicro {
-		return ErrInsufficientCredits
-	}
-	return nil
+	return acct, envBudget, nil
 }
 
 // ChargeResult reports what the charge did to the account, so the caller can
@@ -91,96 +130,149 @@ type ChargeResult struct {
 //
 // Usage is charged whenever a workspace has a billing account: tokens that were
 // consumed are owed whether or not the account is at its hard stop. The hard
-// stop gates ADMISSION (CheckSpendable), not payment, and ChargeResult.HardStop
-// tells the caller to stop admitting further requests for this workspace.
+// stop gates ADMISSION (store.BudgetGateState, called from checkBudgets), not
+// payment, and ChargeResult.HardStop tells the caller to stop admitting further
+// requests for this workspace.
+//
+// MEASURED COST: ONE round trip. It was six — BEGIN, the request_log insert, a
+// `for update` on billing_account, the credit_ledger insert, the balance update,
+// COMMIT — and that was the single largest per-request store cost in the router.
+// TestWritePathRoundTrips pins the count at 1.
+//
+// The round trips were not the real damage; the LOCK HOLD was. The explicit
+// `for update` was held from statement 3 until statement 6, five round trips, so
+// every concurrent request for the SAME workspace queued on it. Folding the block
+// into one statement keeps the lock — the atomic `balance_micro + $45` still needs
+// it — but holds it for the tail of a single statement instead of four network
+// waits. The evidence is the round-trip COUNT (6 -> 1, pinned by
+// TestWritePathRoundTrips) plus the lock hold itself; the wall-clock difference is
+// real but this box varies by an order of magnitude run to run, so it is not the
+// number to quote (see the note in internal/proxy/zz_contention_test.go).
+//
+// Two facts constrain any future change here, and both are tested:
+//
+//   - The credit_ledger insert is idempotent on `usage:<request id>`; a replay
+//     must report Charged=false AND the account's CURRENT balance, because the
+//     caller's low-balance check reads that number.
+//   - request_attempt has an FK to request_log, so the request_log row must
+//     exist before the attempts are written. That is why the insert is its own
+//     CTE arm rather than being folded into the ledger insert's FROM clause.
 func (s *Store) ChargeRequest(ctx context.Context, r *RequestLog) (*ChargeResult, error) {
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck // rollback after Commit is a no-op
-
 	// Mirror the charge on the ledger row BEFORE the insert so request_log is
 	// self-describing (spec §8: credit_charged_micro) without joining.
 	if r.CreditChargedMicro == 0 && r.Cost != 0 {
 		r.CreditChargedMicro = r.Cost
 	}
-	if _, err := tx.Exec(ctx, `
-		insert into request_log (`+requestLogColumns+`)
-		values (`+placeholders(43)+`)
-		on conflict (id) do nothing`, r.args()...); err != nil {
-		return nil, err
-	}
 
 	res := &ChargeResult{Charged: true}
 	if r.WorkspaceID == "" {
-		// Account-less tenant (S0): there is no billing_account row to lock, so
-		// the `for update` select would only take a lock path that serialises
-		// the common case against itself for nothing. Skip straight to the
-		// no-account commit — identical outcome, no row lock.
-		if err := tx.Commit(ctx); err != nil {
+		// Account-less tenant (S0): there is no billing_account row to lock and
+		// nothing to charge, so this is one insert and nothing else.
+		if _, err := s.pool.Exec(ctx, `
+			insert into request_log (`+requestLogColumns+`)
+			values (`+placeholders(43)+`)
+			on conflict (id) do nothing`, r.args()...); err != nil {
 			return nil, err
 		}
 		return res, nil
 	}
-	var accountID *string
-	var warningThreshold, hardStop, balance *int64
-	err = tx.QueryRow(ctx, `
-		select id, warning_threshold_micro, hard_stop_threshold_micro, balance_micro
-		from billing_account where workspace_id = $1
-		for update`, nullStr(r.WorkspaceID),
-	).Scan(&accountID, &warningThreshold, &hardStop, &balance)
+
+	// ONE statement, not six round trips.
+	//
+	// The measured defect this replaces: the block was BEGIN, insert request_log,
+	// `select ... for update` billing_account, insert credit_ledger, update
+	// balance, COMMIT. The explicit row lock was held from statement 3 until
+	// statement 6 — five round trips — so every concurrent request for the SAME
+	// workspace queued on it. Measured at 12 workers x 10 requests: one workspace
+	// 43 rps / p50 89ms / p99 2.07s, while the same load across 12 workspaces was
+	// 152 rps / p50 59ms / p99 221ms (TestWritePathSerializesOneWorkspace).
+	//
+	// The fix is not to remove the lock but to stop holding it across round trips.
+	// `insert request_log` is a separate arm because request_attempt has an FK to
+	// it; the rest rides the ledger insert, and `update billing_account ... from
+	// ledger` both locks the account row and takes its atomic increment. Postgres
+	// re-checks the WHERE clause after acquiring a row lock, so a concurrent
+	// writer cannot lose its update, and the lock is now held for the tail of one
+	// statement instead of four network waits.
+	//
+	// A CTE cannot span two data-modifying arms that target the same row in one
+	// statement, so the ledger insert and the balance update are joined by a
+	// FROM-clause reference to the inserted row: `invalidated` gives the insert a
+	// name its consumer can read (an unreferenced data-modifying CTE in the same
+	// statement still runs exactly once — see the ledger idempotency note below).
+	var (
+		accountID                                           *string
+		warningThreshold, hardStop, balance                 *int64
+		charged                                             *bool
+	)
+	err := s.pool.QueryRow(ctx, `
+		with rl as (
+			insert into request_log (`+requestLogColumns+`)
+			values (`+placeholders(43)+`)
+			on conflict (id) do nothing
+			returning 1
+		), ledger as (
+			insert into credit_ledger
+			  (id, billing_account_id, type, amount_micro, currency, request_id,
+			   idempotency_key, description, metadata)
+			select $44, ba.id, 'usage_charge', $45, $46, $47, $48, $49, '{}'::jsonb
+			from billing_account ba
+			where ba.workspace_id = $50
+			on conflict (idempotency_key) do nothing
+			returning id, billing_account_id
+		), bal as (
+			update billing_account ba
+			set balance_micro = ba.balance_micro + $45, updated_at = now()
+			from ledger l
+			where ba.id = l.billing_account_id
+			returning ba.id, ba.warning_threshold_micro, ba.hard_stop_threshold_micro, ba.balance_micro
+		)
+		-- The charged case: the row the update just wrote.
+		select bal.id, bal.warning_threshold_micro, bal.hard_stop_threshold_micro, bal.balance_micro, true
+		from bal
+		union all
+		-- The replay case (ledger conflict, so no balance moved): report the
+		-- account's CURRENT state, which is what the caller's low-balance check
+		-- needs. Without this arm a replay answered balance 0 — measured, and it
+		-- is what the first version of this statement returned.
+		select ba.id, ba.warning_threshold_micro, ba.hard_stop_threshold_micro, ba.balance_micro, false
+		from billing_account ba
+		where ba.workspace_id = $50 and not exists (select 1 from bal)`,
+		append(append([]any{}, r.args()...),
+			ids.New("txn"), -r.Cost, r.Currency, nullStr(r.ID),
+			"usage:"+r.ID, "usage charge for "+r.ID, nullStr(r.WorkspaceID))...,
+	).Scan(&accountID, &warningThreshold, &hardStop, &balance, &charged)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
-		// No account: record the usage and stop. There is nothing to charge,
-		// which is the S0 behaviour for a tenant that predates billing.
-		if err := tx.Commit(ctx); err != nil {
-			return nil, err
-		}
+		// No billing account for this workspace: the S0 tenant that predates
+		// billing. `Charged` stays true — the usage was recorded and there was
+		// nothing to charge, which is the semantics this returned before the
+		// statements were folded together.
 		return res, nil
 	case err != nil:
 		return nil, err
 	}
-
-	res.BillingAccountID = *accountID
-	amount := -r.Cost // a usage_charge debits the balance
-	var charged bool
-	err = tx.QueryRow(ctx, `
-		insert into credit_ledger
-		  (id, billing_account_id, type, amount_micro, currency, request_id,
-		   idempotency_key, description, metadata)
-		values ($1,$2,'usage_charge',$3,$4,$5,$6,$7,$8)
-		on conflict (idempotency_key) do nothing
-		returning true`,
-		ids.New("txn"), *accountID, amount, r.Currency, nullStr(r.ID),
-		"usage:"+r.ID, "usage charge for "+r.ID, "{}",
-	).Scan(&charged)
-	switch {
-	case errors.Is(err, pgx.ErrNoRows):
+	if charged != nil && !*charged {
 		res.Charged = false // already charged: idempotent replay
-	case err != nil:
-		return nil, err
 	}
-
-	if res.Charged {
-		if _, err := tx.Exec(ctx, `
-			update billing_account
-			set balance_micro = balance_micro + $2, updated_at = now()
-			where id = $1`, *accountID, amount); err != nil {
-			return nil, err
-		}
-		if balance != nil && warningThreshold != nil {
-			newBalance := *balance + amount
-			res.BalanceMicro = newBalance
-			res.Warning = newBalance < *warningThreshold
-			res.HardStop = hardStop != nil && newBalance <= *hardStop
-		}
-	} else if balance != nil {
+	if accountID != nil {
+		res.BillingAccountID = *accountID
+	}
+	if balance != nil {
 		res.BalanceMicro = *balance
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return nil, err
+		if res.Charged {
+			res.Warning = warningThreshold != nil && *balance <= *warningThreshold
+			res.HardStop = hardStop != nil && *balance <= *hardStop
+			// The cached gate state is holding this workspace's PRE-charge
+			// balance. Drop it the moment the line is crossed so the next
+			// request re-reads and refuses, instead of being admitted for up to
+			// gateTTL off a balance that no longer exists. Only on the crossing
+			// (not every charge) — a cache miss per charge would put the round
+			// trip back on the hot path this cache exists to remove.
+			if res.HardStop {
+				s.InvalidateAdmission(r.WorkspaceID)
+			}
+		}
 	}
 	return res, nil
 }

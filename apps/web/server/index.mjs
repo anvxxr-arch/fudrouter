@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { statSync } from 'node:fs';
 import express from 'express';
 import postgres from 'postgres';
 import { drizzle } from 'drizzle-orm/postgres-js';
@@ -22,10 +23,23 @@ import { registerAdminRoutes } from './admin.mjs';
 import { registerPages } from './pages.mjs';
 import { registerPublicRoutes } from './public.mjs';
 import { rateLimit } from './rate-limit.mjs';
-import { clientIp } from './lib/ip.mjs';
+import { joinFudcourt } from './lib/discord.mjs';
+import { emailAuthEnabled } from './lib/auth-config.mjs';
+import { compress } from './lib/compress.mjs';
+import { clientIp, requestOrigin } from './lib/ip.mjs';
+import { readShell, withHead, seo } from './lib/head.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.join(__dirname, '..', 'dist');
+// The deployed bundle's timestamp — the sitemap's lastmod. Resolved once at
+// import: the value is a property of the build, not of the request.
+const BUILD_TIME = (() => {
+  try {
+    return statSync(path.join(DIST, 'index.html')).mtimeMs;
+  } catch {
+    return Date.now();
+  }
+})();
 
 // ---------------------------------------------------------------- tables ----
 // Minimal column copies of packages/platform/server/db/{auth.schema,schema}.ts
@@ -124,6 +138,13 @@ export const requestLog = pgTable('request_log', {
 	id: text('id').primaryKey(),
 	status: text('status').notNull(),
 	endpoint: text('endpoint'),
+	// The ratchet the palette's request search needs: that route gated on
+	// request.read for the caller's workspace and then queried by id prefix
+	// alone, returning every tenant's ids. The predicate could not be expressed
+	// through this object without the column, and reaching for an undeclared one
+	// silently compiles to an EMPTY column reference (`and  = $2`) — a 500 at
+	// runtime, which is how the first attempt at the fix failed.
+	workspaceId: text('workspace_id'),
 	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
 });
 export const workspace = pgTable('workspace', {
@@ -414,10 +435,64 @@ export const auth = betterAuth({
 					});
 				}
 			}
+		},
+		session: {
+			create: {
+				// After every sign-in, put the user into the FUDCourt Discord
+				// server (spec: login is Discord-only and lands you in the
+				// server). A NEW SESSION is the right trigger rather than
+				// `user.create.after` — that hook fires exactly once, for the
+				// very first sign-up, so a member who is later kicked would
+				// never be re-added; and rather than every authenticated
+				// request, which would put a Discord API round trip on the hot
+				// path of every page load for a state we do not read back.
+				//
+				// Fire-and-forget on purpose: see lib/discord.mjs — a Discord
+				// outage must not turn a successful login into a 500, and
+				// awaiting it would add outbound latency to every sign-in.
+				after: async (session) => {
+					if (!db) return;
+					try {
+						const rows = await db
+							.select({ accountId: account.accountId })
+							.from(account)
+							.where(and(eq(account.userId, session.userId), eq(account.providerId, 'discord')))
+							.limit(1);
+						const discordId = rows[0]?.accountId;
+						if (!discordId) return;
+						// Deliberately not awaited: `after` hooks are awaited by
+						// better-auth, and `fetch` has no timeout of its own, so
+						// an unreachable Discord would hold the login response
+						// open for as long as the socket decides to linger. The
+						// local lookup above is cheap; the outbound call is not
+						// ours to block on.
+						void joinFudcourt(discordId)
+							.then((status) => {
+								// `null` = no bot token configured (skipped
+								// silently by design). Anything else non-2xx
+								// means the bot is not in the guild or the user
+								// denied `guilds.join`, and that IS worth a log
+								// line — it is the only signal that the feature
+								// is quietly not working.
+								if (status !== null && (status < 200 || status >= 300)) {
+									console.warn(`[auth] discord guild join for user ${session.userId} answered ${status}`);
+								}
+							})
+							.catch((err) => {
+								console.warn('[auth] discord guild join failed:', err?.message ?? err);
+							});
+					} catch (err) {
+						console.warn('[auth] discord guild join lookup failed:', err?.message ?? err);
+					}
+				}
+			}
 		}
 	},
 	trustedOrigins: process.env.NODE_ENV === 'production' ? [] : ['http://localhost:3000', 'http://127.0.0.1:3000'],
-	emailAndPassword: { enabled: true },
+	// Discord is the only way in. `emailAuthEnabled` decides the one exception
+	// (the integration harness); lib/auth-config.mjs records why it is keyed
+	// on the literal string 'test' rather than an env var.
+	emailAndPassword: { enabled: emailAuthEnabled(process.env.NODE_ENV) },
 	// better-auth's own limiter was OFF and the express limiter never covered
 	// /api/auth/*, so sign-in/sign-up were unthrottled (14 rapid failed logins
 	// returned 14x401). This is a backstop; the express limiter is the primary.
@@ -439,7 +514,13 @@ export const auth = betterAuth({
 						clientId: process.env.FLEXYROUTE_CLIENT_ID,
 						clientSecret: process.env.FLEXYROUTE_CLIENT_SECRET,
 						redirectURI: `${ORIGIN}/api/auth/callback/discord`,
-						prompt: 'consent'
+						prompt: 'consent',
+						// `guilds.join` is required, not decoration: without it
+						// the post-login add-to-server call is refused with 403
+						// "Missing Access" for every single user. Better-auth's
+						// Discord default is `identify email`, so the scope has
+						// to be stated here to widen it (lib/discord.mjs).
+						scope: 'identify email guilds.join'
 					}
 				}
 			}
@@ -577,6 +658,10 @@ function paletteParams(url) {
 // ------------------------------------------------------------------ app -----
 const app = express();
 app.disable('x-powered-by');
+// Compression first, so every response below (static assets, pages JSON, SSE)
+// sees it. It sets Vary and decides per-response whether to encode; SSE and
+// already-encoded bodies are left untouched -- see lib/compress.mjs.
+app.use(compress());
 // Security headers (X-Content-Type-Options, X-Frame-Options,
 // Referrer-Policy, CSP) are owned SOLELY by Caddy (header block in the
 // Caddyfile): emitting them here too would send duplicates. Only the
@@ -795,6 +880,20 @@ app.get('/api/palette/:type', async (req, res) => {
 			await requireMemberPermission(database, userRow, workspaceId, 'request.read');
 			if (q.length < 3) return res.json({ items: [] });
 			const prefix = likePattern(q, 'prefix');
+			// The permission gate proves membership in the CALLER's workspace; it
+			// does not bind the query to it. Without the predicate below this
+			// returned every tenant's request ids (with status, endpoint and
+			// createdAt), because the only filter was an id prefix — and a uuidv7
+			// id is timestamp-prefixed, so the leading characters a caller must
+			// guess are enumerable.
+			//
+			// The builder, not raw SQL: `database.execute` returns the driver's
+			// RowList (snake_case) while the response mapping below reads camelCase
+			// properties, so raw SQL here silently yields undefined fields. That
+			// choice needs `requestLog.workspaceId` declared on the table object —
+			// referencing a column it does not know compiles to an EMPTY column
+			// reference (`and  = $2`), which is a 500, not a compile error. Both
+			// mistakes were made and caught here.
 			const rows = await database
 				.select({
 					id: requestLog.id,
@@ -803,7 +902,7 @@ app.get('/api/palette/:type', async (req, res) => {
 					createdAt: requestLog.createdAt
 				})
 				.from(requestLog)
-				.where(sql`${requestLog.id} ilike ${prefix}`)
+				.where(and(sql`${requestLog.id} ilike ${prefix}`, eq(requestLog.workspaceId, workspaceId)))
 				.orderBy(desc(requestLog.createdAt))
 				.limit(limit);
 			return res.json({
@@ -956,22 +1055,76 @@ app.get('/api/pages/{*path}', (req, res) => {
 
 // Crawler files must precede the SPA fallback, which would otherwise serve
 // index.html with a 200 for these paths.
-const SITE_ROUTES = ['', '/models', '/providers', '/pricing', '/playground', '/docs', '/status', '/changelog', '/login', '/signup'];
+//
+// The sitemap is built from the SEO registry (src/lib/seo.ts), not a literal
+// list: the old hardcoded SITE_ROUTES drifted the moment a route was added, and
+// it could not carry a priority or a change frequency. The registry is the same
+// table the head renderer below and the SPA's Meta component read, so all three
+// agree by construction.
 app.get('/robots.txt', (req, res) => {
-  const origin = `${req.protocol}://${req.get('host')}`;
-  res.type('text/plain').send(`User-agent: *\nAllow: /\nSitemap: ${origin}/sitemap.xml\n`);
+  // requestOrigin, not req.protocol: the tunnel terminates TLS and caddy dials
+  // this server in plaintext, so req.protocol alone is 'http' and the Sitemap
+  // line advertised an HSTS redirect. See lib/ip.mjs.
+  const origin = requestOrigin(req);
+  // The Disallow list is not decoration: the SPA fallback below 303-redirects
+  // /dashboard*, /admin* and /invite* to /login for an anonymous request
+  // (index.mjs:989-993, verified live), so allowing them spends crawl budget on
+  // redirects. Paths are written WITHOUT a trailing slash on purpose: robots
+  // matching is a literal prefix compare, so `Disallow: /dashboard/` would not
+  // block the exact URL `/dashboard`, which is one of the gated ones.
+  res.type('text/plain').send(
+    `User-agent: *\nAllow: /\nDisallow: /dashboard\nDisallow: /admin\nDisallow: /invite\nDisallow: /api/\nSitemap: ${origin}/sitemap.xml\n`
+  );
 });
 app.get('/sitemap.xml', (req, res) => {
-  const origin = `${req.protocol}://${req.get('host')}`;
-  const urls = SITE_ROUTES.map((r) => `  <url><loc>${origin}${r || '/'}</loc></url>`).join('\n');
+  const origin = requestOrigin(req);
+  // lastmod is the deploy's own build time, not "now": a sitemap that claims
+  // every URL changed on every crawl is the signal crawlers learn to ignore.
+  const lastmod = new Date(BUILD_TIME).toISOString().slice(0, 10);
+  const urls = seo
+    .sitemapPaths()
+    .map((p) => {
+      const meta = seo.seoFor(p);
+      const hints = [
+        meta.changefreq ? `<changefreq>${meta.changefreq}</changefreq>` : '',
+        meta.priority !== undefined ? `<priority>${meta.priority.toFixed(1)}</priority>` : '',
+      ]
+        .filter(Boolean)
+        .join('');
+      return `  <url><loc>${origin}${p === '/' ? '/' : p}</loc><lastmod>${lastmod}</lastmod>${hints}</url>`;
+    })
+    .join('\n');
   res.type('application/xml').send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>`);
 });
 
 // --- static React build ---
-// Hashed /assets/* files are content-addressed: immutable 1y. index.html and
-// all other paths keep the default (revalidate) so deploys take effect.
+// Hashed /assets/* files are content-addressed: immutable 1y. index.html itself
+// is NOT served statically — a static index.html answers `/` with the shell's
+// own landing-page tags and skips the head rewrite below, which is exactly what
+// happened before this (curl / returned the static title and no robots tag, with
+// the correct one only on /models). The SPA fallback serves every page path, so
+// there is one code path that produces HTML.
 app.use('/assets', express.static(path.join(DIST, 'assets'), { maxAge: '1y', immutable: true }));
-app.use(express.static(DIST));
+// The link-preview card and the app icons, from the DURABLE (non-hashed) static
+// directory. They cannot live under /assets: a social scraper will not run the
+// SPA, so the URL in og:image has to resolve on its own, and a content-hashed
+// filename would change under every crawler that had cached the old one. Without
+// this mount the request falls through to the SPA fallback below and answers a
+// scraper with HTML where it asked for an image, which is a broken preview.
+//
+// A day of max-age is the compromise: long enough not to re-fetch per preview,
+// short enough that a rebrand is visible within a day.
+app.use(
+	express.static(path.join(__dirname, '..', 'public'), {
+		maxAge: '1d',
+		index: false,
+		fallthrough: true,
+		setHeaders: (res, filePath) => {
+			// og.png is opaque and only ever embedded; the icons are small.
+			if (filePath.endsWith('.png')) res.type('image/png');
+		},
+	})
+);
 app.get('{*path}', async (req, res, next) => {
 	if (req.path.startsWith('/api/')) return next();
 	const p = req.path;
@@ -981,7 +1134,25 @@ app.get('{*path}', async (req, res, next) => {
 			if (!u) return res.redirect(303, '/login');
 		} catch { return res.redirect(303, '/login'); }
 	}
-	res.sendFile(path.join(DIST, 'index.html'));
+	// The shell is the landing page's. Rewriting its head per request is what
+	// makes /pricing answer with its own title, description and canonical
+	// instead of the landing page's — before this, every public route served
+	// `<title>FUDRouter — one API key, every model</title>` and a canonical to
+	// `/`, which is a duplicate-content signal against the homepage.
+	const shell = readShell(DIST);
+	if (shell === null) {
+		// No build on disk (a bare `npm run server`). The head cannot be
+		// rewritten, but the status still must not lie about a known route
+		// being missing — fall through to the old sendFile path and let Express
+		// answer.
+		return res.sendFile(path.join(DIST, 'index.html'));
+	}
+	// A path no route serves is a 404, not a 200 with the shell. The SPA still
+	// renders its NotFound page (the body is unchanged), but the status and the
+	// noindex tag tell a crawler the truth: there is nothing here to index.
+	// Before this, /nonsense answered 200 — a soft 404 a crawler indexes.
+	const status = seo.isKnownRoute(p) ? 200 : 404;
+	res.status(status).type('html').send(withHead(shell, p, requestOrigin(req)));
 });
 
 const PORT = process.env.PORT || 3000;

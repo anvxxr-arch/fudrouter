@@ -53,65 +53,27 @@ export interface SeoMeta {
 /**
  * Metadata for every PUBLIC route, keyed by navigation.ts's pattern.
  *
- * The thirty-ish covered routes are the whole public surface; a console or admin
- * route is NOT listed (they all redirect an anonymous crawler to /login, so their
- * metadata would only ever be seen by a signed-in browser tab). `seoFor` falls
- * back for those.
+ * Six entries: the two indexable content pages (/pricing, /docs), the docs
+ * subtree, the two auth screens and the root redirect. That is the entire public
+ * surface — the catalogue, the provider directory, the changelog and the legal
+ * pages are withdrawn. A console or admin route is NOT listed (they all redirect
+ * an anonymous crawler to /login, so their metadata would only ever be seen by a
+ * signed-in browser tab). `seoFor` falls back for those.
  */
 export const PUBLIC_SEO: readonly SeoMeta[] = [
   {
+    // The root REDIRECTS to /pricing (App.tsx renders <Navigate>); it is not a
+    // page. It is listed here anyway because `isKnownRoute` reads this table:
+    // with no entry, `/` would answer 404 — the one URL a visitor is most
+    // likely to type, and the one a crawler checks first.
+    //
+    // `indexable: false` and no JSON-LD are deliberate rather than leftovers.
+    // A redirect has no content of its own, so indexing it would submit a
+    // duplicate of /pricing under a second URL, and structured data describing
+    // a page that immediately navigates away is a contradiction.
     to: '/',
     title: `${SITE_NAME} — ${SITE_TAGLINE}`,
     description: SITE_DESCRIPTION,
-    indexable: true,
-    changefreq: 'weekly',
-    priority: 1.0,
-    // SoftwareApplication, not WebSite: the landing page describes a PRODUCT
-    // (a router with an OpenAI-compatible API), and `WebSite` says only "there
-    // is a website here". The SoftwareApplication branch in `jsonLdFor` was
-    // dead until this line — no route declared it — so the richest block
-    // available was never emitted anywhere.
-    jsonLd: 'SoftwareApplication',
-  },
-  {
-    to: '/models',
-    title: `Models — every model one key reaches | ${SITE_NAME}`,
-    description:
-      'Browse every model this deployment serves through the OpenAI-compatible API, with providers, context windows and normalized per-1M-token prices.',
-    indexable: true,
-    changefreq: 'daily',
-    priority: 0.9,
-    jsonLd: 'ItemList',
-  },
-  {
-    to: '/models/compare',
-    title: `Compare models side by side | ${SITE_NAME}`,
-    description:
-      'Put two or more models next to each other — price per 1M tokens, context window, capabilities and which providers serve them.',
-    indexable: false,
-  },
-  {
-    to: '/models/:slug',
-    title: `Model details | ${SITE_NAME}`,
-    description:
-      'One model: its providers, price, context window and a ready-to-paste request. Every slug is also in the catalogue at /models.',
-    indexable: false,
-  },
-  {
-    to: '/providers',
-    title: `Provider network | ${SITE_NAME}`,
-    description:
-      'The upstream AI providers behind the router: which models each serves, its regions, observed latency and current availability.',
-    indexable: false,
-    changefreq: 'weekly',
-    priority: 0.8,
-    jsonLd: 'ItemList',
-  },
-  {
-    to: '/providers/:slug',
-    title: `Provider details | ${SITE_NAME}`,
-    description:
-      'One provider: the models it serves here, its pricing overrides, latency percentiles and recent incidents.',
     indexable: false,
   },
   {
@@ -122,12 +84,12 @@ export const PUBLIC_SEO: readonly SeoMeta[] = [
     indexable: true,
     changefreq: 'daily',
     priority: 0.9,
-    // ItemList, like /models: this is the page whose whole payload is the
-    // catalogue's rows, and it is the one of the two that a crawler can index
-    // (the provider page's block is emitted but that route is noindex). The
-    // `jsonLdFor` ItemList branch was reachable from /models only before this
-    // line — the price-bearing page, which is the one a search result wants,
-    // carried no structured data at all.
+    // ItemList: this page's entire payload is the catalogue's rows — every
+    // model, its price and its context window — so it is the page a search
+    // result for a model wants. It is now the ONLY route that declares JSON-LD
+    // (the catalogue page that used to share this block is withdrawn), which
+    // makes the `jsonLdFor` ItemList branch reachable from here and nowhere
+    // else.
     jsonLd: 'ItemList',
   },
   {
@@ -147,37 +109,6 @@ export const PUBLIC_SEO: readonly SeoMeta[] = [
     indexable: false,
   },
   {
-    to: '/changelog',
-    title: `Changelog | ${SITE_NAME}`,
-    description:
-      `Every shipped release, newest first: what changed in the router, the console and the API, and why. Follow along as new models and routing strategies land.`,
-    indexable: true,
-    changefreq: 'weekly',
-    priority: 0.5,
-  },
-  {
-    to: '/changelog/:slug',
-    title: `Release notes | ${SITE_NAME}`,
-    description: 'A single release: what changed and why.',
-    indexable: false,
-  },
-  {
-    to: '/legal/terms',
-    title: `Terms of Service | ${SITE_NAME}`,
-    description: `The agreement governing your use of ${SITE_NAME}: accounts and API keys, acceptable use, metered billing and credits, and how either side ends it.`,
-    indexable: true,
-    changefreq: 'monthly',
-    priority: 0.2,
-  },
-  {
-    to: '/legal/privacy',
-    title: `Privacy Policy | ${SITE_NAME}`,
-    description: `What ${SITE_NAME} stores and for how long: account and billing data, token counts, prompt and response logging, key encryption, and how to request deletion.`,
-    indexable: true,
-    changefreq: 'monthly',
-    priority: 0.2,
-  },
-  {
     to: '/login',
     title: `Log in | ${SITE_NAME}`,
     description: `Sign in to ${SITE_NAME} to create API keys and read usage.`,
@@ -194,6 +125,11 @@ export const PUBLIC_SEO: readonly SeoMeta[] = [
 /**
  * The schema.org block for a route, when it declares one. Kept beside the
  * registry so a route that gains JSON-LD gains it in the same edit as its title.
+ *
+ * `ItemList` is the only branch the registry currently reaches (/pricing).
+ * `WebSite` and `SoftwareApplication` are kept because they are the two shapes a
+ * marketing page needs the moment one is added back; both described the root,
+ * and the root is a redirect now, which is why neither is referenced.
  */
 export function jsonLdFor(meta: SeoMeta, origin: string): Record<string, unknown> | null {
   switch (meta.jsonLd) {
@@ -249,8 +185,8 @@ export function patternMatches(pattern: string, pathname: string): boolean {
     }
     if (i >= seg.length || part !== seg[i]) return false;
   }
-  // A pattern with no trailing `*` matches only the exact depth, so `/models`
-  // does not claim `/models/compare`.
+  // A pattern with no trailing `*` matches only the exact depth, so `/pricing`
+  // does not claim `/pricing/anything`.
   return pat.length === seg.length;
 }
 
@@ -301,27 +237,21 @@ export function isKnownRoute(pathname: string): boolean {
 /**
  * The sitemap's paths: every indexable pattern EXCEPT the parameterised ones.
  *
- * The exclusion is the honest half of "a sitemap is a list of URLs": the
- * registry knows the ROUTES, not the rows, so `/models/:slug` cannot be
- * enumerated here — the catalogue can, and a future sitemap that wants 243 model
- * URLs must ask the database, not this file.
+ * Today that is exactly two URLs — `/pricing` and `/docs`. They are the only
+ * indexable routes left after the catalogue, provider directory, changelog and
+ * legal pages were withdrawn, and the filter stays written as a RULE rather than
+ * a literal pair so a page added back to the registry joins the sitemap by being
+ * marked `indexable: true`, with no second edit here.
  *
- * The `indexable: false` on those parameterised routes is a DECISION, recorded
- * here because it is the largest thing this surface deliberately does not do:
- * `/models/:slug` and `/providers/:slug` are the catalogue's long tail, and they
- * stay noindex because the SPA renders their BODY on the client — a crawler's
- * first paint is this shell's `<div id="root">`, so indexing them would submit
- * ~250 pages of the same near-empty document under near-identical titles. Two
- * things unlock them, and both are prerequisites rather than preferences:
- * per-slug metadata in this registry (a schema.org block and a title that names
- * the model), and a body the server can render for that slug. Adding either one
- * alone is worse than leaving them noindex — a generic title on 250 pages is a
- * duplicate-content signal, which is what the landing page's title was before the
- * per-route rewrite.
+ * The `:`/`*` exclusion is inert right now (neither indexable route is
+ * parameterised) and is kept for the case it was written for: a pattern like
+ * `/models/:slug` is a ROUTE, and the registry knows the route but not the rows.
+ * A sitemap that wants 243 model URLs must ask the database, not this file —
+ * emitting the literal `/models/:slug` as a `<loc>` would advertise a URL that
+ * cannot resolve.
  *
- * `/models/compare` is noindex for a different reason and stays that way: it is a
- * view composed entirely of query parameters, so every permutation of it is the same
- * page.
+ * `/` is excluded by its own `indexable: false`, not by this filter: it
+ * redirects to /pricing, and a redirect is not a page to list.
  */
 export function sitemapPaths(): string[] {
   return PUBLIC_SEO.filter((m) => m.indexable && !m.to.includes(':') && !m.to.includes('*')).map(

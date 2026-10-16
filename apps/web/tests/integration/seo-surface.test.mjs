@@ -53,7 +53,7 @@ const attr = (html, re) => {
 };
 
 test('every public page carries its own title, description, canonical and OG', { skip: !hasDb && SKIP }, async () => {
-	const pages = ['/', '/models', '/providers', '/pricing', '/docs', '/changelog', '/legal/terms', '/legal/privacy', '/login', '/signup'];
+	const pages = ['/', '/pricing', '/docs', '/login', '/signup'];
 	for (const p of pages) {
 		const { status, type, body } = await get(p);
 		assert.equal(status, 200, `${p} status`);
@@ -70,20 +70,40 @@ test('every public page carries its own title, description, canonical and OG', {
 			`${p} canonical`,
 		);
 	}
-	// The landing page's title must not be the one every route serves — that was
-	// the bug, and a shared-title assertion is what would have missed it. Each
-	// body is used once: the previous form fetched /models a second time inside
-	// an assertion argument (and carried a `home === null` branch that cannot be
-	// taken), which read as a third comparison that never happened.
+	// No route may serve another's title. The original bug was every route
+	// serving the landing page's title and a canonical to `/`, a
+	// duplicate-content signal; with the surface down to two content pages the
+	// pair that matters is pricing vs docs, which are the two the sitemap
+	// advertises. Each body is fetched once and compared by value.
 	const TITLE = /<title>([^<]+)<\/title>/;
-	const [models, home, pricing] = await Promise.all([get('/models'), get('/'), get('/pricing')]);
-	assert.notEqual(attr(pricing.body, TITLE), attr(home.body, TITLE), 'pricing shares the landing title');
-	assert.notEqual(attr(pricing.body, TITLE), attr(models.body, TITLE), 'pricing shares the models title');
+	const [pricing, docs] = await Promise.all([get('/pricing'), get('/docs')]);
+	assert.notEqual(attr(pricing.body, TITLE), attr(docs.body, TITLE), 'pricing shares the docs title');
 	assert.match(pricing.body, /robots" content="index,follow"/);
+	assert.match(docs.body, /robots" content="index,follow"/);
+});
+
+test('the withdrawn pages are gone, not merely unlinked', { skip: !hasDb && SKIP }, async () => {
+	// The public surface was cut back to /pricing and /docs. Unlinking a page is
+	// not withdrawing it: if the route still resolved, every URL that used to be
+	// shared, bookmarked or indexed would keep answering 200 with a shell that
+	// renders the SPA's NotFound page — a soft 404, which is exactly the state
+	// the 404 handling below exists to prevent. This asserts the hard 404 on the
+	// withdrawn paths themselves, so a route accidentally left in App.tsx or in
+	// the SEO registry turns this red.
+	for (const p of ['/models', '/models/grok-4.6', '/models/compare', '/providers', '/providers/xai', '/changelog', '/legal/terms', '/legal/privacy']) {
+		const { status, body } = await get(p);
+		assert.equal(status, 404, `${p} must 404 after withdrawal`);
+		assert.match(body, /name="robots" content="noindex/, `${p} must be noindex`);
+	}
 });
 
 test('a detail page is noindex but still 200', { skip: !hasDb && SKIP }, async () => {
-	for (const p of ['/models/grok-4.6', '/docs/api/errors', '/models/compare']) {
+	// /docs/api/errors is a real page under a withdrawn-from-the-sitemap
+	// subtree: it must still render (200) while telling a crawler not to index
+	// it, because the SPA renders its body client-side. The root is noindex for
+	// a different reason — it is a redirect to /pricing, so it has no content of
+	// its own to index.
+	for (const p of ['/docs/api/errors', '/']) {
 		const { status, body } = await get(p);
 		assert.equal(status, 200, `${p} status`);
 		assert.match(body, /name="robots" content="noindex/, `${p} must be noindex`);
@@ -101,7 +121,9 @@ test('the docs index keeps its own indexable entry', { skip: !hasDb && SKIP }, a
 });
 
 test('an unknown path answers 404, not a 200 shell', { skip: !hasDb && SKIP }, async () => {
-	for (const p of ['/nonsense', '/models/compare/x', '/totally/made/up']) {
+	// `/pricing/deep` is the exact-depth case: it shares a prefix with a real
+	// route and must not inherit its 200, which a naive startsWith would.
+	for (const p of ['/nonsense', '/pricing/deep', '/totally/made/up']) {
 		const { status, body } = await get(p);
 		assert.equal(status, 404, `${p} must 404`);
 		assert.match(body, /name="robots" content="noindex/, `${p} must be noindex`);
@@ -110,19 +132,33 @@ test('an unknown path answers 404, not a 200 shell', { skip: !hasDb && SKIP }, a
 	}
 });
 
-test('the sitemap lists every indexable path and every one of them resolves', { skip: !hasDb && SKIP }, async () => {
+test('the sitemap lists exactly the indexable pages and each one resolves', { skip: !hasDb && SKIP }, async () => {
 	const { status, type, body } = await get('/sitemap.xml');
 	assert.equal(status, 200);
 	assert.ok(type.includes('xml'));
 	const locs = [...body.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
-	assert.equal(locs.length, 7, `sitemap has ${locs.length} urls`);
-	// Parameterised and guarded routes must not be listed: the registry cannot
-	// enumerate their rows, and listing a guarded one invites a crawl of a
-	// redirect.
-	assert.ok(!locs.some((l) => l.includes('/models/') || l.includes('/dashboard') || l.includes('/docs/')), `leaked: ${locs}`);
+	// Two URLs: /pricing and /docs are the whole indexable surface. The count is
+	// pinned rather than a lower bound because a sitemap that grows silently is
+	// how a withdrawn page gets re-advertised — and a sitemap of 404s is worse
+	// than no sitemap, which is what the loop below exists to catch.
+	assert.equal(locs.length, 2, `sitemap has ${locs.length} urls: ${locs}`);
+	assert.deepEqual(
+		locs.map((l) => new URL(l).pathname).sort(),
+		['/docs', '/pricing'],
+		`sitemap advertises the wrong paths: ${locs}`,
+	);
+	// Nothing withdrawn, parameterised or guarded may appear: the registry
+	// cannot enumerate a pattern's rows, and listing a guarded route invites a
+	// crawl of a redirect.
+	assert.ok(
+		!locs.some((l) => /\/models|\/providers|\/changelog|\/legal|\/dashboard|\/docs\//.test(l)),
+		`leaked: ${locs}`,
+	);
+	// The root is a redirect to /pricing, so it must NOT be listed even though
+	// it answers 200.
+	assert.ok(!locs.some((l) => new URL(l).pathname === '/'), '/ is a redirect and must not be advertised');
 	assert.ok(locs.includes(`${server.baseUrl}/pricing`), 'pricing missing from sitemap');
-	// Every advertised URL must actually answer 200 — a sitemap of 404s is worse
-	// than no sitemap.
+	// Every advertised URL must actually answer 200.
 	for (const loc of locs) {
 		const { status: s } = await get(new URL(loc).pathname);
 		assert.equal(s, 200, `${loc} from the sitemap`);
@@ -131,13 +167,15 @@ test('the sitemap lists every indexable path and every one of them resolves', { 
 });
 
 test('marketing JSON-LD is valid JSON', { skip: !hasDb && SKIP }, async () => {
-	for (const p of ['/', '/models', '/providers']) {
-		const { body } = await get(p);
-		const m = /<script type="application\/ld\+json">(.*?)<\/script>/s.exec(body);
-		assert.ok(m, `${p} has no JSON-LD block`);
-		const parsed = JSON.parse(m[1]); // throws on a hand-built string
-		assert.equal(parsed['@context'], 'https://schema.org');
-	}
+	// /pricing is the only route that declares a block. Parsing it is the
+	// assertion: a hand-built string that happens to match the tags would throw
+	// here, which is the failure mode the tag-shape checks elsewhere miss.
+	const { body } = await get('/pricing');
+	const m = /<script type="application\/ld\+json">(.*?)<\/script>/s.exec(body);
+	assert.ok(m, '/pricing has no JSON-LD block');
+	const parsed = JSON.parse(m[1]);
+	assert.equal(parsed['@context'], 'https://schema.org');
+	assert.equal(parsed['@type'], 'ItemList');
 });
 
 test('a trusted proxy scheme reaches canonical, sitemap and robots', { skip: !hasDb && SKIP }, async () => {

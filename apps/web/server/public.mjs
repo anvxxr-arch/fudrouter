@@ -677,7 +677,7 @@ curl ${publicApiBase()}/v1/chat/completions \\
 \`\`\`
 
 The response body is the chat-completion shape your SDK expects, including a
-\`usage\` block. Model slugs are listed on [/models](/models).
+\`usage\` block. Model slugs are listed on [/pricing](/pricing).
 
 Rather than writing the wiring by hand, [/dashboard/connect](/dashboard/connect)
 generates the config for a coding agent or editor — base URL, key and model
@@ -715,9 +715,8 @@ curl ${publicApiBase()}/v1/models \\
 \`\`\`
 
 Only published, reachable models appear — the same gate the request path
-applies. The public catalog at [/models](/models) is the browsable version of
-the same data, and [/models/compare](/models/compare) compares models side by
-side.
+applies. The browsable version of the same data is [/pricing](/pricing), which
+lists every published model with its price and context window.
 
 The \`id\` is the canonical model slug: use it as \`model\` in chat completions.
 See [Model identifiers](/docs/models/identifiers).`;
@@ -859,8 +858,8 @@ published under a canonical slug. The router refuses to serve a slug that is
 not published and reachable — so the catalog and the request path always
 agree.
 
-Browse what is live at [/models](/models) and compare models side by side at
-[/models/compare](/models/compare).
+Browse what is live at [/pricing](/pricing), which lists every published model
+with its price and context window.
 
 Prices are normalized to micro-units per 1M tokens so routes can be compared
 (and billed) without floating-point money.`;
@@ -992,7 +991,7 @@ api key:  sk-ar-YOUR_KEY
 
 The OpenAI official SDKs (Python, Node.js, Go, .NET) and community clients
 that speak the chat completions wire format all qualify. Point one at the
-base URL above, use a canonical slug from [/models](/models) as the model,
+base URL above, use a canonical slug from [/pricing](/pricing) as the model,
 and calls route, meter and log exactly like any other request.
 
 What is native versus forwarded is listed in

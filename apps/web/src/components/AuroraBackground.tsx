@@ -27,9 +27,13 @@ export function AuroraBackground() {
 
   return (
     <div ref={ref} className="aurora" aria-hidden="true">
-      <div className="aurora-blob a" />
-      <div className="aurora-blob b" />
-      <div className="aurora-blob c" />
+      {/* The layer is full-bleed; the field is the content column the blobs are
+          composed against, so the glow keeps its shape at every width. */}
+      <div className="aurora-field">
+        <div className="aurora-blob a" />
+        <div className="aurora-blob b" />
+        <div className="aurora-blob c" />
+      </div>
     </div>
   );
 }

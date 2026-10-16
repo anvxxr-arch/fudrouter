@@ -43,7 +43,7 @@ test('every public nav route has SEO metadata', () => {
 	const publicPatterns = [...navSource.matchAll(/\{ to: "([^"]+)", label: "[^"]+", scope: "public"/g)].map(
 		(m) => m[1],
 	);
-	assert.ok(publicPatterns.length >= 15, `only ${publicPatterns.length} public nav entries parsed`);
+	assert.ok(publicPatterns.length >= 6, `only ${publicPatterns.length} public nav entries parsed`);
 	for (const pattern of publicPatterns) {
 		assert.ok(
 			seo.PUBLIC_SEO.some((m) => m.to === pattern),
@@ -52,22 +52,25 @@ test('every public nav route has SEO metadata', () => {
 	}
 });
 
-test('a parameterised route is not in the sitemap but still resolves a title', () => {
-	// The distinction that matters: /models/:slug is a real page with its own
-	// metadata, but its rows are not enumerable from the registry, so the
-	// sitemap must not pretend to list them.
-	assert.ok(!seo.sitemapPaths().includes('/models/:slug'));
-	const meta = seo.seoFor('/models/grok-4.6');
+test('a wildcard route is not in the sitemap but still resolves a title', () => {
+	// The distinction that matters: /docs/* is a real page with its own
+	// metadata, but it is a PATTERN, not a URL — the sitemap must not pretend
+	// to list it. (This was asserted against /models/:slug while that route
+	// existed; /docs/* is the parameterised entry the registry still carries.)
+	assert.ok(!seo.sitemapPaths().includes('/docs/*'));
+	const meta = seo.seoFor('/docs/api/errors');
 	assert.equal(meta.indexable, false);
-	assert.match(meta.title, /Model details/);
+	assert.match(meta.title, /Documentation/);
 });
 
 test('every INDEXABLE route has search-useful title and description lengths', () => {
 	// Why: a title over ~60 characters is truncated in a result snippet, and a
 	// description under ~70 reads as a stub, which is what /changelog,
 	// /legal/terms and /legal/privacy shipped with (44, 37 and 32 characters —
-	// measured). Length is not the goal, but a description that short cannot say
-	// what the page is FOR, and a crawler treats the snippet as low quality.
+	// measured) before they were withdrawn. Length is not the goal, but a
+	// description that short cannot say what the page is FOR, and a crawler
+	// treats the snippet as low quality. The rule outlives those routes: it is
+	// what any page added back to the sitemap is measured against.
 	//
 	// Only indexable routes are asserted: a noindex page's snippet is never used,
 	// so its length is not a defect.
@@ -109,12 +112,30 @@ test('sitemapPaths contains every indexable, non-parameterised path', () => {
 	assert.ok(expected.includes('/docs'), 'docs must be indexable');
 });
 
-test('the longest matching pattern wins', () => {
-	// /models/compare must not be served the /models title: both match, and the
-	// registry is searched longest-first.
-	assert.match(seo.seoFor('/models/compare').title, /Compare models/);
-	assert.match(seo.seoFor('/models').title, /^Models —/);
+test('the sitemap is exactly the two indexable content pages', () => {
+	// The public surface was cut back to /pricing and /docs, and this is the
+	// assertion that keeps the sitemap honest about it. A hardcoded pair here
+	// would be the very drift the registry exists to prevent, so the expected
+	// set is DERIVED from PUBLIC_SEO and then checked to be those two — if a
+	// page is withdrawn or added, this test is where the change must be
+	// acknowledged rather than silently shipped.
+	const paths = [...seo.sitemapPaths()].sort();
+	assert.deepEqual(paths, ['/docs', '/pricing'], `sitemap drifted: ${paths}`);
+	// The root redirects to /pricing; a redirect is not a page, so listing it
+	// would advertise a URL that immediately sends the crawler elsewhere.
+	assert.ok(!paths.includes('/'), '/ must not be in the sitemap — it redirects');
+});
+
+test('the exact-depth rule keeps a sub-path out of a page it does not belong to', () => {
+	// The longest-match rule still has to hold with a thin registry: `/docs`
+	// matches the /docs entry, and a path under it matches the `/docs/*`
+	// section entry rather than falling back to the generic title. A naive
+	// prefix check would hand `/docs/api/errors` the INDEX's metadata.
 	assert.match(seo.seoFor('/docs/api/errors').title, /Documentation/);
+	assert.match(seo.seoFor('/docs').title, /Documentation/);
+	// Exact depth: a pattern with no trailing `*` must not claim a deeper path,
+	// so /pricing is not matched by anything at depth 2.
+	assert.equal(seo.patternMatches('/pricing', '/pricing/deep'), false);
 });
 
 test('guarded and unknown routes are noindex', () => {
@@ -126,13 +147,9 @@ test('guarded and unknown routes are noindex', () => {
 test('isKnownRoute separates a served page from a typo', () => {
 	for (const p of [
 		'/',
-		'/models',
-		'/models/grok-4.6',
-		'/providers/xai',
 		'/pricing',
+		'/docs',
 		'/docs/api/errors',
-		'/changelog/2026-10-10-x',
-		'/legal/terms',
 		'/login',
 		'/signup',
 		'/dashboard/keys',
@@ -141,9 +158,16 @@ test('isKnownRoute separates a served page from a typo', () => {
 	]) {
 		assert.equal(seo.isKnownRoute(p), true, `${p} must be known`);
 	}
-	// /models/compare/x matches /models/:slug at depth 3 but no route at depth 4
-	// — the case a naive prefix check would get wrong.
-	for (const p of ['/nonsense', '/models/compare/x', '/admin', '/dashboardish']) {
+	// The withdrawal, asserted as a fact rather than left implicit: these were
+	// served pages, so a stale entry for any of them would answer 200 with a
+	// shell for a page that no longer exists — a soft 404 a crawler indexes.
+	// This is the list to revisit if one of them comes back.
+	for (const p of ['/models', '/models/grok-4.6', '/providers', '/providers/xai', '/changelog', '/changelog/2026-10-10-x', '/legal/terms', '/legal/privacy']) {
+		assert.equal(seo.isKnownRoute(p), false, `${p} was withdrawn and must be unknown`);
+	}
+	// Exact depth matters: `/admin` is a real route while `/dashboardish` is a
+	// prefix of one and must not be. A naive `startsWith` gets the second wrong.
+	for (const p of ['/nonsense', '/pricing/deep', '/admin', '/dashboardish']) {
 		const known = seo.isKnownRoute(p);
 		assert.equal(known, p === '/admin', `${p}: known=${known}`);
 	}
@@ -181,17 +205,17 @@ test('headFor marks an unknown path noindex and escapes a hostile Host', () => {
 
 	// Origin comes from the request's Host header, which a client controls: an
 	// unescaped interpolation is reflected XSS in every page's <head>.
-	const hostile = head.headFor('/models', 'https://x"><script>alert(1)</script>');
+	const hostile = head.headFor('/pricing', 'https://x"><script>alert(1)</script>');
 	assert.ok(!hostile.includes('<script>alert(1)</script>'), 'Host header was not escaped');
 	assert.match(hostile, /&quot;&gt;&lt;script&gt;/);
 });
 
 test('withHead replaces the shell head instead of appending a second set', () => {
 	const shell = readFileSync(join(WEB, 'index.html'), 'utf8');
-	const once = head.withHead(shell, '/models', ORIGIN);
+	const once = head.withHead(shell, '/pricing', ORIGIN);
 	assert.equal((once.match(/<title>/g) ?? []).length, 1, 'two <title> tags in the head');
 	assert.equal((once.match(/rel="canonical"/g) ?? []).length, 1, 'two canonical links');
-	assert.match(once, /Models — every model one key reaches/);
+	assert.match(once, /Pricing — per-1M-token rates/);
 	// The body and the module script must survive untouched: this is a head
 	// rewrite, not a renderer.
 	assert.match(once, /<div id="root"><\/div>/);
@@ -217,7 +241,7 @@ test('withHead strips a stale JSON-LD block instead of appending a second one', 
 		'<!doctype html><html lang="en"><head>\n' +
 		'<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebSite","name":"STALE"}</script>\n' +
 		'</head><body>x</body></html>';
-	const stripped = head.withHead(stale, '/models', ORIGIN);
+	const stripped = head.withHead(stale, '/pricing', ORIGIN);
 	assert.equal(
 		(stripped.match(/application\/ld\+json/g) ?? []).length,
 		1,
@@ -252,10 +276,12 @@ test('a JSON-LD block is emitted exactly for the routes that declare one', () =>
 	// The loop must have a negative case to be worth running. If every route
 	// ever declares JSON-LD, "only declared routes emit a block" is untested.
 	assert.ok(without > 0, 'every public route declares JSON-LD — the negative case is untested');
-	// Two blocks the registry was changed to reach: `SoftwareApplication` was a
-	// dead branch in jsonLdFor until `/` declared it, and `ItemList` was
-	// reachable from `/models` only until `/pricing` declared it.
-	assert.match(head.headFor('/', ORIGIN), /"@type":"SoftwareApplication"/);
+	// `ItemList` is the only branch the registry reaches now — /pricing is the
+	// one route that declares a block. The root used to declare
+	// `SoftwareApplication`; it redirects to /pricing, so a block describing it
+	// would describe a page that immediately navigates away. That negative is
+	// asserted above by the loop (the root declares none), which is why it is
+	// not repeated as a positive here.
 	assert.match(head.headFor('/pricing', ORIGIN), /"@type":"ItemList"/);
 });
 
@@ -264,7 +290,7 @@ test('every head carries an absolute social card and a large-image card type', (
 	// and the image must move together: `summary` shows a thumbnail and
 	// `summary_large_image` requires the image, so declaring the large type
 	// without the asset is a broken preview, not a degraded one.
-	for (const p of ['/', '/models', '/pricing']) {
+	for (const p of ['/', '/docs', '/pricing']) {
 		const html = head.headFor(p, ORIGIN);
 		assert.match(html, new RegExp(`<meta property="og:image" content="${ORIGIN}${seo.OG_IMAGE_PATH}" />`), p);
 		assert.match(html, /<meta property="og:image:width" content="1200" \/>/, p);

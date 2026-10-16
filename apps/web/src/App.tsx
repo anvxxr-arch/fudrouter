@@ -1,20 +1,17 @@
 import { lazy, useEffect } from 'react';
-import { BrowserRouter, Link, Route, Routes, useLocation, useParams } from 'react-router-dom';
+import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { PublicLayout } from './components/PublicLayout';
 import { RequireAuth, RequireRouteCap } from './components/guards';
 import { seoFor } from './lib/seo';
 import { LoginPage, SignupPage } from './routes/Auth';
-import { ChangelogEntryPage, ChangelogPage, PrivacyPage, TermsPage } from './routes/Changelog';
 import { DocsPage } from './routes/Docs';
-import { HomePage } from './routes/Home';
-import { ComparePage, ModelDetailPage, ModelsPage } from './routes/Models';
 import { PricingPage } from './routes/Pricing';
-import { ProviderDetailPage, ProvidersPage } from './routes/Providers';
 
 // The dashboard and admin trees are ~60 kB of source that only a signed-in
-// user ever reaches. Splitting them keeps the landing bundle (the first paint
-// every visitor pays for) to the public routes; the two trees arrive on demand
-// the first time a /dashboard or /admin route matches.
+// user ever reaches. Splitting them keeps the first paint every anonymous
+// visitor pays for down to the public routes (pricing, docs, the auth screens);
+// the two trees arrive on demand the first time a /dashboard or /admin route
+// matches.
 const AdminDetail = lazy(() => import('./routes/admin').then((m) => ({ default: m.AdminDetail })));
 const AdminHome = lazy(() => import('./routes/admin').then((m) => ({ default: m.AdminHome })));
 const AdminSectionRoute = lazy(() => import('./routes/admin').then((m) => ({ default: m.AdminSectionRoute })));
@@ -78,7 +75,7 @@ function NotFoundPage() {
     <div className="stack">
       <h1>Page not found</h1>
       <p className="muted">No page lives at this URL.</p>
-      <p><Link to="/">Back to home.</Link></p>
+      <p><Link to="/pricing">Back to pricing.</Link></p>
     </div>
   );
 }
@@ -88,19 +85,13 @@ export default function App() {
       <RouteMeta />
       <Routes>
         <Route element={<PublicLayout />}>
-          <Route index element={<HomePage />} />
-          <Route path="models" element={<ModelsPage />} />
-          <Route path="models/compare" element={<ComparePage />} />
-          <Route path="models/:slug" element={<ModelDetailPage />} />
-          <Route path="providers" element={<ProvidersPage />} />
-          <Route path="providers/:slug" element={<ProviderDetailPage />} />
+          {/* The public surface is two content pages. The root redirects instead
+              of rendering a landing page, so `/` is not dead but is also not a
+              page: it hands the visitor to /pricing, the one commercial page. */}
+          <Route index element={<Navigate to="/pricing" replace />} />
           <Route path="pricing" element={<PricingPage />} />
           <Route path="docs" element={<DocsPage />} />
           <Route path="docs/*" element={<DocsPage />} />
-          <Route path="changelog" element={<ChangelogPage />} />
-          <Route path="changelog/:slug" element={<ChangelogEntryPage />} />
-          <Route path="legal/terms" element={<TermsPage />} />
-          <Route path="legal/privacy" element={<PrivacyPage />} />
           <Route path="login" element={<LoginPage />} />
           <Route path="signup" element={<SignupPage />} />
           <Route path="dashboard" element={<RequireAuth><DashboardHome /></RequireAuth>} />

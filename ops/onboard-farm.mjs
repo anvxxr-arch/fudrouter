@@ -92,7 +92,14 @@ const REGISTRY = {
   tokenharbor: {
     providerId: 'prv_tokenharbor',
     connectionId: 'con_prv_tokenharbor-default',
-    base: 'http://43.128.99.142/thr/v1',
+    // The relay IP (43.128.99.142/thr/v1) is DEAD: it answers
+    // 403 wrong_host — "This address does not serve the API. Use
+    // https://tokenharbor.ai/v1 as the base URL." Probing through it rejected
+    // every key, so th_sync exited 1 on "no live keys" forever, and the data
+    // plane marked 4431 credentials invalid in one hour (2026-10-16 13:00) for
+    // what was a configuration error, not a credential one. Keep this in step
+    // with connection.base_url — whichever one rots first poisons the pool.
+    base: 'https://tokenharbor.ai/v1',
     headers: {},
     keys: {
       kind: 'lines',
@@ -198,15 +205,24 @@ async function mapLimit(items, limit, fn) {
   return out;
 }
 
+// A non-200 does NOT mean "dead key". 401/403 is the upstream refusing THIS key;
+// a transport error, a 429 or a 5xx means the base URL or the upstream itself is
+// broken. Conflating the two is what let the dead relay IP (403 wrong_host on
+// every request) poison 4431 credentials, and it is also what makes the caller
+// exit 1 for ever on a backlog of keys that really are dead.
+const LIVE = 'live';
+const REJECTED = 'rejected';
+const UNREACHABLE = 'unreachable';
+
 async function probeKey(key) {
   try {
     const res = await fetch(`${CFG.base}/models`, {
       headers: { Authorization: `Bearer ${key}`, ...CFG.headers },
       signal: AbortSignal.timeout(25_000)
     });
-    return res.status === 200;
+    return res.status === 200 ? LIVE : res.status === 401 || res.status === 403 ? REJECTED : UNREACHABLE;
   } catch {
-    return false;
+    return UNREACHABLE;
   }
 }
 

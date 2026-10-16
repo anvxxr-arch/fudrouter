@@ -488,7 +488,16 @@ export const auth = betterAuth({
 			}
 		}
 	},
-	trustedOrigins: process.env.NODE_ENV === 'production' ? [] : ['http://localhost:3000', 'http://127.0.0.1:3000'],
+	// Origin allow-list. An EMPTY array in production meant only baseURL
+	// (ORIGIN) was accepted, so the moment the product answers on more than one
+	// hostname -- fudrouter.my.id alongside the legacy ai.karepmuwes.my.id --
+	// every mutating auth request arriving on the other host is refused with 403
+	// "invalid origin" before Discord is ever reached. Both hostnames are ours
+	// and both terminate on this same app, so both are trusted; ORIGIN is listed
+	// explicitly so a later rotation of ORIGIN cannot leave baseURL untrusted.
+	trustedOrigins: process.env.NODE_ENV === 'production'
+		? [ORIGIN, 'https://fudrouter.my.id', 'https://www.fudrouter.my.id', 'https://ai.karepmuwes.my.id']
+		: ['http://localhost:3000', 'http://127.0.0.1:3000'],
 	// Discord is the only way in. `emailAuthEnabled` decides the one exception
 	// (the integration harness); lib/auth-config.mjs records why it is keyed
 	// on the literal string 'test' rather than an env var.
@@ -518,9 +527,17 @@ export const auth = betterAuth({
 						// `guilds.join` is required, not decoration: without it
 						// the post-login add-to-server call is refused with 403
 						// "Missing Access" for every single user. Better-auth's
-						// Discord default is `identify email`, so the scope has
-						// to be stated here to widen it (lib/discord.mjs).
-						scope: 'identify email guilds.join'
+						// Discord default is `identify email` and it is kept, so
+						// only the extra scope is listed here (lib/discord.mjs).
+						//
+						// MUST BE AN ARRAY. ProviderOptions.scope is typed
+						// string[] and the provider does `_scopes.push(...scope)`,
+						// so the space-separated string this used to be was spread
+						// into single characters: the authorize URL went out as
+						// scope=identify+email+i+d+e+n+t+i+f+y+...+g+u+i+l+d+s+.+
+						// j+o+i+n and Discord answered HTTP 400, which killed
+						// sign-in for every user on every hostname.
+						scope: ['guilds.join']
 					}
 				}
 			}
@@ -819,7 +836,11 @@ app.get('/api/palette/:type', async (req, res) => {
 					type: 'provider',
 					title: r.name,
 					subtitle: r.slug ?? '',
-					href: '/models'
+					// /pricing is the only public catalogue page left. This used
+					// to point at /models, and then at /providers, and both are
+					// withdrawn — a search hit that navigates to a 404 is worse
+					// than no result, so the target moves with the public surface.
+					href: '/pricing'
 				}))
 			});
 		}
@@ -845,7 +866,7 @@ app.get('/api/palette/:type', async (req, res) => {
 					type: 'model',
 					title: r.slug,
 					subtitle: r.developer ? `${r.name} · ${r.developer}` : r.name,
-					href: '/models'
+					href: '/pricing'
 				}))
 			});
 		}

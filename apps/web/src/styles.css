@@ -165,6 +165,10 @@ html {
   -webkit-text-size-adjust: 100%;
   tab-size: 4;
   line-height: 1.5;
+  /* The aurora layer is 100vw, which is wider than the layout viewport once a
+     classic scrollbar is present. clip (not hidden) contains it without turning
+     the root into a scroll container, so position:sticky keeps working. */
+  overflow-x: clip;
 }
 h1, h2, h3, h4, h5, h6 { font-size: inherit; font-weight: inherit; }
 b, strong { font-weight: bolder; }
@@ -407,28 +411,110 @@ textarea { resize: vertical; }
 .foot .legal { display: flex; gap: var(--space-md); }
 
 /* ---- aurora background (moved from AuroraBackground.tsx inline <style>) ---- */
-.aurora { position: absolute; inset: 0; overflow: hidden; pointer-events: none; background: var(--glow); }
+/* The blobs are deliberately bigger than the column they light (negative
+   offsets, 42vmax wide, blur(90px)). They used to sit in a hero-sized box with
+   overflow:hidden, so the layer was sliced off at the hero edge: the red channel
+   jumped 36 points across a single pixel (x=433 read 9,11,15, x=440 read
+   45,25,15). A step like that reads as a box, not as light. The layer is now
+   full-bleed and is only clipped at the viewport edge, where a cut is invisible,
+   and it fades vertically so it never ends on a line. */
+.aurora {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 100vw;
+  margin-left: -50vw;
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none;
+  background: var(--glow);
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 14%, #000 58%, transparent 100%);
+  mask-image: linear-gradient(180deg, transparent 0, #000 14%, #000 58%, transparent 100%);
+}
+/* Anchors the blobs to the content column (the box the hero occupies) while the
+   layer around them stays full-bleed, so the composition holds at any width. */
+.aurora-field {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  margin: 0 auto;
+  width: min(calc(1100px - 2 * var(--space-lg)), calc(100% - 2 * var(--space-lg)));
+}
 .aurora-blob { position: absolute; width: 42vmax; height: 42vmax; border-radius: 50%; filter: blur(90px); opacity: 0.5; }
 .aurora-blob.a { left: -10vmax; top: -14vmax; background: color-mix(in srgb, var(--color-orange) 26%, transparent); }
 .aurora-blob.b { right: -12vmax; top: -10vmax; background: color-mix(in srgb, var(--color-amber) 22%, transparent); }
 .aurora-blob.c { left: 22%; bottom: -20vmax; background: color-mix(in srgb, var(--color-cream) 12%, transparent); }
 
 /* ---- shiny text (moved from reactbits/ShinyText.tsx inline <style>) ---- */
-.shiny-text { position: relative; display: inline-block; background: linear-gradient(110deg, currentColor 40%, rgba(255, 255, 255, 0.9) 50%, currentColor 60%); background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: rb-shine var(--shiny-speed, 3s) linear infinite; }
-.shiny-text-disabled { animation: none; background: none; color: inherit; }
+/* background-clip: text paints the glyphs with the BACKGROUND, so `color` has to
+   be transparent -- which makes `currentColor` transparent too. The base stops
+   therefore cannot be currentColor: that combination rendered the headline as
+   invisible text with a lone white sliver sweeping through it (measured: h1
+   computed colour rgba(0,0,0,0) over transparent stops, so the 250px hero
+   guttered instead of reading as a headline). The stops come from
+   --shiny-base, which each caller sets to the colour the text would otherwise
+   have. */
+.shiny-text {
+  position: relative;
+  display: inline-block;
+  color: transparent;
+  background: linear-gradient(110deg, var(--shiny-base, var(--color-text)) 38%, #fff 50%, var(--shiny-base, var(--color-text)) 62%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: rb-shine var(--shiny-speed, 3s) linear infinite;
+}
+.shiny-text-disabled { animation: none; background: none; color: var(--shiny-base, inherit); }
 @keyframes rb-shine { to { background-position: -200% 0; } }
 
 /* ---- home (moved from Home.tsx inline <style>) ---- */
-.hero { position: relative; overflow: clip; }
-.hero-split { display: flex; flex-wrap: wrap; gap: var(--space-xl); align-items: flex-start; }
+.hero { position: relative; }
+/* Eyebrow -> headline -> tagline is one editorial lockup, so those three get a
+   fixed rhythm instead of the inherited .stack gap. `display: block` overrides
+   .shiny-text's inline-block: two inline-blocks would otherwise sit side by
+   side on one line whenever they happen to fit, and the display lines must
+   always stack. */
+.hero > .fr-label { margin: 0 0 var(--space-md); }
+.hero h1.display-xl, .hero p.display-xl { display: block; margin: 0; }
+.hero h1.display-xl { --shiny-base: var(--color-text); }
+.hero p.display-xl { --shiny-base: var(--color-text-muted); }
+.hero-split { display: flex; flex-wrap: wrap; gap: var(--space-xl); align-items: flex-start; margin-top: var(--space-xl); }
 .hero-copy { flex: 1 1 20rem; display: grid; gap: var(--space-md); min-width: 0; }
 .hero-copy .row { flex-wrap: wrap; }
 .hero-code { flex: 1 1 24rem; margin: 0; max-width: 34rem; min-width: 0; }
 @media (max-width: 480px) { .hero-copy .row { flex-direction: column; align-items: stretch; } .hero-copy .row > * { width: 100%; } }
-.metrics-strip { display: flex; flex-wrap: wrap; gap: var(--space-lg); padding: var(--space-lg); }
+/* Stat bar. Horizontal padding was var(--space-lg), which pushed the first
+   figure 24px inside the shell and off the headline's left rail -- it is 0 now
+   and the numbers are separated by rules instead of naked air. */
+.metrics-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  gap: var(--space-md) var(--space-lg);
+  margin-top: var(--space-md);
+  padding: var(--space-lg) 0;
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+}
+.metrics-strip > div { position: relative; min-width: 0; }
+.metrics-strip > div + div { padding-left: var(--space-lg); }
+.metrics-strip > div + div::before { content: ""; position: absolute; left: 0; top: 0.15em; bottom: 0.15em; width: 1px; background: var(--color-border); }
+.metrics-strip .num { font-size: var(--text-h4); font-weight: 600; letter-spacing: -0.01em; }
+.metrics-strip .muted { margin-top: var(--space-xs); font-size: var(--text-sm); }
+.metrics-error { grid-column: 1 / -1; }
 .grid3 { display: grid; gap: var(--space-md); grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); }
 .display-xl { font-size: var(--text-display); letter-spacing: var(--tracking-display); line-height: var(--lh-display); }
 .fr-label { color: var(--color-text-muted); font-size: var(--text-caption); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+
+/* ---- code block: file bar + copy ---- */
+.code-block { margin: 0; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); overflow: hidden; }
+.code-block-bar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-md); padding: var(--space-xs) var(--space-sm) var(--space-xs) var(--space-md); border-bottom: 1px solid var(--color-border); background: var(--color-surface-raised); }
+.code-block-name { font-family: var(--font-mono); font-size: var(--text-caption); color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.code-block-copy { flex: none; display: inline-flex; align-items: center; min-height: var(--control-h-sm, 28px); padding: 0 var(--space-sm); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: transparent; color: var(--color-text-muted); font: inherit; font-size: var(--text-caption); font-weight: 600; cursor: pointer; }
+.code-block-copy:hover { color: var(--color-text); border-color: var(--color-border-strong); }
+.code-block-copy[data-copied='true'] { color: var(--color-success); border-color: var(--color-success); }
+.code-block pre { border: 0; border-radius: 0; background: transparent; }
 
 /* ---- docs (moved from Docs.tsx inline <style>) ---- */
 .doc-layout { display: grid; grid-template-columns: 14rem minmax(0, 1fr); gap: var(--space-xl); }

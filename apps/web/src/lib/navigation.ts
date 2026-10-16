@@ -28,22 +28,19 @@ export interface NavItem {
   nav: boolean;
 }
 
-// Public chrome mirrors components/Layout.tsx links verbatim so the refactor
-// changes no pixels: Models, Providers, Pricing, Docs.
+// Public chrome is deliberately two links: Pricing and Docs. The catalogue,
+// provider directory, changelog and legal pages were withdrawn, so their
+// registry entries went with them — a `to` left here with no route behind it is
+// a nav item that 404s, which is exactly what the deleted /models entries had
+// become. `/`, `/login` and `/signup` stay as registry-only entries (nav: false)
+// because they are still public ROUTES: the head test asserts every public route
+// has SEO metadata, so dropping them here would hide that check rather than
+// satisfy it.
 export const PUBLIC_NAV: readonly NavItem[] = [
   { to: "/", label: "Home", scope: "public", cap: null, nav: false },
-  { to: "/models", label: "Models", scope: "public", cap: null, nav: true },
-  { to: "/models/compare", label: "Compare", scope: "public", cap: null, nav: false },
-  { to: "/models/:slug", label: "Model detail", scope: "public", cap: null, nav: false },
-  { to: "/providers", label: "Providers", scope: "public", cap: null, nav: false },
-  { to: "/providers/:slug", label: "Provider detail", scope: "public", cap: null, nav: false },
   { to: "/pricing", label: "Pricing", scope: "public", cap: null, nav: true },
   { to: "/docs", label: "Docs", scope: "public", cap: null, nav: true },
   { to: "/docs/*", label: "Docs section", scope: "public", cap: null, nav: false },
-  { to: "/changelog", label: "Changelog", scope: "public", cap: null, nav: false },
-  { to: "/changelog/:slug", label: "Changelog entry", scope: "public", cap: null, nav: false },
-  { to: "/legal/terms", label: "Terms", scope: "public", cap: null, nav: false },
-  { to: "/legal/privacy", label: "Privacy", scope: "public", cap: null, nav: false },
   { to: "/login", label: "Log in", scope: "public", cap: null, nav: false },
   { to: "/signup", label: "Sign up", scope: "public", cap: null, nav: false },
 ];

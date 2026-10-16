@@ -27,9 +27,15 @@ export function PricingPage() {
               <Table
                 head={['Model', 'Input', 'Cached input', 'Output', 'Context']}
                 rows={g.models.map((m) => [
-                  <span key="m"><Link to={`/models/${encodeURIComponent(m.slug)}`}>{m.name}</Link>{m.slug !== m.name && <><br /><code className="muted">{m.slug}</code></>}</span>,
+                  // The model name is TEXT, not a link. It pointed at
+                  // /models/:slug, and that page is withdrawn — every name in
+                  // this table was a 404 while /pricing itself stayed indexable,
+                  // which is the worst shape a link can have. When a per-model
+                  // page comes back, this is the line that becomes a <Link>
+                  // again.
+                  <span key="m">{m.name}{m.slug !== m.name && <><br /><code className="muted">{m.slug}</code></>}</span>,
                   ...(m.variesByProvider
-                    ? [<span key="v" className="muted"><Link to={`/models/${encodeURIComponent(m.slug)}`}>varies by provider — see model</Link></span>]
+                    ? [<span key="v" className="muted">varies by provider</span>]
                     : [
                         <span key="i" className="num">{formatPricePer1M(m.price.inputPriceMicro)}</span>,
                         <span key="c" className="num">{formatPricePer1M(m.price.cachedInputPriceMicro)}</span>,

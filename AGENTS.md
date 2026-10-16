@@ -307,7 +307,8 @@ per page.
   not `404` — auth is evaluated before path support. Never answer "is endpoint X
   supported?" from a status code; use a valid key.
 - `/v1/models` and `/v1/models/{model}` are deliberately unauthenticated (the same
-  catalog is public at `GET /models` and `GET /pricing`).
+  catalog is public as JSON at `GET /api/models` and as a page at `GET /pricing`;
+  the `/models` SPA page is withdrawn).
 - Billing idempotency: `credit_ledger` rows keyed `usage:<request id>`;
   `usage_charge` must stay exactly-once.
 - `trustedOrigins: []` when `NODE_ENV=production` (`apps/web/server/index.mjs` ~:404)

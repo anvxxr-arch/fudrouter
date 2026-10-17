@@ -20,8 +20,19 @@
 # well-formed redirect_uri also answers 302 (Discord checks the URI *after* the
 # user authenticates; only a syntactically malformed one 400s). Measured:
 # registered, unregistered and https://totally-bogus-host.example/callback all
-# returned 302, while "not-a-url" returned 400. The guard below reads the
-# application's registered list, which is the only answer that means anything.
+# returned 302, while "not-a-url" returned 400.
+#
+# The token exchange is not a substitute either: POSTing a bogus `code` to
+# /oauth2/token with a registered and with an unregistered redirect_uri both
+# answer `{"error":"invalid_grant","error_description":"Invalid \"code\" in
+# request."}` -- Discord validates the code before the URI.
+#
+# GET /applications/@me does not carry `redirect_uris` at all (the key is absent,
+# not empty), so there is no read path over the API either.
+#
+# The guard below reads the application's registered list, which is the only
+# answer that means anything. Failing that, the sole authoritative check is a
+# human completing one real login.
 #
 # Exhausted on 2026-10-17 with the bot token, all three redirect_uris writes:
 #   PATCH /applications/@me               -> 200, list unchanged

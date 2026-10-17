@@ -22,6 +22,12 @@ export { isBlockedIp, _ipv4ToBig, _parseV6, _ipv4BlockedBig, _ipv6BlockedBig } f
 // cloudflared -> caddy (:80, loopback) -> this server (:3002, loopback), so the
 // socket peer is always loopback. Override with ROUTER_TRUSTED_PROXIES
 // (comma-separated IPs and/or IPv4 CIDRs).
+//
+// Caddy MUST therefore overwrite X-Forwarded-For with {http.request.header.
+// CF-Connecting-IP} on every block that proxies to this server. Without that,
+// the chain is just "127.0.0.1", it is stripped as a trusted hop, and there is
+// no client IP left -- better-auth then shares one rate-limit bucket across all
+// visitors. ops/verify/caddy-forwarded-ip.sh proves the per-IP behaviour.
 const TRUSTED_PROXIES = (process.env.ROUTER_TRUSTED_PROXIES || '127.0.0.1,::1')
 	.split(',').map((s) => s.trim()).filter(Boolean);
 

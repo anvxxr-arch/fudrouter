@@ -15,6 +15,20 @@
 # login on EVERY hostname, including the one that works today.
 #
 # Idempotent: re-running after a successful cutover changes nothing and exits 0.
+#
+# DO NOT "verify" registration by curling the authorize URL: an unregistered but
+# well-formed redirect_uri also answers 302 (Discord checks the URI *after* the
+# user authenticates; only a syntactically malformed one 400s). Measured:
+# registered, unregistered and https://totally-bogus-host.example/callback all
+# returned 302, while "not-a-url" returned 400. The guard below reads the
+# application's registered list, which is the only answer that means anything.
+#
+# Exhausted on 2026-10-17 with the bot token, all three redirect_uris writes:
+#   PATCH /applications/@me               -> 200, list unchanged
+#   PATCH /oauth2/applications/@me        -> 403 code 20001 "Bots cannot use this endpoint"
+#   PATCH /applications/{application_id}  -> 200, list unchanged
+# The 200s are the silent-drop: `description` in the same body applies, the URI
+# list does not move. Portal-only is not an assumption here, it is measured.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

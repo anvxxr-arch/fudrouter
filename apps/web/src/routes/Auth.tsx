@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { FluidOrb } from '../components/FluidOrb';
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
 
@@ -65,7 +64,6 @@ export function LoginPage() {
   return (
     <div className="stack" style={{ maxWidth: 420, margin: '0 auto' }}>
       <h1>Log in</h1>
-      <div aria-hidden="true"><FluidOrb size={200} color="#3B82F4" /></div>
       <Card>
         <DiscordButton label="Continue with Discord" />
         <p className="muted">fudrouter signs you in with Discord. Your server role and access are
@@ -80,7 +78,6 @@ export function SignupPage() {
   return (
     <div className="stack" style={{ maxWidth: 420, margin: '0 auto' }}>
       <h1>Create your account</h1>
-      <div aria-hidden="true"><FluidOrb size={200} color="#3B82F4" /></div>
       <Card>
         <DiscordButton label="Sign up with Discord" />
         <p className="muted">Signing up is the same Discord flow: we create your account and

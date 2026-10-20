@@ -6,12 +6,13 @@
 // session cookie authenticates, and sign-up provisions the workspace tree that
 // /api/pages/workspace reports.
 //
-// Gating: every test carries `{ skip: !hasDb && '…' }`. A skip inside
-// test.before does NOT work in Node 22 — the hook runs after the test bodies
-// are registered, so it throws and the file reports failures. Module-scope
-// gating reports them as skipped instead, which keeps `npm test --workspace
-// apps/web` green for a developer with no throwaway database while the harness
-// still FAILS under CI (see requireTestDatabase).
+// Gating: the module evaluates `integrationEnabled()` once at load. With no
+// DATABASE_URL outside CI it returns false, `test.before` returns early, and
+// every test body carries `{ skip: !hasDb && SKIP }` so the file reports
+// skipped rather than failing on a server that was never started. Under
+// CI=true with no DSN the predicate itself THROWS (harness.mjs:72) — a silent
+// skip would let the pipeline go green while the control plane was never
+// exercised, so CI fails loudly by design.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { startServer, signUp, uniqueEmail, integrationEnabled } from './harness.mjs';
@@ -146,6 +147,78 @@ test('the auth origin is fixed, never taken from the Host header', { skip: !hasD
 		email,
 		'the session must resolve to the signed-up user even when Host is hostile',
 	);
+});
+
+// AUTH-1 (memory DoS on the unauthenticated auth surface).
+//
+// index.mjs's app.all('/api/auth/{*path}') runs BEFORE express.json({limit:'1mb'}),
+// so it buffers the raw body itself (better-auth needs the raw stream). It had
+// no size gate, so an unauthenticated client could stream an unlimited body and
+// exhaust server memory. The handler now (a) 413s a declared content-length
+// over 1mb before reading a byte, and (b) stops consuming and destroys the
+// request once a chunked body crosses 1mb mid-stream.
+//
+// Both shapes matter: a content-length-only check is bypassed by a chunked
+// body (no content-length header), and a streaming-only check still lets a
+// declared-length body buffer up to its lie. A normal-sized body must keep
+// working, or the fix breaks sign-in/sign-up (better-auth consumes the raw
+// stream) — so the small-body control below runs the same endpoint.
+test('auth rejects a body over 1mb by content-length, before consuming it', { skip: !hasDb && SKIP }, async () => {
+	const res = await fetch(`${server.baseUrl}/api/auth/sign-in/email`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		// 2MB of padding: over the 1mb cap, and large enough that a server that
+		// buffers it would not answer instantly.
+		body: JSON.stringify({ email, password: 'x'.repeat(2 * 1024 * 1024) })
+	});
+	assert.equal(res.status, 413, `an over-limit declared body must be 413, got ${res.status}`);
+});
+
+test('auth destroys a chunked body that crosses 1mb mid-stream', { skip: !hasDb && SKIP }, async () => {
+	// fetch would set content-length for a buffered body, so this drops to
+	// node:http to send transfer-encoding: chunked (no content-length header).
+	// That is the bypass a content-length-only check cannot catch.
+	const { request } = await import('node:http');
+	const outcome = await new Promise((resolve, reject) => {
+		const req = request(
+			{
+				host: '127.0.0.1',
+				port: server.port,
+				path: '/api/auth/sign-in/email',
+				method: 'POST',
+				headers: { 'content-type': 'application/json', 'transfer-encoding': 'chunked' }
+			},
+			(res) => {
+				let raw = '';
+				res.setEncoding('utf8');
+				res.on('data', (c) => (raw += c));
+				res.on('end', () => resolve({ status: res.statusCode, raw }));
+			},
+		);
+		req.on('error', () => resolve({ status: 0, raw: 'client stream error (expected after server destroys)' }));
+		// 4MB in 64KB chunks, well past the 1mb cap. The server stops consuming
+		// and destroys the request; the client may see the 413 or an EPIPE once
+		// its writes hit the closed socket, but it must never see a 200.
+		const chunk = Buffer.alloc(64 * 1024, 97);
+		let sent = 0;
+		const write = () => {
+			while (sent < 4 * 1024 * 1024) { sent += chunk.length; if (!req.write(chunk)) break; }
+			if (sent < 4 * 1024 * 1024) req.once('drain', write);
+			else req.end();
+		};
+		write();
+	});
+	assert.notEqual(outcome.status, 200, 'a chunked over-limit body must never be accepted');
+	if (outcome.status !== 0) assert.equal(outcome.status, 413, `expected 413, got ${outcome.status}: ${outcome.raw}`);
+});
+
+test('a normal-sized body still works (the cap must not break sign-in)', { skip: !hasDb && SKIP }, async () => {
+	const res = await fetch(`${server.baseUrl}/api/auth/sign-in/email`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ email, password: 'integration-pw-123' })
+	});
+	assert.equal(res.status, 200, `a small body must still reach better-auth: ${await res.text()}`);
 });
 
 test('the email endpoint is closed outside NODE_ENV=test', { skip: !hasDb && SKIP }, async () => {

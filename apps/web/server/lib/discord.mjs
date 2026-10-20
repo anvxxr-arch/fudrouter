@@ -44,7 +44,11 @@ export async function joinFudcourt(discordUserId, token = process.env.FLEXYROUTE
 		{
 			method: 'PUT',
 			headers: { authorization: `Bot ${token}`, 'content-type': 'application/json' },
-			body: '{}'
+			body: '{}',
+			// 3e: a hung Discord response held the caller's request open with no
+			// deadline, accumulating a fire-and-forget socket per call; the 5s
+			// abort bounds that like every other outbound fetch in this codebase.
+			signal: AbortSignal.timeout(5000)
 		}
 	);
 	return res.status;

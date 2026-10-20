@@ -235,38 +235,56 @@ async function main() {
     if (all.length === 0) throw new Error(`no keys parsed from ${CFG.keys.file}`);
     console.log(`[${NAME}] keys in file: ${all.length}`);
 
-    const live = await mapLimit(all, PROBE_CONC, async (k) => ((await probeKey(k.key)) ? k : null));
-    const liveKeys = live.filter(Boolean);
-    const deadKeys = all.filter((k) => !liveKeys.includes(k));
-    console.log(`[${NAME}] live now: ${liveKeys.length}  dead now: ${deadKeys.length}`);
-    if (liveKeys.length === 0) throw new Error('no live keys — upstream rejected every key');
+    const verdicts = await mapLimit(all, PROBE_CONC, (k) => probeKey(k.key));
+    const liveKeys = all.filter((_, i) => verdicts[i] === LIVE);
+    const rejected = all.filter((_, i) => verdicts[i] === REJECTED);
+    const unreachable = all.filter((_, i) => verdicts[i] === UNREACHABLE);
+    console.log(`[${NAME}] live now: ${liveKeys.length}  rejected: ${rejected.length}  unreachable: ${unreachable.length}`);
+    // Failing to reach the upstream with EVERY key is a configuration or outage
+    // alarm — the dead relay answered 403 wrong_host to all 5754 keys and the
+    // caller read that as "every credential is dead". Only that case is fatal;
+    // a backlog of genuinely rejected keys is work, not an error (see the
+    // tombstone write below), which is what kept the sync red for 26 ticks.
+    if (liveKeys.length === 0 && unreachable.length === all.length) {
+      throw new Error(`no live keys — ${CFG.base} unreachable for all ${all.length} keys (base URL or upstream outage)`);
+    }
     if (DRY) {
       console.log('--dry-run: no writes');
       return;
     }
 
     await sql.begin(async (tx) => {
-      const legacyBlob = encryptJson({
-        api_key: liveKeys[0].key,
-        auth_kind: 'apikey',
-        default_headers: CFG.headers,
-        accounts: liveKeys.map((k) => ({
-          email: k.email || `${NAME}-key`,
-          access_token: k.key,
-          refresh_token: null,
-          expired: '2099-01-01T00:00:00Z'
-        }))
-      });
+      // base_url drift is configuration, not credential state, so it is repaired
+      // even on a run that found nothing live — otherwise a rotted base outlives
+      // the fix and the next probe rejects every key again.
       const [prov] = await tx`
-        update provider set credentials_enc = ${legacyBlob}, base_url = ${CFG.base}, updated_at = now()
+        update provider set base_url = ${CFG.base}, updated_at = now()
         where id = ${CFG.providerId} returning id`;
       if (!prov) throw new Error(`provider ${CFG.providerId} does not exist — seed it first`);
+      if (liveKeys.length > 0) {
+        const legacyBlob = encryptJson({
+          api_key: liveKeys[0].key,
+          auth_kind: 'apikey',
+          default_headers: CFG.headers,
+          accounts: liveKeys.map((k) => ({
+            email: k.email || `${NAME}-key`,
+            access_token: k.key,
+            refresh_token: null,
+            expired: '2099-01-01T00:00:00Z'
+          }))
+        });
+        await tx`update provider set credentials_enc = ${legacyBlob}, updated_at = now() where id = ${CFG.providerId}`;
+      }
       const [conn] = await tx`
         update connection set base_url = ${CFG.base}, enabled = true,
           config = ${tx.json({ auth_kind: 'apikey', default_headers: CFG.headers })}, updated_at = now()
         where id = ${CFG.connectionId} returning id`;
       if (!conn) throw new Error(`connection ${CFG.connectionId} does not exist`);
 
+      // A key that probes live is not invalid: the upsert restores it. Without the
+      // status case 'invalid' is a one-way door — the 4431 rows the relay
+      // misconfiguration poisoned could never come back, and the pool would only
+      // ever shrink.
       let newCreds = 0;
       for (const k of liveKeys) {
         const r = await tx`
@@ -274,23 +292,42 @@ async function main() {
           values (${credId(k.key)}, ${CFG.connectionId}, ${k.email || credId(k.key)},
                   ${encryptJson({ api_key: k.key, email: k.email })}, 'unknown',
                   ${tx.json(k.email ? { email: k.email } : {})})
-          on conflict (id) do update set secret_enc = excluded.secret_enc, updated_at = now()
+          on conflict (id) do update set
+            secret_enc = excluded.secret_enc,
+            status = case when credential.status = 'invalid' then 'unknown' else credential.status end,
+            updated_at = now()
           returning (xmax = 0) as inserted`;
         if (r.length > 0 && r[0].inserted) newCreds += 1;
       }
+      // A rejected key with NO row has nowhere to live: `update ... where id=...`
+      // matches nothing, so it stays pending for ever, the caller re-probes the same
+      // dead set every tick, and the sync exits 1 with zero new information — the
+      // loop that ran 26 ticks before the relay fix and would resume on the next
+      // batch of dead keys. This insert is what implements the "flipped to
+      // 'invalid' so the pool stops retrying it" this file has always documented.
+      // Unreachable keys are deliberately NOT recorded: an outage is not a verdict.
       let invalidated = 0;
-      for (const k of deadKeys) {
+      for (const k of rejected) {
         const r = await tx`
-          update credential set status = 'invalid', updated_at = now()
-          where id = ${idOf(k)} and status <> 'invalid' returning id`;
+          insert into credential (id, connection_id, name, secret_enc, status, metadata)
+          values (${idOf(k)}, ${CFG.connectionId}, ${k.email || idOf(k)},
+                  ${encryptJson({ api_key: k.key, email: k.email })}, 'invalid',
+                  ${tx.json(k.email ? { email: k.email } : {})})
+          on conflict (id) do update set status = 'invalid', updated_at = now()
+          where credential.status <> 'invalid' returning id`;
         if (r.length > 0) invalidated += 1;
       }
-      const pm = await tx`
-        update provider_model set enabled = true, status = 'available', updated_at = now()
-        where provider_id = ${CFG.providerId} returning id`;
-      const md = await tx`
-        update model set status = 'active', updated_at = now()
-        where provider_id = ${CFG.providerId} and status <> 'active' returning id`;
+      // Publishing needs something live behind it: with every key rejected, marking
+      // models available would advertise a provider that cannot serve.
+      let pm = [], md = [];
+      if (liveKeys.length > 0) {
+        pm = await tx`
+          update provider_model set enabled = true, status = 'available', updated_at = now()
+          where provider_id = ${CFG.providerId} returning id`;
+        md = await tx`
+          update model set status = 'active', updated_at = now()
+          where provider_id = ${CFG.providerId} and status <> 'active' returning id`;
+      }
       console.log(`[${NAME}] credentials: ${newCreds} new, ${liveKeys.length - newCreds} refreshed, ${invalidated} marked invalid`);
       console.log(`[${NAME}] provider_models enabled: ${pm.length}, models activated: ${md.length}`);
     });

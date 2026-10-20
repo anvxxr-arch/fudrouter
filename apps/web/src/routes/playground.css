@@ -1,0 +1,129 @@
+/* Playground: request builder beside the streamed response. The two panels
+ * share the row until ~900px, then stack — the response needs reading width
+ * and the builder needs room for the model select's long labels. */
+
+.pg-panels {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-md);
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .pg-panels { grid-template-columns: 1fr; }
+}
+
+.pg-panel {
+  display: grid;
+  gap: var(--space-md);
+  align-content: start;
+  min-width: 0;
+}
+
+.pg-field { display: grid; gap: var(--space-xs); }
+.pg-field > span {
+  font-size: var(--text-caption);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.pg-textarea {
+  width: 100%;
+  min-height: 8rem;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  line-height: var(--lh-body);
+}
+.pg-textarea--system { min-height: 5rem; }
+.pg-textarea:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+
+.pg-details {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm) var(--space-md);
+}
+.pg-details > summary {
+  cursor: pointer;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+.pg-details[open] > summary { margin-bottom: var(--space-sm); }
+.pg-details-body { display: grid; gap: var(--space-md); }
+
+.pg-inline { display: flex; align-items: center; gap: var(--space-sm); font-size: var(--text-sm); }
+
+.pg-estimate { margin: 0; font-size: var(--text-sm); color: var(--color-text-muted); }
+
+.pg-actions { display: flex; flex-wrap: wrap; gap: var(--space-sm); }
+
+.pg-response-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+.pg-response-head .card-title { margin: 0; }
+
+.pg-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(6.5rem, 1fr));
+  gap: var(--space-sm);
+  margin: 0;
+}
+.pg-metrics > div { display: grid; gap: 2px; min-width: 0; }
+.pg-metrics dt {
+  font-size: var(--text-caption);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.pg-metrics dd {
+  margin: 0;
+  font-size: var(--text-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pg-generating { margin: 0; font-size: var(--text-sm); color: var(--color-info); }
+
+.pg-output {
+  margin: 0;
+  min-height: 16rem;
+  max-height: 60vh;
+  overflow: auto;
+  padding: var(--space-md);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.pg-empty { margin: 0; font-size: var(--text-sm); color: var(--color-text-muted); }
+
+/* Compare mode: one column per model, up to three side by side. */
+.pg-picks { display: grid; gap: var(--space-md); }
+.pg-compare-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--pg-cols, 2), minmax(0, 1fr));
+  gap: var(--space-md);
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .pg-compare-grid { grid-template-columns: 1fr; }
+}
+.pg-compare-col { display: grid; gap: var(--space-sm); min-width: 0; padding: var(--space-sm); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
+/* Winners are marked with the semantic status colours, not new tokens. */
+.pg-compare-col.pg-fast { border-color: var(--color-success); }
+.pg-compare-col.pg-cheap { border-color: var(--color-info); }
+.pg-output--col { min-height: 8rem; max-height: 40vh; }

@@ -43,7 +43,15 @@ test('every public nav route has SEO metadata', () => {
 	const publicPatterns = [...navSource.matchAll(/\{ to: "([^"]+)", label: "[^"]+", scope: "public"/g)].map(
 		(m) => m[1],
 	);
-	assert.ok(publicPatterns.length >= 6, `only ${publicPatterns.length} public nav entries parsed`);
+	// 6 → 5 when /signup stopped being a destination: the Discord round trip is
+	// the single door, so a "Sign up" nav entry would point at a page with no
+	// chrome of its own. Asserted below as a fact so it cannot be re-added in
+	// silence — this count is the tripwire, not decoration.
+	assert.ok(publicPatterns.length >= 5, `only ${publicPatterns.length} public nav entries parsed`);
+	assert.ok(
+		!publicPatterns.includes('/signup'),
+		'/signup is a redirect to /login, not a nav destination — a nav entry here would advertise a forwarding path',
+	);
 	for (const pattern of publicPatterns) {
 		assert.ok(
 			seo.PUBLIC_SEO.some((m) => m.to === pattern),
@@ -53,14 +61,19 @@ test('every public nav route has SEO metadata', () => {
 });
 
 test('a wildcard route is not in the sitemap but still resolves a title', () => {
-	// The distinction that matters: /docs/* is a real page with its own
-	// metadata, but it is a PATTERN, not a URL — the sitemap must not pretend
-	// to list it. (This was asserted against /models/:slug while that route
-	// existed; /docs/* is the parameterised entry the registry still carries.)
+	// The distinction that matters: /docs/* and /changelog/* are real pages
+	// with their own metadata, but they are PATTERNS, not URLs — the sitemap
+	// must not pretend to list them. (This was asserted against /models/:slug
+	// while that route existed; /docs/* and /changelog/* are the parameterised
+	// entries the registry still carries.)
 	assert.ok(!seo.sitemapPaths().includes('/docs/*'));
+	assert.ok(!seo.sitemapPaths().includes('/changelog/*'));
 	const meta = seo.seoFor('/docs/api/errors');
 	assert.equal(meta.indexable, false);
 	assert.match(meta.title, /Documentation/);
+	const entry = seo.seoFor('/changelog/2026-10-18-sse-ttft-gate');
+	assert.equal(entry.indexable, false);
+	assert.match(entry.title, /Changelog/);
 });
 
 test('every INDEXABLE route has search-useful title and description lengths', () => {
@@ -112,18 +125,23 @@ test('sitemapPaths contains every indexable, non-parameterised path', () => {
 	assert.ok(expected.includes('/docs'), 'docs must be indexable');
 });
 
-test('the sitemap is exactly the two indexable content pages', () => {
-	// The public surface was cut back to /pricing and /docs, and this is the
-	// assertion that keeps the sitemap honest about it. A hardcoded pair here
-	// would be the very drift the registry exists to prevent, so the expected
-	// set is DERIVED from PUBLIC_SEO and then checked to be those two — if a
-	// page is withdrawn or added, this test is where the change must be
-	// acknowledged rather than silently shipped.
+test('the sitemap is exactly the indexable content pages', () => {
+	// The public surface is /pricing, /models, /changelog, /docs and the three
+	// trust pages (/security, /terms, /privacy), and this is the assertion that
+	// keeps the sitemap honest about it. A hardcoded set here would be the very
+	// drift the registry exists to prevent, so the expected set is DERIVED from
+	// PUBLIC_SEO and then checked to be those paths — if a page is withdrawn or
+	// added, this test is where the change must be acknowledged rather than
+	// silently shipped.
 	const paths = [...seo.sitemapPaths()].sort();
-	assert.deepEqual(paths, ['/docs', '/pricing'], `sitemap drifted: ${paths}`);
-	// The root redirects to /pricing; a redirect is not a page, so listing it
-	// would advertise a URL that immediately sends the crawler elsewhere.
-	assert.ok(!paths.includes('/'), '/ must not be in the sitemap — it redirects');
+	assert.deepEqual(
+		paths,
+		['/changelog', '/docs', '/features', '/integrations', '/models', '/pricing', '/privacy', '/security', '/terms'],
+		`sitemap drifted: ${paths}`,
+	);
+	// The root is a real page but stays noindex: its offer is /pricing's
+	// restated, so listing it would advertise a duplicate under a second URL.
+	assert.ok(!paths.includes('/'), '/ must not be in the sitemap — it is noindex');
 });
 
 test('the exact-depth rule keeps a sub-path out of a page it does not belong to', () => {
@@ -148,6 +166,9 @@ test('isKnownRoute separates a served page from a typo', () => {
 	for (const p of [
 		'/',
 		'/pricing',
+		'/models',
+		'/changelog',
+		'/changelog/2026-10-18-sse-ttft-gate',
 		'/docs',
 		'/docs/api/errors',
 		'/login',
@@ -161,8 +182,9 @@ test('isKnownRoute separates a served page from a typo', () => {
 	// The withdrawal, asserted as a fact rather than left implicit: these were
 	// served pages, so a stale entry for any of them would answer 200 with a
 	// shell for a page that no longer exists — a soft 404 a crawler indexes.
-	// This is the list to revisit if one of them comes back.
-	for (const p of ['/models', '/models/grok-4.6', '/providers', '/providers/xai', '/changelog', '/changelog/2026-10-10-x', '/legal/terms', '/legal/privacy']) {
+	// This is the list to revisit if one of them comes back. /changelog and the
+	// catalogue left it when their pages were rebuilt; the legal pages did not.
+	for (const p of ['/models/compare', '/providers', '/providers/xai', '/legal/terms', '/legal/privacy']) {
 		assert.equal(seo.isKnownRoute(p), false, `${p} was withdrawn and must be unknown`);
 	}
 	// Exact depth matters: `/admin` is a real route while `/dashboardish` is a
@@ -278,10 +300,10 @@ test('a JSON-LD block is emitted exactly for the routes that declare one', () =>
 	assert.ok(without > 0, 'every public route declares JSON-LD — the negative case is untested');
 	// `ItemList` is the only branch the registry reaches now — /pricing is the
 	// one route that declares a block. The root used to declare
-	// `SoftwareApplication`; it redirects to /pricing, so a block describing it
-	// would describe a page that immediately navigates away. That negative is
-	// asserted above by the loop (the root declares none), which is why it is
-	// not repeated as a positive here.
+	// `SoftwareApplication`; it is a landing page whose offer duplicates
+	// /pricing's, so a block describing it would describe the same product
+	// twice. That negative is asserted above by the loop (the root declares
+	// none), which is why it is not repeated as a positive here.
 	assert.match(head.headFor('/pricing', ORIGIN), /"@type":"ItemList"/);
 });
 

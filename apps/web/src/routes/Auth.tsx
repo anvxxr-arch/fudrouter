@@ -1,13 +1,14 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
 
 // Discord is the ONLY sign-in method for fudrouter — there is no email or
-// password path any more. `emailAndPassword: { enabled: false }` in
-// server/index.mjs is what disables it server-side; this page simply stops
-// offering it, so a disabled endpoint is never reachable from a form that
-// still posts to it. Both pages share the same OAuth start call.
+// password path and no separate signup page. `emailAndPassword: { enabled: false }`
+// in server/index.mjs is what disables the password path server-side; this page
+// simply stops offering it, so a disabled endpoint is never reachable from a form
+// that still posts to it. Signup is the same call: better-auth creates the user
+// on first OAuth round trip, so a second page with a second button would have
+// been two doors into one flow (and /signup 301s here for old links).
 //
 // `/api/auth/sign-in/social` is POST-only in better-auth. Navigating the browser
 // to it with GET (the previous `window.location.href = '...social?provider=discord'`)
@@ -66,24 +67,11 @@ export function LoginPage() {
       <h1>Log in</h1>
       <Card>
         <DiscordButton label="Continue with Discord" />
-        <p className="muted">fudrouter signs you in with Discord. Your server role and access are
-        provisioned from that account.</p>
+        {/* One line, because the button already says what it does. The previous
+            version ran three sentences explaining provisioning, roles and
+            signup — every one of them restated the button. */}
+        <p className="muted">No account needed — Discord makes one.</p>
       </Card>
-      <p className="muted">Need an account? <Link to="/signup">Sign up</Link></p>
-    </div>
-  );
-}
-
-export function SignupPage() {
-  return (
-    <div className="stack" style={{ maxWidth: 420, margin: '0 auto' }}>
-      <h1>Create your account</h1>
-      <Card>
-        <DiscordButton label="Sign up with Discord" />
-        <p className="muted">Signing up is the same Discord flow: we create your account and
-        workspace from the Discord profile you approve.</p>
-      </Card>
-      <p className="muted">Already have an account? <Link to="/login">Log in</Link></p>
     </div>
   );
 }

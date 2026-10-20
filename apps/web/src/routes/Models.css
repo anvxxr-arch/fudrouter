@@ -1,0 +1,43 @@
+/* Models page styles — scoped to the catalog page only. The shared token
+ * system (styles.css) has no filter-grid or chip primitive, and borrowing
+ * dashboard.css's .ps-field would couple a public page to a console-only
+ * import (dashboard.tsx owns that file, so its classes are not guaranteed
+ * present here). Everything below reuses existing color/spacing tokens. */
+
+.models-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: var(--space-md);
+  align-items: end;
+}
+
+.models-filters label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.models-filter-actions {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.models-count {
+  margin: 0;
+}
+
+.models-cap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
+.models-cap-chip {
+  display: inline-block;
+  padding: 0 var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-caption);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}

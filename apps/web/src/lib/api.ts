@@ -91,8 +91,8 @@ export interface ProviderRow {
 export interface Metrics {
   models: number | null;
   providers: number | null;
-  calls: number | null;
-  latencyMs: number | null;
+  calls24h: number | null;
+  p50Ms: number | null;
 }
 
 export interface DocEntry {
@@ -121,12 +121,51 @@ export interface RunMetrics {
   costMicro: string | null;
   fallback: boolean | null;
   attempts: number | null;
+  status: string | null;
   requestId: string | null;
 }
 
+export interface StatusPayload {
+  probe: {
+    ok: boolean;
+    dbUnreachable: boolean;
+    error: string | null;
+    service: string;
+    models: number | null;
+    latencyMs: number;
+    checkedAt: string;
+  };
+  incidents:
+    | {
+        id: string;
+        title: string;
+        severity: string;
+        status: string;
+        statusLabel: string;
+        componentLabel: string;
+        startedAt: string;
+        resolvedAt: string | null;
+      }[]
+    | null;
+  dbErrorRequestId: string | null;
+  components: {
+    key: string;
+    label: string;
+    description: string;
+    state: string | null;
+    stateLabel: string;
+    basis: string;
+  }[];
+  overall: { state: string | null; label: string };
+}
+
 export const api = {
+  status: () => get<StatusPayload>('/status'),
   metrics: () => get<{ metrics: Metrics; sampleModels: { slug: string; name: string; context: number | null }[] }>('/metrics'),
-  models: () => get<{ models: CatalogModel[]; total: number }>('/models'),
+  models: (params?: Record<string, string>) =>
+    get<{ models: CatalogModel[]; total: number }>(
+      `/models${params && Object.keys(params).length ? `?${new URLSearchParams(params)}` : ''}`,
+    ),
   model: (slug: string) => getWithStatus<{ model: CatalogModel | null }>(`/models/${encodeURIComponent(slug)}`),
   compare: (slugs: string[]) => get<{ columns: CatalogModel[]; missing: string[] }>(`/models/compare?models=${encodeURIComponent(slugs.join(','))}`),
   providers: () => get<{ providers: ProviderRow[] }>('/providers'),
@@ -156,4 +195,4 @@ export function formatMs(ms: number | null): string {
   return `${ms.toLocaleString('en-US')} ms`;
 }
 /** Public API origin shown in curl samples and copy; build-time Vite var. */
-export const API_BASE_DISPLAY = import.meta.env?.VITE_PUBLIC_API_BASE_URL ?? 'https://ai.karepmuwes.my.id';
+export const API_BASE_DISPLAY = import.meta.env?.VITE_PUBLIC_API_BASE_URL ?? 'https://fudrouter.my.id';

@@ -53,7 +53,20 @@ const attr = (html, re) => {
 };
 
 test('every public page carries its own title, description, canonical and OG', { skip: !hasDb && SKIP }, async () => {
-	const pages = ['/', '/pricing', '/docs', '/login', '/signup'];
+	const pages = [
+		'/',
+		'/pricing',
+		'/models',
+		'/changelog',
+		'/docs',
+		'/login',
+		'/signup',
+		'/features',
+		'/integrations',
+		'/security',
+		'/terms',
+		'/privacy',
+	];
 	for (const p of pages) {
 		const { status, type, body } = await get(p);
 		assert.equal(status, 200, `${p} status`);
@@ -83,14 +96,17 @@ test('every public page carries its own title, description, canonical and OG', {
 });
 
 test('the withdrawn pages are gone, not merely unlinked', { skip: !hasDb && SKIP }, async () => {
-	// The public surface was cut back to /pricing and /docs. Unlinking a page is
-	// not withdrawing it: if the route still resolved, every URL that used to be
-	// shared, bookmarked or indexed would keep answering 200 with a shell that
-	// renders the SPA's NotFound page — a soft 404, which is exactly the state
-	// the 404 handling below exists to prevent. This asserts the hard 404 on the
-	// withdrawn paths themselves, so a route accidentally left in App.tsx or in
-	// the SEO registry turns this red.
-	for (const p of ['/models', '/models/grok-4.6', '/models/compare', '/providers', '/providers/xai', '/changelog', '/legal/terms', '/legal/privacy']) {
+	// The public surface is /pricing, /models, /changelog, /docs, /features,
+	// /integrations and the three trust pages (/security, /terms, /privacy).
+	// Unlinking a page is not withdrawing it: if the route still resolved, every
+	// URL that used to be shared, bookmarked or indexed would keep answering 200
+	// with a shell that renders the SPA's NotFound page — a soft 404, which is
+	// exactly the state the 404 handling below exists to prevent. This asserts
+	// the hard 404 on the withdrawn paths themselves, so a route accidentally
+	// left in App.tsx or in the SEO registry turns this red. `/legal/terms` and
+	// `/legal/privacy` are the OLD spellings: the pages now live at /terms and
+	// /privacy, and the old paths must stay dead rather than become aliases.
+	for (const p of ['/models/compare', '/providers', '/providers/xai', '/legal/terms', '/legal/privacy']) {
 		const { status, body } = await get(p);
 		assert.equal(status, 404, `${p} must 404 after withdrawal`);
 		assert.match(body, /name="robots" content="noindex/, `${p} must be noindex`);
@@ -98,12 +114,12 @@ test('the withdrawn pages are gone, not merely unlinked', { skip: !hasDb && SKIP
 });
 
 test('a detail page is noindex but still 200', { skip: !hasDb && SKIP }, async () => {
-	// /docs/api/errors is a real page under a withdrawn-from-the-sitemap
-	// subtree: it must still render (200) while telling a crawler not to index
-	// it, because the SPA renders its body client-side. The root is noindex for
-	// a different reason — it is a redirect to /pricing, so it has no content of
-	// its own to index.
-	for (const p of ['/docs/api/errors', '/']) {
+	// /docs/api/errors and /changelog/<slug> are real pages under
+	// withdrawn-from-the-sitemap subtrees: they must still render (200) while
+	// telling a crawler not to index them, because the SPA renders their bodies
+	// client-side. The root is noindex for a different reason — its offer
+	// duplicates /pricing's, so it has no content of its own to index.
+	for (const p of ['/docs/api/errors', '/changelog/2026-10-18-sse-ttft-gate', '/']) {
 		const { status, body } = await get(p);
 		assert.equal(status, 200, `${p} status`);
 		assert.match(body, /name="robots" content="noindex/, `${p} must be noindex`);
@@ -137,27 +153,38 @@ test('the sitemap lists exactly the indexable pages and each one resolves', { sk
 	assert.equal(status, 200);
 	assert.ok(type.includes('xml'));
 	const locs = [...body.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
-	// Two URLs: /pricing and /docs are the whole indexable surface. The count is
-	// pinned rather than a lower bound because a sitemap that grows silently is
-	// how a withdrawn page gets re-advertised — and a sitemap of 404s is worse
-	// than no sitemap, which is what the loop below exists to catch.
-	assert.equal(locs.length, 2, `sitemap has ${locs.length} urls: ${locs}`);
+	// Nine URLs: /pricing, /models, /changelog, /docs, /features, /integrations
+	// and the three trust pages (/security, /terms, /privacy) are the whole
+	// indexable surface. The count is pinned rather than a lower bound because
+	// a sitemap that grows silently is how a withdrawn page gets re-advertised
+	// — and a sitemap of 404s is worse than no sitemap, which is what the loop
+	// below exists to catch.
+	assert.equal(locs.length, 9, `sitemap has ${locs.length} urls: ${locs}`);
 	assert.deepEqual(
 		locs.map((l) => new URL(l).pathname).sort(),
-		['/docs', '/pricing'],
+		['/changelog', '/docs', '/features', '/integrations', '/models', '/pricing', '/privacy', '/security', '/terms'],
 		`sitemap advertises the wrong paths: ${locs}`,
 	);
 	// Nothing withdrawn, parameterised or guarded may appear: the registry
 	// cannot enumerate a pattern's rows, and listing a guarded route invites a
-	// crawl of a redirect.
+	// crawl of a redirect. `/changelog/*` is the parameterised half of a real
+	// page, so the index is listed and its entries are not. `/models/compare`
+	// is still withdrawn, so the regex rejects any /models path deeper than the
+	// index itself.
 	assert.ok(
-		!locs.some((l) => /\/models|\/providers|\/changelog|\/legal|\/dashboard|\/docs\//.test(l)),
+		!locs.some((l) => /\/models\/|\/providers|\/legal|\/dashboard|\/docs\//.test(l)),
 		`leaked: ${locs}`,
 	);
-	// The root is a redirect to /pricing, so it must NOT be listed even though
-	// it answers 200.
-	assert.ok(!locs.some((l) => new URL(l).pathname === '/'), '/ is a redirect and must not be advertised');
+	assert.ok(
+		!locs.some((l) => /^\/changelog\/.+/.test(new URL(l).pathname)),
+		`a changelog entry leaked into the sitemap: ${locs}`,
+	);
+	// The root is a real page but stays noindex, so it must NOT be listed even
+	// though it answers 200.
+	assert.ok(!locs.some((l) => new URL(l).pathname === '/'), '/ is noindex and must not be advertised');
 	assert.ok(locs.includes(`${server.baseUrl}/pricing`), 'pricing missing from sitemap');
+	assert.ok(locs.includes(`${server.baseUrl}/models`), 'models missing from sitemap');
+	assert.ok(locs.includes(`${server.baseUrl}/changelog`), 'changelog missing from sitemap');
 	// Every advertised URL must actually answer 200.
 	for (const loc of locs) {
 		const { status: s } = await get(new URL(loc).pathname);

@@ -99,19 +99,20 @@ func TestRegisteredHandlerAnswersEachExactPath(t *testing.T) {
 	}
 }
 
-// The chat path's exact pattern, discriminated by BEHAVIOUR.
+// The chat path's exact pattern, pinned by BEHAVIOUR — but only partially.
 //
 // Status codes cannot tell `POST /v1/chat/completions` served by its own handler
 // from the same request served by the catch-all: both authenticate first, so both
-// answer 401 to a bad key. The only real difference is what ServeCompletions does
-// that ServeGeneric does not — it injects `stream_options.include_usage` into the
-// upstream body so a streamed reply carries the usage block the bill is computed
-// from. ServeGeneric has no such code at all.
+// answer 401 to a bad key. Injection cannot discriminate either: ServeGeneric
+// injects `stream_options.include_usage` on both of its branches (generic.go
+// passthrough and model-addressed), so if the exact pattern were dropped, the
+// catch-all would still inject and this test would still pass.
 //
-// So this drives a real streaming request through the REAL mux with a real key
-// and asserts the upstream actually received the injection. If the exact pattern
-// were dropped, the request would be forwarded by ServeGeneric without it and
-// this test would go red — which is what the status-code probe above cannot do.
+// What this test DOES pin: the injection reaches the upstream on the chat path
+// at all — a real streaming request through the REAL mux with a real key —
+// which is what makes streamed billing possible. A true discriminator would
+// have to assert something ServeGeneric does differently (the chat path's body
+// translation, or a direct comparison against a ServeGeneric call).
 func TestChatCompletionsPatternIsServedByTheChatHandler(t *testing.T) {
 	var gotBody string
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -136,7 +137,8 @@ func TestChatCompletionsPatternIsServedByTheChatHandler(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status %d body %s", rec.Code, rec.Body.String())
 	}
-	// The assertion that pins the pattern: only ServeCompletions injects this.
+	// The assertion that pins the injection on the chat path (not the pattern:
+	// ServeGeneric injects the same field, so this cannot discriminate).
 	if !strings.Contains(gotBody, `"stream_options"`) || !strings.Contains(gotBody, `"include_usage"`) {
 		t.Errorf("upstream body had no stream_options.include_usage injection (%q). "+
 			"POST /v1/chat/completions was answered by the /v1/ catch-all instead of "+

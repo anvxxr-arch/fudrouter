@@ -82,6 +82,67 @@ func TestCompletionsStreamsAndLogs(t *testing.T) {
 	}
 }
 
+// A client-supplied `stream_options` must be MERGED, not replaced, when the
+// router injects `include_usage`. The contract (packages/contracts/openapi/
+// inference.yaml:370-374) declares `stream_options` with
+// `additionalProperties: true` and describes the body as "forwarded to the
+// upstream provider essentially verbatim" with exactly ONE transformation —
+// the include_usage injection (inference.yaml:126-137). The three OpenAI-shaped
+// injection sites (proxy.go:296-308, generic.go:93-108, generic.go:118-141)
+// used to overwrite the whole object, silently dropping every client field.
+//
+// The bug this prevents: a client that sends
+// `stream_options: {"include_usage": false, "extra_field": "keepme"}` (or any
+// provider-specific option) has its options silently discarded upstream. The
+// request still succeeds and still bills, so nothing observable breaks — the
+// loss is invisible until a client depends on a field the router ate.
+//
+// The assertion is on the UPSTREAM body, not the client response: the merge
+// must survive the marshal that reaches the provider. `include_usage` is
+// forced true even when the client asked for false, because billing depends
+// on the usage block (PRD §87) — that part is deliberate, not a regression.
+//
+// Verified by mutation: reverting any one injection site to
+// `req["stream_options"] = map[string]any{"include_usage": true}` drops
+// extra_field and turns this test red.
+func TestStreamOptionsMergedNotOverwritten(t *testing.T) {
+	dsn := tests.RequireDB(t)
+	var gotAuth, gotBody string
+	up := newUpstream(t, []string{
+		`{"id":"c1","object":"chat.completion.chunk","choices":[{"delta":{"content":"hi"}}]}`,
+		`{"id":"c1","object":"chat.completion.chunk","choices":[],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`,
+	}, &gotAuth, &gotBody)
+	defer up.Close()
+
+	env := tests.SeedEnv(t, dsn, up.URL)
+	p := tests.NewProxy(t, dsn, up.URL)
+
+	rec := httptest.NewRecorder()
+	body := `{"model":"` + env.Slug + `","stream":true,` +
+		`"stream_options":{"include_usage":false,"extra_field":"keepme"},` +
+		`"messages":[{"role":"user","content":"hi"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+env.Key)
+	p.ServeCompletions(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d body %s", rec.Code, rec.Body.String())
+	}
+
+	// The injection must land: include_usage forced true for billing.
+	if !strings.Contains(gotBody, `"include_usage":true`) {
+		t.Errorf("include_usage not injected upstream: %s", gotBody)
+	}
+	// The client's own field must survive the merge.
+	if !strings.Contains(gotBody, `"extra_field":"keepme"`) {
+		t.Errorf("client stream_options field dropped by overwrite: %s", gotBody)
+	}
+	// The client's explicit false must be overridden, not preserved.
+	if strings.Contains(gotBody, `"include_usage":false`) {
+		t.Errorf("client include_usage:false survived; billing needs it true: %s", gotBody)
+	}
+}
+
 func TestRevokedKeyRejected(t *testing.T) {
 	dsn := tests.RequireDB(t)
 	var a, b string

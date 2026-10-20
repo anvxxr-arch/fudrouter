@@ -136,5 +136,3 @@ func TestDeadPoolProbesEveryAccountOnEveryRequest(t *testing.T) {
 	}
 }
 
-// Compile-time proof that the timeout really is applied to a different context
-// than the one handed to Pick — the wiring bug in one assertion.

@@ -46,13 +46,19 @@ func (lc *lifecycle) streamSSE(w http.ResponseWriter, body io.Reader) {
 		if flusher != nil {
 			flusher.Flush()
 		}
-		if ttft == 0 {
-			ttft = int(time.Since(streamStart).Milliseconds())
-		}
+		// H5: ttft counts from the first TOKEN-BEARING frame, not the first
+		// line. The router's own echo/keep-alive/comment lines are forwarded
+		// before any payload exists; stamping them reported ttft_ms ≈ 0 while
+		// the client had seen no token yet, corrupting every dashboard
+		// percentile over that column. Only a `data:` frame that is not the
+		// terminal [DONE] means a token could have arrived.
 		if strings.HasPrefix(line, "data: ") {
 			payload := strings.TrimPrefix(line, "data: ")
 			if payload == "[DONE]" {
 				continue
+			}
+			if ttft == 0 {
+				ttft = int(time.Since(streamStart).Milliseconds())
 			}
 			// A token chunk is `{"id":…,"choices":[…]}`; only the provider's
 			// final chunk carries `usage`. The substring test is a NECESSARY
@@ -97,7 +103,14 @@ func (lc *lifecycle) streamSSE(w http.ResponseWriter, body io.Reader) {
 			}
 		}
 	}
-	if err := sc.Err(); err != nil && !lc.clientDisconnected {
+	// H5: record a non-EOF scanner error even when the client already
+	// disconnected. Dropping it under `!lc.clientDisconnected` lost the only
+	// evidence of a mid-stream upstream failure on exactly the requests that
+	// also show client_disconnected — the ledger row said the stream ended
+	// cleanly when the upstream had actually died. rawErr is ledger-only
+	// (spec §8: never shown to the client), so recording it unconditionally
+	// costs nothing client-visible.
+	if err := sc.Err(); err != nil {
 		lc.rawErr = "stream: " + err.Error()
 	}
 	lc.timing["generation"] = time.Since(generationStart).Milliseconds()

@@ -14,7 +14,8 @@ import (
 //
 // Three layers, one direction of failure:
 //
-//   - the Valkey spend counter is the fast path (spend:{scope}:{id}:day|month);
+//   - the Valkey spend counter is the fast path
+//     (spend:{scope}:{id}:{day|month}:{period start});
 //   - the DB sum is authoritative when the counter is missing (spec §7: counter
 //     loss must never make spending unbounded);
 //   - the workspace billing account's hard stop (spec §10) rejects with
@@ -55,10 +56,15 @@ func (h *Handler) checkBudgets(ctx context.Context, lc *lifecycle) error {
 		}
 	}
 
+	// H7: this read fails CLOSED, like the account read above. The asymmetry
+	// was the bug: spec §10 (quoted above) says an error here refuses the
+	// request rather than admitting unbounded spend, and failing open on
+	// exactly the rows that carry the caps would let a DB error bypass every
+	// budget the gate exists to enforce.
 	budgets, err := h.store.AdmissionBudgets(ctx, lc.key)
 	if err != nil {
 		log.Printf("[proxy] budget lookup failed for key %s: %v", lc.key.ID, err)
-		return nil // fail open: a budget read error is not a billing error
+		return err
 	}
 	for i := range budgets {
 		b := budgets[i]
@@ -81,7 +87,8 @@ func (h *Handler) checkBudgets(ctx context.Context, lc *lifecycle) error {
 	// nullable and an operator sets it, so before this every request for such an
 	// environment paid a Postgres SUM over request_log — the exact round trip
 	// admission stopped paying elsewhere — while budgetSpendAdd already maintains
-	// `spend:environment:<id>:month`, which is the key budgetSpent builds here.
+	// the period-named `spend:environment:<id>:month:<yyyymm>` key, which is the
+	// key budgetSpent builds here.
 	// The error path is the loop's above, not silence: a failed read is logged
 	// and the request admitted (fail open, spec §12), the same as a failed
 	// budget-row sum.
@@ -129,7 +136,20 @@ func (h *Handler) budgetSpent(ctx context.Context, lc *lifecycle, b *store.Budge
 		period = "month"
 	}
 	var cached int64
-	key := "spend:" + b.Scope + ":" + b.ScopeID + ":" + period
+	// H4: the key must name the PERIOD it counts. The old
+	// `spend:{scope}:{id}:{day|month}` key had no period, and the day bucket's
+	// 25h TTL outlives the UTC day boundary — yesterday's counter was still
+	// live this morning and read as today's, producing false 402s until it
+	// aged out. Embedding the period start (limits.go:319-328's rule for the
+	// token windows) makes a stale key from a previous period simply MISS, so
+	// budgetSpent falls back to the durable sum instead of reading it.
+	// TTLs stay 25h/32d — they now only need to outlive the NAMED period.
+	ps := b.PeriodStart(time.Now())
+	periodKey := ps.Format("20060102") // day bucket: 20261019
+	if period != "day" {
+		periodKey = ps.Format("200601") // month bucket: 202610
+	}
+	key := "spend:" + b.Scope + ":" + b.ScopeID + ":" + period + ":" + periodKey
 	if err := h.vk.GetJSON(ctx, key, &cached, 2*time.Second); err == nil {
 		return cached, nil
 	}
@@ -169,9 +189,21 @@ func (h *Handler) budgetSpendAdd(ctx context.Context, lc *lifecycle, micro int64
 		if pair[1] == "" {
 			continue
 		}
-		for _, period := range []string{"day", "month"} {
-			keys = append(keys, "spend:"+pair[0]+":"+pair[1]+":"+period)
-			ttls = append(ttls, ttlOf(period))
+		// H4 (write side): the same period-named key budgetSpent reads —
+		// `spend:{scope}:{id}:{day|month}:{period start}`, so the day bucket
+		// written today can never satisfy tomorrow's read (the unperioded key
+		// plus the 25h TTL made yesterday's spend read as today's until the
+		// TTL aged it out — false 402s). Read and write MUST spell it alike
+		// or every write silently misses every read and the durable sum pays
+		// a Postgres round trip per request instead.
+		day := time.Now().UTC().Format("20060102")
+		mon := time.Now().UTC().Format("200601")
+		for _, w := range []struct{ suffix, periodKey string }{
+			{"day", day},
+			{"month", mon},
+		} {
+			keys = append(keys, "spend:"+pair[0]+":"+pair[1]+":"+w.suffix+":"+w.periodKey)
+			ttls = append(ttls, ttlOf(w.suffix))
 		}
 	}
 	if len(keys) == 0 {

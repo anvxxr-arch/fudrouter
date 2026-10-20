@@ -196,13 +196,27 @@ func applyConnectionConfig(cred *credentials, configJSON []byte) {
 // it is unusable. Best-effort: a failure here never fails a request. An empty
 // credID (a legacy-blob account) parks nothing — the pool's own cooldown covers
 // it.
-func (h *Handler) parkCredential(credID, status string) {
+//
+// M-c: rate_limited carries a cooldown too. It used to set only the status, so
+// a throttled credential was re-picked FIRST after a pool rebuild and burned
+// the request's pick budget on an account the upstream had just refused.
+// retryAfterSeconds honours the upstream's Retry-After hint when the caller
+// parsed one (freebuff sets a.RetryAfterSeconds); 0 falls back to 60s.
+func (h *Handler) parkCredential(credID, status string, retryAfterSeconds int) {
 	if credID == "" {
 		return
 	}
 	var cooldown *time.Time
-	if status == "auth_failed" {
+	switch status {
+	case "auth_failed":
 		until := time.Now().Add(5 * time.Minute) // S0 failCooldown
+		cooldown = &until
+	case "rate_limited":
+		secs := retryAfterSeconds
+		if secs <= 0 {
+			secs = 60
+		}
+		until := time.Now().Add(time.Duration(secs) * time.Second)
 		cooldown = &until
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(context.Background()), 5*time.Second)

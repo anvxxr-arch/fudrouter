@@ -89,7 +89,12 @@ func Execute(ctx context.Context, ordered []Candidate, plan Plan, deadline time.
 	}
 	candidatesTried := 0
 
-	for i := 0; i < len(ordered) && len(res.Attempts) < maxAttempts; i++ {
+	// M-e: CIRCUIT_OPEN refusals are recorded but do NOT count against
+	// maxAttempts. A refusal costs no upstream round trip, so counting it
+	// starved the fallback candidates: with maxAttempts=2 and two open
+	// circuits ahead, the healthy third candidate was never reached.
+	realAttempts := 0
+	for i := 0; i < len(ordered) && realAttempts < maxAttempts; i++ {
 		cand := ordered[i]
 
 		// 1. Deadline: never start an attempt that cannot finish in time.
@@ -115,11 +120,12 @@ func Execute(ctx context.Context, ordered []Candidate, plan Plan, deadline time.
 			continue
 		}
 
-		room := maxAttempts - len(res.Attempts)
+		room := maxAttempts - realAttempts
 		batch := fn(ctx, &cand, len(res.Attempts)+1)
 		if len(batch) > room {
 			batch = batch[:room]
 		}
+		realAttempts += len(batch)
 		candidatesTried++
 		for _, a := range batch {
 			if a == nil {
@@ -334,14 +340,14 @@ func (b *CircuitBreaker) Allow(ctx context.Context, cand *Candidate) bool {
 			// Cooling-off elapsed: admit ONE probe (half-open).
 			st.State = CircuitHalfOpen
 			st.Probes = 0
-			_ = b.save(ctx, key, st)
+			_ = b.save(ctx, target, id, st)
 			return true
 		}
 		return false
 	case CircuitHalfOpen:
 		if st.Probes < cfg.HalfOpenProbes {
 			st.Probes++
-			_ = b.save(ctx, key, st)
+			_ = b.save(ctx, target, id, st)
 			return true
 		}
 		return false
@@ -383,7 +389,7 @@ func (b *CircuitBreaker) Result(ctx context.Context, cand *Candidate, success bo
 			st.State = CircuitClosed
 		}
 	}
-	_ = b.save(ctx, key, st)
+	_ = b.save(ctx, target, id, st)
 }
 
 // config reads the breaker configuration. The map is populated once at
@@ -411,15 +417,19 @@ func (b *CircuitBreaker) load(ctx context.Context, key string) (circuitState, er
 	return st, nil
 }
 
-func (b *CircuitBreaker) save(ctx context.Context, key string, st circuitState) error {
+func (b *CircuitBreaker) save(ctx context.Context, target, id string, st circuitState) error {
+	// M-d: the TTL comes from the breaker config of the REAL target/id. The
+	// old call was b.config("provider", "") — a key that never exists in the
+	// cfg map, so every save silently used DefaultBreaker's window and a
+	// per-target WindowSeconds was ignored on the write side.
 	// The state is ephemeral (spec §12: Valkey may lose it), so it carries a
 	// short TTL rather than living forever: a stale OPEN must age out even if
 	// the process that wrote it is gone.
-	ttl := time.Duration(b.config("provider", "").WindowSeconds) * time.Second
+	ttl := time.Duration(b.config(target, id).WindowSeconds) * time.Second
 	if ttl <= 0 {
 		ttl = time.Minute
 	}
-	return b.vk.SetJSON(ctx, key, st, ttl)
+	return b.vk.SetJSON(ctx, circuitKey(target, id), st, ttl)
 }
 
 // breakerTarget picks the target kind a candidate's breaker lives on:

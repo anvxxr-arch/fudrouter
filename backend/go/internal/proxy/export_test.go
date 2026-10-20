@@ -14,9 +14,12 @@ package proxy
 
 import (
 	"context"
+	"io"
+	"net/http"
 	"testing"
 	"time"
 
+	"github.com/anvxxr-arch/fudrouter/backend/go/internal/ids"
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/routing"
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/store"
 	"github.com/jackc/pgx/v5"
@@ -88,4 +91,69 @@ func BilledCostForTest(t *testing.T, dsn string, apiKeyID string) (tokensIn, tok
 // import `tests`, which imports proxy).
 func (h *Handler) FillCandidatePricingForTest(ctx context.Context, merged []routing.Candidate) {
 	h.fillCandidatePricing(ctx, merged)
+}
+
+// deadStoreDSN points at a port nothing listens on. store.New parses the DSN
+// and builds the pool without dialing, so this costs a fraction of a
+// millisecond and makes finish()'s ledger write fail fast (measured ~1ms)
+// instead of hanging — which is what lets the relay be gated without a
+// database.
+const deadStoreDSN = "postgres://u:p@127.0.0.1:1/stream_ttft_test?pool_min_conns=0"
+
+// relayLifecycle builds the minimum lifecycle a relay loop needs: a writer, a
+// request (for clientIP and the detached ledger context), and a store whose
+// writes fail fast. Everything else the relays touch — attempts, pricing, the
+// limiter — is nil because a relay that never dispatched has none of them, and
+// buildRow guards each one.
+func relayLifecycle(t *testing.T, w http.ResponseWriter, r *http.Request) *lifecycle {
+	t.Helper()
+	st, err := store.New(context.Background(), deadStoreDSN)
+	if err != nil {
+		t.Fatalf("store.New: %v", err)
+	}
+	t.Cleanup(st.Close)
+	return &lifecycle{
+		h:         &Handler{store: st},
+		r:         r,
+		w:         w,
+		start:     time.Now(),
+		requestID: ids.New("req"),
+		timing:    map[string]int64{},
+	}
+}
+
+// SetPoolBuildHookForTest installs fn inside poolFor's build() and returns a
+// restore function. Production never calls this: the hook exists so the H2
+// race test can hold every poolFor racer inside the rebuild window
+// simultaneously — the same override-a-knob pattern as
+// SetGenericTimeoutForTest above.
+func SetPoolBuildHookForTest(fn func()) (restore func()) {
+	old := poolBuildHook
+	poolBuildHook = fn
+	return func() { poolBuildHook = old }
+}
+
+// StreamSSEForTest drives the [OI] chat relay loop directly.
+//
+// It exists because the property under test — the first event reaches the
+// client before the upstream finishes — lives entirely inside the relay loop,
+// while every public path to it (ServeCompletions) runs admission first: auth,
+// limits, budget and model resolution all need a seeded database. A gate that
+// had to seed a database to assert a property of the copy loop would be skipped
+// on every DB-less run, which is most of them.
+//
+// The wiring that CHOOSES the streaming branch (proxy.go:313-316) is not
+// covered here — that is what the DB-backed tests exercise.
+func StreamSSEForTest(t *testing.T, w http.ResponseWriter, r *http.Request, body io.Reader) {
+	t.Helper()
+	relayLifecycle(t, w, r).streamSSE(w, body)
+}
+
+// AnthropicStreamSSEForTest drives the Anthropic relay loop directly, for the
+// same reason as StreamSSEForTest: the flush-per-line shape is duplicated
+// rather than shared, so a buffering regression lands in one relay and the
+// other must still be pinned.
+func AnthropicStreamSSEForTest(t *testing.T, w http.ResponseWriter, r *http.Request, body io.Reader) {
+	t.Helper()
+	relayLifecycle(t, w, r).anthropicStreamSSE(w, body, "test-model")
 }

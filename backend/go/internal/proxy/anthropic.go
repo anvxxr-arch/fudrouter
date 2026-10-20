@@ -567,9 +567,10 @@ func (lc *lifecycle) anthropicStreamSSE(w http.ResponseWriter, body io.Reader, m
 	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
 	for sc.Scan() {
 		line := sc.Text()
-		if ttft == 0 && strings.TrimSpace(line) != "" {
-			ttft = int(time.Since(streamStart).Milliseconds())
-		}
+		// H5: ttft is stamped on the first content_block_delta EMIT below,
+		// not on the first non-empty line — message_start and
+		// content_block_start are protocol framing the client receives before
+		// any token exists, and stamping them reported ttft_ms ≈ 0.
 		if !strings.HasPrefix(line, "data: ") {
 			continue
 		}
@@ -610,6 +611,9 @@ func (lc *lifecycle) anthropicStreamSSE(w http.ResponseWriter, body io.Reader, m
 				interrupted = true
 				break
 			}
+			if ttft == 0 {
+				ttft = int(time.Since(streamStart).Milliseconds())
+			}
 		}
 
 		for _, tc := range ch.Delta.ToolCalls {
@@ -646,6 +650,9 @@ func (lc *lifecycle) anthropicStreamSSE(w http.ResponseWriter, body io.Reader, m
 				}) {
 					interrupted = true
 					break
+				}
+				if ttft == 0 {
+					ttft = int(time.Since(streamStart).Milliseconds())
 				}
 			}
 		}

@@ -369,6 +369,54 @@ func TestExecuteCircuitOpenRefusesAndRecords(t *testing.T) {
 	}
 }
 
+// M-e: a CIRCUIT_OPEN refusal costs no upstream round trip, so it must NOT
+// consume maxAttempts. With the refusal counted, maxAttempts=2 and two open
+// circuits ahead meant the healthy third candidate was never reached — the
+// fallback walk starved exactly when the breaker was doing its job.
+func TestExecuteCircuitOpenDoesNotConsumeMaxAttempts(t *testing.T) {
+	cands := []Candidate{
+		build("m", "prv_a", "dead1", 1, 1, 1, 1, 1),
+		build("m", "prv_b", "dead2", 2, 1, 1, 1, 1),
+		build("m", "prv_c", "live", 3, 1, 1, 1, 1),
+	}
+	cb := NewCircuitBreaker(vk.NewFake(), map[string]BreakerDefaults{
+		"connection:con_d1": {FailureThreshold: 1, WindowSeconds: 60, OpenMs: 60_000, HalfOpenProbes: 1},
+		"connection:con_d2": {FailureThreshold: 1, WindowSeconds: 60, OpenMs: 60_000, HalfOpenProbes: 1},
+	})
+	cands[0].Store.ConnectionID = "con_d1"
+	cands[1].Store.ConnectionID = "con_d2"
+	cands[2].Store.ConnectionID = "con_live"
+
+	// Trip both circuits with one failing attempt each.
+	fail := func(_ context.Context, cand *Candidate, _ int) []*Attempt {
+		return []*Attempt{{HTTPStatus: 503, ErrorCode: ErrCodeProviderUnavailable}}
+	}
+	_ = Execute(context.Background(), []Candidate{cands[0]}, Plan{Strategy: StrategyProviderPriority, MaxAttempts: 1}, time.Time{}, cb, fail)
+	_ = Execute(context.Background(), []Candidate{cands[1]}, Plan{Strategy: StrategyProviderPriority, MaxAttempts: 1}, time.Time{}, cb, fail)
+
+	// maxAttempts=1: both refusals are recorded, and the ONE real attempt
+	// still lands on the healthy candidate.
+	fn := func(_ context.Context, cand *Candidate, _ int) []*Attempt {
+		if cand.Store.ConnectionID == "con_live" {
+			return []*Attempt{{Payload: "ok"}}
+		}
+		return []*Attempt{{HTTPStatus: 503, ErrorCode: ErrCodeProviderUnavailable}}
+	}
+	res := Execute(context.Background(), cands, Plan{Strategy: StrategyProviderPriority, MaxAttempts: 1, FallbackEnabled: true}, time.Time{}, cb, fn)
+	if res.Winner == nil || res.Winner.Candidate.Store.ProviderName != "live" {
+		t.Fatalf("winner = %+v, want the healthy third candidate — circuit-open refusals consumed the attempt budget", res.Winner)
+	}
+	opens := 0
+	for _, a := range res.Attempts {
+		if a.ErrorCode == ErrCodeCircuitOpen {
+			opens++
+		}
+	}
+	if opens != 2 {
+		t.Errorf("recorded %d CIRCUIT_OPEN rows, want 2 — refusals must still be recorded", opens)
+	}
+}
+
 // A dead Valkey must leave the breaker CLOSED (PRD §150): traffic keeps moving.
 func TestCircuitBreakerDegradesClosedWhenValkeyIsDown(t *testing.T) {
 	f := vk.NewFake()

@@ -1109,7 +1109,9 @@ func (lc *lifecycle) exchange(ctx context.Context, cand *routing.Candidate, n in
 					// account-shaped (auth, rate limit) and IS parked.
 					if pe.Kind != freebuff.KindWaitingRoom {
 						target.pool.MarkFailed(picked.Token)
-						lc.h.parkCredential(a.CredentialID, "rate_limited")
+						// M-c: the freebuff rate limit parsed a Retry-After
+						// hint (a.RetryAfterSeconds, set above) — honour it.
+						lc.h.parkCredential(a.CredentialID, "rate_limited", a.RetryAfterSeconds)
 					}
 				}
 				return a
@@ -1187,9 +1189,12 @@ func (lc *lifecycle) exchange(ctx context.Context, cand *routing.Candidate, n in
 		// (S0 behaviour, spec §5 credential state).
 		target.pool.MarkFailed(picked.Token)
 		if resp.StatusCode == 401 || resp.StatusCode == 403 {
-			lc.h.parkCredential(a.CredentialID, "auth_failed")
+			lc.h.parkCredential(a.CredentialID, "auth_failed", 0)
 		} else if resp.StatusCode == 429 {
-			lc.h.parkCredential(a.CredentialID, "rate_limited")
+			// M-c: no Retry-After is parsed on this plain-429 path, so the
+			// 60s default applies — the point is that the row cools down at
+			// all, not that it honours a hint nobody parsed.
+			lc.h.parkCredential(a.CredentialID, "rate_limited", 0)
 		}
 	} else {
 		a.Payload = &errorBody{status: resp.StatusCode, body: body}

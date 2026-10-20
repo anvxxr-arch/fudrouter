@@ -12,7 +12,8 @@ import {
 	requestLog,
 	systemEvent,
 	usageDaily,
-	usageHourly
+	usageHourly,
+	modelVerification
 } from './db/schema.ts';
 import { db } from './db/index.ts';
 import {
@@ -760,6 +761,201 @@ const pricingSync: JobHandler = async (dbtx, payload) => {
 };
 
 /**
+ * How many provider_model rows ONE `model_verification` run probes.
+ *
+ * The upstream catalog holds a few hundred mappings per commercial provider and
+ * every probe is a real (if tiny) billed chat completion, so an unbounded run
+ * would both hold one job row for minutes and spend real tokens on a schedule.
+ * Bounded and least-recently-verified first (the order-by cursor below), so
+ * coverage rotates across runs instead of re-probing the same head rows
+ * — the same cursor discipline `credential_validation` uses.
+ */
+export const MODEL_VERIFICATION_BATCH = 100;
+
+/**
+ * `model_verification`: detect a provider serving a DIFFERENT model than its
+ * catalog advertises (relabeled, aliased, or wrong-capability), or not serving
+ * it at all.
+ *
+ * Why this job exists: `provider_model` rows are a CLAIM copied from the
+ * upstream `/models` listing — nothing ever proves the upstream serves that
+ * slug under that name. When a provider quietly swaps the backing model, every
+ * user routed to it silently gets wrong answers, and `request_log` cannot see
+ * it: it records the slug we ASKED for (`requested_model`), not what came back.
+ *
+ * The probe goes through the SAME internal upstream seam the health check uses
+ * (`guardedUpstreamFetch` + the connection's own decrypted credential), never
+ * through the public router hot path: a verification probe must not consume a
+ * user's budget, hit the rate limiter, or rotate the credential pool — and the
+ * health-check seam already carries the SSRF guard, the no-redirect rule and
+ * the timeout, so a new call site cannot forget any of them.
+ *
+ * Evidence is one append-only `model_verification` row per probe (0018):
+ * requested slug vs the response body's own `model` field, tokens, latency,
+ * verdict. The verdict is STRICT string equality against the requested slug by
+ * design — a provider answering `gpt-4o-mini-2024-07-18` to `gpt-4o-mini` may
+ * be fine (a dated snapshot) or may be a swap, and only a human looking at the
+ * recorded `response_model` can judge; the job's job is to record, not to
+ * decide. Verdicts: `pass` (served under the advertised name), `mismatch`
+ * (served, but a different name), `not_served` (auth-rejected or the model is
+ * unknown to the upstream), `error` (transient — 5xx/429/timeout/undecryptable
+ * credential — which proves nothing about what is served and must never be
+ * collapsed into `not_served` or the evidence trail lies).
+ *
+ * Payload: `{providerId}` — required, matching the scheduler's provider-scoped
+ * fan-out and the admin `POST providers/:id/verify`. Idempotent: each run
+ * appends fresh rows and readers take the newest per mapping.
+ */
+const modelVerificationJob: JobHandler = async (dbtx, payload) => {
+	const providerId = String(payload.providerId ?? '');
+	if (!providerId) throw new Error('model_verification requires payload.providerId');
+	// `lastVerified` doubles as the progress cursor, exactly like
+	// `credential_validation`'s `lastValidatedAt`: it is derived from THIS
+	// table's own rows, which nothing else writes, so probing cannot disturb
+	// the ordering that decides what gets probed next. The correlated
+	// subquery is per-row on a table bounded by MODEL_VERIFICATION_BATCH.
+	const mappings = await dbtx
+		.select({
+			id: providerModel.id,
+			upstreamSlug: providerModel.providerModelId,
+			connectionId: providerModel.connectionId
+		})
+		.from(providerModel)
+		.where(and(eq(providerModel.providerId, providerId), eq(providerModel.enabled, true)))
+		.orderBy(
+			sql`coalesce((select max(${modelVerification.createdAt}) from ${modelVerification} where ${modelVerification.providerModelId} = ${providerModel.id}), to_timestamp(0))`,
+			providerModel.id
+		)
+		.limit(MODEL_VERIFICATION_BATCH);
+	if (mappings.length === 0) return;
+	const conns = await dbtx
+		.select({
+			id: connection.id,
+			baseUrl: connection.baseUrl,
+			timeoutMs: connection.timeoutMs
+		})
+		.from(connection)
+		.where(and(eq(connection.providerId, providerId), eq(connection.enabled, true)))
+		.orderBy(connection.priority, connection.id);
+	// A provider_model.connection_id of NULL means "any connection of this
+	// provider" (the COALESCE uniqueness index in 0006 says the same); the
+	// highest-priority enabled connection is the one routing would pick.
+	const connById = new Map(conns.map((c) => [c.id, c]));
+	const defaultConn = conns[0] ?? null;
+	// Memoised per connection: one mapping's verdict must not spend one
+	// credential decryption per mapping when mappings share a connection.
+	const credCache = new Map<string, Credentials | null>();
+	const usableCred = async (connId: string): Promise<Credentials | null> => {
+		const cached = credCache.get(connId);
+		if (cached !== undefined) return cached;
+		const creds = await dbtx
+			.select({ secretEnc: credential.secretEnc })
+			.from(credential)
+			.where(eq(credential.connectionId, connId))
+			.orderBy(credential.priority, credential.id);
+		let plain: Credentials | null = null;
+		for (const c of creds) {
+			try {
+				plain = decryptCredentials(c.secretEnc);
+				break;
+			} catch {
+				// An undecryptable credential is skipped, not fatal: another
+				// credential on the same connection may still probe.
+			}
+		}
+		credCache.set(connId, plain);
+		return plain;
+	};
+	for (const m of mappings) {
+		// The slug the catalog CLAIMS this mapping serves, and the only value
+		// worth probing: it is what a user's request would carry upstream.
+		const requestedSlug = m.upstreamSlug;
+		const conn = (m.connectionId ? connById.get(m.connectionId) : null) ?? defaultConn;
+		const latencyStart = Date.now();
+		let verdict: 'pass' | 'mismatch' | 'not_served' | 'error';
+		let responseModel: string | null = null;
+		let error: string | null = null;
+		let tokensIn: number | null = null;
+		let tokensOut: number | null = null;
+		if (!conn) {
+			verdict = 'error';
+			error = 'provider has no enabled connection to probe through';
+		} else {
+			const cred = await usableCred(conn.id);
+			if (!cred) {
+				verdict = 'error';
+				error = 'connection has no decryptable credential to probe with';
+			} else {
+				const probed = await guardedUpstreamFetch(conn.baseUrl, allowPrivateUpstreams(), '/chat/completions', {
+					method: 'POST',
+					headers: { ...headersFor(cred, tokenAt(cred, 0)), 'content-type': 'application/json' },
+					body: JSON.stringify({
+						model: requestedSlug,
+						messages: [{ role: 'user', content: 'Reply with exactly: OK' }],
+						max_tokens: 16
+					}),
+					timeoutMs: Math.min(conn.timeoutMs || UPSTREAM_TIMEOUT_MS, UPSTREAM_TIMEOUT_MS)
+				});
+				if (!probed.ok) {
+					verdict = 'error';
+					error = probed.message;
+				} else {
+					const code = probed.response.status;
+					const bodyText = await probed.response.text().catch(() => '');
+					if (code === 401 || code === 403) {
+						// Auth-rejected: this credential cannot reach the model at
+						// all, so the catalog entry is not served to anyone.
+						verdict = 'not_served';
+						error = `HTTP ${code}`;
+					} else if (code === 404) {
+						verdict = 'not_served';
+						error = 'HTTP 404 (model unknown to upstream)';
+					} else if (code >= 200 && code < 300) {
+						// try/catch, not a `.catch()`: JSON.parse throws SYNCHRONOUSLY
+						// on a non-JSON 2xx body (an HTML error page served with 200),
+						// and an unparseable body must not abort the run for the
+						// mappings not yet probed — it is recorded as a mismatch with
+						// no response_model below.
+						let data: unknown = null;
+						try {
+							data = bodyText ? JSON.parse(bodyText) : null;
+						} catch {
+							data = null;
+						}
+						const body = (data ?? {}) as Record<string, unknown>;
+						const usage = (body.usage ?? {}) as Record<string, unknown>;
+						responseModel = typeof body.model === 'string' ? body.model : null;
+						tokensIn = typeof usage.prompt_tokens === 'number' ? usage.prompt_tokens : null;
+						tokensOut = typeof usage.completion_tokens === 'number' ? usage.completion_tokens : null;
+						// A 2xx that names a different model is the exact bug this
+						// job exists to catch. A 2xx with NO model field is not a
+						// pass — an upstream that will not say what it served
+						// cannot be vouched for, but it is also not proof of a
+						// swap, so it is recorded as a mismatch with the field
+						// left NULL rather than folded into `error`.
+						verdict = responseModel === requestedSlug ? 'pass' : 'mismatch';
+					} else {
+						verdict = 'error';
+						error = `HTTP ${code}`;
+					}
+				}
+			}
+		}
+		await dbtx.insert(modelVerification).values({
+			id: newId('mvr_'),
+			providerModelId: m.id,
+			requestedSlug,
+			responseModel,
+			verdict,
+			error,
+			tokensIn,
+			tokensOut,
+			latencyMs: Date.now() - latencyStart
+		});
+	}
+};
+
+/**
  * How many rows ONE retention statement touches.
  *
  * Why batching exists at all: the handler ran four unbounded statements and the
@@ -1014,7 +1210,8 @@ export const JOB_HANDLERS: Record<JobType, JobHandler> = {
 	provider_model_sync: providerModelSync,
 	pricing_sync: pricingSync,
 	data_retention_cleanup: dataRetentionCleanup,
-	statistics_aggregation: statisticsAggregation
+	statistics_aggregation: statisticsAggregation,
+	model_verification: modelVerificationJob
 };
 
 /** Run one claimed job to completion/failure. */

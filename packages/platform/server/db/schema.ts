@@ -470,6 +470,31 @@ export const modelAliasTarget = pgTable(
 	(t) => [primaryKey({ columns: [t.aliasId, t.position] })]
 );
 
+// Evidence of what a provider actually served, one row per completed probe
+// (0018_model_verification.sql). Append-only like request_log: the latest
+// verdict is a max-by-created_at read, never an UPDATE — a verdict is evidence
+// from a point in time, not a mutable property. SET NULL on mapping delete so
+// erasing a mapping keeps the record that the provider once served the wrong
+// model (the survive-the-subject rule request_log's ledger columns follow).
+export const modelVerification = pgTable(
+	'model_verification',
+	{
+		id: text('id').primaryKey(),
+		providerModelId: text('provider_model_id').references(() => providerModel.id, {
+			onDelete: 'set null'
+		}),
+		requestedSlug: text('requested_slug').notNull(),
+		responseModel: text('response_model'),
+		verdict: text('verdict').notNull(),
+		error: text('error'),
+		tokensIn: integer('tokens_in'),
+		tokensOut: integer('tokens_out'),
+		latencyMs: integer('latency_ms'),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [index('model_verification_provider_model_idx').on(t.providerModelId, t.createdAt)]
+);
+
 // ---------------------------------------------------------------- pricing -----
 // PRD §60–61: versioned, immutable history. A new price is a NEW ROW; the old
 // one gets effectiveUntil. Prices are micro-units of currency per 1M tokens.

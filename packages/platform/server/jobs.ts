@@ -49,7 +49,8 @@ export const JOB_TYPES = [
 	'provider_model_sync',
 	'pricing_sync',
 	'data_retention_cleanup',
-	'statistics_aggregation'
+	'statistics_aggregation',
+	'model_verification'
 ] as const;
 export type JobType = (typeof JOB_TYPES)[number];
 

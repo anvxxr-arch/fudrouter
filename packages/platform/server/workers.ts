@@ -1258,36 +1258,77 @@ export interface WorkerRuntime {
 // ECONNRESET included: when the container is stopped, in-flight queries die
 // with `read ECONNRESET` before the listener starts refusing (ECONNREFUSED).
 // Both are the same outage at different instants.
-const CONNECTION_OUTAGE_RE = /57P03|ECONNREFUSED|ECONNRESET|ENOTFOUND|ETIMEDOUT|EHOSTUNREACH|ENETUNREACH|connection refused|not yet accepting|terminating connection|connection terminated|connection reset|server closed the connection|too many clients|remaining connection slots/i;
+//
+// 3D000 (database does not exist) and 42P01 (relation does not exist) added
+// after the Oct 19 2026 DB outage: neither is a *connection* failure, but a
+// database mid-restore/mid-recreate serves exactly those codes while it is
+// gone, and while they were absent the claim+sweep error rethrew out of the
+// guard and crash-looped the worker fleet 32,801 restarts (~every 3s). A
+// missing-database/relation window must back off like a connection outage.
+// 42P01 can ALSO mean a genuine migration bug, so warnMissingObject logs its
+// first occurrence per process loudly before the backoff can swallow it.
+const CONNECTION_OUTAGE_RE = /3D000|42P01|57P03|ECONNREFUSED|ECONNRESET|ENOTFOUND|ETIMEDOUT|EHOSTUNREACH|ENETUNREACH|connection refused|not yet accepting|terminating connection|connection terminated|connection reset|server closed the connection|too many clients|remaining connection slots/i;
+
+// outageText flattens an error into the one string the outage matcher, the
+// log hint and warnMissingObject all test, so the three can never disagree
+// about what the error said.
+function outageText(e: unknown): string {
+	if (e instanceof Error) {
+		let code = '';
+		if ('code' in e) {
+			const c = e.code;
+			if (typeof c === 'string' || typeof c === 'number') code = ` ${c}`;
+		}
+		return `${e.message}${code} ${outageChainText(e.cause)}`;
+	}
+	return String(e);
+}
 
 // isConnectionOutage reports whether an error looks like the database being
 // unreachable (restart, recovery, failover) rather than a bug in our SQL.
 // Matched on message/code because drizzle/postgres-js surface transport
 // failures as plain Errors with driver text, not a stable error class.
 function isConnectionOutage(e: unknown): boolean {
-	let text: string;
-	if (e instanceof Error) {
-		let code = '';
-		if ('code' in e) {
-			const c = e.code;
-		if (typeof c === 'string' || typeof c === 'number') code = ` ${c}`;
-		}
-		text = `${e.message}${code} ${outageChainText(e.cause)}`;
-	} else {
-		text = String(e);
+	return CONNECTION_OUTAGE_RE.test(outageText(e));
+}
+
+// warnMissingObject fires once per process per code for the two SQLSTATEs that
+// can be either an outage or a real bug (Oct 19: 3D000 crash loop, 32,801
+// restarts): a wrong DATABASE_URL or an un-migrated table reads identically to
+// a database mid-restore. Backing off instead of crash-looping must not
+// silently swallow the genuine case, so the first sighting logs the full
+// flattened error loudly.
+const warnedMissingObject = new Set<string>();
+function warnMissingObject(e: unknown): void {
+	const text = outageText(e);
+	for (const code of ['3D000', '42P01']) {
+		if (warnedMissingObject.has(code) || !text.includes(code)) continue;
+		warnedMissingObject.add(code);
+		console.error(
+			`[workers] Postgres ${code} (${code === '3D000' ? 'database does not exist' : 'relation does not exist'}) — first occurrence this process; backing off like an outage, but this can also be a real migration/config bug, not a transient: ${text.trim()}`
+		);
 	}
-	return CONNECTION_OUTAGE_RE.test(text);
 }
 
 // outageChainText flattens an error's `cause` chain for outage matching and
 // logging. drizzle/postgres-js wrap the transport failure: the driver text
 // (ECONNREFUSED, 57P03) lives in the chain, not in `message` (which carries
 // the SQL). Two call sites (matcher + log hint) must walk it identically.
+//
+// Each Error node's own `code` must be read too: a SQLSTATE (3D000, 42P01)
+// lives on the wrapped PostgresError's `code` and appears nowhere in any
+// message, and only the chain TAIL's code was read below — the tail of a
+// drizzle-wrapped error is that PostgresError, an Error, so the code was
+// silently dropped for exactly the Oct 19 codes this fix is about.
 function outageChainText(cause: unknown): string {
 	let text = '';
 	let cur: unknown = cause;
 	while (cur instanceof Error) {
 		text += ` ${cur.message}`;
+		if ('code' in cur) {
+			const c = cur.code;
+			if (typeof c === 'string' || typeof c === 'number') text += ` ${c}`;
+		}
 		cur = cur.cause;
 	}
 	if (typeof cur === 'object' && cur !== null && 'code' in cur) {
@@ -1341,15 +1382,19 @@ export function createWorker(options: WorkerOptions = {}): WorkerRuntime {
 				} catch (e) {
 					if (!running) break;
 					if (!isConnectionOutage(e)) throw e;
+					// 3D000/42P01 are outage-shaped but can be a real
+					// migration/config bug — scream the first time each
+					// appears so the backoff below cannot hide it.
+					warnMissingObject(e);
 					backoffMs = backoffMs === 0 ? 5000 : Math.min(backoffMs * 2, 60000);
 					if (!loggedOutage) {
 						loggedOutage = true;
-						// One short token, never a full stack or query string:
-						// search the cause chain first (driver code), then
-						// the top message as a last resort.
-						const chain = e instanceof Error ? outageChainText(e.cause) : String(e);
-						const top = e instanceof Error ? e.message : '';
-						const hint = chain.match(/57P03|ECONNREFUSED|ECONNRESET|ENOTFOUND|ETIMEDOUT|EHOSTUNREACH|ENETUNREACH|not yet accepting|connection refused|terminating connection|too many clients/i)?.[0] ?? top.slice(0, 40) ?? 'unreachable';
+						// One short token, never a full stack or query string.
+						// The hint regex IS CONNECTION_OUTAGE_RE (matched on
+						// the same outageText the matcher saw) — a separate
+						// short list here once drifted from the classifier.
+						const text = outageText(e);
+						const hint = text.match(CONNECTION_OUTAGE_RE)?.[0] ?? (e instanceof Error ? e.message.slice(0, 40) : 'unreachable');
 						console.error(`[workers] database unreachable (${hint}) — retrying with backoff`);
 					}
 					await sleep(backoffMs);

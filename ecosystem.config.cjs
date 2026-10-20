@@ -62,8 +62,16 @@ module.exports = {
 			// Worker fleet (PRD §75–76): usage/billing aggregation, invoices,
 			// webhook delivery, alerts, provider/credential health, model/pricing
 			// sync, retention cleanup. Shares the root .env via run-workers.sh —
-			// no secrets here. kill_timeout > drain time: SIGTERM lets in-flight
-			// handlers settle their job rows (never abandons one `running`).
+			// no secrets here. kill_timeout is 10s against an UNBOUNDED drain
+			// (workers.ts stop() awaits inFlight with no deadline), so a handler
+			// slower than 10s is SIGKILLed mid-flight and leaves a `running` row.
+			// That row is not lost: requeueStaleJobs resurrects any `running` row
+			// older than STALE_AFTER_MS_DEFAULT (10 min), and the claim's dedup
+			// lock (lock:job:{id}, TTL tied to the same threshold) keeps the
+			// resurrected job from being double-claimed while the original
+			// handler is still alive. Tradeoff: a SIGKILLed long handler (the
+			// batched retention sweep, the 12k-credential provider probe) delays
+			// its job by up to 10 minutes rather than losing it.
 			name: 'fudrouter-workers',
 			cwd: ROOT,
 			script: 'apps/workers/run.sh',

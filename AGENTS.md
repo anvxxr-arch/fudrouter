@@ -84,7 +84,10 @@ npm test  -w @fudrouter/contracts
 # otherwise refuse to build. CI pins 1.26.9 to match deliberately.
 cd backend/go && GOTOOLCHAIN=auto go vet ./... && GOTOOLCHAIN=auto go build ./...
 GOTOOLCHAIN=auto go test ./... -race
-env -u DATABASE_URL GOTOOLCHAIN=auto go test ./... -count=1   # unit-only, DB tests skip
+env -u DATABASE_URL -u CI GOTOOLCHAIN=auto go test ./... -count=1   # unit-only, DB tests skip
+# -u CI: Go's RequireDB and the Node integration harness FAIL (not skip) when
+# CI is set and DATABASE_URL is absent; agent shells here export CI=true, so
+# the flag is explicit.
 
 # Migrations — the ONLY path. Never drizzle-kit.
 DATABASE_URL=postgres://... ops/migrate.sh [status]
@@ -95,7 +98,7 @@ bash ops/verify/structure.sh
 
 **The stack is external — do not run `docker compose up`.** `infra/docker-compose.yml`
 is a stub whose entire content is comments and `services: {}`; the command exits 0
-and starts nothing. Postgres is the consolidated `postgres-hardened` container
+and starts nothing. Postgres is the consolidated `postgre` container
 (`127.0.0.1:5432`, db `fudrouter`, role `fudrouter`) and Valkey is
 host-native systemd `valkey-server` on `127.0.0.1:6379` DB 1. Both are already
 running; consumers read `VALKEY_URL`, never a hardcoded endpoint.
@@ -103,7 +106,7 @@ running; consumers read `VALKEY_URL`, never a hardcoded endpoint.
 Scratch DB (the `fudrouter` role has **no** createdb right — `createdb -T` fails):
 
 ```sh
-docker exec postgres-hardened psql -U postgres -d postgres \
+docker exec postgre psql -U postgres -d postgres \
   -c "create database fudrouter_test owner fudrouter"
 export DATABASE_URL=postgres://fudrouter:fudrouter@127.0.0.1:5432/fudrouter_test
 ./ops/migrate.sh
@@ -331,8 +334,9 @@ per page.
   bottleneck AND a versioned job/result/event contract.
 - **No Go management API.** ADR-0002 keeps one binary; the 40+ Express
   `/api/admin/*` routes stay in Express.
-- **No e2e/load harness** despite `tests/{e2e,integration,load}` existing as empty
-  dirs at the repo root.
+- **No e2e/load harness.** The `tests/{e2e,integration,load}` scaffolding was
+  dropped because the structure gate rejects a top-level `tests/` as soon as a
+  file lands in it; there is still no harness.
 - **Stale docs** (known, not yet corrected): `docs/architecture/*` and
   `docs/audit/*` reference pre-rename paths (`apps/react-web`, `services/router`,
   `tools/`, `shared/control-lib`); `docs/specs/*` reference `infra/migrations`

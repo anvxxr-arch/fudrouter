@@ -63,7 +63,7 @@ inserts and deletes rows.
 ```sh
 # The `fudrouter` role has NO createdb right, so creating the scratch database
 # needs the container's superuser.
-docker exec postgres-hardened psql -U postgres -d postgres \
+docker exec postgre psql -U postgres -d postgres \
   -c "create database fudrouter_test owner fudrouter"
 
 export DATABASE_URL=postgres://fudrouter:fudrouter@127.0.0.1:5432/fudrouter_test

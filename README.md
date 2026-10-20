@@ -59,7 +59,7 @@ see `internal/netguard`).
 ```sh
 # The stack is external and already running — do NOT `docker compose up`.
 # infra/docker-compose.yml is a stub (services: {}); Postgres is the
-# consolidated `postgres-hardened` container on 127.0.0.1:5432 and Valkey is
+# consolidated `postgre` container on 127.0.0.1:5432 and Valkey is
 # host-native systemd on 127.0.0.1:6379 (logical DB 1). Consumers read
 # VALKEY_URL, so the endpoint is configuration, never hardcoded.
 
@@ -79,7 +79,7 @@ Point `DATABASE_URL` at anything else:
 ```sh
 # 1. create a scratch DB. The `fudrouter` role has NO createdb right, so this
 #    needs the container's superuser.
-docker exec postgres-hardened psql -U postgres -d postgres \
+docker exec postgre psql -U postgres -d postgres \
   -c "create database fudrouter_test owner fudrouter"
 
 # 2. apply the schema, then point the suite at it and run it.

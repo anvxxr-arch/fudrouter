@@ -29,8 +29,9 @@ LOG=/tmp/ftest-upstream.log
 RLOG=/tmp/ftest-router.log
 WT=/tmp/fr-ftest
 KEYFILE=/tmp/ftest.key
-PG="docker exec -i postgres-hardened psql -U postgres"
-Q() { docker exec -i postgres-hardened psql -U fudrouter -d "$DB" -tAc "$1"; }
+PG_CONTAINER="${FUDROUTER_PG_CONTAINER:-postgre}"
+PG="docker exec -i $PG_CONTAINER psql -U postgres"
+Q() { docker exec -i "$PG_CONTAINER" psql -U fudrouter -d "$DB" -tAc "$1"; }
 FAILS=0
 pass() { echo "  PASS  $*"; }
 fail() { echo "  FAIL  $*"; FAILS=$((FAILS+1)); }
@@ -39,7 +40,7 @@ ROUTER_PID=""; MOCK_PID=""
 cleanup() {
   [ -n "$ROUTER_PID" ] && kill "$ROUTER_PID" 2>/dev/null
   [ -n "$MOCK_PID" ] && kill "$MOCK_PID" 2>/dev/null
-  docker exec -i postgres-hardened psql -U postgres -q -c "drop database if exists $DB;" >/dev/null 2>&1
+  docker exec -i "$PG_CONTAINER" psql -U postgres -q -c "drop database if exists $DB;" >/dev/null 2>&1
   git -C "$ROOT" worktree remove --force "$WT" >/dev/null 2>&1
   rm -f "$BIN"
 }
@@ -71,7 +72,7 @@ for f in "${MIGS[@]}"; do
     echo "  gated    $(basename "$f")"
     continue
   fi
-  out=$(docker exec -i postgres-hardened psql -U fudrouter -d "$DB" -q -v ON_ERROR_STOP=1 < "$f" 2>&1) \
+  out=$(docker exec -i "$PG_CONTAINER" psql -U fudrouter -d "$DB" -q -v ON_ERROR_STOP=1 < "$f" 2>&1) \
     || { echo "  migration failed: $(basename "$f"): $out"; exit 1; }
   napplied=$((napplied+1))
 done

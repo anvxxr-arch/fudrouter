@@ -7,7 +7,7 @@
 import { uuidv7 as _uuidv7 } from 'uuidv7';
 import net from 'node:net';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { and, asc, desc, eq, gte, lt, lte, or, ne, isNull, inArray, notInArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, lt, lte, or, ne, isNull, inArray, notInArray, sql } from 'drizzle-orm';
 import {
 	MIN_PRIORITY, MAX_PRIORITY, MIN_TIMEOUT_MS, MAX_TIMEOUT_MS, MAX_BATCH_MODELS, MAX_BULK_TEST, MAX_CHAT_CHARS,
 	_parseEnum, _parseInt, _parseBool, _cleanField, _parseSlug, _parseJson, _parseFlags, _parseMicros,
@@ -17,7 +17,8 @@ import {
 import { _fetchCatalog } from './lib/ssrf.mjs';
 import {
 	_isBlockedLiteral, _assertPublic, _encCred, _decCred, _tokenAt, _headersFor,
-	reachability as _reachability, allowDevProviders as _allowDevProviders,
+	reachability as _reachability, allowDevProviders as _allowDevProviders, _enqueueJob,
+	MAX_PRICE_USD,
 } from './lib/platform-ts.mjs';
 import { clientIp } from './lib/ip.mjs';
 import { _sanitizeAudit, _dropRedacted, _auditView, makeAudit } from './lib/audit.mjs';
@@ -102,6 +103,7 @@ export const priceRule = pgTable('pricing_rule', {
 	currency: char('currency', { length: 3 }).notNull().default('USD'),
 	inputPrice: numeric('input_price', { precision: 18, scale: 6 }).notNull(),
 	outputPrice: numeric('output_price', { precision: 18, scale: 6 }).notNull(),
+	effectiveFrom: timestamp('effective_from', tz).notNull().defaultNow(),
 	effectiveUntil: timestamp('effective_until', tz)
 });
 export const rl = pgTable('request_log', {
@@ -282,6 +284,27 @@ export const ausr = pgTable('user', {
 const B = (v) => (typeof v === 'bigint' ? v.toString() : String(v ?? '0'));
 const micros = (v) => String(v ?? '0').split('.')[0];
 
+// Which pricing rule is in force RIGHT NOW, per (model, scope): the highest
+// version whose window covers this moment. The previous test was
+// `effective_until === null`, which marked a future-dated rule as current and
+// an in-force rule with a future expiry as historical — the same defect the
+// list query carried, in the one column an operator reads to decide what the
+// router is billing. `modelId` may be absent (the detail handler is already
+// scoped to one model), so the key falls back to ''.
+function currentRuleIds(rules, now = Date.now()) {
+	const best = new Map();
+	for (const r of rules) {
+		const from = new Date(r.effectiveFrom).getTime();
+		const until = r.effectiveUntil === null ? null : new Date(r.effectiveUntil).getTime();
+		if (from > now) continue;
+		if (until !== null && until <= now) continue;
+		const key = `${r.modelId ?? ''}|${r.providerModelId ?? ''}`;
+		const prev = best.get(key);
+		if (!prev || r.version > prev.version) best.set(key, r);
+	}
+	return new Set([...best.values()].map((r) => r.id));
+}
+
 function parseDayParam(v, fallback) {
 	if (!v) return fallback;
 	const d = new Date(`${v}T00:00:00.000Z`);
@@ -374,21 +397,42 @@ export function registerAdminRoutes(app, ctx) {
 	const _audit = makeAudit(_ipStore);
 	const _getSetting = async (database, key) => { const r = _rowsOf(await database.execute(sql`select value from system_setting where key = ${key} limit 1`)); return r[0]?.value ?? null; };
 	const _setSetting = async (dbx, key, value, actor) => { await dbx.execute(sql`insert into system_setting (key, value, updated_by, updated_at) values (${key}, ${JSON.stringify(value)}::jsonb, ${actor}, now()) on conflict (key) do update set value = ${JSON.stringify(value)}::jsonb, updated_by = ${actor}, updated_at = now()`); };
+	// BAN-REVOCATION: the old `try { delete } catch {}` copies swallowed every
+	// failure while the audit row still claimed sessionsRevoked:true. The delete
+	// is belt-and-braces only (stale rows do not accumulate) — the banned gate in
+	// index.mjs getSessionUser is what actually revokes — so a failed delete is
+	// logged, never thrown: it must not roll back the ban itself.
+	const _revokeSessions = async (dbx, id) => {
+		try { await dbx.execute(sql`delete from session where user_id = ${id}`); }
+		catch (err) { console.error(`[admin/users] session revoke failed for ${id}`, err); }
+	};
 
 	// Overview (admin/+page.server.ts): counts + top consumers + recent.
 	app.get('/api/admin/overview', handler('analytics', async (database) => {
-		const [[providers], [models], [connections], [keys], [users], [reqAgg]] = await Promise.all([
+		const [[providers], [models], [connections], [keys], [users], [workspaces], [reqAgg]] = await Promise.all([
 			database.select({ n: sql`count(*)::int` }).from(prv),
 			database.select({ n: sql`count(*)::int` }).from(mdl),
 			database.select({ n: sql`count(*)::int` }).from(conn),
 			database.select({ n: sql`count(*) filter (where ${akey.status} = 'active')::int` }).from(akey),
 			database.select({ n: sql`count(*)::int` }).from(ausr),
+			database.select({ n: sql`count(*)::int` }).from(ws),
 			database.select({
 				n: sql`count(*)::int`,
 				tokens: sql`coalesce(sum(${rl.tokensIn} + ${rl.tokensOut}), 0)::int`,
 				costMicro: sql`coalesce(sum(${rl.cost}), 0)::text`
 			}).from(rl)
 		]);
+		// 14 days of usage_daily, zero-filled: the only real history for the stat
+		// cards' deltas and sparklines. Entity counts (providers, models, …) have
+		// no snapshots, so they ship without deltas rather than fabricated ones.
+		const seriesRows = _rowsOf(await database.execute(sql`select date_trunc('day', bucket_start)::text as day, coalesce(sum(requests), 0)::int as requests, coalesce(sum(tokens_in + tokens_out), 0)::int as tokens, coalesce(sum(cost_micro), 0)::text as cost_micro from usage_daily where bucket_start >= now() - interval '14 days' group by 1 order by 1`));
+		const byDay = new Map(seriesRows.map((r) => [String(r.day).slice(0, 10), r]));
+		const series = Array.from({ length: 14 }, (_, i) => {
+			const day = new Date(Date.now() - (13 - i) * 86_400_000).toISOString().slice(0, 10);
+			const r = byDay.get(day);
+			return { day, requests: _num(r?.requests), tokens: _num(r?.tokens), costMicro: String(r?.cost_micro ?? '0') };
+		});
+		const [rev] = _rowsOf(await database.execute(sql`select coalesce(sum(amount_micro), 0)::text as total from credit_ledger where type in ('credit_purchase', 'promotion') and created_at >= date_trunc('month', now())`));
 		const topConsumers = await database
 			.select({
 				keyId: rl.apiKeyId,
@@ -409,7 +453,9 @@ export function registerAdminRoutes(app, ctx) {
 			.orderBy(desc(rl.createdAt))
 			.limit(12);
 		return {
-			counts: { providers: providers.n, models: models.n, connections: connections.n, activeKeys: keys.n, users: users.n, requests: reqAgg.n, tokens: reqAgg.tokens, costMicro: reqAgg.costMicro },
+			counts: { providers: providers.n, models: models.n, connections: connections.n, activeKeys: keys.n, users: users.n, workspaces: workspaces.n, requests: reqAgg.n, tokens: reqAgg.tokens, costMicro: reqAgg.costMicro },
+			series,
+			revenueMtdMicro: rev?.total ?? '0',
 			topConsumers,
 			recent
 		};
@@ -500,9 +546,29 @@ export function registerAdminRoutes(app, ctx) {
 			.orderBy(desc(inv.createdAt), desc(inv.id))
 			.limit(100);
 		const info = new Map(accounts.map((a) => [a.id, { workspaceName: a.workspaceName, currency: String(a.currency).trim() }]));
+		// 12 months of ledger totals, zero-filled server-side: the overview's revenue
+		// chart needs a fixed-length series and the ledger is the only table with
+		// full history (request_log is pruned by retention). Per-tier is impossible —
+		// no plan/subscription table exists — so the honest dimension is ledger type.
+		const LEDGER_TYPES = ['credit_purchase', 'usage_charge', 'adjustment', 'refund', 'promotion', 'expiration'];
+		const monthlyRows = _rowsOf(await database.execute(sql`select date_trunc('month', created_at)::text as month, type, coalesce(sum(amount_micro), 0)::text as total from credit_ledger where created_at >= date_trunc('month', now()) - interval '11 months' group by 1, 2`));
+		const byMonth = new Map();
+		for (const r of monthlyRows) {
+			const k = String(r.month).slice(0, 7);
+			const list = byMonth.get(k) ?? [];
+			list.push({ type: String(r.type), totalMicro: String(r.total) });
+			byMonth.set(k, list);
+		}
+		const now = new Date();
+		const monthly = Array.from({ length: 12 }, (_, i) => {
+			const month = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (11 - i), 1)).toISOString().slice(0, 7);
+			const rows = byMonth.get(month) ?? [];
+			return { month, series: LEDGER_TYPES.map((t) => ({ type: t, totalMicro: rows.find((r) => r.type === t)?.totalMicro ?? '0' })) };
+		});
 		return {
 			accounts: accounts.map((a) => ({ id: a.id, workspaceName: a.workspaceName, currency: String(a.currency).trim(), status: a.status, warningThresholdMicro: B(a.warningThresholdMicro), hardStopThresholdMicro: B(a.hardStopThresholdMicro), balanceMicro: B(a.balanceMicro), ledgerSumMicro: sumBy.get(a.id) ?? '0' })),
 			totals: totals.map((t) => ({ type: t.type, totalMicro: t.total })),
+			monthly,
 			recent: recent.map((r) => ({ id: r.id, workspaceName: info.get(r.billingAccountId)?.workspaceName ?? '—', type: r.type, amountMicro: B(r.amountMicro), currency: String(r.currency).trim(), requestId: r.requestId, description: r.description, createdBy: r.createdBy, createdAt: r.createdAt })),
 			invoices: invoices.map((v) => ({ id: v.id, workspaceName: info.get(v.billingAccountId)?.workspaceName ?? '—', number: v.number, periodStart: v.periodStart, periodEnd: v.periodEnd, amountMicro: B(v.amountMicro), currency: String(v.currency).trim(), status: v.status, issuedAt: v.issuedAt, paidAt: v.paidAt }))
 		};
@@ -600,12 +666,27 @@ export function registerAdminRoutes(app, ctx) {
 			.orderBy(asc(mdl.slug));
 		const mappingCounts = await database.select({ modelId: prvMdl.modelId, n: sql`count(*)::int` }).from(prvMdl).groupBy(prvMdl.modelId);
 		const mappingsOf = new Map(mappingCounts.map((c) => [c.modelId, c.n]));
+		// The admin list must show the rule the router actually bills. Selecting on
+		// `effective_until IS NULL` alone let a future-dated rule (effective_from
+		// next week) display as today's price while the router still billed the
+		// previous one — a price an operator reads but no request pays. The window
+		// below is the same predicate public.mjs uses for the public catalogue.
 		const openWide = await database
 			.select({ modelId: priceRule.modelId, version: priceRule.version, currency: priceRule.currency, inputPrice: priceRule.inputPrice, outputPrice: priceRule.outputPrice })
 			.from(priceRule)
-			.where(and(isNull(priceRule.effectiveUntil), isNull(priceRule.providerModelId)))
+			.where(and(
+				lte(priceRule.effectiveFrom, sql`now()`),
+				or(isNull(priceRule.effectiveUntil), gt(priceRule.effectiveUntil, sql`now()`)),
+				isNull(priceRule.providerModelId)
+			))
 			.orderBy(desc(priceRule.version));
-		const effectiveOf = new Map(openWide.map((r) => [r.modelId, r]));
+		// Keep the FIRST row per model: the query orders by version DESC, so the
+		// first is the highest version — the same rule public.mjs's
+		// `order by version desc limit 1` picks. `new Map(pairs)` would keep the
+		// LAST, i.e. the lowest version, and two rules whose windows overlap would
+		// then disagree with the router.
+		const effectiveOf = new Map();
+		for (const r of openWide) if (!effectiveOf.has(r.modelId)) effectiveOf.set(r.modelId, r);
 		const providerOf = new Map(providers.map((p) => [p.id, p]));
 		const allowDev = _allowDev();
 		const rows = models.map((m) => {
@@ -832,16 +913,23 @@ export function registerAdminRoutes(app, ctx) {
 			.from(ausr)
 			.orderBy(desc(ausr.createdAt));
 		const userIds = users.map((u) => u.id);
-		const usageBy = new Map(userIds.map((id) => [id, { requests: 0, cost: '0', lastRequest: null }]));
+		const usageBy = new Map(userIds.map((id) => [id, { requests: 0, cost: '0', lastRequest: null, firstRequest: null }]));
 		const wsBy = new Map(userIds.map((id) => [id, 0]));
+		const wsNameBy = new Map(userIds.map((id) => [id, null]));
 		const projBy = new Map(userIds.map((id) => [id, 0]));
 		const keyBy = new Map(userIds.map((id) => [id, 0]));
 		const lastBy = new Map(userIds.map((id) => [id, null]));
 		if (userIds.length > 0) {
-			const usage = await database.select({ userId: rl.userId, requests: sql`count(*)::int`, cost: sql`coalesce(sum(${rl.cost}), 0)::text`, lastRequest: sql`max(${rl.createdAt})` }).from(rl).where(inArray(rl.userId, userIds)).groupBy(rl.userId);
+			// firstRequest (min) rides the same groupBy as lastRequest: the overview's
+			// signups column needs it and a second request_log scan would double the cost.
+			const usage = await database.select({ userId: rl.userId, requests: sql`count(*)::int`, cost: sql`coalesce(sum(${rl.cost}), 0)::text`, lastRequest: sql`max(${rl.createdAt})`, firstRequest: sql`min(${rl.createdAt})` }).from(rl).where(inArray(rl.userId, userIds)).groupBy(rl.userId);
 			for (const u of usage) if (u.userId) usageBy.set(u.userId, u);
 			const mws = await database.select({ userId: wsMem.userId, n: sql`count(*)::int` }).from(wsMem).where(inArray(wsMem.userId, userIds)).groupBy(wsMem.userId);
 			for (const w of mws) wsBy.set(w.userId, w.n);
+			// One workspace name per user (the first by creation order) for the overview
+			// signups table; the Users page itself shows only counts.
+			const mwsNames = await database.select({ userId: wsMem.userId, name: ws.name }).from(wsMem).innerJoin(ws, eq(ws.id, wsMem.workspaceId)).where(inArray(wsMem.userId, userIds)).orderBy(asc(ws.createdAt));
+			for (const w of mwsNames) if (wsNameBy.get(w.userId) === null) wsNameBy.set(w.userId, w.name);
 			const keys = await database.select({ userId: akey.userId, n: sql`count(*)::int` }).from(akey).where(inArray(akey.userId, userIds)).groupBy(akey.userId);
 			for (const k of keys) keyBy.set(k.userId, k.n);
 			const ku = await database.select({ userId: akey.userId, at: sql`max(${akey.lastUsedAt})` }).from(akey).where(inArray(akey.userId, userIds)).groupBy(akey.userId);
@@ -871,6 +959,8 @@ export function registerAdminRoutes(app, ctx) {
 				requests: usageBy.get(u.id)?.requests ?? 0,
 				cost: usageBy.get(u.id)?.cost ?? '0',
 				workspaces: wsBy.get(u.id) ?? 0,
+				workspaceName: wsNameBy.get(u.id) ?? null,
+				firstRequestAt: usageBy.get(u.id)?.firstRequest ?? null,
 				projects: projBy.get(u.id) ?? 0,
 				keys: keyBy.get(u.id) ?? 0,
 				lastSeenAt: lastBy.get(u.id) ?? null
@@ -918,7 +1008,9 @@ export function registerAdminRoutes(app, ctx) {
 	app.get('/api/admin/models/pricing', handler('models', async (database, url) => {
 		const modelFilter = url.searchParams.get('model') ?? '';
 		const rows = _rowsOf(await database.execute(sql`select pr.id, pr.model_id, pr.provider_model_id, pr.version, pr.currency, pr.input_price::text as input_price, pr.cached_input_price::text as cached_input_price, pr.output_price::text as output_price, pr.reasoning_price::text as reasoning_price, pr.effective_from, pr.effective_until, pr.created_by, pr.created_at, m.slug as model_slug, pm.provider_model_id as mapping_upstream from pricing_rule pr join model m on m.id = pr.model_id left join provider_model pm on pm.id = pr.provider_model_id order by m.slug, pr.provider_model_id, pr.version desc`));
-		const rules = rows.map((r) => ({ id: r.id, modelId: r.model_id, providerModelId: r.provider_model_id, scope: r.provider_model_id ? (r.mapping_upstream ?? '(removed mapping)') : 'model-wide', modelSlug: r.model_slug, version: _num(r.version), currency: String(r.currency).trim(), inputPriceMicro: micros(r.input_price), cachedInputPriceMicro: r.cached_input_price === null ? null : micros(r.cached_input_price), outputPriceMicro: micros(r.output_price), reasoningPriceMicro: r.reasoning_price === null ? null : micros(r.reasoning_price), effectiveFrom: new Date(r.effective_from).toISOString(), effectiveUntil: r.effective_until ? new Date(r.effective_until).toISOString() : null, current: r.effective_until === null, createdBy: r.created_by, createdAt: new Date(r.created_at).toISOString() }));
+		const rules = rows.map((r) => ({ id: r.id, modelId: r.model_id, providerModelId: r.provider_model_id, scope: r.provider_model_id ? (r.mapping_upstream ?? '(removed mapping)') : 'model-wide', modelSlug: r.model_slug, version: _num(r.version), currency: String(r.currency).trim(), inputPriceMicro: micros(r.input_price), cachedInputPriceMicro: r.cached_input_price === null ? null : micros(r.cached_input_price), outputPriceMicro: micros(r.output_price), reasoningPriceMicro: r.reasoning_price === null ? null : micros(r.reasoning_price), effectiveFrom: new Date(r.effective_from).toISOString(), effectiveUntil: r.effective_until ? new Date(r.effective_until).toISOString() : null, createdBy: r.created_by, createdAt: new Date(r.created_at).toISOString() }));
+		const currentIds = currentRuleIds(rules);
+		for (const r of rules) r.current = currentIds.has(r.id);
 		const models = _rowsOf(await database.execute(sql`select id, slug from model order by slug`));
 		const mappings = _rowsOf(await database.execute(sql`select id, model_id, provider_model_id as upstream from provider_model order by provider_model_id`));
 		return { models, mappings, rules: modelFilter ? rules.filter((r) => r.modelId === modelFilter) : rules, modelFilter };
@@ -937,8 +1029,10 @@ export function registerAdminRoutes(app, ctx) {
 		const rules = _rowsOf(await database.execute(sql`select id, provider_model_id, version, currency, input_price::text as input_price, cached_input_price::text as cached_input_price, output_price::text as output_price, reasoning_price::text as reasoning_price, effective_from, effective_until, created_by, created_at from pricing_rule where model_id = ${id} order by provider_model_id nulls first, version desc`));
 		const pricing = rules.map((r) => {
 			const mp = r.provider_model_id ? mapById.get(r.provider_model_id) : null;
-			return { id: r.id, scope: r.provider_model_id ? (mp?.provider_model_id ?? '(removed mapping)') : 'model-wide', version: _num(r.version), currency: String(r.currency).trim(), inputPriceMicro: micros(r.input_price), cachedInputPriceMicro: r.cached_input_price === null ? null : micros(r.cached_input_price), outputPriceMicro: micros(r.output_price), reasoningPriceMicro: r.reasoning_price === null ? null : micros(r.reasoning_price), effectiveFrom: new Date(r.effective_from).toISOString(), effectiveUntil: r.effective_until ? new Date(r.effective_until).toISOString() : null, current: r.effective_until === null, createdBy: r.created_by, createdAt: new Date(r.created_at).toISOString() };
+			return { id: r.id, scope: r.provider_model_id ? (mp?.provider_model_id ?? '(removed mapping)') : 'model-wide', version: _num(r.version), currency: String(r.currency).trim(), inputPriceMicro: micros(r.input_price), cachedInputPriceMicro: r.cached_input_price === null ? null : micros(r.cached_input_price), outputPriceMicro: micros(r.output_price), reasoningPriceMicro: r.reasoning_price === null ? null : micros(r.reasoning_price), effectiveFrom: new Date(r.effective_from).toISOString(), effectiveUntil: r.effective_until ? new Date(r.effective_until).toISOString() : null, createdBy: r.created_by, createdAt: new Date(r.created_at).toISOString() };
 		});
+		const currentIds = currentRuleIds(pricing);
+		for (const p of pricing) p.current = currentIds.has(p.id);
 		const tot = _rowsOf(await database.execute(sql`select count(*)::int as requests, count(*) filter (where status = 'success')::int as ok, coalesce(sum(tokens_in),0)::int as tokens_in, coalesce(sum(tokens_out),0)::int as tokens_out, coalesce(sum(cost),0)::text as cost, coalesce(round(avg(latency_ms)),0)::int as avg_latency from request_log where model_id = ${id}`))[0] ?? {};
 		const day = _rowsOf(await database.execute(sql`select count(*)::int as requests, count(*) filter (where status = 'success')::int as ok, coalesce(sum(cost),0)::text as cost from request_log where model_id = ${id} and created_at > now() - interval '24 hours'`))[0] ?? {};
 		const perDay = _rowsOf(await database.execute(sql`select to_char(date_trunc('day', created_at), 'YYYY-MM-DD') as day, count(*)::int as requests, count(*) filter (where status = 'success')::int as ok, coalesce(sum(cost),0)::text as cost from request_log where model_id = ${id} and created_at > now() - interval '14 days' group by date_trunc('day', created_at) order by date_trunc('day', created_at) desc`));
@@ -1125,7 +1219,13 @@ export function registerAdminRoutes(app, ctx) {
 		if (!mrow.length) _fail(400, 'Unknown model');
 		let connectionId = null;
 		if (connectionRaw) {
-			const c = _rowsOf(await database.execute(sql`select id from connection where id = ${connectionRaw} limit 1`));
+			// 3a: the connection must belong to the SAME provider the mapping is
+			// created under — `mappings/update` already rejects a cross-provider
+			// connection (`c.provider_id !== before.provider_id`), but create
+			// accepted any existing connection, so a mapping could point at one
+			// provider while spending a connection owned by another (the routing
+			// walk would then call foreign credentials under this provider's name).
+			const c = _rowsOf(await database.execute(sql`select id from connection where id = ${connectionRaw} and provider_id = ${providerId} limit 1`));
 			if (!c.length) _fail(400, 'Unknown connection');
 			connectionId = c[0].id;
 		}
@@ -1455,7 +1555,10 @@ export function registerAdminRoutes(app, ctx) {
 		const models = _rowsOf(await database.execute(sql`select id, slug, name, context, input_price::text as input_price, output_price::text as output_price, status from model where provider_id = ${id} order by slug`));
 		const mappings = _rowsOf(await database.execute(sql`select pm.id, pm.provider_model_id, m.slug as model_slug, pm.connection_id, pm.enabled, pm.status, pm.context_override from provider_model pm join model m on m.id = pm.model_id where pm.provider_id = ${id}`));
 		const pricing = _rowsOf(await database.execute(sql`select pr.id, m.slug as model_slug, pr.version, pr.currency, pr.input_price::text as input_price, pr.cached_input_price::text as cached_input_price, pr.output_price::text as output_price, pr.reasoning_price::text as reasoning_price, pr.effective_from, pr.effective_until from pricing_rule pr join model m on m.id = pr.model_id where m.provider_id = ${id} order by pr.effective_from desc limit 50`));
-		const limits = _rowsOf(await database.execute(sql`select id, scope, scope_id, rpm, tpm, rpd, tpd, concurrency from rate_limit where scope = 'provider' and scope_id = ${id}`));
+		// No provider-scoped rate_limit query: 'provider' is not in the
+		// rate_limit_scope_check vocabulary (workspace/project/environment/api_key), so it
+		// could only ever return zero rows — and widening the vocabulary would create a
+		// limit the data plane's EffectiveLimits chain never reads.
 		const breakers = _rowsOf(await database.execute(sql`select * from circuit_breaker where target = 'provider' and target_id = ${id}`));
 		const seeded = _rowsOf(await database.execute(sql`select slug from model where provider_id = ${id}`));
 		const totals = _rowsOf(await database.execute(sql`select count(*)::int as requests, count(*) filter (where status = 'success')::int as ok, coalesce(round(percentile_cont(0.5) within group (order by latency_ms)),0)::int as p50, coalesce(round(percentile_cont(0.95) within group (order by latency_ms)),0)::int as p95, coalesce(round(percentile_cont(0.99) within group (order by latency_ms)),0)::int as p99, count(*) filter (where http_status = 429)::int as rate429, count(*) filter (where http_status between 500 and 599)::int as rate5xx, coalesce(sum(tokens_in),0)::int as tokens_in, coalesce(sum(tokens_out),0)::int as tokens_out, coalesce(sum(cost),0)::text as cost from request_log where provider_id = ${id}`))[0] ?? {};
@@ -1464,7 +1567,59 @@ export function registerAdminRoutes(app, ctx) {
 		const errors = _rowsOf(await database.execute(sql`select error_code, http_status, error, count(*)::int as n, max(created_at)::text as last_at from request_log where provider_id = ${id} and status <> 'success' group by error_code, http_status, error order by count(*) desc limit 20`));
 		const recent = _rowsOf(await database.execute(sql`select m.slug, r.status, r.http_status, r.latency_ms, r.tokens_in, r.tokens_out, r.error, r.created_at from request_log r left join model m on m.id = r.model_id where r.provider_id = ${id} order by r.created_at desc limit 20`));
 		const micro = (v) => String(v ?? '0').split('.')[0];
-		return { provider: { id: p.id, name: p.name, slug: p.slug, description: p.description, type: p.type, status: p.status, tier: p.tier, homepage: p.homepage, documentationUrl: p.documentation_url, enabled: p.enabled, baseUrl, priority: p.priority, createdAt: new Date(p.created_at).toISOString() }, allowDev, connections: conns.map((c) => ({ id: c.id, name: c.name, slug: c.slug, baseUrl: c.base_url, region: c.region, authType: c.auth_type, timeoutMs: c.timeout_ms, priority: c.priority, enabled: c.enabled, healthStatus: c.health_status })), credentials: { count: credRows.length, labels: credRows.map((r, i) => ({ label: r.name, index: i, status: r.status, connection: r.conn_name })), healthy, unknown, bad, cooldown }, models: models.map((m) => ({ id: m.id, slug: m.slug, name: m.name, context: m.context, inputPrice: _microToUsd(m.input_price), outputPrice: _microToUsd(m.output_price), status: m.status, inputMicro: micro(m.input_price), outputMicro: micro(m.output_price) })), mappings: mappings.map((m) => ({ id: m.id, providerModelId: m.provider_model_id, modelSlug: m.model_slug, connectionId: m.connection_id, enabled: m.enabled, status: m.status, contextOverride: m.context_override })), pricing: pricing.map((r) => ({ id: r.id, modelSlug: r.model_slug, version: _num(r.version), currency: String(r.currency).trim(), inputPrice: _microToUsd(r.input_price), cachedInputPrice: r.cached_input_price === null ? null : _microToUsd(r.cached_input_price), outputPrice: _microToUsd(r.output_price), reasoningPrice: r.reasoning_price === null ? null : _microToUsd(r.reasoning_price), effectiveFrom: new Date(r.effective_from).toISOString(), effectiveUntil: r.effective_until ? new Date(r.effective_until).toISOString() : null, inputMicro: micro(r.input_price), outputMicro: micro(r.output_price) })), limits, breakers, seededSlugs: seeded.map((s) => s.slug), stats: { totals: { ...totals, cost: String(totals.cost ?? '0'), costMicro: String(totals.cost ?? '0') }, day, perModel: perModel.map((r) => ({ slug: r.slug, requests: _num(r.requests), ok: _num(r.ok), p50: _num(r.p50), p95: _num(r.p95) })), errors: errors.map((r) => ({ errorCode: r.error_code, httpStatus: r.http_status, error: r.error, n: _num(r.n), lastAt: r.last_at })), recent: recent.map((r) => ({ slug: r.slug, status: r.status, httpStatus: r.http_status, latencyMs: r.latency_ms, tokensIn: r.tokens_in, tokensOut: r.tokens_out, error: r.error, createdAt: r.created_at })) }, published: models.filter((m) => m.status === 'active').length, reachable: models.filter((m) => _reach(m.status, p.status, allowDev).served).length };
+		return { provider: { id: p.id, name: p.name, slug: p.slug, description: p.description, type: p.type, status: p.status, tier: p.tier, homepage: p.homepage, documentationUrl: p.documentation_url, enabled: p.enabled, baseUrl, priority: p.priority, createdAt: new Date(p.created_at).toISOString() }, allowDev, connections: conns.map((c) => ({ id: c.id, name: c.name, slug: c.slug, baseUrl: c.base_url, region: c.region, authType: c.auth_type, timeoutMs: c.timeout_ms, priority: c.priority, enabled: c.enabled, healthStatus: c.health_status })), credentials: { count: credRows.length, labels: credRows.map((r, i) => ({ label: r.name, index: i, status: r.status, connection: r.conn_name })), healthy, unknown, bad, cooldown }, models: models.map((m) => ({ id: m.id, slug: m.slug, name: m.name, context: m.context, inputPrice: _microToUsd(m.input_price), outputPrice: _microToUsd(m.output_price), status: m.status, inputMicro: micro(m.input_price), outputMicro: micro(m.output_price) })), mappings: mappings.map((m) => ({ id: m.id, providerModelId: m.provider_model_id, modelSlug: m.model_slug, connectionId: m.connection_id, enabled: m.enabled, status: m.status, contextOverride: m.context_override })), pricing: pricing.map((r) => ({ id: r.id, modelSlug: r.model_slug, version: _num(r.version), currency: String(r.currency).trim(), inputPrice: _microToUsd(r.input_price), cachedInputPrice: r.cached_input_price === null ? null : _microToUsd(r.cached_input_price), outputPrice: _microToUsd(r.output_price), reasoningPrice: r.reasoning_price === null ? null : _microToUsd(r.reasoning_price), effectiveFrom: new Date(r.effective_from).toISOString(), effectiveUntil: r.effective_until ? new Date(r.effective_until).toISOString() : null, inputMicro: micro(r.input_price), outputMicro: micro(r.output_price) })), breakers, seededSlugs: seeded.map((s) => s.slug), stats: { totals: { ...totals, cost: String(totals.cost ?? '0'), costMicro: String(totals.cost ?? '0') }, day, perModel: perModel.map((r) => ({ slug: r.slug, requests: _num(r.requests), ok: _num(r.ok), p50: _num(r.p50), p95: _num(r.p95) })), errors: errors.map((r) => ({ errorCode: r.error_code, httpStatus: r.http_status, error: r.error, n: _num(r.n), lastAt: r.last_at })), recent: recent.map((r) => ({ slug: r.slug, status: r.status, httpStatus: r.http_status, latencyMs: r.latency_ms, tokensIn: r.tokens_in, tokensOut: r.tokens_out, error: r.error, createdAt: r.created_at })) }, published: models.filter((m) => m.status === 'active').length, reachable: models.filter((m) => _reach(m.status, p.status, allowDev).served).length };
+	}));
+	// Latest verification verdict per provider_model, including mappings never
+	// probed (verdict NULL). The lateral picks the newest row per mapping —
+	// the same shape backend/go/internal/store/catalog.go uses for latest
+	// pricing — so this returns ONE row per mapping rather than one row per
+	// probe: the evidence table is append-only and unbounded, and a console
+	// that rendered every probe row would page through history to find the
+	// current state. A mapping with no probe row at all is NOT filtered out:
+	// "never checked" is the state an operator most needs to see, and a LEFT
+	// join is what keeps it visible.
+	app.get('/api/admin/providers/:id/verification', handler('providers', async (database, url) => {
+		const id = String(url.pathname.split('/')[4]);
+		const p = _rowsOf(await database.execute(sql`select id from provider where id = ${id} limit 1`))[0];
+		if (!p) { const e = new ctx.HttpError(404, 'Provider not found'); throw e; }
+		const rows = _rowsOf(await database.execute(sql`
+			select pm.id as mapping_id, pm.provider_model_id as upstream_slug, m.slug as model_slug,
+			       mv.requested_slug, mv.response_model, mv.verdict, mv.error,
+			       mv.tokens_in, mv.tokens_out, mv.latency_ms, mv.created_at
+			from provider_model pm
+			join model m on m.id = pm.model_id
+			left join lateral (
+				select requested_slug, response_model, verdict, error, tokens_in, tokens_out, latency_ms, created_at
+				from model_verification v
+				where v.provider_model_id = pm.id
+				order by created_at desc
+				limit 1
+			) mv on true
+			where pm.provider_id = ${id}
+			order by m.slug, pm.provider_model_id`));
+		return { rows: rows.map((r) => ({ mappingId: r.mapping_id, upstreamSlug: r.upstream_slug, modelSlug: r.model_slug, requestedSlug: r.requested_slug, responseModel: r.response_model, verdict: r.verdict, error: r.error, tokensIn: r.tokens_in, tokensOut: r.tokens_out, latencyMs: r.latency_ms, createdAt: r.created_at ? new Date(r.created_at).toISOString() : null })) };
+	}));
+	// Enqueue, never probe inline: the probe spends the provider's real
+	// credential against its real billing account, up to MODEL_VERIFICATION_BATCH
+	// times, and the worker fleet already owns timeouts, retries and the
+	// credential decrypt path. A synchronous version here would hold the HTTP
+	// request open for minutes on a large catalog and bypass every one of those
+	// guards (admin.mjs's own testModel probe is a single inline probe, capped
+	// at 60s — a fleet-sized fan-out cannot be).
+	app.post('/api/admin/providers/:id/verify', poster('providers', async (database, body, userRow, req) => {
+		const id = String(req.params?.id ?? body.providerId ?? '').trim();
+		const p = _rowsOf(await database.execute(sql`select id from provider where id = ${id} limit 1`))[0];
+		if (!p) _fail(404, 'Provider not found');
+		await database.transaction(async (tx) => {
+			// Through the platform enqueue(), not a hand-rolled insert: the type
+			// is validated against JOB_TYPES and the Valkey wake hint is sent,
+			// so the fleet picks the job up on its next poll instead of waiting
+			// out its idle timeout. Inside the transaction so the audit row and
+			// the job row land together.
+			await _enqueueJob('model_verification', { providerId: id }, {}, tx);
+			await _audit(tx, { actorUserId: userRow.id, action: 'model_verification.enqueue', resource: 'provider', resourceId: id, after: { providerId: id } });
+		});
+		return { enqueued: true, message: 'Verification queued. Results appear within a minute or two.' };
 	}));
 	app.post('/api/admin/providers/:id/fetchCatalog', poster('providers', async (database, body, userRow, req) => {
 		const id = String(req.params?.id ?? body.providerId ?? '').trim();
@@ -1499,8 +1654,18 @@ export function registerAdminRoutes(app, ctx) {
 		}
 		const known = new Map(_rowsOf(await database.execute(sql`select id, provider_id, slug, status from model`)).map((m) => [_matchKey(m.slug), m]));
 		let added = 0, published = 0; const skipped = [];
+		// 3d: `_usdToMicro` had no upper bound on this path — admin-limits.ts
+		// defines MAX_PRICE_USD exactly so a display price stays sane, but the
+		// provider-enable conversion never applied it, so a payload stored an
+		// unbounded model price the router bills from, and a value past the float
+		// boundary (1e308 * 1e6 -> Infinity) threw an uncaught RangeError out of
+		// the handler (a 500). Clamped the way admin-limits' boundNumber does:
+		// non-numeric/absent still falls through to `_usdToMicro`'s null -> '0',
+		// anything else is Math.min(n, MAX_PRICE_USD) so neither the micro
+		// conversion nor the stored price can run away.
+		const _clampUsd = (v) => { const n = Number(String(v ?? '').trim()); return Number.isFinite(n) && n >= 0 ? Math.min(n, MAX_PRICE_USD) : v; };
 		for (const row of clean) {
-			const input = _usdToMicro(row.inputUsd) ?? '0'; const output = _usdToMicro(row.outputUsd) ?? '0';
+			const input = _usdToMicro(_clampUsd(row.inputUsd)) ?? '0'; const output = _usdToMicro(_clampUsd(row.outputUsd)) ?? '0';
 			const existing = known.get(_matchKey(row.slug));
 			if (!existing) {
 				try {
@@ -1657,7 +1822,11 @@ export function registerAdminRoutes(app, ctx) {
 		const pid = String(req.params?.id ?? body.providerId ?? '').trim();
 		const v = _connPatch(body);
 		if (v.error) _fail(400, v.error);
-		const guard = await _assertPublic(v.values.baseUrl);
+		// 3b: every other upstream-URL guard in this file passes _allowPrivate(),
+		// and this deployment runs a loopback seed upstream — calling the guard
+		// without the flag here made the two create/update paths the only ones
+		// that rejected a legitimately-private base URL.
+		const guard = await _assertPublic(v.values.baseUrl, _allowPrivate());
 		if (!guard.ok) _fail(400, guard.reason);
 		const p = _rowsOf(await database.execute(sql`select id from provider where id = ${pid} limit 1`))[0];
 		if (!p) _fail(404, 'Provider not found');
@@ -1675,7 +1844,9 @@ export function registerAdminRoutes(app, ctx) {
 		if (!id) _fail(400, 'Missing connection id');
 		const v = _connPatch(body);
 		if (v.error) _fail(400, v.error);
-		const guard = await _assertPublic(v.values.baseUrl);
+		// 3b: same as create — every other upstream-URL guard passes
+		// _allowPrivate(), and this deployment runs a loopback seed upstream.
+		const guard = await _assertPublic(v.values.baseUrl, _allowPrivate());
 		if (!guard.ok) _fail(400, guard.reason);
 		const before = _rowsOf(await database.execute(sql`select * from connection where id = ${id} limit 1`))[0];
 		if (!before) _fail(404, 'Connection not found');
@@ -1721,8 +1892,14 @@ export function registerAdminRoutes(app, ctx) {
 		if (!name || !secret || !connectionId || priority === null || weight === null) _fail(400, 'Name, connection, secret, priority and weight are all required');
 		if (metadata === null) _fail(400, 'Metadata must be a JSON object');
 		const conn = _rowsOf(await database.execute(sql`select c.id from connection c join provider p on p.id = c.provider_id where p.id = ${pid} and c.id = ${connectionId} limit 1`))[0];
-		if (!conn && pid) { const c2 = _rowsOf(await database.execute(sql`select id from connection where id = ${connectionId} limit 1`))[0]; if (!c2) _fail(404, 'Connection not found on this provider'); }
-		else if (!conn) _fail(404, 'Connection not found on this provider');
+		// CRED-1: the scoped join above was the only ownership check, but a miss
+		// used to fall back to a GLOBAL `select id from connection` that only
+		// failed when the row did not exist at all — so a connection belonging
+		// to a DIFFERENT provider passed and the credential got attached to it
+		// (wrong-entity attachment: the provider's credential list showed a row
+		// it never owned, and the router could then spend that key). Ownership
+		// is not implied by "the row exists somewhere"; it must be stated.
+		if (!conn) _fail(404, 'Connection not found on this provider');
 		const id = _newId(_IDP.credential);
 		await database.transaction(async (tx) => {
 			await tx.execute(sql`insert into credential (id, connection_id, name, secret_enc, status, priority, weight, metadata) values (${id}, ${connectionId}, ${name}, ${_secretBlob(secret, headers)}, 'unknown', ${priority}, ${weight}, ${JSON.stringify(metadata)}::jsonb)`);
@@ -2630,7 +2807,7 @@ export function registerAdminRoutes(app, ctx) {
 		const nowBanned = !target.banned;
 		await database.transaction(async (tx) => {
 			await tx.execute(sql`update "user" set banned = ${nowBanned} where id = ${id}`);
-			if (nowBanned) { try { await tx.execute(sql`delete from session where user_id = ${id}`); } catch {} }
+			if (nowBanned) await _revokeSessions(tx, id);
 			await _audit(tx, { actorUserId: userRow.id, action: nowBanned ? 'user.ban' : 'user.unban', resource: 'user', resourceId: id, before: { banned: target.banned }, after: { banned: nowBanned }, metadata: nowBanned ? { sessionsRevoked: true } : {} });
 		});
 		return { bannedToggled: id };
@@ -2671,7 +2848,7 @@ export function registerAdminRoutes(app, ctx) {
 		if (refusal) _fail(403, refusal);
 		await database.transaction(async (tx) => {
 			await tx.execute(sql`update "user" set banned = true where id = ${id}`);
-			try { await tx.execute(sql`delete from session where user_id = ${id}`); } catch {}
+			await _revokeSessions(tx, id);
 			await _audit(tx, { actorUserId: userRow.id, action: 'user.suspend', resource: 'user', resourceId: id, before: { banned: target.banned }, after: { banned: true }, metadata: { sessionsRevoked: true } });
 		});
 		return { suspended: id };
@@ -2701,7 +2878,7 @@ export function registerAdminRoutes(app, ctx) {
 		if (refusal) _fail(403, refusal);
 		const disabled = await database.transaction(async (tx) => {
 			await tx.execute(sql`update "user" set banned = false where id = ${id}`);
-			try { await tx.execute(sql`delete from session where user_id = ${id}`); } catch {}
+			await _revokeSessions(tx, id);
 			let n = 0;
 			try { const r = _rowsOf(await tx.execute(sql`update api_key set status = 'disabled' where user_id = ${id} returning id`)); n = r.length; } catch {}
 			await _audit(tx, { actorUserId: userRow.id, action: 'user.access_disabled', resource: 'user', resourceId: id, before: { banned: target.banned }, after: { banned: false, keyStatus: 'disabled' }, metadata: { sessionsRevoked: true, keysDisabled: n } });

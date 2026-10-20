@@ -92,7 +92,12 @@ async function main() {
 			}
 		} catch (e) {
 			// A failing tick must never kill the scheduler: log and retry next tick.
-			console.error(`[scheduler] tick failed: ${e instanceof Error ? e.message : String(e)}`);
+			// Message alone is not diagnosable: the Oct 19 DB outage logged 100
+			// consecutive failures with no code because drizzle's message carries
+			// the SQL while the SQLSTATE (3D000/42P01) lives on `code`/`cause`.
+			const code = e instanceof Error && typeof e.code === 'string' ? ` [${e.code}]` : '';
+			const cause = e instanceof Error && e.cause instanceof Error ? ` (cause: ${e.cause.message}${typeof e.cause.code === 'string' ? ` [${e.cause.code}]` : ''})` : '';
+			console.error(`[scheduler] tick failed:${code} ${e instanceof Error ? e.message : String(e)}${cause}`);
 		}
 		await sleep(tickMs);
 	}

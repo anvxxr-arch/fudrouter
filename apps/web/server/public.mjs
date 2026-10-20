@@ -643,12 +643,12 @@ function changelog() {
 const QUICKSTART = `Five steps from nothing to a request that shows up in your logs. Each step
 links to the dashboard page that performs it.
 
-## 1. Create an account
+## 1. Sign in
 
-Open [/signup](/signup) and create an account, or sign in with Discord from
-[/login](/login). A signup provisions your workspace, a default project and
-three environments (Development, Staging, Production) — nothing to set up
-before step 2.
+Open [/login](/login) and approve the Discord prompt. There is no separate
+signup form: the first sign-in provisions your account, workspace, a default
+project and three environments (Development, Staging, Production) — nothing to
+set up before step 2.
 
 ## 2. Create a project
 
@@ -679,9 +679,7 @@ curl ${publicApiBase()}/v1/chat/completions \\
 The response body is the chat-completion shape your SDK expects, including a
 \`usage\` block. Model slugs are listed on [/pricing](/pricing).
 
-Rather than writing the wiring by hand, [/dashboard/connect](/dashboard/connect)
-generates the config for a coding agent or editor — base URL, key and model
-already filled in.
+The key itself is minted at [/dashboard/keys](/dashboard/keys).
 
 ## 5. View request logs
 
@@ -878,8 +876,8 @@ Whatever identifier you send, the response and the request log tell you what
 actually ran: \`x-fudrouter-model\` on the response and the request log's model
 fields record the resolved slug, not the alias you asked for.
 
-To generate a ready-to-paste config for your tool using any of these
-identifiers, open [/dashboard/connect](/dashboard/connect).`;
+The key that authorises any of them is minted at
+[/dashboard/keys](/dashboard/keys).`;
 
 const ROUTING_ROUTING = `Routing picks one route per request. The candidates are the reachable
 connections serving the requested model; each is scored on price, latency,
@@ -1037,6 +1035,86 @@ const REFERENCE_REFERENCE = `The short answers, in one place.
 - Ids: prefixed (\`req_\`, \`mdl_\`, \`prv_\`, \`sk-ar-\`) and unique across the
   platform.`;
 
+const SECURITY_OVERVIEW = `The platform runs as two planes: the console (this site —
+dashboard, keys, billing, the docs you are reading) and the router (the Go
+data plane that serves \`/v1\`). They are separate processes with separate
+deployments, and the console is deliberately **not** a security boundary for
+the hot path.
+
+The router re-authenticates every API key against \`sha256(secret)\`,
+re-resolves the key's limits and re-guards every upstream dial
+independently, so a compromised console cannot mint traffic the router
+accepts. The console's own checks — role gates, URL validation — are
+convenience and hygiene, not the line of defense.
+
+Both planes carry their own SSRF guard: the shared rule in the platform
+package for console-side fetches, and the router's dial-time guard for
+upstream connections. See [The SSRF guard](/docs/security/ssrf).`;
+
+const SECURITY_KEYS = `An API key is the \`sk-ar-<prefix>_<secret>\` string your client sends as a
+bearer token. The prefix is stored in plaintext so keys are identifiable in
+the dashboard and logs; only \`sha256(secret)\` is stored, and the plaintext
+is shown exactly once at creation — a lost key is replaced, never recovered.
+See [API keys](/docs/api-keys/api-keys).
+
+Provider credentials — the upstream keys the platform uses to reach
+providers — are encrypted at rest with AES-256-GCM under the
+\`CREDENTIALS_MASTER_KEY\` environment variable. The plaintext is decrypted
+only in the data plane, at the moment it dials an upstream; the console
+never holds a usable provider key.`;
+
+const SECURITY_SSRF = `The router's SSRF guard is a dialer control hook, not a URL pre-check. It
+runs after DNS resolution and before the socket connects, which is what
+makes it catch a hostname that resolves into private space (DNS rebinding)
+as well as a literal private address — a URL check sees only the name and
+cannot.
+
+Redirects are covered by the same mechanism: each redirect opens a new
+connection through the same transport, so every hop passes the guard again.
+An unresolved hostname is refused outright — by the time the hook runs,
+resolution has already happened, so a name at that point means the resolver
+was bypassed and the guard cannot vouch for the target.`;
+
+const MIGRATION_FROM_9ROUTER = `Provider credentials from a 9Router backup can be brought across with
+\`ops/import-9router-backup.mjs\`. It is an operator-run script against a
+local backup file — not something you run from the dashboard — and there is
+no automatic cutover: nothing is switched over for you, the operator stages,
+probes and imports deliberately.
+
+What it actually does, in order:
+
+- **Stage** — reads the backup's SQLite \`providerConnections\` and
+  \`providerNodes\` rows and dumps them to a staging directory
+  (\`--stage\`).
+- **Map** — 9Router providers map to this platform's providers and
+  credential tags (for example \`gemini\` → \`googleai\`, \`dahl\` →
+  \`dahl\`, \`tokenharbor\` → \`tokenharbor\`, \`openrouter\` →
+  \`openrouter\`; node-based connections map to their own providers).
+  OAuth rows are reported but never imported, and providers with no
+  counterpart here are reported, not invented.
+- **Probe** — every candidate key is checked against its provider's
+  \`GET /models\` endpoint before import; dead and inactive rows are never
+  imported. Verdicts are cached so a re-run costs nothing upstream.
+- **Dedup** — a key already present in a provider's connection is skipped;
+  a secret is written at most once per provider.
+
+After an import, work through [the verification
+checklist](/docs/migration/checklist).`;
+
+const MIGRATION_CHECKLIST = `After importing credentials from another platform, verify in this order:
+
+1. **Provider count matches** — every provider you expect appears with the
+   connections and credential health you expect.
+2. **Aliases point at models that exist here** — an alias whose target this
+   platform does not serve fails at request time. See
+   [Model identifiers](/docs/models/identifiers).
+3. **A test request per alias succeeds** — one real call each, and the
+   response's model header shows the resolved slug.
+4. **Balance is visible** — the billing account shows a balance at
+   [/dashboard/billing](/dashboard/billing).
+
+Keys and their format are covered in [API keys](/docs/api-keys/api-keys).`;
+
 /** The docs tree, in the order the sidebar and index render it. */
 export const DOC_CATEGORIES = [
 	{
@@ -1122,6 +1200,23 @@ export const DOC_CATEGORIES = [
 		slug: 'reference',
 		title: 'Reference',
 		pages: [{ slug: 'reference', title: 'Quick reference', markdown: REFERENCE_REFERENCE }]
+	},
+	{
+		slug: 'security',
+		title: 'Security',
+		pages: [
+			{ slug: 'overview', title: 'How the planes are separated', markdown: SECURITY_OVERVIEW },
+			{ slug: 'keys-and-credentials', title: 'Keys and credentials', markdown: SECURITY_KEYS },
+			{ slug: 'ssrf', title: 'The SSRF guard', markdown: SECURITY_SSRF }
+		]
+	},
+	{
+		slug: 'migration',
+		title: 'Migration',
+		pages: [
+			{ slug: 'from-9router', title: 'Migrating from 9Router', markdown: MIGRATION_FROM_9ROUTER },
+			{ slug: 'checklist', title: 'Verification checklist', markdown: MIGRATION_CHECKLIST }
+		]
 	}
 ];
 
@@ -1158,9 +1253,12 @@ export function registerPublicRoutes(app, ctx) {
 		};
 	}
 
-	// Landing metric strip ((public)/+page.server.ts).
+	// Landing metric strip ((public)/+page.server.ts). The strip's labels say
+	// "requests served (24h)" and "median latency", so the queries must match
+	// the labels: the old code counted request_log over ALL time for the 24h
+	// figure and printed a 24h MEAN as the median. Both fixed below.
 	app.get('/api/metrics', handler(async (database, req, res) => {
-		const metrics = { models: null, providers: null, calls: null, latencyMs: null };
+		const metrics = { models: null, providers: null, calls24h: null, p50Ms: null };
 		let sampleModels = [];
 		try {
 			const all = await servedModels(database);
@@ -1168,14 +1266,14 @@ export function registerPublicRoutes(app, ctx) {
 			metrics.providers = new Set(all.flatMap((m) => m.providers.map((p) => p.providerName))).size;
 			sampleModels = all.slice(0, 6).map(({ slug, name, context }) => ({ slug, name, context }));
 			const [callsAgg, latencyAgg] = await Promise.all([
-				database.execute(sql`select count(*)::int as n from request_log`),
+				database.execute(sql`select count(*)::int as n from request_log where created_at >= now() - interval '24 hours'`),
 				database.execute(
-					sql`select avg(latency_ms) as avg from request_log where status = 'success' and created_at >= now() - interval '24 hours'`
+					sql`select percentile_cont(0.5) within group (order by latency_ms) as p50 from request_log where status = 'success' and latency_ms is not null and created_at >= now() - interval '24 hours'`
 				)
 			]);
-			metrics.calls = rowsOf(callsAgg)[0]?.n ?? 0;
-			const avg = rowsOf(latencyAgg)[0]?.avg;
-			metrics.latencyMs = avg == null ? null : Math.round(Number(avg));
+			metrics.calls24h = rowsOf(callsAgg)[0]?.n ?? 0;
+			const p50 = rowsOf(latencyAgg)[0]?.p50;
+			metrics.p50Ms = p50 == null ? null : Math.round(Number(p50));
 		} catch (err) {
 			console.error('[landing metrics]', err);
 		}

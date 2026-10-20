@@ -44,7 +44,7 @@ export interface SeoMeta {
   /** May a crawler index it? Guarded routes and auth screens say no. */
   indexable: boolean;
   /** Sitemap hint. Ignored when `indexable` is false. */
-  changefreq?: 'daily' | 'weekly' | 'monthly';
+  changefreq?: 'daily' | 'weekly' | 'monthly' | 'yearly';
   priority?: number;
   /** schema.org type for the route's JSON-LD block, when it has one. */
   jsonLd?: 'WebSite' | 'SoftwareApplication' | 'FAQPage' | 'ItemList';
@@ -53,24 +53,26 @@ export interface SeoMeta {
 /**
  * Metadata for every PUBLIC route, keyed by navigation.ts's pattern.
  *
- * Six entries: the two indexable content pages (/pricing, /docs), the docs
- * subtree, the two auth screens and the root redirect. That is the entire public
- * surface — the catalogue, the provider directory, the changelog and the legal
- * pages are withdrawn. A console or admin route is NOT listed (they all redirect
- * an anonymous crawler to /login, so their metadata would only ever be seen by a
- * signed-in browser tab). `seoFor` falls back for those.
+ * The indexable content pages (/pricing, /models, /changelog, /docs) plus the
+ * three trust pages (/security, /terms, /privacy), the changelog and docs
+ * subtrees, the two auth screens and the root landing page. That is the entire
+ * public surface — the provider directory is withdrawn. A console or admin route
+ * is NOT listed (they all redirect an anonymous crawler to /login, so their
+ * metadata would only ever be seen by a signed-in browser tab). `seoFor` falls
+ * back for those.
  */
 export const PUBLIC_SEO: readonly SeoMeta[] = [
   {
-    // The root REDIRECTS to /pricing (App.tsx renders <Navigate>); it is not a
-    // page. It is listed here anyway because `isKnownRoute` reads this table:
-    // with no entry, `/` would answer 404 — the one URL a visitor is most
-    // likely to type, and the one a crawler checks first.
+    // The root is a real page again (App.tsx renders <HomePage>), but it stays
+    // `indexable: false` and out of the sitemap. It is listed here at all
+    // because `isKnownRoute` reads this table: with no entry, `/` would answer
+    // 404 — the one URL a visitor is most likely to type, and the one a crawler
+    // checks first.
     //
     // `indexable: false` and no JSON-LD are deliberate rather than leftovers.
-    // A redirect has no content of its own, so indexing it would submit a
-    // duplicate of /pricing under a second URL, and structured data describing
-    // a page that immediately navigates away is a contradiction.
+    // The landing page's offer is /pricing's offer restated, so indexing it
+    // would submit a duplicate under a second URL; the page exists to be read
+    // by a person who typed the domain, not to rank.
     to: '/',
     title: `${SITE_NAME} — ${SITE_TAGLINE}`,
     description: SITE_DESCRIPTION,
@@ -91,6 +93,52 @@ export const PUBLIC_SEO: readonly SeoMeta[] = [
     // makes the `jsonLdFor` ItemList branch reachable from here and nowhere
     // else.
     jsonLd: 'ItemList',
+  },
+  {
+    to: '/features',
+    title: `Features — routing, billing, limits | ${SITE_NAME}`,
+    description:
+      'Automatic fallback, combo routing, integer micro-unit credit billing, multi-tenant limits, budget gates, audit logging and provider health — plus the roadmap.',
+    indexable: true,
+    changefreq: 'weekly',
+    priority: 0.8,
+  },
+  {
+    to: '/integrations',
+    title: `Integrations — every tool that speaks OpenAI | ${SITE_NAME}`,
+    description:
+      'Setup guides for CLI coding agents, SDKs, frameworks and self-hosted upstreams: one base URL, one key, any model.',
+    indexable: true,
+    changefreq: 'weekly',
+    priority: 0.7,
+  },
+  {
+    to: '/models',
+    title: `Models — every model and its price | ${SITE_NAME}`,
+    description:
+      'Every model the router serves, with input and output prices per 1M tokens, context window and capabilities.',
+    indexable: true,
+    changefreq: 'daily',
+    priority: 0.8,
+  },
+  {
+    // The index is indexable; the entries are not. An entry's body is rendered
+    // client-side from the API, so a crawler that lands on one sees the shell
+    // and no text — the same reason /docs/* is noindex. The index itself is
+    // static enough to be worth a snippet: it lists every entry's title and
+    // date, which is exactly what a "what's new" search wants.
+    to: '/changelog',
+    title: `Changelog | ${SITE_NAME}`,
+    description: 'What shipped, and when: router, console and platform changes, newest first.',
+    indexable: true,
+    changefreq: 'weekly',
+    priority: 0.6,
+  },
+  {
+    to: '/changelog/*',
+    title: `Changelog | ${SITE_NAME}`,
+    description: 'What shipped, and when: router, console and platform changes, newest first.',
+    indexable: false,
   },
   {
     to: '/docs',
@@ -115,10 +163,62 @@ export const PUBLIC_SEO: readonly SeoMeta[] = [
     indexable: false,
   },
   {
+    // Not a page: the SPA redirects /signup to /login. The entry stays so
+    // `isKnownRoute` keeps answering 200 + noindex for the old URL instead of a
+    // soft 404, and so a crawler that followed a stale link sees a canonical
+    // pointing at the page that actually renders. Title differs from /login's
+    // on purpose — two entries sharing one title is the duplicate-content bug
+    // this registry exists to prevent.
     to: '/signup',
-    title: `Create your account | ${SITE_NAME}`,
-    description: `Create a ${SITE_NAME} account: a workspace, a project and three environments are provisioned on signup.`,
+    title: `Log in with Discord | ${SITE_NAME}`,
+    description: `Sign in to ${SITE_NAME} with Discord. The first sign-in provisions your workspace, a project and three environments.`,
     indexable: false,
+  },
+  {
+    // The three trust pages. They are indexable because a buyer evaluating a
+    // commercial router reads them before signing up, and they are the pages a
+    // security questionnaire points at. Titles are distinct on purpose — two
+    // entries sharing one title is the duplicate-content bug this registry
+    // exists to prevent.
+    to: '/security',
+    title: `Security — how the router handles keys and data | ${SITE_NAME}`,
+    description:
+      'Only the SHA-256 hash of an API key is stored, provider credentials are encrypted at rest, an SSRF guard watches both planes, and data retention is minimal.',
+    indexable: true,
+    changefreq: 'weekly',
+    priority: 0.6,
+  },
+  {
+    // The status page is a live health readout, not marketing copy: its body
+    // is rendered client-side from /api/status, so a crawler that lands on it
+    // sees the shell and no text — the same reason /docs/* and /changelog/*
+    // are noindex. It is listed here at all because `isKnownRoute` reads this
+    // table: with no entry the server would answer 404 for /status, and the
+    // footer link would be a dead link. `indexable: false` also keeps it out
+    // of /sitemap.xml, which stays pinned at the nine content URLs.
+    to: '/status',
+    title: `Status — data plane health | ${SITE_NAME}`,
+    description:
+      'Live health of the FUDRouter data plane: gateway, dashboard, authentication, billing, database and major providers, with recent incidents and the latest probe result.',
+    indexable: false,
+  },
+  {
+    to: '/terms',
+    title: `Terms of Service | ${SITE_NAME}`,
+    description:
+      'The terms that govern a FUDRouter account: acceptable use, credits and billing, service availability, and the limits of liability on both sides.',
+    indexable: true,
+    changefreq: 'yearly',
+    priority: 0.3,
+  },
+  {
+    to: '/privacy',
+    title: `Privacy Policy | ${SITE_NAME}`,
+    description:
+      'What FUDRouter collects (usage metadata and account details), what it never stores (prompt and response content), how long data is kept, and the rights you hold.',
+    indexable: true,
+    changefreq: 'yearly',
+    priority: 0.3,
   },
 ];
 
@@ -129,7 +229,9 @@ export const PUBLIC_SEO: readonly SeoMeta[] = [
  * `ItemList` is the only branch the registry currently reaches (/pricing).
  * `WebSite` and `SoftwareApplication` are kept because they are the two shapes a
  * marketing page needs the moment one is added back; both described the root,
- * and the root is a redirect now, which is why neither is referenced.
+ * and the root declares no block — its offer duplicates /pricing's, so a second
+ * structured description of the same product would be a duplicate rather than
+ * an addition.
  */
 export function jsonLdFor(meta: SeoMeta, origin: string): Record<string, unknown> | null {
   switch (meta.jsonLd) {
@@ -237,11 +339,12 @@ export function isKnownRoute(pathname: string): boolean {
 /**
  * The sitemap's paths: every indexable pattern EXCEPT the parameterised ones.
  *
- * Today that is exactly two URLs — `/pricing` and `/docs`. They are the only
- * indexable routes left after the catalogue, provider directory, changelog and
- * legal pages were withdrawn, and the filter stays written as a RULE rather than
- * a literal pair so a page added back to the registry joins the sitemap by being
- * marked `indexable: true`, with no second edit here.
+ * Today that is `/pricing`, `/changelog`, `/docs` and the three trust pages
+ * (`/security`, `/terms`, `/privacy`) — the indexable routes left after the
+ * catalogue, provider directory and legal pages were withdrawn, and the filter
+ * stays written as a RULE rather than a literal set so a page added back to the
+ * registry joins the sitemap by being marked `indexable: true`, with no second
+ * edit here.
  *
  * The `:`/`*` exclusion is inert right now (neither indexable route is
  * parameterised) and is kept for the case it was written for: a pattern like
@@ -250,8 +353,9 @@ export function isKnownRoute(pathname: string): boolean {
  * emitting the literal `/models/:slug` as a `<loc>` would advertise a URL that
  * cannot resolve.
  *
- * `/` is excluded by its own `indexable: false`, not by this filter: it
- * redirects to /pricing, and a redirect is not a page to list.
+ * `/` is excluded by its own `indexable: false`, not by this filter: it is a
+ * real page whose offer duplicates /pricing's, so listing it would advertise a
+ * second URL with the same content.
  */
 export function sitemapPaths(): string[] {
   return PUBLIC_SEO.filter((m) => m.indexable && !m.to.includes(':') && !m.to.includes('*')).map(

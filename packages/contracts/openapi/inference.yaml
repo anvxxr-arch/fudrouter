@@ -132,9 +132,11 @@ paths:
         One transformation IS applied and is billable-relevant: when the body
         asks for `stream`, the router injects
         `stream_options.include_usage = true` so the final upstream chunk carries
-        the usage block the bill is computed from. `ServeGeneric` does not do
-        this, which is how the two handlers are told apart in tests — dropping
-        the exact pattern would silently bill streamed requests without usage.
+        the usage block the bill is computed from. The injection MERGES into any
+        client-supplied `stream_options` (the schema allows extra fields) rather
+        than replacing it. `ServeGeneric` does not do this, which is how the two
+        handlers are told apart in tests — dropping the exact pattern would
+        silently bill streamed requests without usage.
 
         Streamed responses are `text/event-stream` and flushed incrementally;
         any buffering breaks time-to-first-token.
@@ -432,14 +434,14 @@ components:
                 `errTable` maps every code onto its wire status, and an unknown
                 code falls back to INTERNAL_ERROR.
               enum:
-                - AUTH_ERROR
+                - AUTHENTICATION_ERROR
                 - AUTHORIZATION_ERROR
                 - RATE_LIMITED
                 - INSUFFICIENT_CREDITS
                 - INVALID_REQUEST
                 - MODEL_NOT_FOUND
                 - CONTEXT_TOO_LONG
-                - UNSUPPORTED_PARAM
+                - UNSUPPORTED_PARAMETER
                 - CONTENT_REJECTED
                 - PROVIDER_TIMEOUT
                 - PROVIDER_UNAVAILABLE
@@ -464,14 +466,14 @@ components:
         Mirrored from `internal/proxy/errors.go`. Each code always surfaces as
         the same HTTP status; the table is the single source of that mapping.
       properties:
-        AUTH_ERROR: { const: 401 }
+        AUTHENTICATION_ERROR: { const: 401 }
         AUTHORIZATION_ERROR: { const: 403 }
         RATE_LIMITED: { const: 429 }
         INSUFFICIENT_CREDITS: { const: 402 }
         INVALID_REQUEST: { const: 400 }
         MODEL_NOT_FOUND: { const: 404 }
         CONTEXT_TOO_LONG: { const: 413 }
-        UNSUPPORTED_PARAM: { const: 400 }
+        UNSUPPORTED_PARAMETER: { const: 400 }
         CONTENT_REJECTED: { const: 403 }
         PROVIDER_TIMEOUT: { const: 504 }
         PROVIDER_UNAVAILABLE: { const: 502 }

@@ -1,0 +1,35 @@
+/* Changelog-only rules. styles.css owns the tokens and the .stack/.lede
+   semantics; this file adds what the entry list and the server-rendered
+   markdown body need. */
+
+/* One row per entry: date on the left, title after it. The date is the
+   filename's first 10 chars, so it is fixed-width and tabular. */
+.changelog-list { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--space-sm); }
+.changelog-item a {
+  display: flex; align-items: baseline; gap: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-border); border-radius: var(--radius-md);
+  background: var(--color-surface); color: var(--color-text);
+}
+.changelog-item a:hover { border-color: var(--color-border-strong); text-decoration: none; }
+.changelog-date { flex: none; color: var(--color-text-muted); font-family: var(--font-mono); font-size: var(--text-sm); }
+
+/* Prose spacing for the injected HTML. The base reset strips list markers and
+   heading sizes, so both are restated here — the same reason .doc-prose in
+   Docs.css does. No display:grid: grid items lose their ::marker. */
+.changelog-body { display: grid; gap: var(--space-md); max-width: 70ch; align-content: start; }
+.changelog-body > * { min-width: 0; }
+.changelog-body p { margin: 0; }
+.changelog-body ul { margin: 0; padding-left: var(--space-lg); list-style: disc; }
+.changelog-body li + li { margin-top: var(--space-xs); }
+.changelog-body li::marker { color: var(--color-text-muted); }
+.changelog-body h2 { font-size: var(--text-h5); font-weight: 600; }
+.changelog-body h3 { font-size: var(--text-lg); font-weight: 600; }
+.changelog-body pre { margin: 0; }
+.changelog-body p code, .changelog-body li code {
+  padding: 1px 5px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  font-size: 0.85em;
+}

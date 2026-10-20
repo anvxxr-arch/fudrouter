@@ -100,9 +100,10 @@ export const PERIODIC: PeriodicEntry[] = [
 ];
 
 /**
- * The fan-out half. `provider_model_sync` requires `payload.providerId` and
- * throws without it, so it can only ever be enqueued per provider — a bare
- * occurrence would fail and retry five times before dying.
+ * The fan-out half. `provider_model_sync` and `model_verification` both
+ * require `payload.providerId` and throw without it, so they can only ever be
+ * enqueued per provider — a bare occurrence would fail and retry five times
+ * before dying.
  */
 export const FAN_OUT: FanOutEntry[] = [
 	{
@@ -120,6 +121,18 @@ export const FAN_OUT: FanOutEntry[] = [
 		scope: 'connection',
 		payloadKey: 'connectionId',
 		note: 'one job per enabled connection, never one job over every credential'
+	},
+	// Daily, not hourly: each run sends one billed chat probe per enabled
+	// provider_model (MODEL_VERIFICATION_BATCH bounds it), so a hot cadence
+	// would spend real upstream tokens for verdicts that change on the
+	// provider's schedule, not ours — a catalog swap is caught within a day.
+	{
+		kind: 'fanOut',
+		type: 'model_verification',
+		everyMs: DAY,
+		scope: 'provider',
+		payloadKey: 'providerId',
+		note: 'one job per enabled provider; probes what each catalog entry actually serves'
 	}
 ];
 

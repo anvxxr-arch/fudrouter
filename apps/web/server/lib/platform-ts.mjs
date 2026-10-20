@@ -24,6 +24,7 @@ const rbac = await import('@fudrouter/platform/rbac');
 const publish = await import('@fudrouter/platform/publish');
 const publishEnv = await import('@fudrouter/platform/server/publish-env.ts');
 const vkmod = await import('@fudrouter/platform/server/vk.ts');
+const limits = await import('@fudrouter/platform/server/admin-limits.ts');
 
 // SSRF: the platform module OWNS the rule, including the literal blocklist --
 // isBlockedIp and the range arithmetic are re-exported below for the request
@@ -57,6 +58,12 @@ export async function _assertPublic(rawUrl, allowPrivate = false) {
 	const r = await ssrf.assertPublicUpstream(rawUrl, allowPrivate);
 	return r.ok ? { ok: true } : { ok: false, reason: r.reason };
 }
+
+// Input bounds: admin-limits.ts OWNS them (a price of 1e308 reaching a
+// bigint micro-price column, an unbounded batch turning one POST into
+// thousands of inserts). Re-exported so admin.mjs bounds the provider-enable
+// path with the same constant instead of a local copy that can drift.
+export const MAX_PRICE_USD = limits.MAX_PRICE_USD;
 
 // Credentials: byte-identical AES-256-GCM envelope (iv[12]||ct||tag[16]).
 export const _encCred = (plain) => creds.encryptCredentials(plain);
@@ -102,6 +109,18 @@ export const served = (modelStatus, providerStatus, allowDevProviders) =>
 	publish.reachability(modelStatus, providerStatus, allowDevProviders).served;
 // The env read for the opt-in, from the same module that owns the rule.
 export const allowDevProviders = () => publishEnv.allowDevProviders();
+
+// Job queue: enqueue() validates the type against JOB_TYPES (a typo'd type
+// string would become a forever-pending row no handler claims — the exact bug
+// jobs.ts was written to prevent) and carries the Valkey wake hint a hand-rolled
+// `insert into job` would not. Lazy, because jobs.ts statically imports
+// db/index.ts, which throws at import time when DATABASE_URL is unset — and
+// this module's unit tests import it with no database at all.
+let _jobsmod = null;
+export async function _enqueueJob(type, payload, options, handle) {
+	if (!_jobsmod) _jobsmod = await import('@fudrouter/platform/server/jobs.ts');
+	return _jobsmod.enqueue(type, payload, options ?? {}, handle);
+}
 
 // Audit redaction: shared redactSecrets covers the same key vocabulary
 // (secret|token|password|key_hash|credentials? + exact api_key/authorization).

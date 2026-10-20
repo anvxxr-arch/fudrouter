@@ -15,7 +15,7 @@ import {
 	bigint,
 	index
 } from 'drizzle-orm/pg-core';
-import { betterAuth } from 'better-auth';
+import { betterAuth, APIError } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { uuidv7 } from 'uuidv7';
 import { registerPlayground } from './playground.mjs';
@@ -438,6 +438,25 @@ export const auth = betterAuth({
 		},
 		session: {
 			create: {
+				// BAN-REVOCATION: better-auth core's sign-in mints a session without
+				// consulting `banned` (dist/api/routes/sign-in.mjs createSession),
+				// and the admin plugin that would refuse it is deliberately not
+				// loaded (see the "No plugins" note below). This hook is the
+				// sanctioned enforcement point — it mirrors the admin plugin's own
+				// session.create.before (dist/plugins/admin/admin.mjs:33-51).
+				// A ban whose banExpires window has already passed is not in force.
+				before: async (session, ctx) => {
+					if (!db || !ctx) return;
+					const rows = await db
+						.select({ banned: user.banned, banExpires: user.banExpires })
+						.from(user)
+						.where(eq(user.id, session.userId))
+						.limit(1);
+					const row = rows[0];
+					if (row?.banned && !(row.banExpires && row.banExpires.getTime() < Date.now())) {
+						throw new APIError('FORBIDDEN', { message: 'You have been banned from this application' });
+					}
+				},
 				// After every sign-in, put the user into the FUDCourt Discord
 				// server (spec: login is Discord-only and lands you in the
 				// server). A NEW SESSION is the right trigger rather than
@@ -582,7 +601,20 @@ async function getSessionUser(req) {
 	const headers = new Headers();
 	if (req.headers.cookie) headers.set('cookie', req.headers.cookie);
 	const data = await auth.api.getSession({ headers });
-	return data?.user ?? null;
+	const sessionUser = data?.user ?? null;
+	if (!sessionUser) return null;
+	// BAN-REVOCATION: better-auth core validates a session by expiry only
+	// (dist/api/routes/session.mjs findSession) and the admin plugin that would
+	// enforce `banned` is deliberately not loaded (see the "No plugins" note on
+	// the config below), so without this gate a banned user's cookie validates
+	// forever. A ban whose banExpires window has already passed is not in force.
+	const [row] = await db
+		.select({ banned: user.banned, banExpires: user.banExpires })
+		.from(user)
+		.where(eq(user.id, sessionUser.id))
+		.limit(1);
+	if (row?.banned && !(row.banExpires && row.banExpires.getTime() < Date.now())) return null;
+	return sessionUser;
 }
 async function memberContext(database, userId, workspaceId) {
 	const [row] = await database
@@ -718,8 +750,36 @@ app.all('/api/auth/{*path}', async (req, res) => {
 				headers.set(k, String(v));
 			}
 		}
+		// AUTH-1: this handler runs BEFORE express.json({limit:'1mb'}), so the
+		// raw-body buffering below is the only size gate on the auth surface —
+		// and it had none. An unauthenticated client could stream an unbounded
+		// body (declared content-length or chunked) into `chunks` and exhaust
+		// server memory. The cap mirrors express.json's 1mb so the auth surface
+		// is never more permissive than the JSON surfaces behind it.
+		const AUTH_BODY_LIMIT = 1024 * 1024;
+		const declared = Number(req.headers['content-length']);
+		if (Number.isFinite(declared) && declared > AUTH_BODY_LIMIT) {
+			// Declared over-limit: reject before consuming a single byte —
+			// reading it first would be the DoS this cap exists to stop.
+			res.status(413).json({ error: 'Request body too large' });
+			return;
+		}
 		const chunks = [];
-		for await (const c of req) chunks.push(c);
+		let size = 0;
+		for await (const c of req) {
+			size += c.length;
+			if (size > AUTH_BODY_LIMIT) {
+				// Chunked bodies carry no content-length, so the cap has to hold
+				// during accumulation too. Destroyed on 'finish' so the 413 is
+				// flushed to the client before the socket dies (an immediate
+				// destroy depends on write ordering to win the race); a client
+				// that keeps streaming then cannot hold the request alive.
+				res.status(413).json({ error: 'Request body too large' });
+				res.on('finish', () => req.destroy());
+				return;
+			}
+			chunks.push(c);
+		}
 		const raw = chunks.length ? Buffer.concat(chunks) : null;
 		const webReq = new Request(url, {
 			method: req.method,
@@ -728,6 +788,43 @@ app.all('/api/auth/{*path}', async (req, res) => {
 			duplex: 'half'
 		});
 		const webRes = await auth.handler(webReq);
+		// BAN-REVOCATION: better-auth core's /get-session validates the session
+		// row by expiry only (dist/api/routes/session.mjs findSession) and the
+		// admin plugin that would enforce `banned` is deliberately not loaded
+		// (see the "No plugins" note on the config above). The SPA's RequireAuth
+		// polls exactly this endpoint, so without this gate a banned user's
+		// browser keeps a live session until the cookie expires. The app's own
+		// endpoints (/api/pages/*, /api/admin/*) already go through
+		// getSessionUser, which carries the same check.
+		if (req.originalUrl.replace(/^\/api\/auth/, '') === '/get-session' && webRes.status === 200) {
+			const payload = await webRes.json().catch(() => null);
+			if (payload?.user) {
+				const [row] = await db
+					.select({ banned: user.banned, banExpires: user.banExpires })
+					.from(user)
+					.where(eq(user.id, payload.user.id))
+					.limit(1);
+				if (row?.banned && !(row.banExpires && row.banExpires.getTime() < Date.now())) {
+					return res.status(401).json(null);
+				}
+			} else if (/session_token=/.test(req.headers.cookie ?? '')) {
+				// A cookie was presented but the session row is gone (revoked by a
+				// ban, expired, or forged). better-auth answers `null` with a 200
+				// here; 401 is the honest answer to a credential that no longer
+				// authenticates, and the SPA's getSession() already treats any
+				// non-2xx as "logged out".
+				return res.status(401).json(null);
+			}
+			const body = JSON.stringify(payload);
+			res.status(200);
+			for (const [k, v] of webRes.headers) {
+				if (k.toLowerCase() === 'set-cookie') continue;
+				res.setHeader(k, v);
+			}
+			const cookies = typeof webRes.headers.getSetCookie === 'function' ? webRes.headers.getSetCookie() : [];
+			for (const c of cookies) res.append('Set-Cookie', c);
+			return res.send(body);
+		}
 		res.status(webRes.status);
 		webRes.headers.forEach((v, k) => {
 			if (k.toLowerCase() === 'set-cookie') return;

@@ -45,7 +45,8 @@ export const ID_PREFIXES: Record<string, string> = {
 	circuitBreaker: 'cbr_',
 	session: 'ses_',
 	account: 'acc_',
-	verification: 'ver_'
+	verification: 'ver_',
+	modelVerification: 'mvr_'
 };
 
 export function newId(prefix: string): string {

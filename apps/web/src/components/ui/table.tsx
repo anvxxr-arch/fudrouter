@@ -1,7 +1,7 @@
 import * as React from "react";
 
 type LegacyTableProps = {
-  head?: string[];
+  head?: React.ReactNode[];
   rows?: React.ReactNode[][];
 };
 
@@ -18,8 +18,8 @@ const Table = React.forwardRef<
       {head ? (
         <TableHeader>
           <TableRow>
-            {head.map((h) => (
-              <TableHead key={h}>{h}</TableHead>
+            {head.map((h, i) => (
+              <TableHead key={i}>{h}</TableHead>
             ))}
           </TableRow>
         </TableHeader>

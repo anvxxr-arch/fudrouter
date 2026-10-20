@@ -37,7 +37,7 @@ type Rejection struct {
 const (
 	nsRate  = "rl"    // rl:{scope}:{id}:rpm|tpm|rpd|tpd
 	nsConc  = "conc"  // conc:{scope}:{id}
-	nsSpend = "spend" // spend:{scope}:{id}:day|month
+	nsSpend = "spend" // spend:{scope}:{id}:{day|month}:{period start}
 )
 
 // Limiter enforces limits for one request at admission time.
@@ -162,13 +162,16 @@ func (l *Limiter) Check(ctx context.Context, k *APIKeyIdentity, lim *store.Limit
 	// "counter loss must never make spending unbounded"). The Valkey counter is
 	// the fast path only.
 	if lim.DailySpendMicro != nil && *lim.DailySpendMicro > 0 {
-		used, err := l.spendMicro(ctx, k, key(nsSpend, "api_key", id, "day"), dayStart, 25*time.Hour, l.storeDaily)
+		// periodSuffix names the key's period (H4, proxy/budget.go's bug found
+		// again here): the unperioded day key's 25h TTL outlives the UTC day
+		// boundary — yesterday's counter read as today's, false 402 at midnight.
+		used, err := l.spendMicro(ctx, k, key(nsSpend, "api_key", id, periodSuffix("day", time.Now())), dayStart, 25*time.Hour, l.storeDaily)
 		if err == nil && used >= *lim.DailySpendMicro {
 			return nil, &Rejection{402, "INSUFFICIENT_CREDITS", "daily spend cap reached for this API key"}
 		}
 	}
 	if lim.MonthlySpendMicro != nil && *lim.MonthlySpendMicro > 0 {
-		used, err := l.spendMicro(ctx, k, key(nsSpend, "api_key", id, "month"), monthStart, 32*24*time.Hour, l.storeMonthly)
+		used, err := l.spendMicro(ctx, k, key(nsSpend, "api_key", id, periodSuffix("month", time.Now())), monthStart, 32*24*time.Hour, l.storeMonthly)
 		if err == nil && used >= *lim.MonthlySpendMicro {
 			return nil, &Rejection{402, "INSUFFICIENT_CREDITS", "monthly spend cap reached for this API key"}
 		}
@@ -176,7 +179,16 @@ func (l *Limiter) Check(ctx context.Context, k *APIKeyIdentity, lim *store.Limit
 
 	if lim.Concurrency != nil && *lim.Concurrency > 0 {
 		ck := key(nsConc, "api_key", id)
-		n, err := l.vk.IncrConc(ctx, ck, time.Minute)
+		// H3: 60s was shorter than a legitimate stream: the gauge expired
+		// mid-request, the cap stopped enforcing, and the slot the request
+		// still held was decremented into a fresh window. 15m matches the
+		// freebuff client's streaming budget (freebuff/transport.go:45) — the
+		// longest a single request can legitimately hold a slot.
+		//
+		// Trade-off: release and refusal both decrement, so this TTL only
+		// recovers slots leaked by a crash — 15m means a leaked slot blocks
+		// the cap for 15m instead of 1m.
+		n, err := l.vk.IncrConc(ctx, ck, 15*time.Minute)
 		switch {
 		case errors.Is(err, vk.ErrDisabled):
 			// In-process fallback: the S0 gauge.
@@ -221,7 +233,9 @@ func (l *Limiter) SpendAdd(ctx context.Context, k *APIKeyIdentity, micro int64) 
 		{"day", 25 * time.Hour},
 		{"month", 32 * 24 * time.Hour},
 	} {
-		ck := key(nsSpend, "api_key", k.KeyID, w.suffix)
+		// H4 write side (proxy/budget.go): the same period-named key Check
+		// reads, so yesterday's counter can never satisfy today's cap.
+		ck := key(nsSpend, "api_key", k.KeyID, periodSuffix(w.suffix, time.Now()))
 		if _, err := l.vk.IncrByBucket(ctx, []string{ck}, micro, w.ttl); err != nil &&
 			!errors.Is(err, vk.ErrDisabled) {
 			log.Printf("[limits] spend counter update failed for %s: %v", ck, err)
@@ -234,6 +248,24 @@ func ttlFor(suffix string) int64 {
 		return int64((25 * time.Hour).Milliseconds())
 	}
 	return int64((32 * 24 * time.Hour).Milliseconds())
+}
+
+// periodSuffix is the `{period}:{period start}` tail of a spend counter key
+// ("day:20261020", "month:202610"). H4 in proxy/budget.go fixed this exact bug
+// for the workspace/project/environment budgets and it was missed here: the
+// unperioded `spend:api_key:<id>:day` key's 25h TTL outlives the UTC day
+// boundary, so yesterday's counter was still live after midnight and read as
+// today's spend — false 402 INSUFFICIENT_CREDITS until the TTL aged it out.
+// Embedding the period start makes a stale key MISS into the durable sum
+// instead. Check (read) and SpendAdd (write) both go through this one helper
+// so the two sides can never spell the key differently — a mismatch makes
+// every write miss every read and the cap pays a Postgres sum per request.
+// TTLs stay 25h/32d: they now only need to outlive the NAMED period.
+func periodSuffix(suffix string, now time.Time) string {
+	if suffix == "day" {
+		return suffix + ":" + now.UTC().Format("20060102")
+	}
+	return suffix + ":" + now.UTC().Format("200601")
 }
 
 // APIKeyIdentity is the minimal identity the counters need: the key id and its

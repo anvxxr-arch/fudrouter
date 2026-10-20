@@ -3,6 +3,7 @@ package proxy
 import (
 	"errors"
 	"log"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -77,7 +78,16 @@ var errAuthRateLimited = errors.New("too many failed authentication attempts")
 // turn a cache blip into a 429 storm — the original 401 stays truthful
 // either way). Only the prefix is ever logged, never the secret.
 func (h *Handler) authFail(r *http.Request, err error) error {
-	ok, rerr := h.vk.AllowRate(r.Context(), "rl:authfail:"+clientIP(r), 30, time.Minute)
+	// M-a: the limiter is keyed on the SOCKET PEER, not clientIP(r). clientIP
+	// walks X-Forwarded-For, which a caller behind the trusted proxy can set
+	// to a fresh value per request — each forged IP got its own 30/min budget
+	// and the brute-force cap enforced nothing. The peer host is the one
+	// identity the client cannot forge; the budget stays 30/min.
+	peer, _, perr := net.SplitHostPort(r.RemoteAddr)
+	if perr != nil {
+		peer = r.RemoteAddr
+	}
+	ok, rerr := h.vk.AllowRate(r.Context(), "rl:authfail:"+peer, 30, time.Minute)
 	if rerr != nil {
 		return err
 	}

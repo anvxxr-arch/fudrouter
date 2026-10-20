@@ -1,12 +1,16 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { NavLink, useParams } from "react-router-dom";
 import { apiGet } from "../lib/server";
+import { ROLE_CAPS } from "../lib/caps";
 import { ADMIN_NAV, filterNav } from "../lib/navigation";
 import { useSession } from "../components/guards";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { Input } from "../components/ui/input";
+import { Badge } from "../components/ui/badge";
 import { Table } from "../components/ui/table";
+import { StatCard, pctDelta } from "../components/stat-card";
+import "./dashboard.css";
 
 // The admin bar is the registry's "admin" scope filtered by the session's role,
 // exactly as ConsoleLayout does for "console". It used to render a local
@@ -31,7 +35,7 @@ function Page({ title, lede, children }: { title: string; lede: string; children
   return (<div className="stack"><AdminNav /><h1>{title}</h1><p className="lede muted">{lede}</p>{children}</div>);
 }
 
-function useLoad<T>(path: string): { d: T | null; err: string | null } {
+function useLoad<T>(path: string, tick = 0): { d: T | null; err: string | null } {
   const [d, setD] = useState<T | null>(null);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
@@ -39,7 +43,7 @@ function useLoad<T>(path: string): { d: T | null; err: string | null } {
     setD(null); setErr(null);
     apiGet<T>(path).then((v) => { if (live) setD(v); }).catch((e: Error) => { if (live) setErr(/403/.test(e.message) ? "Forbidden — your role lacks the capability for this section." : "Load failed (" + e.message + ")."); });
     return () => { live = false; };
-  }, [path]);
+  }, [path, tick]);
   return { d, err };
 }
 
@@ -52,20 +56,93 @@ function State({ err, d, children }: { err: string | null; d: unknown; children:
 const fmtDate = (v: unknown) => { try { return v ? new Date(String(v)).toLocaleString() : "—"; } catch { return String(v ?? "—"); } };
 const fmtUsd = (micro: unknown) => { try { const m = BigInt(String(micro ?? "0")); const neg = m < 0n; const a = neg ? -m : m; return (neg ? "-" : "") + "$" + (a / 1000000n).toString() + "." + (a % 1000000n).toString().padStart(6, "0").slice(0, 2); } catch { return String(micro ?? "—"); } };
 
-type Overview = { counts: Record<string, number | string>; topConsumers: { keyId: string | null; keyName: string; email: string; requests: number; costMicro: string }[]; recent: { id: string; createdAt: string; requestedModel: string | null; latencyMs: number; status: string }[] };
+// apiPost in lib/server.ts throws "path: status" and drops the body, so a
+// refused admin action ("you cannot ban yourself") is indistinguishable from a
+// transport failure. Read the server's {error} message so the operator sees why.
+async function postJSON<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(path, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error((data && (data.error as string)) || path + ": " + res.status);
+  return data as T;
+}
+
+type Overview = { counts: Record<string, number | string>; series: { day: string; requests: number; tokens: number; costMicro: string }[]; revenueMtdMicro: string; topConsumers: { keyId: string | null; keyName: string; email: string; requests: number; costMicro: string }[]; recent: { id: string; createdAt: string; requestedModel: string | null; latencyMs: number; status: string }[] };
 export function AdminHome() {
   const { d, err } = useLoad<Overview>("/api/admin/overview");
+  // Billing and users are cap-gated sections (admin.billing / admin.users): a
+  // role with admin.view but without them gets a 403 here, so each section
+  // renders only when its fetch resolves rather than showing an error card.
+  const billing = useLoad<Billing>("/api/admin/billing");
+  const users = useLoad<Users>("/api/admin/users");
   return (<Page title="Admin" lede="Platform overview.">
-    <State err={err} d={d}>{(v: Overview) => (<>
-      <div className="row" style={{ flexWrap: "wrap" }}>
-        {Object.entries(v.counts).map(([k, n]) => <Card key={k} title={k} desc={String(n)} />)}
-      </div>
-      <h2>Top consumers</h2>
-      <Table head={["Key", "Owner", "Requests", "Cost"]} rows={v.topConsumers.map((t) => [t.keyName, t.email, String(t.requests), fmtUsd(t.costMicro)])} />
-      <h2>Recent requests</h2>
-      <Table head={["ID", "Model", "Latency ms", "Status", "At"]} rows={v.recent.map((r) => [r.id, r.requestedModel ?? "—", String(r.latencyMs), r.status, fmtDate(r.createdAt)])} />
-    </>)}</State>
+    <State err={err} d={d}>{(v: Overview) => {
+      const today = v.series[v.series.length - 1];
+      const yesterday = v.series[v.series.length - 2];
+      return (<>
+        <div className="row" style={{ flexWrap: "wrap" }}>
+          <StatCard title="Requests" value={String(v.counts.requests)} delta={today && yesterday ? pctDelta(today.requests, yesterday.requests) : undefined} spark={v.series.map((s) => s.requests)} />
+          <StatCard title="Tokens" value={String(v.counts.tokens)} delta={today && yesterday ? pctDelta(today.tokens, yesterday.tokens) : undefined} spark={v.series.map((s) => s.tokens)} />
+          <StatCard title="Cost" value={fmtUsd(v.counts.costMicro)} delta={today && yesterday ? pctDelta(Number(BigInt(today.costMicro || "0")), Number(BigInt(yesterday.costMicro || "0"))) : undefined} spark={v.series.map((s) => Number(BigInt(s.costMicro || "0")))} />
+          <StatCard title="Revenue MTD" value={fmtUsd(v.revenueMtdMicro)} />
+          {["providers", "models", "connections", "activeKeys", "users", "workspaces"].map((k) => <Card key={k} title={k} desc={String(v.counts[k] ?? "—")} />)}
+        </div>
+        {billing.d ? (<>
+          <h2>Revenue by ledger type (12 months)</h2>
+          <RevenueChart monthly={billing.d.monthly} />
+        </>) : null}
+        {users.d ? (<>
+          <h2>Recent signups</h2>
+          <Table head={["Email", "Workspace", "Role", "Created", "First request"]} rows={users.d.users.slice(0, 8).map((u) => [u.email, u.workspaceName ?? "—", u.role ?? "—", fmtDate(u.createdAt), u.firstRequestAt ? fmtDate(u.firstRequestAt) : "—"])} />
+        </>) : null}
+        <h2>Top consumers</h2>
+        <Table head={["Key", "Owner", "Requests", "Cost"]} rows={v.topConsumers.map((t) => [t.keyName, t.email, String(t.requests), fmtUsd(t.costMicro)])} />
+        <h2>Recent requests</h2>
+        <Table head={["ID", "Model", "Latency ms", "Status", "At"]} rows={v.recent.map((r) => [r.id, r.requestedModel ?? "—", String(r.latencyMs), r.status, fmtDate(r.createdAt)])} />
+      </>);
+    }}</State>
   </Page>);
+}
+
+// Stacked bars: one column per month, one segment per ledger type. Pure SVG —
+// the console ships no charting dependency and this is the whole need.
+function RevenueChart({ monthly }: { monthly: { month: string; series: { type: string; totalMicro: string }[] }[] }) {
+  const W = 720, H = 200, PAD_L = 48, PAD_R = 8, PAD_T = 8, PAD_B = 24;
+  const types = monthly[0]?.series.map((s) => s.type) ?? [];
+  const totals = monthly.map((m) => m.series.reduce((acc, s) => acc + BigInt(s.totalMicro || "0"), 0n));
+  const max = totals.reduce((acc, v) => (v > acc ? v : acc), 1n);
+  const barW = (W - PAD_L - PAD_R) / Math.max(monthly.length, 1);
+  const y = (v: bigint) => H - PAD_B - Number((v * 1000n) / max) / 1000 * (H - PAD_T - PAD_B);
+  const first = monthly[0]?.month ?? "", last = monthly[monthly.length - 1]?.month ?? "";
+  const total = totals.reduce((acc, v) => acc + v, 0n);
+  return (<>
+    <svg className="credits-chart" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Monthly revenue by ledger type from ${first} to ${last}. Total ${fmtUsd(total.toString())}.`}>
+      <line className="credits-chart-axis" x1={PAD_L} y1={H - PAD_B} x2={W - PAD_R} y2={H - PAD_B} />
+      <text className="credits-chart-tick" x={PAD_L - 6} y={H - PAD_B + 4} textAnchor="end">{fmtUsd(max.toString())}</text>
+      {monthly.map((m, i) => {
+        let acc = 0n;
+        const x = PAD_L + i * barW;
+        return (<g key={m.month}>
+          {m.series.map((s, j) => {
+            const v = BigInt(s.totalMicro || "0");
+            const y0 = y(acc);
+            acc += v;
+            const y1 = y(acc);
+            return <rect key={s.type} className={`credits-chart-seg credits-chart-seg--${j % 6}`} x={x + 1} y={y1} width={Math.max(barW - 2, 1)} height={Math.max(y0 - y1, 0)} />;
+          })}
+        </g>);
+      })}
+      <text className="credits-chart-tick" x={PAD_L} y={H - 6}>{first}</text>
+      <text className="credits-chart-tick" x={W - PAD_R} y={H - 6} textAnchor="end">{last}</text>
+    </svg>
+    <ul className="credits-legend">
+      {types.map((t, j) => (<li key={t}><span className={`credits-legend-swatch credits-chart-seg--${j % 6}`} />{t}</li>))}
+    </ul>
+  </>);
 }
 
 type Analytics = { from: string; to: string; usingRollups: boolean; byModel: { id: string; name: string; requests: number; successes: number; tokensIn: number; tokensOut: number; costMicro: string; p50: number; p95: number; p99: number }[]; byProvider: { id: string; name: string; requests: number; successes: number; costMicro: string; p50: number; p95: number; p99: number }[] };
@@ -88,7 +165,7 @@ function AnalyticsView() {
   </>);
 }
 
-type Billing = { accounts: { id: string; workspaceName: string; currency: string; status: string; warningThresholdMicro: string; hardStopThresholdMicro: string; balanceMicro: string; ledgerSumMicro: string }[]; totals: { type: string; totalMicro: string }[]; recent: { id: string; workspaceName: string; type: string; amountMicro: string; currency: string; requestId: string | null; description: string | null; createdBy: string | null; createdAt: string }[]; invoices: { id: string; workspaceName: string; number: string; periodStart: string; periodEnd: string; amountMicro: string; currency: string; status: string; issuedAt: string | null; paidAt: string | null }[] };
+type Billing = { accounts: { id: string; workspaceName: string; currency: string; status: string; warningThresholdMicro: string; hardStopThresholdMicro: string; balanceMicro: string; ledgerSumMicro: string }[]; totals: { type: string; totalMicro: string }[]; monthly: { month: string; series: { type: string; totalMicro: string }[] }[]; recent: { id: string; workspaceName: string; type: string; amountMicro: string; currency: string; requestId: string | null; description: string | null; createdBy: string | null; createdAt: string }[]; invoices: { id: string; workspaceName: string; number: string; periodStart: string; periodEnd: string; amountMicro: string; currency: string; status: string; issuedAt: string | null; paidAt: string | null }[] };
 function BillingView() {
   const { d, err } = useLoad<Billing>("/api/admin/billing");
   return (<State err={err} d={d}>{(v: Billing) => (<>
@@ -142,18 +219,284 @@ function KeysView() {
   )}</State>);
 }
 
-type Models = { providers: { id: string; name: string; status: string }[]; models: { id: string; slug: string; providerName: string; status: string; served: boolean; currency: string; inputPriceMicro: string; outputPriceMicro: string; mappingCount: number }[]; summary: { id: string; name: string; status: string; total: number; published: number; served: number }[]; counts: Record<string, number> };
-function ModelsView() {
-  const { d, err } = useLoad<Models>("/api/admin/models");
-  return (<State err={err} d={d}>{(v: Models) => (<>
-    <div className="row" style={{ flexWrap: "wrap" }}>
-      {Object.entries(v.counts).map(([k, n]) => <Card key={k} title={k} desc={String(n)} />)}
+type Models = { providers: { id: string; name: string; status: string }[]; models: { id: string; providerId: string; name: string; slug: string; family: string | null; developer: string | null; description: string | null; modality: unknown; context: number | null; maxOutput: number | null; capabilities: Record<string, boolean>; providerName: string; status: string; served: boolean; currency: string; inputPriceMicro: string; outputPriceMicro: string; mappingCount: number }[]; summary: { id: string; name: string; status: string; total: number; published: number; served: number }[]; counts: Record<string, number> };
+// The server's own vocabulary (admin.mjs MODEL_STATUSES), not a second copy:
+// a status the select offers but the server rejects is a 400 the operator
+// cannot explain.
+const MODEL_STATUSES = ["active", "deprecated", "sunset", "disabled"];
+const CAPABILITY_FLAGS = ["tools", "vision", "reasoning", "structured_output", "streaming"];
+type ModelRow = Models["models"][number];
+type PricePreview = { preview: true; modelSlug: string; current: { version: number; inputPriceMicro: string; outputPriceMicro: string } | null; nextVersion: number; proposal: { modelId: string; providerModelId: string | null; currency: string; inputPrice: string; cachedInputPrice: string | null; outputPrice: string; reasoningPrice: string | null; effectiveFrom: string } };
+type SyncProvider = { id: string; name: string };
+type SyncFetch = { fetched: { url: string; latencyMs: number; total: number; providerId: string; providerName: string; upstreamCount: number; checkedCount: number; additions: { slug: string; name: string; providerModelId: string; json: string }[]; changes: { id: string; slug: string; providerModelId: string; reasons: string[]; json: string }[]; removals: { id: string; slug: string; providerModelId: string }[] } };
+// One dialog for both modes: the create and update bodies differ only by `id`
+// and the price fields, so two components would be the same form twice.
+function ModelModal({ model, providers, onClose, onSaved }: { model: ModelRow | null; providers: { id: string; name: string }[]; onClose: () => void; onSaved: () => void }) {
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [caps, setCaps] = useState<Record<string, boolean>>(() => (model?.capabilities ?? {}) as Record<string, boolean>);
+  const box = useRef<HTMLDivElement>(null);
+  const close = useRef(onClose);
+  close.current = onClose;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") close.current(); };
+    document.addEventListener("keydown", onKey);
+    box.current?.querySelector<HTMLElement>("input, select, textarea, button")?.focus();
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+  const submit = (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setErr(null);
+    setBusy(true);
+    const f = new FormData(e.currentTarget);
+    const body: Record<string, unknown> = {
+      name: String(f.get("name") ?? ""),
+      slug: String(f.get("slug") ?? ""),
+      family: String(f.get("family") ?? ""),
+      developer: String(f.get("developer") ?? ""),
+      description: String(f.get("description") ?? ""),
+      modality: String(f.get("modality") ?? "") || "{}",
+      capabilities: JSON.stringify(caps),
+      status: String(f.get("status") ?? ""),
+      currency: String(f.get("currency") ?? "") || "USD",
+      context: String(f.get("context") ?? ""),
+      maxOutput: String(f.get("maxOutput") ?? ""),
+    };
+    const path = model ? "/api/admin/models/update" : "/api/admin/models/create";
+    if (model) body.id = model.id;
+    else {
+      body.providerId = String(f.get("providerId") ?? "");
+      body.inputUsd = String(f.get("inputUsd") ?? "");
+      body.outputUsd = String(f.get("outputUsd") ?? "");
+      body.providerModelId = String(f.get("providerModelId") ?? "");
+    }
+    postJSON<{ message: string }>(path, body)
+      .then(() => { onSaved(); onClose(); })
+      .catch((ex) => setErr(ex instanceof Error ? ex.message : "Save failed"))
+      .finally(() => setBusy(false));
+  };
+  return (<div className="keys-backdrop" onClick={() => close.current()}>
+    <div ref={box} className="keys-dialog" role="dialog" aria-modal="true" aria-label={model ? "Edit model" : "New model"} onClick={(e) => e.stopPropagation()}>
+      <h2 className="keys-dialog-title">{model ? "Edit " + model.slug : "New model"}</h2>
+      <form className="keys-form" onSubmit={submit}>
+        {model ? null : <label className="keys-field"><span>Provider</span>
+          <select className="select" name="providerId" required defaultValue={providers[0]?.id ?? ""}>
+            {providers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </label>}
+        <label className="keys-field"><span>Name</span><Input name="name" defaultValue={model?.name ?? ""} required /></label>
+        <label className="keys-field"><span>Slug</span><Input name="slug" defaultValue={model?.slug ?? ""} required /></label>
+        <label className="keys-field"><span>Family</span><Input name="family" defaultValue={model?.family ?? ""} /></label>
+        <label className="keys-field"><span>Developer</span><Input name="developer" defaultValue={model?.developer ?? ""} /></label>
+        <label className="keys-field"><span>Description</span><Input name="description" defaultValue={model?.description ?? ""} /></label>
+        <label className="keys-field"><span>Modality (JSON)</span><Input name="modality" defaultValue={model ? JSON.stringify(model.modality ?? {}) : ""} placeholder='{"input":["text"]}' /></label>
+        <label className="keys-field"><span>Status</span>
+          <select className="select" name="status" defaultValue={model?.status ?? "active"}>
+            {MODEL_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </label>
+        <label className="keys-field"><span>Currency</span><Input name="currency" defaultValue={model?.currency ?? "USD"} maxLength={3} /></label>
+        <label className="keys-field"><span>Context</span><Input name="context" type="number" min={1} defaultValue={model?.context ?? ""} /></label>
+        <label className="keys-field"><span>Max output</span><Input name="maxOutput" type="number" min={1} defaultValue={model?.maxOutput ?? ""} /></label>
+        {model ? null : <>
+          <label className="keys-field"><span>Input $/1M</span><Input name="inputUsd" defaultValue="0" required /></label>
+          <label className="keys-field"><span>Output $/1M</span><Input name="outputUsd" defaultValue="0" required /></label>
+          <label className="keys-field"><span>Upstream model id</span><Input name="providerModelId" placeholder="defaults to slug" /></label>
+        </>}
+        <fieldset className="keys-field">
+          <span>Capabilities</span>
+          <div className="row" style={{ flexWrap: "wrap" }}>
+            {CAPABILITY_FLAGS.map((c) => (
+              <label key={c} className="ps-check">
+                <input type="checkbox" checked={!!caps[c]} onChange={(e) => setCaps((m) => ({ ...m, [c]: e.currentTarget.checked }))} />
+                {c.replace(/_/g, " ")}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+        {err ? <p className="error" role="alert">{err}</p> : null}
+        <div className="row">
+          <Button type="submit" variant="primary" disabled={busy}>{busy ? "Saving…" : model ? "Save" : "Create"}</Button>
+          <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
+        </div>
+      </form>
     </div>
-    <h2>Per-provider</h2>
-    <Table head={["Provider", "Status", "Total", "Published", "Served"]} rows={v.summary.map((s) => [s.name, s.status, String(s.total), String(s.published), String(s.served)])} />
-    <h2>Models</h2>
-    <Table head={["Slug", "Provider", "Status", "Served", "In / 1M", "Out / 1M", "Mappings"]} rows={v.models.map((m) => [m.slug, m.providerName, m.status, String(m.served), fmtUsd(m.inputPriceMicro), fmtUsd(m.outputPriceMicro), String(m.mappingCount)])} />
-  </>)}</State>);
+  </div>);
+}
+// Inline price edit: the server's contract is preview-then-apply, and apply
+// refuses without the literal `approved: 'on'` tick, so the confirm row is the
+// only place that tick is ever sent.
+function PriceCell({ model, field, onApplied }: { model: ModelRow; field: "inputPriceMicro" | "outputPriceMicro"; onApplied: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState("");
+  const [preview, setPreview] = useState<PricePreview | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const start = () => { setValue((Number(model[field]) / 1_000_000).toString()); setEditing(true); setPreview(null); setErr(null); };
+  const run = async () => {
+    setErr(null);
+    setBusy(true);
+    const body = { modelId: model.id, currency: model.currency, inputPrice: field === "inputPriceMicro" ? value : String(Number(model.inputPriceMicro) / 1_000_000), outputPrice: field === "outputPriceMicro" ? value : String(Number(model.outputPriceMicro) / 1_000_000), effectiveFrom: new Date().toISOString().slice(0, 10) };
+    try {
+      const p = await postJSON<PricePreview>("/api/admin/models/pricing/preview", body);
+      setPreview(p);
+    } catch (e) { setErr(e instanceof Error ? e.message : "Preview failed"); }
+    finally { setBusy(false); }
+  };
+  const apply = async () => {
+    if (!preview) return;
+    if (!window.confirm(`Apply ${preview.modelSlug} v${preview.nextVersion}? The current rule is closed and the new one starts billing.`)) return;
+    setErr(null);
+    setBusy(true);
+    try {
+      await postJSON("/api/admin/models/pricing/apply", { ...preview.proposal, approved: "on" });
+      setEditing(false);
+      setPreview(null);
+      onApplied();
+    } catch (e) { setErr(e instanceof Error ? e.message : "Apply failed"); }
+    finally { setBusy(false); }
+  };
+  if (!editing) return (<button type="button" className="usage-row-btn num" onClick={start} title="Edit price">{fmtUsd(model[field])}</button>);
+  return (<span className="mw-price">
+    <span className="row">
+      <Input aria-label={field} className="num" style={{ width: "6rem" }} value={value} onChange={(e) => setValue(e.currentTarget.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void run(); } }} />
+      <Button size="sm" variant="secondary" disabled={busy || !value.trim()} onClick={() => void run()}>{busy ? "…" : "Preview"}</Button>
+      <Button size="sm" variant="ghost" onClick={() => { setEditing(false); setPreview(null); }}>Cancel</Button>
+    </span>
+    {preview ? <span className="stack" style={{ gap: "var(--space-xs)" }}>
+      <span className="meta">v{preview.current?.version ?? 0} → v{preview.nextVersion} · in {fmtUsd(preview.proposal.inputPrice + "000000")} · out {fmtUsd(preview.proposal.outputPrice + "000000")}</span>
+      <Button size="sm" variant="primary" disabled={busy} onClick={() => void apply()}>Apply v{preview.nextVersion}</Button>
+    </span> : null}
+    {err ? <span className="error" role="alert">{err}</span> : null}
+  </span>);
+}
+function SyncPanel({ onApplied }: { onApplied: () => void }) {
+  const [providers, setProviders] = useState<SyncProvider[] | null>(null);
+  const [fetched, setFetched] = useState<SyncFetch["fetched"] | null>(null);
+  const [ticked, setTicked] = useState<Set<string>>(new Set());
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    apiGet<{ providers: SyncProvider[] }>("/api/admin/models/sync")
+      .then((d) => setProviders(d.providers ?? []))
+      .catch((e: Error) => setErr(e.message));
+  }, []);
+  const fetchFor = async (p: SyncProvider) => {
+    setErr(null);
+    setBusy(true);
+    try {
+      const r = await postJSON<SyncFetch>("/api/admin/models/sync/fetch", { providerId: p.id, tier: "all" });
+      setFetched(r.fetched);
+      setTicked(new Set());
+    } catch (e) { setErr(e instanceof Error ? e.message : "Fetch failed"); }
+    finally { setBusy(false); }
+  };
+  const apply = async () => {
+    if (!fetched) return;
+    const add = [...fetched.additions].filter((a) => ticked.has(a.json)).map((a) => a.json);
+    const change = [...fetched.changes].filter((c) => ticked.has(c.json)).map((c) => c.json);
+    if (!add.length && !change.length) { setErr("Nothing ticked to apply"); return; }
+    if (!window.confirm(`Apply ${add.length} addition(s) and ${change.length} change(s) for ${fetched.providerName}?`)) return;
+    setErr(null);
+    setBusy(true);
+    try {
+      await postJSON("/api/admin/models/sync/apply", { providerId: fetched.providerId, add, change });
+      setFetched(null);
+      setTicked(new Set());
+      onApplied();
+    } catch (e) { setErr(e instanceof Error ? e.message : "Apply failed"); }
+    finally { setBusy(false); }
+  };
+  const toggle = (json: string) => setTicked((s) => { const n = new Set(s); if (n.has(json)) n.delete(json); else n.add(json); return n; });
+  return (<Card title="Catalog sync" desc="Fetch a provider's upstream model list and apply the diff.">
+    {err ? <p className="error" role="alert">{err}</p> : null}
+    <div className="row" style={{ flexWrap: "wrap" }}>
+      {(providers ?? []).map((p) => (
+        <Button key={p.id} size="sm" variant="secondary" disabled={busy} onClick={() => void fetchFor(p)}>Fetch {p.name}</Button>
+      ))}
+      {providers && providers.length === 0 ? <span className="muted">No providers.</span> : null}
+    </div>
+    {fetched ? <div className="stack" style={{ gap: "var(--space-sm)", marginTop: "var(--space-md)" }}>
+      <p className="meta">{fetched.providerName} · {fetched.latencyMs} ms · upstream {fetched.upstreamCount} · checked {fetched.checkedCount} · +{fetched.additions.length} ~{fetched.changes.length} -{fetched.removals.length}</p>
+      {fetched.additions.map((a) => (
+        <label key={a.json} className="ps-check">
+          <input type="checkbox" checked={ticked.has(a.json)} onChange={() => toggle(a.json)} />
+          <span><Badge tone="ok">add</Badge> {a.slug}</span>
+        </label>
+      ))}
+      {fetched.changes.map((c) => (
+        <label key={c.json} className="ps-check">
+          <input type="checkbox" checked={ticked.has(c.json)} onChange={() => toggle(c.json)} />
+          <span><Badge tone="warn">change</Badge> {c.slug} — {c.reasons.join("; ")}</span>
+        </label>
+      ))}
+      {fetched.removals.map((r) => (
+        <div key={r.id} className="ps-check"><Badge tone="danger">remove</Badge> {r.slug} <span className="muted">(not applied by sync)</span></div>
+      ))}
+      <div className="row">
+        <Button size="sm" variant="primary" disabled={busy} onClick={() => void apply()}>Apply ticked</Button>
+      </div>
+    </div> : null}
+  </Card>);
+}
+function ModelsView() {
+  const [tick, setTick] = useState(0);
+  const [actionErr, setActionErr] = useState<string | null>(null);
+  const [q, setQ] = useState("");
+  const [status, setStatus] = useState("");
+  const [sel, setSel] = useState<Set<string>>(new Set());
+  const [bulkStatus, setBulkStatus] = useState("active");
+  const [modal, setModal] = useState<{ model: ModelRow | null } | null>(null);
+  const { d, err } = useLoad<Models>("/api/admin/models", tick);
+  const run = async (fn: () => Promise<unknown>) => { setActionErr(null); try { await fn(); setTick((n) => n + 1); } catch (e) { setActionErr(e instanceof Error ? e.message : String(e)); } };
+  return (<State err={err} d={d}>{(v: Models) => {
+    const needle = q.trim().toLowerCase();
+    const rows = v.models.filter((m) => (!status || m.status === status) && (!needle || m.slug.toLowerCase().includes(needle) || m.name.toLowerCase().includes(needle) || m.providerName.toLowerCase().includes(needle)));
+    const allSel = rows.length > 0 && rows.every((m) => sel.has(m.id));
+    const toggle = (id: string) => setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+    return (<>
+      {actionErr ? <p className="error" role="alert">{actionErr}</p> : null}
+      <div className="row" style={{ flexWrap: "wrap" }}>
+        {Object.entries(v.counts).map(([k, n]) => <Card key={k} title={k} desc={String(n)} />)}
+      </div>
+      <h2>Per-provider</h2>
+      <Table head={["Provider", "Status", "Total", "Published", "Served"]} rows={v.summary.map((s) => [s.name, s.status, String(s.total), String(s.published), String(s.served)])} />
+      <SyncPanel onApplied={() => setTick((n) => n + 1)} />
+      <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
+        <h2>Models</h2>
+        <Button size="sm" variant="primary" onClick={() => setModal({ model: null })}>New model</Button>
+      </div>
+      <form className="row" onSubmit={(e) => e.preventDefault()} style={{ flexWrap: "wrap" }}>
+        <Input aria-label="model filter" placeholder="filter by slug, name or provider" value={q} onChange={(e) => setQ(e.currentTarget.value)} />
+        <select className="select" aria-label="status filter" style={{ width: "auto" }} value={status} onChange={(e) => setStatus(e.currentTarget.value)}>
+          <option value="">All statuses</option>
+          {MODEL_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
+      </form>
+      {sel.size > 0 ? <form className="row" onSubmit={(e) => { e.preventDefault(); if (!window.confirm(`Set status to ${bulkStatus} on ${sel.size} model(s)?`)) return; void run(async () => { await postJSON("/api/admin/models/bulk", { ids: [...sel], status: bulkStatus }); setSel(new Set()); }); }} style={{ flexWrap: "wrap" }}>
+        <span className="meta">{sel.size} selected</span>
+        <select className="select" aria-label="bulk status" style={{ width: "auto" }} value={bulkStatus} onChange={(e) => setBulkStatus(e.currentTarget.value)}>
+          {MODEL_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <Button size="sm" variant="primary" type="submit">Apply status</Button>
+        <Button size="sm" variant="ghost" type="button" onClick={() => setSel(new Set())}>Clear</Button>
+      </form> : null}
+      <Table head={["", "Slug", "Provider", "Status", "Served", "In / 1M", "Out / 1M", "Mappings", "Actions"]} rows={rows.map((m) => [
+        <input key={m.id} type="checkbox" className="mw-check" aria-label={"select " + m.slug} checked={sel.has(m.id)} onChange={() => toggle(m.id)} />,
+        <span key="s" className="keys-name">{m.slug}{m.name !== m.slug ? <span className="muted"> · {m.name}</span> : null}</span>,
+        m.providerName, m.status, String(m.served),
+        <PriceCell key="i" model={m} field="inputPriceMicro" onApplied={() => setTick((n) => n + 1)} />,
+        <PriceCell key="o" model={m} field="outputPriceMicro" onApplied={() => setTick((n) => n + 1)} />,
+        String(m.mappingCount),
+        <span key="a" className="row">
+          <Button size="sm" variant="secondary" onClick={() => setModal({ model: m })}>Edit</Button>
+          <Button size="sm" variant="destructive" onClick={() => { if (window.confirm(`Delete model ${m.slug}? Models with request history cannot be deleted.`)) void run(() => postJSON("/api/admin/models/delete", { id: m.id })); }}>Delete</Button>
+        </span>,
+      ])} />
+      <p className="meta">{rows.length} of {v.models.length} models · <button type="button" className="usage-row-btn" onClick={() => setSel(allSel ? new Set() : new Set(rows.map((m) => m.id)))}>{allSel ? "Clear selection" : "Select all (filtered)"}</button></p>
+      {modal ? <ModelModal model={modal.model} providers={v.providers} onClose={() => setModal(null)} onSaved={() => setTick((n) => n + 1)} /> : null}
+    </>);
+  }}</State>);
 }
 
 type Projects = { projects: { id: string; name: string; slug: string; status: string; workspaceName: string; environments: number; keys: number; requests: number; cost: string; createdAt: string }[] };
@@ -164,12 +507,296 @@ function ProjectsView() {
   )}</State>);
 }
 
-type Providers = { providers: { id: string; name: string; slug: string | null; status: string; tier: string; enabled: boolean; priority: number; modelCount: number; connectionCount: number; credentials: { total: number; healthy: number; unknown: number; bad: number } }[] };
+type Providers = { providers: { id: string; name: string; slug: string | null; description: string | null; type: string | null; status: string; tier: string; homepage: string | null; documentationUrl: string | null; enabled: boolean; priority: number; modelCount: number; connectionCount: number; credentials: { total: number; healthy: number; unknown: number; bad: number } }[] };
+type ProviderRow = Providers["providers"][number];
+// The server's own vocabulary (admin.mjs PROVIDER_STATUSES), not a second copy:
+// a status the select offers but the server rejects is a 400 the operator
+// cannot explain.
+const PROVIDER_STATUSES = ["operational", "degraded", "disabled", "maintenance", "outage"];
+const PROVIDER_TIERS = ["commercial", "dev"];
+function ProviderModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  const close = useRef(onClose);
+  close.current = onClose;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") close.current(); };
+    document.addEventListener("keydown", onKey);
+    box.current?.querySelector<HTMLElement>("input, select, textarea, button")?.focus();
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+  const submit = (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setErr(null);
+    setBusy(true);
+    const f = new FormData(e.currentTarget);
+    postJSON("/api/admin/providers/create", {
+      name: String(f.get("name") ?? ""),
+      slug: String(f.get("slug") ?? ""),
+      description: String(f.get("description") ?? ""),
+      type: String(f.get("type") ?? ""),
+      status: String(f.get("status") ?? ""),
+      tier: String(f.get("tier") ?? ""),
+      homepage: String(f.get("homepage") ?? ""),
+      documentationUrl: String(f.get("documentationUrl") ?? ""),
+      priority: String(f.get("priority") ?? ""),
+      enabled: f.get("enabled") === "on",
+    })
+      .then(() => { onSaved(); onClose(); })
+      .catch((ex) => setErr(ex instanceof Error ? ex.message : "Create failed"))
+      .finally(() => setBusy(false));
+  };
+  return (<div className="keys-backdrop" onClick={() => close.current()}>
+    <div ref={box} className="keys-dialog" role="dialog" aria-modal="true" aria-label="New provider" onClick={(e) => e.stopPropagation()}>
+      <h2 className="keys-dialog-title">New provider</h2>
+      <form className="keys-form" onSubmit={submit}>
+        <label className="keys-field"><span>Name</span><Input name="name" required /></label>
+        <label className="keys-field"><span>Slug</span><Input name="slug" required /></label>
+        <label className="keys-field"><span>Description</span><Input name="description" /></label>
+        <label className="keys-field"><span>Type</span><Input name="type" placeholder="e.g. openai-compatible" /></label>
+        <label className="keys-field"><span>Status</span>
+          <select className="select" name="status" defaultValue="operational">
+            {PROVIDER_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </label>
+        <label className="keys-field"><span>Tier</span>
+          <select className="select" name="tier" defaultValue="commercial">
+            {PROVIDER_TIERS.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </label>
+        <label className="keys-field"><span>Priority</span><Input name="priority" type="number" defaultValue="100" required /></label>
+        <label className="keys-field"><span>Homepage</span><Input name="homepage" placeholder="https://…" /></label>
+        <label className="keys-field"><span>Documentation URL</span><Input name="documentationUrl" placeholder="https://…" /></label>
+        <label className="ps-check"><input type="checkbox" name="enabled" defaultChecked /> Enabled</label>
+        {err ? <p className="error" role="alert">{err}</p> : null}
+        <div className="row">
+          <Button type="submit" variant="primary" disabled={busy}>{busy ? "Creating…" : "Create"}</Button>
+          <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
+        </div>
+      </form>
+    </div>
+  </div>);
+}
 function ProvidersView() {
-  const { d, err } = useLoad<Providers>("/api/admin/providers");
-  return (<State err={err} d={d}>{(v: Providers) => (
-    <Table head={["Provider", "Slug", "Status", "Tier", "Prio", "Models", "Conns", "Creds ok/total/bad"]} rows={v.providers.map((p) => [p.name, p.slug ?? "—", p.status, p.tier, String(p.priority), String(p.modelCount), String(p.connectionCount), p.credentials.healthy + "/" + p.credentials.total + "/" + p.credentials.bad])} />
-  )}</State>);
+  const [tick, setTick] = useState(0);
+  const [actionErr, setActionErr] = useState<string | null>(null);
+  const [q, setQ] = useState("");
+  const [status, setStatus] = useState("");
+  const [open, setOpen] = useState<ProviderRow | null>(null);
+  const [modal, setModal] = useState(false);
+  const { d, err } = useLoad<Providers>("/api/admin/providers", tick);
+  const run = async (fn: () => Promise<unknown>) => { setActionErr(null); try { await fn(); setTick((n) => n + 1); } catch (e) { setActionErr(e instanceof Error ? e.message : String(e)); } };
+  return (<State err={err} d={d}>{(v: Providers) => {
+    const needle = q.trim().toLowerCase();
+    const rows = v.providers.filter((p) => (!status || p.status === status) && (!needle || p.name.toLowerCase().includes(needle) || (p.slug ?? "").toLowerCase().includes(needle)));
+    return (<>
+      {actionErr ? <p className="error" role="alert">{actionErr}</p> : null}
+      <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
+        <h2>Providers</h2>
+        <Button size="sm" variant="primary" onClick={() => setModal(true)}>New provider</Button>
+      </div>
+      <form className="row" onSubmit={(e) => e.preventDefault()} style={{ flexWrap: "wrap" }}>
+        <Input aria-label="provider filter" placeholder="filter by name or slug" value={q} onChange={(e) => setQ(e.currentTarget.value)} />
+        <select className="select" aria-label="status filter" style={{ width: "auto" }} value={status} onChange={(e) => setStatus(e.currentTarget.value)}>
+          <option value="">All statuses</option>
+          {/* Legacy rows can carry a status outside the declared vocabulary
+              (the test DB has "active"), so the options are the union: an
+              observed status must stay selectable or its rows vanish. */}
+          {PROVIDER_STATUSES.concat(v.providers.map((p) => p.status)).filter((s, i, all) => all.indexOf(s) === i).map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <span className="muted">Showing {rows.length} of {v.providers.length} providers</span>
+      </form>
+      <Table head={["Provider", "Slug", "Status", "Tier", "Prio", "Models", "Conns", "Creds ok/total/bad", "Actions"]} rows={rows.map((p) => [
+        <button key="n" type="button" className="usage-row-btn" onClick={() => setOpen(p)} aria-label={"Open details for provider " + p.name}>{p.name}</button>,
+        p.slug ?? "—", p.status, p.tier, String(p.priority), String(p.modelCount), String(p.connectionCount), p.credentials.healthy + "/" + p.credentials.total + "/" + p.credentials.bad,
+        <span key="a" className="row">
+          {/* `disable`/`enable` are MODEL-level endpoints (disable 400s without
+              a slug list; enable publishes model payloads), so the provider's
+              own `enabled` flag is only writable through `update` — and update
+              nulls every field it is not given, hence the full row is echoed. */}
+          <Button size="sm" onClick={() => run(() => postJSON("/api/admin/providers/update", { id: p.id, name: p.name, slug: p.slug ?? "", description: p.description ?? "", type: p.type ?? "", status: p.status, tier: p.tier, homepage: p.homepage ?? "", documentationUrl: p.documentationUrl ?? "", priority: p.priority, enabled: !p.enabled }))}>{p.enabled ? "Disable" : "Enable"}</Button>
+          <Button size="sm" variant="destructive" onClick={() => { if (window.confirm(`Delete provider ${p.name}? Providers with request history cannot be deleted.`)) void run(() => postJSON("/api/admin/providers/delete", { id: p.id })); }}>Delete</Button>
+        </span>,
+      ])} />
+      {open ? <ProviderDetail provider={open} tick={tick} onClose={() => setOpen(null)} onChanged={() => setTick((n) => n + 1)} /> : null}
+      {modal ? <ProviderModal onClose={() => setModal(false)} onSaved={() => setTick((n) => n + 1)} /> : null}
+    </>);
+  }}</State>);
+}
+
+// Detail drawer: the same backdrop/Escape idiom as the usage page's request
+// drawer. The three GETs are separate endpoints (the detail handler's
+// credentials are labels without ids, so the actions need the credentials
+// endpoint's rows), and each is loaded independently so one failure does not
+// blank the whole panel.
+type ProviderDetailData = { provider: { id: string; name: string; slug: string | null; description: string | null; type: string | null; status: string; tier: string; homepage: string | null; documentationUrl: string | null; enabled: boolean; baseUrl: string | null; priority: number; createdAt: string }; connections: { id: string; name: string; slug: string | null; baseUrl: string; region: string | null; authType: string; timeoutMs: number; priority: number; enabled: boolean; healthStatus: string }[]; credentials: { count: number; labels: { label: string; index: number; status: string; connection: string }[]; healthy: number; unknown: number; bad: number; cooldown: number } };
+type ProviderConnections = { provider: { id: string; name: string }; connections: { id: string; name: string; slug: string | null; baseUrl: string; region: string | null; authType: string; timeoutMs: number; priority: number; enabled: boolean; healthStatus: string; credentialCount: number; credentialHealthy: number }[] };
+type ProviderCredentials = { provider: { id: string; name: string }; connections: { id: string; name: string; slug: string | null }[]; credentials: { id: string; connectionId: string; name: string; status: string; priority: number; weight: number; lastUsedAt: string | null; lastSuccessAt: string | null; lastErrorAt: string | null; cooldownUntil: string | null; metadata: unknown; createdAt: string; updatedAt: string; connectionName: string }[]; pool: { total: number; buckets: Record<string, number> } };
+// Raw `select *` rows: Postgres column names, not the camelCase the
+// drizzle-typed endpoints return.
+type Breakers = { breakers: { id: string; target: string; target_id: string; failure_threshold: number; window_seconds: number; open_ms: number; half_open_probes: number; enabled: boolean; state: string }[] };
+const CRED_TONE: Record<string, "ok" | "warn" | "danger" | "default"> = { healthy: "ok", rate_limited: "warn", cooldown: "warn", auth_failed: "danger", invalid: "danger", disabled: "default", unknown: "default" };
+function ProviderDetail({ provider, tick, onClose, onChanged }: { provider: ProviderRow; tick: number; onClose: () => void; onChanged: () => void }) {
+  const [actionErr, setActionErr] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [rotating, setRotating] = useState<ProviderCredentials["credentials"][number] | null>(null);
+  const [newSecret, setNewSecret] = useState("");
+  const box = useRef<HTMLDivElement>(null);
+  const close = useRef(onClose);
+  close.current = onClose;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") close.current(); };
+    document.addEventListener("keydown", onKey);
+    box.current?.querySelector<HTMLElement>("button")?.focus();
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+  // `tick` is the parent's reload counter: without it every action inside the
+  // drawer (revoke, rotate, validate) would leave the panel showing the state
+  // from before the click until it was closed and reopened.
+  const detail = useLoad<ProviderDetailData>("/api/admin/providers/" + provider.id, tick);
+  const conns = useLoad<ProviderConnections>("/api/admin/providers/" + provider.id + "/connections", tick);
+  const creds = useLoad<ProviderCredentials>("/api/admin/providers/" + provider.id + "/credentials", tick);
+  const breakers = useLoad<Breakers>("/api/admin/routing/circuit-breakers", tick);
+  const health = useLoad<Health>("/api/admin/health", tick);
+  // Returns false when the server rejected the action, so callers can keep the
+  // operator's typed secret in place instead of clearing it on a failure.
+  const run = async (fn: () => Promise<unknown>) => { setActionErr(null); setBusy(true); try { await fn(); onChanged(); return true; } catch (e) { setActionErr(e instanceof Error ? e.message : String(e)); return false; } finally { setBusy(false); } };
+  return (<div className="usage-drawer-backdrop" onClick={onClose}>
+    <div ref={box} className="usage-drawer usage-drawer--wide" role="dialog" aria-modal="true" aria-label={"Provider " + provider.name} onClick={(e) => e.stopPropagation()}>
+      <div className="row usage-drawer-head">
+        <h3>{provider.name}</h3>
+        <Button size="sm" variant="ghost" onClick={onClose}>Close</Button>
+      </div>
+      {actionErr ? <p className="error" role="alert">{actionErr}</p> : null}
+      {notice ? <p className="ps-ok" role="status">{notice}</p> : null}
+      <State err={detail.err} d={detail.d}>{(v: ProviderDetailData) => (<>
+        <h4>Provider</h4>
+        <dl className="usage-drawer-grid">
+          <dt>Slug</dt><dd>{v.provider.slug ?? "—"}</dd>
+          <dt>Status</dt><dd>{v.provider.status}</dd>
+          <dt>Tier</dt><dd>{v.provider.tier}</dd>
+          <dt>Priority</dt><dd className="num">{v.provider.priority}</dd>
+          <dt>Enabled</dt><dd>{v.provider.enabled ? "yes" : "no"}</dd>
+          <dt>Type</dt><dd>{v.provider.type ?? "—"}</dd>
+          <dt>Base URL</dt><dd>{v.provider.baseUrl ?? "—"}</dd>
+          <dt>Homepage</dt><dd>{v.provider.homepage ?? "—"}</dd>
+          <dt>Docs</dt><dd>{v.provider.documentationUrl ?? "—"}</dd>
+          <dt>Created</dt><dd>{fmtDate(v.provider.createdAt)}</dd>
+        </dl>
+        {v.provider.description ? <p className="muted">{v.provider.description}</p> : null}
+      </>)}</State>
+      <h4>Connections</h4>
+      <State err={conns.err} d={conns.d}>{(v: ProviderConnections) => (
+        v.connections.length === 0 ? <p className="muted">No connections.</p> : (
+          <Table head={["Connection", "Base URL", "Region", "Prio", "Enabled", "Health", "Creds ok/total"]} rows={v.connections.map((c) => [c.name, c.baseUrl, c.region ?? "—", String(c.priority), String(c.enabled), c.healthStatus, c.credentialHealthy + "/" + c.credentialCount])} />
+        )
+      )}</State>
+      <h4>Credentials</h4>
+      <State err={creds.err} d={creds.d}>{(v: ProviderCredentials) => {
+        // testCredential probes the FIRST connection's pool by POSITION
+        // (admin.mjs: it picks that connection ordered by priority,id and
+        // validates `body.index`), not by credential id. Reproduce both
+        // orderings so a click can never probe a different key: connection by
+        // (priority, id), then credentials by (priority, id) — not the
+        // credentials endpoint's (priority, name).
+        const byPriorityId = (a: { id: string; priority: number }, b: { id: string; priority: number }) => a.priority - b.priority || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+        const probeConn = [...(conns.d?.connections ?? [])].sort(byPriorityId)[0]?.id ?? "";
+        const probePool = v.credentials.filter((c) => c.connectionId === probeConn).sort(byPriorityId);
+        return (<>
+        {v.credentials.length === 0 ? <p className="muted">No credentials.</p> : (
+          <Table head={["Name", "Key", "Status", "Last success", "Cooldown", "Prio", "Actions"]} rows={v.credentials.map((c) => {
+            const index = probePool.findIndex((x) => x.id === c.id);
+            return [
+              <span key="n" className="keys-name">{c.name}</span>,
+              // The endpoints never return key material — only the name and
+              // status — so the mask is the whole display, not a redaction.
+              <code key="k" className="keys-prefix">••••••••••••</code>,
+              <Badge key="s" tone={CRED_TONE[c.status] ?? "default"}>{c.status}</Badge>,
+              <span key="v">{c.lastSuccessAt ? fmtDate(c.lastSuccessAt) : c.lastUsedAt ? "used " + fmtDate(c.lastUsedAt) : "—"}</span>,
+              <span key="q">{c.cooldownUntil && new Date(c.cooldownUntil).getTime() > Date.now() ? "until " + fmtDate(c.cooldownUntil) : "—"}</span>,
+              <span key="p" className="num">{c.priority}</span>,
+              <span key="a" className="row">
+                <Button size="sm" variant="secondary" disabled={busy || index < 0} title={index < 0 ? "Validation probes the first connection's pool only" : undefined} onClick={() => void (async () => {
+                  setActionErr(null); setNotice(null); setBusy(true);
+                  try {
+                    const r = await postJSON<{ credentialTest: { label: string; ok: boolean; status: number | null; latencyMs: number; modelCount: number; error: string | null } }>("/api/admin/providers/" + provider.id + "/testCredential", { providerId: provider.id, index });
+                    const t = r.credentialTest;
+                    setNotice(t.ok ? `Validated ${t.label}: HTTP ${t.status} · ${t.modelCount} models · ${t.latencyMs} ms` : `Validate failed for ${t.label}: ${t.error ?? "HTTP " + t.status}`);
+                    onChanged();
+                  } catch (e) { setActionErr(e instanceof Error ? e.message : String(e)); }
+                  finally { setBusy(false); }
+                })()}>Validate</Button>
+                <Button size="sm" disabled={busy} onClick={() => { setRotating(c); setNewSecret(""); setActionErr(null); setNotice(null); }}>Rotate</Button>
+                <Button size="sm" variant="destructive" disabled={busy} onClick={() => { if (window.confirm(`Revoke credential ${c.name}? It stops being used for routing immediately.`)) void run(() => postJSON("/api/admin/providers/credentials/revoke", { id: c.id, confirm: "on" })); }}>Revoke</Button>
+              </span>,
+            ];
+          })} />
+        )}
+        <form className="keys-form" onSubmit={(e) => {
+          e.preventDefault();
+          const form = e.currentTarget;
+          const f = new FormData(form);
+          // The response echoes `secretOnce`; it is deliberately dropped — the
+          // operator just typed the secret, and it must not reach the DOM.
+          void run(() => postJSON("/api/admin/providers/credentials/create", {
+            providerId: provider.id,
+            connectionId: String(f.get("connectionId") ?? ""),
+            name: String(f.get("name") ?? ""),
+            secret: String(f.get("secret") ?? ""),
+            priority: String(f.get("priority") ?? ""),
+            weight: String(f.get("weight") ?? ""),
+          })).then((ok) => { if (ok) form.reset(); });
+        }}>
+          <h4>Add credential</h4>
+          <label className="keys-field"><span>Connection</span>
+            <select className="select" name="connectionId" required defaultValue={v.connections[0]?.id ?? ""}>
+              {v.connections.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </label>
+          <label className="keys-field"><span>Name</span><Input name="name" required /></label>
+          <label className="keys-field"><span>Secret</span><Input name="secret" type="password" autoComplete="off" required /></label>
+          <label className="keys-field"><span>Priority</span><Input name="priority" type="number" defaultValue="100" required /></label>
+          <label className="keys-field"><span>Weight</span><Input name="weight" type="number" defaultValue="100" required /></label>
+          <Button type="submit" variant="primary" size="sm" disabled={busy || v.connections.length === 0}>Add credential</Button>
+          {v.connections.length === 0 ? <span className="muted">A connection is required before a credential can be added.</span> : null}
+        </form>
+        </>);
+      }}</State>
+      {rotating ? (<div className="keys-form">
+        <h4>Rotate {rotating.name}</h4>
+        <label className="keys-field"><span>New secret</span><Input type="password" autoComplete="off" value={newSecret} onChange={(e) => setNewSecret(e.currentTarget.value)} /></label>
+        <div className="row">
+          <Button size="sm" variant="primary" disabled={busy || !newSecret.trim()} onClick={() => {
+            if (!window.confirm(`Rotate credential ${rotating.name}? The current secret stops working immediately.`)) return;
+            // `secretOnce` in the response is dropped on purpose (see create).
+            void run(() => postJSON("/api/admin/providers/credentials/rotate", { id: rotating.id, secret: newSecret, confirm: "on" })).then((ok) => { if (ok) { setRotating(null); setNewSecret(""); } });
+          }}>Rotate</Button>
+          <Button size="sm" variant="ghost" onClick={() => setRotating(null)}>Cancel</Button>
+        </div>
+      </div>) : null}
+      <h4>Circuit breakers</h4>
+      <State err={breakers.err} d={breakers.d}>{(v: Breakers) => {
+        const rows = v.breakers.filter((x) => x.target === "provider" && x.target_id === provider.id);
+        return rows.length === 0 ? <p className="muted">No breaker configured for this provider.</p> : (
+          <Table head={["State", "Failures", "Window s", "Open ms", "Half-open probes", "Enabled"]} rows={rows.map((b) => [b.state, String(b.failure_threshold), String(b.window_seconds), String(b.open_ms), String(b.half_open_probes), String(b.enabled)])} />
+        );
+      }}</State>
+      <h4>Observed outcomes (24h)</h4>
+      <State err={health.err} d={health.d}>{(v: Health) => {
+        const p = v.providers.find((x) => x.id === provider.id);
+        if (!p) return <p className="muted">No requests logged for this provider in the last 24h.</p>;
+        return (<>
+          <Table head={["Requests / successes", "p95 ms", "Error mix"]} rows={[[p.requests + " / " + p.successes, String(p.p95), p.errorMix.map((e) => e.code + "×" + e.n).join(", ") || "—"]]} />
+          {/* The health endpoint aggregates the 24h window per provider and
+              carries no hourly series, so a per-hour chart would be drawn from
+              invented points. The aggregates are the honest surface. */}
+          <p className="muted">Hourly latency and error series are not available — the health endpoint reports 24h aggregates only.</p>
+        </>);
+      }}</State>
+    </div>
+  </div>);
 }
 
 type Requests = { rows: { id: string; createdAt: string; email: string | null; keyName: string | null; requestedModel: string | null; modelSlug: string | null; providerName: string | null; status: string; errorCode: string | null; latencyMs: number; tokensIn: number; tokensOut: number; cost: string }[]; providers: { id: string; name: string }[] };
@@ -201,30 +828,111 @@ function RoutingView() {
 }
 
 type Security = { rules: { id: string; name: string; kind: string; config: unknown; enabled: boolean; action: string }[] };
+type Audit = { rows: { id: string; actorUserId: string | null; actorKind: string; actorEmail: string | null; action: string; resource: string | null; resourceId: string | null; workspaceId: string | null; ip: string | null; before: unknown; after: unknown; metadata: unknown; createdAt: string }[]; actions: { action: string; n: number }[]; page: number; action: string };
 function SecurityView() {
   const { d, err } = useLoad<Security>("/api/admin/security");
-  return (<State err={err} d={d}>{(v: Security) => (
+  const [page, setPage] = useState(1);
+  const [action, setAction] = useState("");
+  const qs = "/api/admin/security/audit-log?page=" + page + (action ? "&action=" + encodeURIComponent(action) : "");
+  const a = useLoad<Audit>(qs);
+  // before/after are arbitrary JSON or null, so a raw interpolation would print
+  // "null → null" for every create/delete row; collapse both sides to "—".
+  const changes = (x: unknown) => x == null ? "—" : JSON.stringify(x).slice(0, 80);
+  return (<State err={err} d={d}>{(v: Security) => (<>
     <Table head={["Name", "Kind", "Action", "Enabled", "Config"]} rows={v.rules.map((r) => [r.name, r.kind, r.action, String(r.enabled), JSON.stringify(r.config)])} />
-  )}</State>);
+    <h2>Audit log</h2>
+    <form className="row" onSubmit={(e) => e.preventDefault()}>
+      <select aria-label="Filter by action" value={action} onChange={(e) => { setAction(e.currentTarget.value); setPage(1); }}>
+        <option value="">All actions</option>
+        {a.d ? a.d.actions.map((x) => <option key={x.action} value={x.action}>{x.action} ({x.n})</option>) : null}
+      </select>
+    </form>
+    <State err={a.err} d={a.d}>{(w: Audit) => (<>
+      <Table head={["At", "Actor", "Action", "Resource", "IP", "Changes"]} rows={w.rows.map((r) => {
+        const b = changes(r.before); const f = changes(r.after);
+        return [fmtDate(r.createdAt), r.actorEmail ?? r.actorKind, r.action, (r.resource ?? "—") + (r.resourceId ? "/" + r.resourceId : ""), r.ip ?? "—", b === "—" && f === "—" ? "—" : b + " → " + f];
+      })} />
+      <div className="row">
+        <Button size="sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>Prev</Button>
+        <span className="muted">Page {w.page}</span>
+        {/* The endpoint reports no total, so a short page is the only end-of-data signal. */}
+        <Button size="sm" disabled={w.rows.length < 100} onClick={() => setPage((p) => p + 1)}>Next</Button>
+      </div>
+    </>)}</State>
+  </>)}</State>);
 }
 
 type Settings = { maintenance: boolean; genericPassthrough: boolean; registration: boolean; retention: Record<string, number>; defaultRoutingPolicyId: string; hardLimits: { rpm: number; tpm: number; concurrency: number }; policies: { id: string; name: string; strategy: string }[]; accounts: { workspaceId: string; warningMicro: string; hardStopMicro: string }[] };
+type Flags = { flags: { id: string; name: string; description: string; enabled: boolean; rollout: unknown; updatedAt: string }[] };
 function SettingsView() {
-  const { d, err } = useLoad<Settings>("/api/admin/settings");
+  const [tick, setTick] = useState(0);
+  const [actionErr, setActionErr] = useState<string | null>(null);
+  const { d, err } = useLoad<Settings>("/api/admin/settings", tick);
+  const f = useLoad<Flags>("/api/admin/settings/feature-flags", tick);
+  const run = async (fn: () => Promise<unknown>) => { setActionErr(null); try { await fn(); setTick((n) => n + 1); } catch (e) { setActionErr(e instanceof Error ? e.message : String(e)); } };
+  // v arrives asynchronously, so each form reads its values from FormData on
+  // submit rather than mirroring them into state that would go stale on refetch
+  // (useLoad nulls d while reloading, which remounts the forms with fresh defaults).
+  const usd = (micro: string) => { try { return (BigInt(micro) / 1000000n).toString(); } catch { return "0"; } };
+  const submit = (path: string, build: (fd: FormData) => unknown) => (e: React.FormEvent<HTMLFormElement>) => { e.preventDefault(); run(() => postJSON(path, build(new FormData(e.currentTarget)))); };
+  const on = (fd: FormData, k: string) => fd.get(k) === "on";
   return (<State err={err} d={d}>{(v: Settings) => (<>
-    <div className="row" style={{ flexWrap: "wrap" }}>
-      <Card titleAs="h2" title="maintenance" desc={String(v.maintenance)} />
-      <Card titleAs="h2" title="generic_passthrough" desc={String(v.genericPassthrough)} />
-      <Card titleAs="h2" title="registration" desc={String(v.registration)} />
-      <Card titleAs="h2" title="default_routing_policy" desc={v.defaultRoutingPolicyId || "none"} />
-      <Card titleAs="h2" title="hard limits" desc={"rpm " + v.hardLimits.rpm + " · tpm " + v.hardLimits.tpm + " · concurrency " + v.hardLimits.concurrency} />
-    </div>
+    {actionErr ? <p className="error" role="alert">{actionErr}</p> : null}
+    <h2>General</h2>
+    <form className="row" onSubmit={submit("/api/admin/settings/updateGeneral", (fd) => ({ maintenance: on(fd, "maintenance"), generic_passthrough: on(fd, "generic_passthrough") }))}>
+      <label className="row"><input type="checkbox" name="maintenance" defaultChecked={v.maintenance} /> maintenance</label>
+      <label className="row"><input type="checkbox" name="generic_passthrough" defaultChecked={v.genericPassthrough} /> generic_passthrough</label>
+      <Button size="sm" type="submit">Save</Button>
+    </form>
+    <h2>Registration</h2>
+    <form className="row" onSubmit={submit("/api/admin/settings/updateRegistration", (fd) => ({ registration: on(fd, "registration") }))}>
+      <label className="row"><input type="checkbox" name="registration" defaultChecked={v.registration} /> open registration</label>
+      <Button size="sm" type="submit">Save</Button>
+    </form>
     <h2>Retention (days)</h2>
-    <Table head={["Scope", "Days"]} rows={Object.entries(v.retention).map(([k, n]) => [k, String(n)])} />
+    <form className="row" onSubmit={submit("/api/admin/settings/updateRetention", (fd) => ({ request_metadata_days: fd.get("request_metadata_days"), request_content_days: fd.get("request_content_days"), system_events_days: fd.get("system_events_days"), audit_logs_days: fd.get("audit_logs_days") }))}>
+      {Object.entries(v.retention).map(([k, n]) => <Input key={k} aria-label={k} name={k} type="number" defaultValue={String(n)} />)}
+      <Button size="sm" type="submit">Save</Button>
+    </form>
+    <h2>Default routing policy</h2>
+    <form className="row" onSubmit={submit("/api/admin/settings/updateDefaultRouting", (fd) => ({ policyId: fd.get("policyId") }))}>
+      <select aria-label="Default routing policy" name="policyId" defaultValue={v.defaultRoutingPolicyId}>
+        {v.policies.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+      </select>
+      <Button size="sm" type="submit">Save</Button>
+    </form>
+    <h2>Hard limits</h2>
+    <form className="row" onSubmit={submit("/api/admin/settings/updateHardLimits", (fd) => ({ rpm: fd.get("rpm"), tpm: fd.get("tpm"), concurrency: fd.get("concurrency") }))}>
+      <Input aria-label="rpm" name="rpm" type="number" defaultValue={String(v.hardLimits.rpm)} />
+      <Input aria-label="tpm" name="tpm" type="number" defaultValue={String(v.hardLimits.tpm)} />
+      <Input aria-label="concurrency" name="concurrency" type="number" defaultValue={String(v.hardLimits.concurrency)} />
+      <Button size="sm" type="submit">Save</Button>
+    </form>
+    <h2>Billing defaults</h2>
+    <form className="row" onSubmit={submit("/api/admin/settings/setBillingDefaults", (fd) => ({ warningUsd: fd.get("warningUsd"), hardStopUsd: fd.get("hardStopUsd") }))}>
+      <Input aria-label="Warning USD" name="warningUsd" defaultValue={usd(v.accounts[0]?.warningMicro ?? "0")} />
+      <Input aria-label="Hard stop USD" name="hardStopUsd" defaultValue={usd(v.accounts[0]?.hardStopMicro ?? "0")} />
+      <Button size="sm" type="submit">Save</Button>
+    </form>
     <h2>Routing policies</h2>
     <Table head={["Name", "Strategy"]} rows={v.policies.map((p) => [p.name, p.strategy])} />
     <h2>Billing thresholds ({v.accounts.length} accounts)</h2>
     <Table head={["Workspace ID", "Warning", "Hard stop"]} rows={v.accounts.slice(0, 50).map((a) => [a.workspaceId, fmtUsd(a.warningMicro), fmtUsd(a.hardStopMicro)])} />
+    <h2>Feature flags</h2>
+    <State err={f.err} d={f.d}>{(w: Flags) => (<>
+      <Table head={["Name", "Description", "Enabled", "Rollout", "Updated", "Actions"]} rows={w.flags.map((x) => [x.name, x.description, String(x.enabled), JSON.stringify(x.rollout), fmtDate(x.updatedAt),
+        <span key={x.id} className="row">
+          <Button size="sm" onClick={() => run(() => postJSON("/api/admin/settings/feature-flags/toggle", { id: x.id }))}>{x.enabled ? "Disable" : "Enable"}</Button>
+          <Button size="sm" variant="destructive" onClick={() => { if (window.confirm("Delete feature flag " + x.name + "?")) run(() => postJSON("/api/admin/settings/feature-flags/delete", { id: x.id })); }}>Delete</Button>
+        </span>])} />
+      <form className="row" onSubmit={submit("/api/admin/settings/feature-flags/create", (fd) => ({ name: fd.get("name"), description: fd.get("description"), enabled: on(fd, "enabled"), rollout: fd.get("rollout") }))}>
+        <Input aria-label="Flag name" name="name" placeholder="name" />
+        <Input aria-label="Flag description" name="description" placeholder="description" />
+        <Input aria-label="Rollout JSON" name="rollout" defaultValue="{}" />
+        <label className="row"><input type="checkbox" name="enabled" /> enabled</label>
+        <Button size="sm" type="submit">Create</Button>
+      </form>
+    </>)}</State>
   </>)}</State>);
 }
 
@@ -254,12 +962,89 @@ function TrafficView() {
   )}</State>);
 }
 
-type Users = { users: { id: string; name: string; email: string; role: string | null; banned: boolean | null; workspaces: number; projects: number; keys: number; requests: number; cost: string; lastActivity: string | null; createdAt: string }[]; roles: string[] };
+// The server validates setRole against ROLE_CAPS (admin.mjs), so the select's
+// options come from that same table rather than a second copy in this file.
+const ROLES = Object.keys(ROLE_CAPS);
+type Users = { users: { id: string; name: string; email: string; role: string | null; banned: boolean | null; workspaces: number; workspaceName: string | null; firstRequestAt: string | null; projects: number; keys: number; requests: number; cost: string; lastSeenAt: string | null; createdAt: string }[] };
 function UsersView() {
-  const { d, err } = useLoad<Users>("/api/admin/users");
-  return (<State err={err} d={d}>{(v: Users) => (
-    <Table head={["Email", "Name", "Role", "Banned", "WS", "Keys", "Req", "Cost", "Last activity"]} rows={v.users.map((u) => [u.email, u.name, u.role ?? "—", String(!!u.banned), String(u.workspaces), String(u.keys), String(u.requests), fmtUsd(u.cost), u.lastActivity ? fmtDate(u.lastActivity) : "—"])} />
-  )}</State>);
+  const [tick, setTick] = useState(0);
+  const [actionErr, setActionErr] = useState<string | null>(null);
+  const [q, setQ] = useState(""); const [role, setRole] = useState(""); const [status, setStatus] = useState("");
+  const [sel, setSel] = useState<string[]>([]); const [bulkRole, setBulkRole] = useState(ROLES[0]);
+  const { d, err } = useLoad<Users>("/api/admin/users", tick);
+  const run = async (fn: () => Promise<unknown>) => { setActionErr(null); try { await fn(); setTick((n) => n + 1); } catch (e) { setActionErr(e instanceof Error ? e.message : String(e)); } };
+  // The endpoint takes no params, so filtering is client-side over the loaded
+  // list; the ids are re-derived per render so a refetch drops stale selections.
+  const filtered = (v: Users) => v.users.filter((u) => {
+    const needle = q.trim().toLowerCase();
+    if (needle && !(u.email.toLowerCase().includes(needle) || u.name.toLowerCase().includes(needle))) return false;
+    if (role && u.role !== role) return false;
+    if (status === "banned" && !u.banned) return false;
+    if (status === "active" && !!u.banned) return false;
+    return true;
+  });
+  const active = [q.trim() ? 1 : 0, role ? 1 : 0, status ? 1 : 0].reduce((a, b) => a + b, 0);
+  const reset = () => { setQ(""); setRole(""); setStatus(""); setSel([]); };
+  // Sequential, not parallel: each handler writes an audit row in its own
+  // transaction and a burst on one pool is needless contention. A refusal
+  // (self-targeting, privilege escalation) stops the batch and surfaces.
+  const bulk = async (fn: (id: string) => Promise<unknown>) => {
+    setActionErr(null);
+    try { for (const id of sel) await fn(id); setSel([]); setTick((n) => n + 1); }
+    catch (e) { setActionErr(e instanceof Error ? e.message : String(e)); }
+  };
+  return (<State err={err} d={d}>{(v: Users) => {
+    const rows = filtered(v);
+    const ids = rows.map((u) => u.id);
+    const allSel = ids.length > 0 && ids.every((id) => sel.includes(id));
+    const bannedSel = sel.filter((id) => v.users.find((u) => u.id === id)?.banned).length;
+    return (<>
+    {actionErr ? <p className="error" role="alert">{actionErr}</p> : null}
+    <form className="row" onSubmit={(e) => e.preventDefault()}>
+      <Input aria-label="search users" placeholder="Search email or name" value={q} onChange={(e) => setQ(e.currentTarget.value)} />
+      <select className="select" aria-label="role filter" value={role} onChange={(e) => setRole(e.currentTarget.value)}>
+        <option value="">All roles</option>
+        {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+      </select>
+      <select className="select" aria-label="status filter" value={status} onChange={(e) => setStatus(e.currentTarget.value)}>
+        <option value="">All statuses</option>
+        <option value="active">Active</option>
+        <option value="banned">Banned</option>
+      </select>
+      {active > 0 ? <Button size="sm" variant="ghost" onClick={reset}>Reset</Button> : null}
+      <span className="muted">Showing {rows.length} of {v.users.length} users</span>
+    </form>
+    {sel.length > 0 ? (
+      <div className="row" role="group" aria-label="Bulk actions">
+        <span className="muted">{sel.length} selected</span>
+        <select className="select" aria-label="bulk role" value={bulkRole} onChange={(e) => setBulkRole(e.currentTarget.value)}>
+          {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+        </select>
+        <Button size="sm" onClick={() => bulk((id) => postJSON("/api/admin/users/setRole", { id, role: bulkRole }))}>Set role</Button>
+        <Button size="sm" onClick={() => bulk((id) => postJSON("/api/admin/users/toggleBan", { id }))}>{bannedSel * 2 > sel.length ? "Unban" : "Ban"} {sel.length}</Button>
+        <Button size="sm" variant="ghost" onClick={() => setSel([])}>Clear</Button>
+      </div>
+    ) : null}
+    {rows.length === 0 ? (
+      <div className="ps-empty">
+        <p className="muted">No users match these filters</p>
+        <Button size="sm" variant="secondary" onClick={reset}>Reset</Button>
+      </div>
+    ) : (
+    <Table head={[<input key="all" type="checkbox" aria-label="Select all filtered users" checked={allSel} onChange={(e) => setSel(e.currentTarget.checked ? ids : [])} />, "Email", "Name", "Role", "Banned", "WS", "Keys", "Req", "Cost", "Last activity", "Actions"]} rows={rows.map((u) => [
+      <input key={u.id} type="checkbox" aria-label={"Select " + u.email} checked={sel.includes(u.id)} onChange={(e) => setSel((s) => e.currentTarget.checked ? [...s, u.id] : s.filter((x) => x !== u.id))} />,
+      u.email, u.name,
+      <select key={u.id} value={u.role ?? ""} onChange={(e) => run(() => postJSON("/api/admin/users/setRole", { id: u.id, role: e.currentTarget.value }))}>
+        {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+      </select>,
+      String(!!u.banned), String(u.workspaces), String(u.keys), String(u.requests), fmtUsd(u.cost), u.lastSeenAt ? fmtDate(u.lastSeenAt) : "—",
+      <span key={u.id} className="row">
+        <Button size="sm" onClick={() => run(() => postJSON("/api/admin/users/toggleBan", { id: u.id }))}>{u.banned ? "Unban" : "Ban"}</Button>
+        <Button size="sm" onClick={() => { if (window.confirm("Suspend " + u.email + "? Their sessions are revoked.")) run(() => postJSON("/api/admin/users/suspend", { id: u.id, confirm: "on" })); }}>Suspend</Button>
+        <Button size="sm" onClick={() => { if (window.confirm("Disable all access for " + u.email + "? This also disables every API key they own.")) run(() => postJSON("/api/admin/users/disableAccess", { id: u.id, confirm: "on" })); }}>Disable access</Button>
+      </span>])} />
+    )}
+    </>)}}</State>);
 }
 
 type Workspaces = { workspaces: { id: string; name: string; slug: string; status: string; ownerEmail: string | null; members: number; projects: number; requests: number; cost: string; balanceMicro: string; createdAt: string }[] };

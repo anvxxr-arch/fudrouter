@@ -18,17 +18,27 @@ set -euo pipefail
 DB_NAME="${DB_NAME:-fudrouter}"
 BACKUP_DIR="${BACKUP_DIR:-/home/dwizzy/backups/fudrouter}"
 KEEP_DAYS="${KEEP_DAYS:-14}"
+CONTAINER="${FUDROUTER_PG_CONTAINER:-postgre}"
 STAMP="$(date -u +%Y%m%d-%H%M%S)"
 OUT="$BACKUP_DIR/fudrouter-$STAMP.sql"
 
 mkdir -p "$BACKUP_DIR"
 chmod 700 "$BACKUP_DIR"
 
+# The container was renamed (postgres-hardened -> postgre) while this script
+# kept the old name, so every nightly dump died on `docker exec` — and because
+# the shell had already created "$OUT" for the redirect, a zero-byte .sql
+# survived looking exactly like a backup. Drop the output on any failure so an
+# empty file can never be mistaken for one.
+DONE=0
+cleanup() { [ "$DONE" = 1 ] || rm -f "$OUT" "$OUT.gz"; }
+trap cleanup EXIT
+
 # --clean --if-exists makes the dump restorable onto a fresh database, and
 # --no-owner/--no-acl keep it restorable by a different role than the one that
 # made it. The credentials inside are ciphertext; the master key that opens them
 # lives in .env and is NOT in this dump — back that file up separately.
-docker exec postgres-hardened \
+docker exec "$CONTAINER" \
   pg_dump -U postgres -d "$DB_NAME" \
   --clean --if-exists --no-owner --no-acl --format=plain \
   > "$OUT"
@@ -43,6 +53,7 @@ if [ "$TABLES" -lt 5 ]; then
   echo "FAIL: dump has $TABLES CREATE TABLE statements, expected >= 5" >&2
   exit 1
 fi
+DONE=1
 
 # Prune by age, but keep at least the two most recent regardless — a burst of
 # failures should not be able to delete the only good copy.

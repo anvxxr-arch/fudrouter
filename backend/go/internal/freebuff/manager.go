@@ -2,6 +2,8 @@ package freebuff
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -36,7 +38,11 @@ type Manager struct {
 	defaultBase string
 
 	clients  sync.Map // baseURL -> *client
-	sessions sync.Map // baseURL|token -> *sessionState
+	sessions sync.Map // baseURL|sha256(token) -> *sessionState
+
+	// prevToken tracks the last token seen per base URL so a rotated bearer
+	// token can evict the session entry keyed by its predecessor (H1).
+	prevToken sync.Map // baseURL -> token
 }
 
 // New builds a Manager. defaultBase is used when a caller passes an empty base
@@ -61,6 +67,16 @@ func (m *Manager) clientFor(baseURL string) *client {
 	return actual.(*client)
 }
 
+// sessionKey hashes the bearer token into the map key (H1): the raw token was
+// the key, so every rotated token left a live entry behind and the map grew
+// without bound — and the secret sat in plain text in a key any panic dump
+// would print. sha256hex keeps the key injective per token without keeping
+// the secret.
+func sessionKey(baseURL, token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return baseURL + "|" + hex.EncodeToString(sum[:])
+}
+
 type sessionState struct {
 	mu         sync.Mutex
 	status     SessionStatus
@@ -73,7 +89,7 @@ type sessionState struct {
 }
 
 func (m *Manager) stateFor(baseURL, token string) *sessionState {
-	key := baseURL + "|" + token
+	key := sessionKey(baseURL, token)
 	if v, ok := m.sessions.Load(key); ok {
 		return v.(*sessionState)
 	}
@@ -82,11 +98,28 @@ func (m *Manager) stateFor(baseURL, token string) *sessionState {
 	return actual.(*sessionState)
 }
 
+// evictPrevSession deletes the session entry keyed by the PREVIOUS token for
+// this base URL, if any (H1). Rotation is normal (the pool refreshes OAuth
+// tokens), and without this every rotation left the old entry alive forever:
+// an unbounded map keyed by dead secrets.
+func (m *Manager) evictPrevSession(baseURL, token string) {
+	if prev, ok := m.prevToken.Load(baseURL); ok {
+		if prevTok, _ := prev.(string); prevTok != "" && prevTok != token {
+			m.sessions.Delete(sessionKey(baseURL, prevTok))
+		}
+	}
+	m.prevToken.Store(baseURL, token)
+}
+
 // Chat runs session → root run → chat → finish and returns the upstream
 // response for the caller to relay. The request body's model is resolved
 // (unavailable → fallback) and its reasoning_effort clamped before sending.
 func (m *Manager) Chat(ctx context.Context, baseURL, token, model string, body []byte) (*http.Response, error) {
 	c := m.clientFor(baseURL)
+
+	// H1: a rotated token means the previous token's session entry is dead
+	// state; evict it before the new one is created.
+	m.evictPrevSession(baseURL, token)
 
 	resolved, _ := Resolve(model)
 	patched, err := prepareBody(body, resolved)

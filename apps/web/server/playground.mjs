@@ -58,8 +58,9 @@ export function registerPlayground(app, deps) {
   	latencyMs: null,
   	costMicro: null,
   	fallback: null,
-  	attempts: null
-  };
+	attempts: null,
+	status: null
+};
   function pgField(v) {
   	return v == null ? null : typeof v === 'string' ? v : JSON.stringify(v);
   }
@@ -210,13 +211,14 @@ export function registerPlayground(app, deps) {
   		latencyMs: pick('latencyMs'),
   		costMicro: pick('costMicro'),
   		fallback: pick('fallback'),
-  		attempts: pick('attempts')
-  	};
+		attempts: pick('attempts'),
+		status: pick('status')
+	};
   }
   async function pgFetchRunMetrics(database, requestId) {
   	if (!requestId || !client) return {};
   	for (let i = 0; i < 5; i++) {
-  		const rows = await client`select id, provider_id, requested_model, tokens_in, tokens_out, total_tokens, ttft_ms, latency_ms, cost, fallback_used, attempts from request_log where id = ${requestId} limit 1`;
+  		const rows = await client`select id, provider_id, requested_model, tokens_in, tokens_out, total_tokens, ttft_ms, latency_ms, cost, status, fallback_used, attempts from request_log where id = ${requestId} limit 1`;
   		if (rows.length) {
   			const row = rows[0];
   			let providerName = null;
@@ -239,9 +241,10 @@ export function registerPlayground(app, deps) {
   				ttftMs: pgNum(row.ttft_ms),
   				latencyMs: pgNum(row.latency_ms),
   				costMicro: row.cost !== null && row.cost !== undefined ? String(row.cost) : null,
-  				fallback: row.fallback_used ?? null,
-  				attempts: pgNum(row.attempts)
-  			};
+				fallback: row.fallback_used ?? null,
+				attempts: pgNum(row.attempts),
+				status: row.status ?? null
+			};
   		}
   		await new Promise((r) => setTimeout(r, 150));
   	}
@@ -287,7 +290,7 @@ export function registerPlayground(app, deps) {
   	const name = `[playground] ${new Date().toISOString().slice(0, 19)}Z`;
   	const expiresAt = new Date(Date.now() + PLAYGROUND_RUN_KEY_TTL_MS);
   	const policyJson = JSON.stringify(ctx.policy);
-  	await client`insert into api_key (id, user_id, name, prefix, key_hash, workspace_id, project_id, environment_id, status, policy, expires_at) values (${id}, ${userId}, ${name}, ${prefix}, ${keyHash}, ${ctx.workspaceId}, ${ctx.projectId}, ${ctx.environmentId}, 'active', ${policyJson}::jsonb, ${expiresAt})`;
+  await client`insert into api_key (id, user_id, name, prefix, key_hash, workspace_id, project_id, environment_id, status, policy, expires_at) values (${id}, ${userId}, ${name}, ${prefix}, ${keyHash}, ${ctx.workspaceId}, ${ctx.projectId}, ${ctx.environmentId}, 'active', ${policyJson}::jsonb, ${expiresAt.toISOString()})`;
   	await database.transaction(async (tx) => {
         await writeAudit(tx, {
           actorUserId: userId,
@@ -406,7 +409,11 @@ export function registerPlayground(app, deps) {
   		let ttftMs = null;
   		let finished = false;
   		const decoder = new TextDecoder();
-  		req.on('close', () => {
+  		// `req` 'close' fires when the request BODY is complete (Node ≥16),
+  		// which express.json has already consumed before this handler runs —
+  		// so it can never signal a client disconnect. The response 'close'
+  		// is the disconnect signal.
+  		res.on('close', () => {
   			if (!finished) upstream.body?.cancel().catch(() => undefined);
   		});
   		try {
@@ -432,6 +439,238 @@ export function registerPlayground(app, deps) {
   		}
   	} catch (err) {
   		if (reclaim) {
+  			try {
+  				await reclaim();
+  			} catch {
+  				// Reclaim must never mask the original failure.
+  			}
+  		}
+  		if (err instanceof HttpError) {
+  			if (!res.headersSent) return res.status(err.status).json({ error: err.message });
+  			return res.end();
+  		}
+  		throw err;
+  	}
+  	});
+  });
+  // --- playground comparison relay (N models, one prompt) ---
+  // Same mint/relay/reclaim contract as /api/playground/stream, fanned out:
+  // one run key per model, upstreams run concurrently, and every SSE line is
+  // wrapped as {"model":…,"chunk":…} so the client can attribute bytes to a
+  // column. One `event: metrics` frame per model, emitted as soon as that
+  // model's upstream ends (success or error) — never held for the slowest.
+  // Keys are reclaimed per model in a finally, so a mid-run client disconnect
+  // still reclaims every minted key.
+  app.post('/api/playground/compare', async (req, res) => {
+  	await _ipStore.run(_clientIp(req), async () => {
+  	const reclaims = [];
+  	try {
+  		const database = needDb(res);
+  		if (!database) return;
+  		const userRow = await authedUser(req);
+  		requireCap(userRow, 'member');
+  		const cookies = parseCookies(req);
+  		const workspaceId = await currentWorkspaceId(database, userRow.id, cookies);
+  		if (!workspaceId) throw new HttpError(403, 'No workspace selected');
+  		await requireMemberPermission(database, userRow, workspaceId, 'key.create');
+  		const raw = req.body ?? {};
+  		const models = Array.isArray(raw.models) ? raw.models.map(String).map((m) => m.trim()).filter(Boolean) : [];
+  		const unique = [...new Set(models)];
+  		if (unique.length < 2 || unique.length > 3) {
+  			return res.status(400).json({
+  				error: { code: 'INVALID_REQUEST', message: 'Pick 2–3 distinct models to compare.', requestId: null }
+  			});
+  		}
+  		const base = parsePlaygroundBody({ ...raw, model: unique[0] });
+  		if (!base.ok) {
+  			return res
+  				.status(400)
+  				.json({ error: { code: 'INVALID_REQUEST', message: base.error, requestId: null } });
+  		}
+  		const ctx = await pgResolveRunContext(database, userRow.id, workspaceId, {
+  			keyId: base.value.keyId || undefined,
+  			projectId: typeof raw.projectId === 'string' && raw.projectId ? raw.projectId : undefined
+  		});
+  		if (!ctx) {
+  			return res.status(403).json({
+  				error: {
+  					code: 'AUTHORIZATION_ERROR',
+  					message: 'Key not found in this workspace.',
+  					requestId: null
+  				}
+  			});
+  		}
+  		// One mint per model: each upstream call is its own metered request
+  		// with its own ledger row, so the comparison table reads real numbers.
+  		// Each run carries its own AbortController: the client disconnect
+  		// handler must be able to kill an upstream call that is still inside
+  		// fetch(), not only one already streaming (body.cancel covers that).
+  		const runs = [];
+  		for (const model of unique) {
+  			const form = { ...base.value, model };
+  			const minted = await pgMintRunKey(database, userRow.id, ctx);
+  			reclaims.push(minted.reclaim);
+  			const headers = {
+  				'content-type': 'application/json',
+  				authorization: `Bearer ${minted.key}`
+  			};
+  			if (form.strategy) headers['x-fudrouter-strategy'] = form.strategy;
+  			runs.push({ model, body: pgBuildChatBody(form), headers, reclaim: minted.reclaim, controller: new AbortController() });
+  		}
+  		res.writeHead(200, {
+  			'content-type': 'text/event-stream',
+  			'cache-control': 'no-cache'
+  		});
+  		const send = (event, payload) => {
+  			// A disconnected client gets no frames: an aborted run must not
+  			// emit a metrics frame for a reader that is already gone.
+  			if (clientGone || res.writableEnded) return;
+  			res.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
+  		};
+  		let open = runs.length;
+  		// Same disconnect signal as the single-model relay: `req` 'close'
+  		// only marks the body as complete, `res` 'close' is the client going
+  		// away. body.cancel stops an already-streaming upstream; abort()
+  		// stops one still inside fetch().
+  		let clientGone = false;
+  		res.on('close', () => {
+  			clientGone = true;
+  			for (const run of runs) {
+  				run.controller.abort();
+  				run.upstream?.body?.cancel().catch(() => undefined);
+  			}
+  			// The reclaim must not depend on settle() reaching its finally: a
+  			// close that lands while a run is still inside fetch(), or before
+  			// getReader(), can leave reader.read() waiting on an upstream that
+  			// never ends — and the key then outlives its 5-minute TTL. Reclaim
+  			// here as well; reclaim is idempotent (the `done` flag in
+  			// pgMintRunKey), so settle()'s finally is a no-op when this has
+  			// already run.
+  			for (const run of runs) void run.reclaim().catch(() => undefined);
+  		});
+  		const settle = async (run) => {
+  			try {
+  				let upstream;
+  				try {
+  					upstream = await fetch(`${PLAYGROUND_ROUTER_BASE()}/v1/chat/completions`, {
+  						method: 'POST',
+  						headers: run.headers,
+  						body: JSON.stringify(run.body),
+  						signal: run.controller.signal
+  					});
+  				} catch (e) {
+  					// The client disconnected while this call was still in
+  					// flight: that is the normal disconnect path, not an
+  					// upstream failure. The finally below still reclaims.
+  					if (run.controller.signal.aborted) return;
+  					send('metrics', {
+  						model: run.model,
+  						...PG_EMPTY_METRICS,
+  						error: {
+  							code: 'UPSTREAM_ERROR',
+  							message: e instanceof Error ? e.message.slice(0, 500) : 'The run failed to reach the router.'
+  						}
+  					});
+  					return;
+  				}
+				run.upstream = upstream;
+  				// The disconnect handler reads run.upstream, which is only
+				// assigned here — after fetch() resolves. A close that lands in
+				// that window finds it undefined, so body.cancel() is a silent
+				// no-op and the abort alone must error a reader that may not
+				// exist yet. Cancel explicitly and return so the finally
+				// reclaims the key.
+				if (run.controller.signal.aborted) {
+					run.upstream.body?.cancel().catch(() => undefined);
+					return;
+				}
+				if (!upstream.ok || !upstream.body) {
+					if (run.controller.signal.aborted) {
+						upstream.body?.cancel().catch(() => undefined);
+						return;
+					}
+  					const text = await upstream.text();
+  					let payload = null;
+  					try {
+  						payload = JSON.parse(text);
+  					} catch {
+  						payload = null;
+  					}
+  					const normalized = pgNormalize({ status: upstream.status, headers: upstream.headers, json: payload, text });
+  					const metrics = pgMergeMetrics(
+  						normalized.metrics,
+  						await pgFetchRunMetrics(database, normalized.error?.requestId ?? '')
+  					);
+  					send('metrics', { model: run.model, ...metrics, error: normalized.error });
+  					return;
+  				}
+  				const requestId = upstream.headers.get('x-fudrouter-request-id');
+  				const start = Date.now();
+  				let ttftMs = null;
+  				const decoder = new TextDecoder();
+  				// Carried across reads: a TCP read can end mid-line, so a
+  				// half line must wait here for its tail instead of being
+  				// wrapped as its own chunk frame — the client JSON-parses
+  				// every frame body, so a split line would be lost, not
+  				// merely mis-framed.
+				let pending = '';
+  				try {
+  					// The close handler's body.cancel() only helps once run.upstream
+					// is set AND the stream is still unlocked; a close that lands
+					// between the guard above and getReader() leaves cancel() to
+					// race the reader being created. Re-check here so the reader is
+					// never created for a client that is already gone.
+					if (run.controller.signal.aborted) {
+						upstream.body?.cancel().catch(() => undefined);
+						return;
+					}
+					const reader = upstream.body.getReader();
+  					for (;;) {
+  						const { done, value } = await reader.read();
+  						if (done) break;
+  						const chunk = decoder.decode(value, { stream: true });
+  						if (ttftMs === null && chunk.includes('data: ')) ttftMs = Date.now() - start;
+  						pending += chunk;
+  						const lines = pending.split('\n');
+  						pending = lines.pop() ?? '';
+  						for (const line of lines) {
+  							if (line === '') continue;
+  							send('chunk', { model: run.model, chunk: line });
+  						}
+  					}
+  					// A stream that ends without a trailing newline still owes
+  					// its last line: dropping it would silently truncate the
+  					// model's answer.
+  					if (pending !== '') send('chunk', { model: run.model, chunk: pending });
+  					// The client is gone: no frame would be read, and the ledger
+  					// poll below would only delay the reclaim this path exists for.
+  					if (run.controller.signal.aborted) return;
+  					const metrics = pgMergeMetrics(
+  						{ ...PG_EMPTY_METRICS, requestId: requestId ?? null, latencyMs: Date.now() - start, ttftMs },
+  						await pgFetchRunMetrics(database, requestId ?? '')
+  					);
+  					send('metrics', { model: run.model, ...metrics });
+  				} catch {
+  					if (run.controller.signal.aborted) return;
+  					// Upstream died mid-stream: emit what the ledger has.
+  					// A half-line buffered before the throw is still owed to the
+  					// client, or the answer is silently truncated on the error path.
+  					if (pending !== '') send('chunk', { model: run.model, chunk: pending });
+  					const metrics = pgMergeMetrics(
+  						{ ...PG_EMPTY_METRICS, requestId: requestId ?? null, latencyMs: Date.now() - start, ttftMs },
+  						await pgFetchRunMetrics(database, requestId ?? '')
+  					);
+  					send('metrics', { model: run.model, ...metrics });
+  				}
+  			} finally {
+  				open -= 1;
+  				await run.reclaim();
+  				if (open === 0 && !res.writableEnded) res.end();
+  			}
+  		};
+  		await Promise.all(runs.map((run) => settle(run)));
+  	} catch (err) {
+  		for (const reclaim of reclaims) {
   			try {
   				await reclaim();
   			} catch {

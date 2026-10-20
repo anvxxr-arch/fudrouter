@@ -13,7 +13,7 @@
 | branch / HEAD | `main` @ `32282a0` (2026-10-10 17:58:13 +0000) |
 | working tree | **clean** (0 changes) |
 | PM2 apps | 4/4 **online** — `fudrouter-router` (110223), `fudrouter-workers` (110322), `fudrouter-scheduler` (110240), `fudrouter-react` (110251) |
-| Postgres | `postgres-hardened` @ 127.0.0.1:5432, application DB `fudrouter` |
+| Postgres | `postgre` @ 127.0.0.1:5432, application DB `fudrouter` |
 | Ingress | Caddy on loopback → Cloudflare tunnel `ai.karepmuwes.my.id` |
 
 ---

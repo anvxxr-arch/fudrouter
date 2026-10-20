@@ -294,9 +294,17 @@ func (h *Handler) ServeCompletions(w http.ResponseWriter, r *http.Request) {
 	defer lc.finish()
 
 	// Inject `stream_options.include_usage` so a streamed reply carries the
-	// usage block the bill is computed from (PRD §87).
+	// usage block the bill is computed from (PRD §87). Merge into any
+	// client-supplied stream_options instead of replacing it: the contract
+	// forwards the body essentially verbatim (inference.yaml), and
+	// include_usage is forced true — billing depends on it.
 	if stream {
-		req["stream_options"] = map[string]any{"include_usage": true}
+		so, _ := req["stream_options"].(map[string]any)
+		if so == nil {
+			so = map[string]any{}
+		}
+		so["include_usage"] = true
+		req["stream_options"] = so
 	}
 	upBody, _ := json.Marshal(req)
 
@@ -352,6 +360,12 @@ func retryableFreebuff(k freebuff.ErrorKind) bool {
 	return false
 }
 
+// poolBuildHook is nil in production. export_test.go sets it so a test can
+// hold every poolFor racer inside the rebuild window simultaneously — the H2
+// double-persist race is only observable when two racers are between the
+// stale check and the CAS at the same time.
+var poolBuildHook func()
+
 // poolFor returns the rotation pool for one credential target: built on first
 // use, rebuilt once its trust window has passed.
 //
@@ -360,6 +374,13 @@ func retryableFreebuff(k freebuff.ErrorKind) bool {
 // provider.credentials_enc. Both keep the same rotation/merge behaviour.
 func (h *Handler) poolFor(key string, cred credentials, persist func(ctx context.Context, blob string) error, load func(ctx context.Context) (credentials, error)) *Pool {
 	build := func() *Pool {
+		// poolBuildHook is nil in production; export_test.go sets it to hold
+		// every racer inside the rebuild window simultaneously (the H2 race
+		// is only observable when two racers are between the stale check and
+		// the CAS at the same time). Same pattern as SetGenericTimeoutForTest.
+		if poolBuildHook != nil {
+			poolBuildHook()
+		}
 		return newPool(cred, h.refresher, h.crypt.Encrypt, persist, load)
 	}
 	if v, ok := h.pools.Load(key); ok {
@@ -367,9 +388,29 @@ func (h *Handler) poolFor(key string, cred credentials, persist func(ctx context
 		if !p.stale(time.Now(), poolReloadAfter) {
 			return p
 		}
+		// H2: the rebuild must be a compare-and-swap. A bare Store let two
+		// concurrent rebuilds both persist their rotated refresh tokens; the
+		// loser's token dies upstream and the account breaks on its next
+		// expiry. CompareAndSwap installs the fresh pool ONLY while the
+		// stale one is still the stored value: the first racer swaps it in,
+		// every later racer's CAS fails and it re-Loads — picking up the
+		// winner's pool and discarding its own candidate, so exactly one
+		// rebuild persists its tokens. (Delete-then-LoadOrStore was tried
+		// first and is wrong: a racer that loaded the stale pool, then
+		// deleted AFTER the winner installed the fresh one, would delete the
+		// fresh pool and install its own — two rebuilds again.)
 		fresh := build()
-		h.pools.Store(key, fresh)
-		return fresh
+		if h.pools.CompareAndSwap(key, v, fresh) {
+			return fresh
+		}
+		// Lost the race: the stored pool is the winner's (or a newer
+		// rebuild's). Re-load and use it — never the discarded candidate.
+		if w, ok := h.pools.Load(key); ok {
+			return w.(*Pool)
+		}
+		// The winner's entry vanished between CAS and Load (nothing deletes
+		// but this branch, so unreachable — stay honest anyway): fall through
+		// to the first-use LoadOrStore.
 	}
 	actual, _ := h.pools.LoadOrStore(key, build())
 	return actual.(*Pool)

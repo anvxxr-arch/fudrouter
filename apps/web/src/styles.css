@@ -195,7 +195,7 @@ textarea { resize: vertical; }
 
 /* ---- text: bespoke equivalents of the utilities routes relied on ---- */
 .text-sm { font-size: var(--text-sm); line-height: 1.43; }
-.text-xs { font-size: var(--text-xs); line-height: 1.33; }
+.text-xs { font-size: var(--text-caption); line-height: 1.33; }
 .text-base { font-size: var(--text-base); line-height: var(--lh-body); }
 .text-lg { font-size: var(--text-lg); line-height: 1.5; }
 .font-medium { font-weight: 500; }
@@ -487,15 +487,25 @@ textarea { resize: vertical; }
 @media (max-width: 480px) { .hero-copy .row { flex-direction: column; align-items: stretch; } .hero-copy .row > * { width: 100%; } }
 /* Stat bar. Horizontal padding was var(--space-lg), which pushed the first
    figure 24px inside the shell and off the headline's left rail -- it is 0 now
-   and the numbers are separated by rules instead of naked air. */
+   and the numbers are separated by rules instead of naked air. Four figures
+   (models, providers, 24h requests, p50 latency) sit in one row on desktop;
+   below 40rem the row collapses to two columns so the figures wrap instead of
+   squeezing. */
 .metrics-strip {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  grid-template-columns: repeat(4, 1fr);
   gap: var(--space-md) var(--space-lg);
   margin-top: var(--space-md);
   padding: var(--space-lg) 0;
   border-top: 1px solid var(--color-border);
   border-bottom: 1px solid var(--color-border);
+}
+@media (max-width: 40rem) {
+  .metrics-strip { grid-template-columns: repeat(2, 1fr); }
+  /* Row 2 starts at the left edge, so the divider that separates figures
+     within a row must not render before an odd-numbered figure. */
+  .metrics-strip > div:nth-child(odd) { padding-left: 0; }
+  .metrics-strip > div:nth-child(odd)::before { display: none; }
 }
 .metrics-strip > div { position: relative; min-width: 0; }
 .metrics-strip > div + div { padding-left: var(--space-lg); }
@@ -531,4 +541,41 @@ textarea { resize: vertical; }
 .error { color: var(--color-danger); font-size: var(--text-sm); }
 .meta { color: var(--color-text-muted); font-size: var(--text-caption); }
 .fr-divider { display: flex; align-items: center; gap: var(--space-md); color: var(--color-text-muted); font-size: var(--text-caption); }
-.fr-divider::before, .fr-divider::after { content: ""; flex: 1 1 auto; height: 1px; background: var(--color-border); }
+/* ---- pricing page ---- */
+.pricing-tiers { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-md); align-items: stretch; }
+@media (max-width: 900px) { .pricing-tiers { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .pricing-tiers { grid-template-columns: 1fr; } }
+.pricing-tier { position: relative; display: flex; flex-direction: column; gap: var(--space-sm); padding: var(--space-card); border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); }
+.pricing-tier--pro { border-color: var(--warning); }
+.pricing-tier-badge { position: absolute; top: calc(var(--space-sm) * -1); right: var(--space-md); padding: 2px var(--space-sm); border-radius: var(--radius-pill); background: var(--warning); color: var(--color-bg); font-size: var(--text-caption); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+.pricing-tier h3 { margin: 0; }
+.pricing-tier-price { margin: 0; font-size: var(--text-h3); font-weight: 600; letter-spacing: -0.01em; }
+.pricing-tier-price .muted { font-size: var(--text-sm); font-weight: 400; }
+.pricing-features { margin: var(--space-sm) 0 var(--space-md); padding: 0; list-style: none; display: grid; gap: var(--space-xs); font-size: var(--text-sm); }
+.pricing-features li { display: flex; align-items: flex-start; gap: var(--space-sm); }
+.pricing-check { flex: none; margin-top: 3px; color: var(--color-success); }
+.pricing-tier > a { margin-top: auto; }
+.pricing-credits { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-xl); align-items: start; }
+@media (max-width: 800px) { .pricing-credits { grid-template-columns: 1fr; } }
+.pricing-steps { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--space-md); counter-reset: step; }
+.pricing-steps li { position: relative; padding-left: var(--space-2xl); counter-increment: step; }
+.pricing-steps li::before { content: counter(step); position: absolute; left: 0; top: 0; width: 2rem; height: 2rem; display: grid; place-items: center; border: 1px solid var(--color-border-strong); border-radius: var(--radius-pill); color: var(--warning); font-family: var(--font-mono); font-size: var(--text-sm); }
+.pricing-flow { width: 100%; height: auto; }
+.pricing-flow-node rect { fill: var(--color-surface-raised); stroke: var(--color-border-strong); }
+.pricing-flow-node text { fill: var(--color-text); font-family: var(--font-ui); font-size: 13px; }
+.pricing-flow-edge line { stroke: var(--color-border-strong); stroke-width: 1.5; }
+.pricing-calc { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-lg) var(--space-xl); }
+@media (max-width: 800px) { .pricing-calc { grid-template-columns: 1fr; } }
+.pricing-calc-controls { display: grid; gap: var(--space-md); align-content: start; }
+.pricing-calc-controls label { display: grid; gap: var(--space-xs); }
+.pricing-calc-controls input[type='range'] { width: 100%; accent-color: var(--primary); }
+.pricing-calc-results { display: grid; gap: var(--space-md); align-content: start; }
+.pricing-calc-results > div { display: grid; gap: 2px; padding: var(--space-md); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
+.pricing-calc-results .num { font-size: var(--text-h4); font-weight: 600; }
+.pricing-calc > p { grid-column: 1 / -1; margin: 0; }
+.pricing-faq { display: grid; gap: var(--space-sm); max-width: 70ch; }
+.pricing-faq details { border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
+.pricing-faq summary { padding: var(--space-sm) var(--space-md); cursor: pointer; font-weight: 600; }
+.pricing-faq details[open] summary { border-bottom: 1px solid var(--color-border); }
+.pricing-faq details p { margin: 0; padding: var(--space-sm) var(--space-md); color: var(--color-text-muted); font-size: var(--text-sm); }
+.pricing-cta { padding-top: var(--space-lg); border-top: 1px solid var(--color-border); }

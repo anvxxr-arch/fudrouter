@@ -3,9 +3,17 @@ import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useParams } 
 import { PublicLayout } from './components/PublicLayout';
 import { RequireAuth, RequireRouteCap } from './components/guards';
 import { seoFor } from './lib/seo';
-import { LoginPage, SignupPage } from './routes/Auth';
+import { LoginPage } from './routes/Auth';
+import { ChangelogPage } from './routes/Changelog';
 import { DocsPage } from './routes/Docs';
+import { FeaturesPage } from './routes/Features';
+import { HomePage } from './routes/Home';
+import { IntegrationsPage } from './routes/Integrations';
+import { ModelsPage } from './routes/Models';
 import { PricingPage } from './routes/Pricing';
+import { SecurityPage } from './routes/Security';
+import { StatusPage } from './routes/Status';
+import { TermsPage, PrivacyPage } from './routes/Legal';
 
 // The dashboard and admin trees are ~60 kB of source that only a signed-in
 // user ever reaches. Splitting them keeps the first paint every anonymous
@@ -22,11 +30,13 @@ const DashboardHome = lazy(() => import('./routes/dashboard').then((m) => ({ def
 const InvitePage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.InvitePage })));
 const InvoicesPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.InvoicesPage })));
 const KeysPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.KeysPage })));
+const LogsPage = lazy(() => import('./routes/logs').then((m) => ({ default: m.LogsPage })));
 const PayMethodsPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.PayMethodsPage })));
-const PlaygroundPage2 = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.PlaygroundPage2 })));
+const PlaygroundPage2 = lazy(() => import('./routes/playground').then((m) => ({ default: m.PlaygroundPage2 })));
 const ProjectNewPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.ProjectNewPage })));
 const ProjectPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.ProjectPage })));
 const ProjectSubPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.ProjectSubPage })));
+const SettingsHub = lazy(() => import('./routes/settings').then((m) => ({ default: m.SettingsHub })));
 const TeamInvitesPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.TeamInvitesPage })));
 const TeamMembersPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.TeamMembersPage })));
 const TeamRolesPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.TeamRolesPage })));
@@ -85,23 +95,42 @@ export default function App() {
       <RouteMeta />
       <Routes>
         <Route element={<PublicLayout />}>
-          {/* The public surface is two content pages. The root redirects instead
-              of rendering a landing page, so `/` is not dead but is also not a
-              page: it hands the visitor to /pricing, the one commercial page. */}
-          <Route index element={<Navigate to="/pricing" replace />} />
+          {/* The root is a page again, not a redirect. It used to hand the
+              visitor to /pricing, which left the one URL a person is most
+              likely to type with nothing on it — the product's positioning
+              lived in lib/seo.ts and nowhere a visitor could read it. The
+              route stays `indexable: false` in seo.ts: a landing page that
+              duplicates /pricing's offer under a second URL is a worse search
+              result than no landing page at all. */}
+          <Route index element={<HomePage />} />
           <Route path="pricing" element={<PricingPage />} />
+          <Route path="features" element={<FeaturesPage />} />
+          <Route path="integrations" element={<IntegrationsPage />} />
+          <Route path="models" element={<ModelsPage />} />
+          <Route path="changelog" element={<ChangelogPage />} />
+          <Route path="changelog/:slug" element={<ChangelogPage />} />
           <Route path="docs" element={<DocsPage />} />
           <Route path="docs/*" element={<DocsPage />} />
           <Route path="login" element={<LoginPage />} />
-          <Route path="signup" element={<SignupPage />} />
+          <Route path="security" element={<SecurityPage />} />
+          <Route path="status" element={<StatusPage />} />
+          <Route path="terms" element={<TermsPage />} />
+          <Route path="privacy" element={<PrivacyPage />} />
+          {/* Signup is not a page any more: the Discord round trip creates the
+              account on first sign-in. The path stays as a redirect so every
+              link, bookmark and old doc that still says /signup lands on the
+              one door instead of the NotFound page. */}
+          <Route path="signup" element={<Navigate to="/login" replace />} />
           <Route path="dashboard" element={<RequireAuth><DashboardHome /></RequireAuth>} />
           <Route path="dashboard/keys" element={<RequireAuth><KeysPage /></RequireAuth>} />
           <Route path="dashboard/usage" element={<RequireAuth><UsagePage /></RequireAuth>} />
+          <Route path="dashboard/logs" element={<RequireAuth><LogsPage /></RequireAuth>} />
           <Route path="dashboard/billing" element={<RequireAuth><BillingPage /></RequireAuth>} />
           <Route path="dashboard/billing/credits" element={<RequireAuth><CreditsPage /></RequireAuth>} />
           <Route path="dashboard/billing/invoices" element={<RequireAuth><InvoicesPage /></RequireAuth>} />
           <Route path="dashboard/billing/payment-methods" element={<RequireAuth><PayMethodsPage /></RequireAuth>} />
           <Route path="dashboard/account" element={<RequireAuth><AccountPage /></RequireAuth>} />
+          <Route path="dashboard/settings" element={<RequireAuth><SettingsHub /></RequireAuth>} />
           <Route path="dashboard/workspace" element={<RequireAuth><WorkspacePage /></RequireAuth>} />
           <Route path="dashboard/team/members" element={<RequireAuth><TeamMembersPage /></RequireAuth>} />
           <Route path="dashboard/team/invitations" element={<RequireAuth><TeamInvitesPage /></RequireAuth>} />

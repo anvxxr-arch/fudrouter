@@ -25,10 +25,29 @@ func Parse(k string) (Key, bool) {
 		return Key{}, false
 	}
 	prefix, secret := rest[:i], rest[i+1:]
-	if len(secret) < 16 {
+	if len(secret) < 16 || len(secret) > 128 {
+		return Key{}, false
+	}
+	// M-b: both halves must be plain [A-Za-z0-9]. Anything else reached the
+	// sha256 and the prefix lookup with attacker-chosen bytes — unbounded
+	// length hashed per request (a cheap DoS), and control/whitespace
+	// characters in the prefix flowed into logs and SQL lookups. The wire
+	// format is ids.New output, so this rejects nothing legitimate.
+	if !isKeyChars(prefix) || !isKeyChars(secret) {
 		return Key{}, false
 	}
 	return Key{Prefix: prefix, Secret: secret}, true
+}
+
+// isKeyChars reports whether s is entirely [A-Za-z0-9] (M-b).
+func isKeyChars(s string) bool {
+	for i := range len(s) {
+		c := s[i]
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9') {
+			return false
+		}
+	}
+	return true
 }
 
 func Hash(secret string) string {

@@ -292,31 +292,69 @@ export function registerPages(app, ctx) {
 			await database.execute(sql`select count(*)::int as n from api_key where user_id = ${userRow.id} and revoked_at is null`)
 		)[0];
 		const recent = rowsOf(
-			await database.execute(sql`select r.id, r.created_at, r.tokens_in, r.tokens_out, r.cost, r.currency, r.latency_ms, r.status, m.slug as model_slug from request_log r left join model m on m.id = r.model_id where r.user_id = ${userRow.id} order by r.created_at desc limit 10`)
-		).map((r) => ({ ...r, createdAt: iso(r.created_at), cost: String(r.cost ?? '0') }));
+			await database.execute(sql`select r.id, r.created_at, r.tokens_in, r.tokens_out, r.cost, r.currency, r.latency_ms, r.status, m.slug as model_slug, p.name as provider_name from request_log r left join model m on m.id = r.model_id left join provider p on p.id = r.provider_id where r.user_id = ${userRow.id} order by r.created_at desc limit 10`)
+		).map((r) => ({ ...r, createdAt: iso(r.created_at), cost: String(r.cost ?? '0'), providerName: r.provider_name ?? null }));
+		// The chart range is a closed vocabulary, not a free number: the series
+		// is materialised per day, so an unbounded value would let a request
+		// build a 999-element array and a 999-day log scan.
+		const range = [7, 30, 90].includes(Number(req.query.range)) ? Number(req.query.range) : 30;
 		const since = new Date();
 		since.setUTCHours(0, 0, 0, 0);
-		since.setUTCDate(since.getUTCDate() - 13);
+		since.setUTCDate(since.getUTCDate() - (range - 1));
 		const win = rowsOf(
-			await database.execute(sql`select created_at, tokens_in, tokens_out, cost from request_log where user_id = ${userRow.id} and created_at >= ${since.toISOString()}`)
+			await database.execute(sql`select created_at, tokens_in, tokens_out, cost, status from request_log where user_id = ${userRow.id} and created_at >= ${since.toISOString()}`)
 		);
 		const byDay = new Map();
 		for (const row of win) {
 			const k = new Date(row.created_at).toISOString().slice(0, 10);
-			const b = byDay.get(k) ?? { requests: 0, tokens: 0, cost: 0n };
+			const b = byDay.get(k) ?? { requests: 0, tokens: 0, cost: 0n, errors: 0, tokensIn: 0, tokensOut: 0 };
 			b.requests += 1;
 			b.tokens += num(row.tokens_in) + num(row.tokens_out);
 			b.cost += big(row.cost);
+			// status is the ledger's own taxonomy (success|client_error|...), not
+			// an HTTP code: http_status is NULL whenever the request died before
+			// a provider answered, so a numeric threshold would miss those.
+			b.errors += row.status === 'success' ? 0 : 1;
+			b.tokensIn += num(row.tokens_in);
+			b.tokensOut += num(row.tokens_out);
 			byDay.set(k, b);
 		}
-		const series = Array.from({ length: 14 }, (_, i) => {
+		const series = Array.from({ length: range }, (_, i) => {
 			const d = new Date(since);
 			d.setUTCDate(since.getUTCDate() + i);
 			const k = d.toISOString().slice(0, 10);
-			const b = byDay.get(k) ?? { requests: 0, tokens: 0, cost: 0n };
-			return { day: k, requests: b.requests, tokens: b.tokens, cost: b.cost.toString() };
+			const b = byDay.get(k) ?? { requests: 0, tokens: 0, cost: 0n, errors: 0, tokensIn: 0, tokensOut: 0 };
+			return { day: k, requests: b.requests, tokens: b.tokens, cost: b.cost.toString(), errors: b.errors, tokensIn: b.tokensIn, tokensOut: b.tokensOut };
 		});
-		res.json({ totals: { requests: num(totals.requests), tokensIn: num(totals.tokens_in), tokensOut: num(totals.tokens_out), cost: String(totals.cost ?? '0') }, activeKeys: num(kc?.n), recent, series });
+		const byModel = rowsOf(
+			await database.execute(sql`select m.slug as slug, count(*)::int as requests, coalesce(sum(r.cost),0)::text as cost from request_log r left join model m on m.id = r.model_id where r.user_id = ${userRow.id} and r.created_at >= ${since.toISOString()} group by m.slug order by count(*) desc limit 5`)
+		).map((r) => ({ slug: String(r.slug ?? 'Unresolved'), requests: num(r.requests), cost: String(r.cost ?? '0') }));
+		// Onboarding checklist fields (spec §19 item 7). mustWorkspace is the
+		// resolution every other page handler uses, so the banner's
+		// localStorage key names the workspace the member is actually viewing;
+		// workspace.read is in all five builtin roles, so it cannot refuse a
+		// member this page already serves.
+		const { workspaceId } = await mustWorkspace(database, userRow, req, 'workspace.read');
+		// Spec §19's four cards need the credit balance, and a firing alert is
+		// the one thing on this page a member has to act on, so both ride the
+		// same page load rather than a second round trip.
+		// workspace.read does not imply alert.read: a custom role can hold one
+		// without the other, and alert names are not that role's business. An
+		// empty list keeps the page rendering; a 403 would take the whole
+		// dashboard away over a panel.
+		const caps = await memberCapsOf(database, userRow.id, workspaceId);
+		const [wsRow, alertRows, balance] = await Promise.all([
+			database.execute(sql`select created_at from workspace where id = ${workspaceId} limit 1`),
+			caps.has('alert.read')
+				? database.execute(sql`select e.id, e.alert_id, a.name as alert_name, a.project_id, a.condition->>'type' as condition_type, e.triggered_at, e.value, e.message, e.state from alert_event e inner join alert a on a.id = e.alert_id where a.workspace_id = ${workspaceId} and e.state = 'firing' order by e.triggered_at desc limit 10`)
+				: Promise.resolve([]),
+			// The billing page's own helpers, not a second balance query. An
+			// account row is provisioned with the workspace, but a workspace
+			// predating that must read zero here rather than 500 the page.
+			billingAccountFor(database, workspaceId).then((a) => ledgerBalance(database, a.id)).catch(() => 0n)
+		]);
+		const firingAlerts = rowsOf(alertRows).map((e) => ({ id: e.id, alertId: e.alert_id, alertName: e.alert_name, projectId: e.project_id ?? null, conditionType: String(e.condition_type ?? ''), value: String(e.value ?? ''), message: e.message, triggeredAt: iso(e.triggered_at) }));
+		res.json({ totals: { requests: num(totals.requests), tokensIn: num(totals.tokens_in), tokensOut: num(totals.tokens_out), cost: String(totals.cost ?? '0') }, activeKeys: num(kc?.n), recent, series, byModel, range, workspaceId, workspaceCreatedAt: iso(rowsOf(wsRow)[0]?.created_at), balanceMicro: balance.toString(), firingAlerts });
 	}));
 
 	// ---- workspace-level keys ----
@@ -325,18 +363,57 @@ export function registerPages(app, ctx) {
 		if (!database) return;
 		const userRow = await mustAuth(req);
 		const keys = rowsOf(
-			await database.execute(sql`select id, name, prefix, status, last_used_at, revoked_at, created_at from api_key where user_id = ${userRow.id} order by created_at desc`)
-		).map((k) => ({ id: k.id, name: k.name, prefix: k.prefix, status: k.revoked_at ? 'revoked' : (k.status ?? 'active'), lastUsedAt: iso(k.last_used_at), revokedAt: iso(k.revoked_at), createdAt: iso(k.created_at) }));
+			await database.execute(sql`select k.id, k.name, k.prefix, k.status, k.last_used_at, k.revoked_at, k.created_at, k.expires_at, k.project_id, k.environment_id, p.name as project_name, e.name as environment_name from api_key k left join project p on p.id = k.project_id left join environment e on e.id = k.environment_id where k.user_id = ${userRow.id} order by k.created_at desc`)
+		).map((k) => ({ id: k.id, name: k.name, prefix: k.prefix, status: k.revoked_at ? 'revoked' : (k.status ?? 'active'), lastUsedAt: iso(k.last_used_at), revokedAt: iso(k.revoked_at), createdAt: iso(k.created_at), expiresAt: iso(k.expires_at), projectId: k.project_id ?? null, projectName: k.project_name ?? null, environmentId: k.environment_id ?? null, environmentName: k.environment_name ?? null, usage30d: { requests: 0, tokens: 0, costMicro: '0' } }));
+		// One grouped query for the whole table: a per-key query would make the
+		// page load scale with key count, and the page renders usage for every row.
+		const since = new Date(Date.now() - 30 * 86_400_000).toISOString();
+		const usage = new Map(
+			rowsOf(
+				await database.execute(sql`select api_key_id, count(*)::int as requests, coalesce(sum(tokens_in + tokens_out),0)::int as tokens, coalesce(sum(cost),0)::text as cost from request_log where user_id = ${userRow.id} and api_key_id is not null and created_at >= ${since} group by api_key_id`)
+			).map((r) => [r.api_key_id, { requests: num(r.requests), tokens: num(r.tokens), costMicro: String(r.cost ?? '0') }])
+		);
+		for (const k of keys) k.usage30d = usage.get(k.id) ?? k.usage30d;
 		res.json({ keys });
 	}));
+	// expiresIn is a closed vocabulary; Object.hasOwn (not `in`) because `in`
+	// would accept prototype names like "toString" and store an Invalid Date.
+	const KEY_EXPIRY_DAYS = { '30d': 30, '90d': 90, '1y': 365 };
 	app.post(['/api/pages/keys/create', '/api/pages/dashboard/keys/create'], wrap(async (req, res) => {
 		const database = needDb(res);
 		if (!database) return;
 		const userRow = await mustAuth(req);
-		const name = String(okBody(req).name ?? '').trim() || 'default';
+		const b = okBody(req);
+		const name = String(b.name ?? '').trim() || 'default';
+		const expiresIn = String(b.expiresIn ?? 'never').trim() || 'never';
+		if (expiresIn !== 'never' && !Object.hasOwn(KEY_EXPIRY_DAYS, expiresIn)) return fail(res, 400, 'Expiry must be never, 30d, 90d or 1y');
+		const projectId = String(b.projectId ?? '').trim();
+		const environmentId = String(b.environmentId ?? '').trim();
+		// Scope ids arrive in the body, so they are looked up against the
+		// caller's workspace before they are stored — an id alone is not proof
+		// the caller may bind a key to it. Only scoped creates pay the lookup;
+		// an unscoped key keeps the pre-existing insert.
+		let workspaceId = null;
+		let scopeProjectId = null;
+		let scopeEnvId = null;
+		if (projectId || environmentId) {
+			({ workspaceId } = await mustWorkspace(database, userRow, req, 'key.create'));
+			if (projectId) {
+				const proj = rowsOf(await database.execute(sql`select id from project where id = ${projectId} and workspace_id = ${workspaceId} limit 1`))[0];
+				if (!proj) return fail(res, 403, 'That project is not in this workspace');
+				scopeProjectId = proj.id;
+			}
+			if (environmentId) {
+				const env = rowsOf(await database.execute(sql`select e.id from environment e inner join project p on p.id = e.project_id where e.id = ${environmentId} and p.workspace_id = ${workspaceId} limit 1`))[0];
+				if (!env) return fail(res, 403, 'That environment is not in this workspace');
+				scopeEnvId = env.id;
+			}
+		}
 		const { key, prefix, keyHash } = generateApiKey();
 		const id = newId(ID_PREFIXES.apiKey);
-		await database.execute(sql`insert into api_key (id, user_id, name, prefix, key_hash, status) values (${id}, ${userRow.id}, ${name}, ${prefix}, ${keyHash}, 'active')`);
+		const expiresAt = expiresIn === 'never' ? null : new Date(Date.now() + KEY_EXPIRY_DAYS[expiresIn] * 86_400_000).toISOString();
+		await database.execute(sql`insert into api_key (id, user_id, name, prefix, key_hash, status, workspace_id, project_id, environment_id, expires_at) values (${id}, ${userRow.id}, ${name}, ${prefix}, ${keyHash}, 'active', ${workspaceId}, ${scopeProjectId}, ${scopeEnvId}, ${expiresAt})`);
+		await audit(database, { actorUserId: userRow.id, action: 'key.create', resource: 'api_key', resourceId: id, workspaceId, metadata: { name, prefix, projectId: scopeProjectId, environmentId: scopeEnvId, expiresAt } });
 		res.json({ created: key, name, id });
 	}));
 	app.post(['/api/pages/keys/revoke', '/api/pages/dashboard/keys/revoke'], wrap(async (req, res) => {
@@ -361,16 +438,97 @@ export function registerPages(app, ctx) {
 		const days = [1, 7, 30, 90].includes(Number(req.query.days)) ? Number(req.query.days) : 30;
 		const to = new Date();
 		const from = new Date(to.getTime() - days * 86_400_000);
+		// Optional facet filters, shared by the summary and the log endpoint.
+		// Every predicate is a parameterised sql fragment — never concatenated.
+		const model = String(req.query.model ?? '').trim().slice(0, 200);
+		const provider = String(req.query.provider ?? '').trim().slice(0, 200);
+		const key = String(req.query.key ?? '').trim().slice(0, 200);
+		const status = String(req.query.status ?? '').trim();
+		const conds = [sql`r.workspace_id = ${workspaceId}`, sql`r.created_at >= ${from.toISOString()}`, sql`r.created_at < ${to.toISOString()}`];
+		// model/provider/key filter on the same columns the breakdowns group by,
+		// so a facet value selected from byModel/byProvider always matches.
+		if (model) conds.push(sql`r.model_id = ${model}`);
+		if (provider) conds.push(sql`r.provider_id = ${provider}`);
+		if (key) conds.push(sql`r.api_key_id = ${key}`);
+		if (REQUEST_STATUSES.includes(status)) conds.push(sql`r.status in (${sql.join(statusFilterValues(status), sql`, `)})`);
+		const where = sql.join(conds, sql` and `);
+		// Facet sources for the filter selects: the same window WITHOUT the
+		// model/provider predicates, so the dropdowns never collapse to the
+		// active selection. Breakdowns below stay filtered.
+		const facetWhere = sql.join([sql`r.workspace_id = ${workspaceId}`, sql`r.created_at >= ${from.toISOString()}`, sql`r.created_at < ${to.toISOString()}`], sql` and `);
+		const facets = {
+			models: rowsOf(
+				await database.execute(sql`select coalesce(m.slug, 'Unresolved') as label, coalesce(r.model_id,'') as key from request_log r left join model m on m.id = r.model_id where ${facetWhere} group by m.slug, r.model_id order by count(*) desc limit 50`)
+			).map((r) => ({ key: r.key, label: r.label || 'Unresolved' })),
+			providers: rowsOf(
+				await database.execute(sql`select coalesce(p.name, 'Unresolved') as label, coalesce(r.provider_id,'') as key from request_log r left join provider p on p.id = r.provider_id where ${facetWhere} group by p.name, r.provider_id order by count(*) desc limit 50`)
+			).map((r) => ({ key: r.key, label: r.label || 'Unresolved' }))
+		};
 		const totals = rowsOf(
-			await database.execute(sql`select count(*)::int as requests, coalesce(sum(tokens_in),0)::int as tokens_in, coalesce(sum(tokens_out),0)::int as tokens_out, coalesce(sum(cost),0)::text as cost from request_log where workspace_id = ${workspaceId} and created_at >= ${from.toISOString()} and created_at < ${to.toISOString()}`)
+			await database.execute(sql`select count(*)::int as requests, coalesce(sum(tokens_in),0)::int as tokens_in, coalesce(sum(tokens_out),0)::int as tokens_out, coalesce(sum(cost),0)::text as cost from request_log r where ${where}`)
 		)[0] ?? {};
 		const byDay = rowsOf(
-			await database.execute(sql`select date_trunc('day', created_at)::text as day, count(*)::int as requests, coalesce(sum(tokens_in + tokens_out),0)::int as tokens, coalesce(sum(cost),0)::text as cost from request_log where workspace_id = ${workspaceId} and created_at >= ${from.toISOString()} group by 1 order by 1`)
+			await database.execute(sql`select date_trunc('day', r.created_at)::text as day, count(*)::int as requests, coalesce(sum(r.tokens_in + r.tokens_out),0)::int as tokens, coalesce(sum(r.cost),0)::text as cost from request_log r where ${where} group by 1 order by 1`)
 		).map((r) => ({ day: String(r.day).slice(0, 10), requests: num(r.requests), totalTokens: num(r.tokens), costMicro: String(r.cost ?? '0') }));
 		const byProject = rowsOf(
-			await database.execute(sql`select coalesce(p.name, r.project_id, 'Unresolved') as label, coalesce(r.project_id,'') as key, count(*)::int as requests, coalesce(sum(r.tokens_in + r.tokens_out),0)::int as tokens, coalesce(sum(r.cost),0)::text as cost from request_log r left join project p on p.id = r.project_id where r.workspace_id = ${workspaceId} and r.created_at >= ${from.toISOString()} group by p.name, r.project_id order by count(*) desc limit 20`)
+			await database.execute(sql`select coalesce(p.name, r.project_id, 'Unresolved') as label, coalesce(r.project_id,'') as key, count(*)::int as requests, coalesce(sum(r.tokens_in + r.tokens_out),0)::int as tokens, coalesce(sum(r.cost),0)::text as cost from request_log r left join project p on p.id = r.project_id where ${where} group by p.name, r.project_id order by count(*) desc limit 20`)
 		).map((r) => ({ key: r.key, label: r.label || 'Unresolved', requests: num(r.requests), totalTokens: num(r.tokens), costMicro: String(r.cost ?? '0') }));
-		res.json({ denied: false, range: { days, from: from.toISOString(), to: to.toISOString(), source: 'raw' }, totals: { requests: num(totals.requests), tokensIn: num(totals.tokens_in), tokensOut: num(totals.tokens_out), costMicro: String(totals.cost ?? '0') }, breakdowns: { byDay, byProject, byEnvironment: [], byApiKey: [], byModel: [], byProvider: [] } });
+		const byModel = rowsOf(
+			await database.execute(sql`select coalesce(m.slug, 'Unresolved') as label, coalesce(r.model_id,'') as key, count(*)::int as requests, coalesce(sum(r.tokens_in + r.tokens_out),0)::int as tokens, coalesce(sum(r.cost),0)::text as cost from request_log r left join model m on m.id = r.model_id where ${where} group by m.slug, r.model_id order by count(*) desc limit 20`)
+		).map((r) => ({ key: r.key, label: r.label || 'Unresolved', requests: num(r.requests), totalTokens: num(r.tokens), costMicro: String(r.cost ?? '0') }));
+		const byProvider = rowsOf(
+			await database.execute(sql`select coalesce(p.name, 'Unresolved') as label, coalesce(r.provider_id,'') as key, count(*)::int as requests, coalesce(sum(r.tokens_in + r.tokens_out),0)::int as tokens, coalesce(sum(r.cost),0)::text as cost from request_log r left join provider p on p.id = r.provider_id where ${where} group by p.name, r.provider_id order by count(*) desc limit 20`)
+		).map((r) => ({ key: r.key, label: r.label || 'Unresolved', requests: num(r.requests), totalTokens: num(r.tokens), costMicro: String(r.cost ?? '0') }));
+		const byApiKey = rowsOf(
+			await database.execute(sql`select coalesce(k.name || ' · ' || k.prefix, 'Unresolved') as label, coalesce(r.api_key_id,'') as key, count(*)::int as requests, coalesce(sum(r.tokens_in + r.tokens_out),0)::int as tokens, coalesce(sum(r.cost),0)::text as cost from request_log r left join api_key k on k.id = r.api_key_id where ${where} group by k.name, k.prefix, r.api_key_id order by count(*) desc limit 20`)
+		).map((r) => ({ key: r.key, label: r.label || 'Unresolved', requests: num(r.requests), totalTokens: num(r.tokens), costMicro: String(r.cost ?? '0') }));
+		// percentile_cont ignores NULL latency rows natively; coalesce covers the
+		// empty-range case so the chart never renders NaN.
+		const latency = rowsOf(
+			await database.execute(sql`select coalesce(round(percentile_cont(0.5) within group (order by r.latency_ms)),0)::int as p50, coalesce(round(percentile_cont(0.95) within group (order by r.latency_ms)),0)::int as p95, coalesce(round(percentile_cont(0.99) within group (order by r.latency_ms)),0)::int as p99 from request_log r where ${where}`)
+		)[0] ?? { p50: 0, p95: 0, p99: 0 };
+		// Chart-only siblings: byDay's shape is frozen, so per-day errors and
+		// latency percentiles live beside it. status is the ledger's taxonomy,
+		// not an HTTP code (see the dashboard handler's comment).
+		const errorsByDay = rowsOf(
+			await database.execute(sql`select date_trunc('day', r.created_at)::text as day, count(*) filter (where r.status <> 'success')::int as errors from request_log r where ${where} group by 1 order by 1`)
+		).map((r) => ({ day: String(r.day).slice(0, 10), errors: num(r.errors) }));
+		const latencyByDay = rowsOf(
+			await database.execute(sql`select date_trunc('day', r.created_at)::text as day, coalesce(round(percentile_cont(0.5) within group (order by r.latency_ms)),0)::int as p50, coalesce(round(percentile_cont(0.95) within group (order by r.latency_ms)),0)::int as p95, coalesce(round(percentile_cont(0.99) within group (order by r.latency_ms)),0)::int as p99 from request_log r where ${where} group by 1 order by 1`)
+		).map((r) => ({ day: String(r.day).slice(0, 10), p50: num(r.p50), p95: num(r.p95), p99: num(r.p99) }));
+		res.json({ denied: false, range: { days, from: from.toISOString(), to: to.toISOString(), source: 'raw' }, totals: { requests: num(totals.requests), tokensIn: num(totals.tokens_in), tokensOut: num(totals.tokens_out), costMicro: String(totals.cost ?? '0') }, latency: { p50: num(latency.p50), p95: num(latency.p95), p99: num(latency.p99) }, breakdowns: { byDay, byProject, byEnvironment: [], byApiKey, byModel, byProvider }, errorsByDay, latencyByDay, facets });
+	}));
+
+	// ---- usage request log (workspace, paged) ----
+	app.get('/api/pages/dashboard/usage/requests', wrap(async (req, res) => {
+		const database = needDb(res);
+		if (!database) return;
+		const userRow = await mustAuth(req);
+		const { workspaceId } = await mustWorkspace(database, userRow, req, 'usage.read');
+		const days = [1, 7, 30, 90].includes(Number(req.query.days)) ? Number(req.query.days) : 30;
+		const to = new Date();
+		const from = new Date(to.getTime() - days * 86_400_000);
+		const model = String(req.query.model ?? '').trim().slice(0, 200);
+		const provider = String(req.query.provider ?? '').trim().slice(0, 200);
+		const key = String(req.query.key ?? '').trim().slice(0, 200);
+		const status = String(req.query.status ?? '').trim();
+		const conds = [sql`r.workspace_id = ${workspaceId}`, sql`r.created_at >= ${from.toISOString()}`, sql`r.created_at < ${to.toISOString()}`];
+		// Same columns as the summary handler's filters (and the breakdowns'
+		// group-by keys), so a facet value selected in the UI always matches.
+		if (model) conds.push(sql`r.model_id = ${model}`);
+		if (provider) conds.push(sql`r.provider_id = ${provider}`);
+		if (key) conds.push(sql`r.api_key_id = ${key}`);
+		if (REQUEST_STATUSES.includes(status)) conds.push(sql`r.status in (${sql.join(statusFilterValues(status), sql`, `)})`);
+		const where = sql.join(conds, sql` and `);
+		const total = num(rowsOf(
+			await database.execute(sql`select count(*)::int as n from request_log r where ${where}`)
+		)[0]?.n);
+		const pages = Math.max(1, Math.ceil(total / 50));
+		const page = Math.min(pages, Math.max(1, Number.isFinite(Number(req.query.page)) ? Math.floor(Number(req.query.page)) : 1));
+		const rows = rowsOf(
+			await database.execute(sql`select r.id, r.project_id, r.created_at, r.requested_model, m.slug as model_slug, p.name as provider_name, r.attempts, r.fallback_used, r.tokens_in, r.tokens_out, r.cost, r.latency_ms, r.ttft_ms, r.status, r.error_code from request_log r left join model m on m.id = r.model_id left join provider p on p.id = r.provider_id where ${where} order by r.created_at desc, r.id desc limit 50 offset ${(page - 1) * 50}`)
+		).map((r) => ({ id: r.id, projectId: r.project_id ?? null, createdAt: iso(r.created_at), requestedModel: r.requested_model, modelSlug: r.model_slug, providerName: r.provider_name, attempts: num(r.attempts), fallbackUsed: !!r.fallback_used, tokensIn: num(r.tokens_in), tokensOut: num(r.tokens_out), costMicro: String(r.cost ?? '0'), latencyMs: num(r.latency_ms), ttftMs: r.ttft_ms == null ? null : num(r.ttft_ms), status: normalizeStatus(r.status), errorCode: r.error_code }));
+		res.json({ rows, total, page, pages });
 	}));
 
 	// ---- billing ----
@@ -414,10 +572,48 @@ export function registerPages(app, ctx) {
 		const { workspaceId } = await mustWorkspace(database, userRow, req, 'billing.read');
 		const account = await billingAccountFor(database, workspaceId);
 		const balance = await ledgerBalance(database, account.id);
+		// The window must run over the account's FULL ledger, so the page filter
+		// happens in the outer query — otherwise balanceAfterMicro is wrong.
+		const total = num(rowsOf(
+			await database.execute(sql`select count(*)::int as n from credit_ledger where billing_account_id = ${account.id}`)
+		)[0]?.n);
+		const pages = Math.max(1, Math.ceil(total / 50));
+		const page = Math.min(pages, Math.max(1, Number.isFinite(Number(req.query.page)) ? Math.floor(Number(req.query.page)) : 1));
 		const rows = rowsOf(
-			await database.execute(sql`select id, type, amount_micro, currency, request_id, description, created_at from credit_ledger where billing_account_id = ${account.id} order by created_at desc, id desc limit 100`)
-		).map((r) => ({ id: r.id, type: r.type, amountMicro: String(r.amount_micro ?? '0'), currency: String(r.currency ?? '').trim(), requestId: r.request_id, description: r.description, createdAt: iso(r.created_at) }));
-		res.json({ currency: String(account.currency ?? 'USD').trim(), balanceMicro: balance.toString(), rows, addCreditKey: `purchase:${newId(prefixFor(ctx, 'creditLedger'))}` });
+			await database.execute(sql`with w as (select id, type, amount_micro, currency, request_id, description, created_at, sum(amount_micro) over (order by created_at, id) as balance_after from credit_ledger where billing_account_id = ${account.id}) select id, type, amount_micro, currency, request_id, description, created_at, balance_after from w order by created_at desc, id desc limit 50 offset ${(page - 1) * 50}`)
+		).map((r) => ({ id: r.id, type: r.type, amountMicro: String(r.amount_micro ?? '0'), currency: String(r.currency ?? '').trim(), requestId: r.request_id, description: r.description, createdAt: iso(r.created_at), balanceAfterMicro: String(r.balance_after ?? '0') }));
+		// Spend series + breakdowns share the 30-day window; cost > 0 keeps
+		// zero-cost rows out of the chart and the top-5 ranking.
+		const to = new Date();
+		const from = new Date(to.getTime() - 30 * 86_400_000);
+		const window = sql`r.workspace_id = ${workspaceId} and r.cost > 0 and r.created_at >= ${from.toISOString()} and r.created_at < ${to.toISOString()}`;
+		const topModels = rowsOf(
+			await database.execute(sql`select coalesce(m.slug, 'Unresolved') as label, coalesce(r.model_id,'') as key, coalesce(sum(r.cost),0)::text as cost from request_log r left join model m on m.id = r.model_id where ${window} group by m.slug, r.model_id order by sum(r.cost) desc limit 5`)
+		);
+		const topKeys = topModels.map((r) => r.key);
+		// Group by model_id (not slug) so the top-5 filter below compares keys
+		// to keys; a NULL model_id collapses to '' and lands in Other.
+		const seriesRows = rowsOf(
+			await database.execute(sql`select date_trunc('day', r.created_at)::text as day, coalesce(r.model_id,'') as key, coalesce(m.slug, 'Unresolved') as label, coalesce(sum(r.cost),0)::text as cost from request_log r left join model m on m.id = r.model_id where ${window} group by 1, 2, 3 order by 1`)
+		);
+		const byDay = new Map();
+		for (const r of seriesRows) {
+			const day = String(r.day).slice(0, 10);
+			if (!byDay.has(day)) byDay.set(day, []);
+			byDay.get(day).push({ key: r.key, label: r.label, costMicro: String(r.cost ?? '0') });
+		}
+		const series = [...byDay.entries()].map(([day, entries]) => {
+			const top = topModels.map((t) => entries.find((e) => e.key === t.key) ?? { key: t.key, label: t.label, costMicro: '0' });
+			const other = entries.filter((e) => !topKeys.includes(e.key)).reduce((acc, e) => acc + BigInt(e.costMicro), 0n);
+			return { day, series: [...top, { label: 'Other', costMicro: other.toString() }] };
+		});
+		const byModel = rowsOf(
+			await database.execute(sql`select coalesce(m.slug, 'Unresolved') as label, coalesce(r.model_id,'') as key, count(*)::int as requests, coalesce(sum(r.tokens_in + r.tokens_out),0)::int as tokens, coalesce(sum(r.cost),0)::text as cost from request_log r left join model m on m.id = r.model_id where ${window} group by m.slug, r.model_id order by sum(r.cost) desc limit 10`)
+		).map((r) => ({ key: r.key, label: r.label || 'Unresolved', requests: num(r.requests), totalTokens: num(r.tokens), costMicro: String(r.cost ?? '0') }));
+		const byProject = rowsOf(
+			await database.execute(sql`select coalesce(p.name, 'Unresolved') as label, coalesce(r.project_id,'') as key, count(*)::int as requests, coalesce(sum(r.tokens_in + r.tokens_out),0)::int as tokens, coalesce(sum(r.cost),0)::text as cost from request_log r left join project p on p.id = r.project_id where ${window} group by p.name, r.project_id order by sum(r.cost) desc limit 10`)
+		).map((r) => ({ key: r.key, label: r.label || 'Unresolved', requests: num(r.requests), totalTokens: num(r.tokens), costMicro: String(r.cost ?? '0') }));
+		res.json({ currency: String(account.currency ?? 'USD').trim(), balanceMicro: balance.toString(), rows, addCreditKey: `purchase:${newId(prefixFor(ctx, 'creditLedger'))}`, page, pages, total, thresholds: { warningMicro: String(account.warning_threshold_micro ?? account.warningThresholdMicro ?? '0'), hardStopMicro: String(account.hard_stop_threshold_micro ?? account.hardStopThresholdMicro ?? '0') }, series, breakdowns: { byModel, byProject } });
 	}));
 	app.post(['/api/pages/billing/credits/add', '/api/pages/dashboard/billing/credits/add'], wrap(async (req, res) => {
 		const database = needDb(res);
@@ -471,7 +667,13 @@ export function registerPages(app, ctx) {
 		)[0];
 		const id = newId(prefixFor(ctx, 'invoice'));
 		const ym = `${ps.getUTCFullYear()}${String(ps.getUTCMonth() + 1).padStart(2, '0')}`;
-		const number = `INV-${ym}-${id.slice(-6)}`;
+		// The FULL id, not a 6-character suffix. `invoice.number` is UNIQUE and
+		// this used to be `id.slice(-6)` — 6 hex characters, 2^24 of them,
+		// shared by every invoice row; two ids agreeing in the last 6
+		// characters produced the same number and the insert died on the
+		// unique violation. Mirrors packages/platform/server/workers.ts
+		// invoiceGeneration, which fixed the same collision with the full id.
+		const number = `INV-${ym}-${id}`;
 		await database.execute(sql`insert into invoice (id, billing_account_id, number, period_start, period_end, amount_micro, currency, status, issued_at) values (${id}, ${account.id}, ${number}, ${ps.toISOString()}, ${pe.toISOString()}, ${String(period?.total ?? '0')}, ${String(account.currency ?? 'USD').trim()}, 'open', now())`);
 		res.json({ generated: true, number, id });
 	}));
@@ -958,7 +1160,11 @@ export function registerPages(app, ctx) {
 				const row = rowsOf(await database.execute(sql`select id, name, status from api_key where id = ${id} and project_id = ${proj.id} and workspace_id = ${workspaceId} limit 1`))[0];
 				if (!row) return fail(res, 404, 'Key not found');
 				const next = st === 'enable' ? 'active' : 'disabled';
-				await database.execute(sql`update api_key set status = ${next}, updated_at = now() where id = ${row.id}`);
+				// Ownership predicate repeated on the UPDATE, not just the lookup —
+				// same hole the alerts/update comment documents: an UPDATE anchored
+				// only by primary key lets a member rewrite another project's key
+				// between the two statements.
+				await database.execute(sql`update api_key set status = ${next}, updated_at = now() where id = ${row.id} and project_id = ${proj.id} and workspace_id = ${workspaceId}`);
 				await audit(database, { actorUserId: userRow.id, action: st === 'enable' ? 'key.enable' : 'key.disable', resource: 'api_key', resourceId: row.id, workspaceId, before: { status: row.status }, after: { status: next } });
 				return res.json({ [st === 'enable' ? 'enabled' : 'disabled']: row.name });
 			});
@@ -1152,9 +1358,12 @@ export function registerPages(app, ctx) {
 			const id = String(b.id ?? '').trim();
 			if (!id) return fail(res, 400, 'Missing policy id');
 			const envIds = rowsOf(await database.execute(sql`select id from environment where project_id = ${proj.id}`)).map((e) => e.id);
-			const existing = (envIds.length
-				? rowsOf(await database.execute(sql`select id, name, strategy, enabled, max_attempts, request_timeout_ms, fallback_enabled, workspace_id, project_id, environment_id, provider_preferences, model_preferences, constraints, weights from routing_policy where id = ${id} and (project_id = ${proj.id} or (workspace_id = ${workspaceId} and project_id is null) or environment_id in (${sql.join(envIds, sql`, `)})) limit 1`))
-				: rowsOf(await database.execute(sql`select id, name, strategy, enabled, max_attempts, request_timeout_ms, fallback_enabled, workspace_id, project_id, environment_id, provider_preferences, model_preferences, constraints, weights from routing_policy where id = ${id} and (project_id = ${proj.id} or (workspace_id = ${workspaceId} and project_id is null)) limit 1`)))[0];
+			// The ownership fragment branches on envIds because an empty list
+			// would render `environment_id in ()` — a syntax error, not a no-op.
+			const owned = envIds.length
+				? sql`(project_id = ${proj.id} or (workspace_id = ${workspaceId} and project_id is null) or environment_id in (${sql.join(envIds, sql`, `)}))`
+				: sql`(project_id = ${proj.id} or (workspace_id = ${workspaceId} and project_id is null))`;
+			const existing = rowsOf(await database.execute(sql`select id, name, strategy, enabled, max_attempts, request_timeout_ms, fallback_enabled, workspace_id, project_id, environment_id, provider_preferences, model_preferences, constraints, weights from routing_policy where id = ${id} and ${owned} limit 1`))[0];
 			if (!existing) return fail(res, 404, 'Policy not found');
 			const parsed = parsePolicyFormBody(b);
 			if (!parsed.ok) return fail(res, 400, parsed.error);
@@ -1172,7 +1381,12 @@ export function registerPages(app, ctx) {
 			if (hit) return fail(res, 409, `A policy named "${v.name}" already exists in this ${scope}.`);
 			const before = { name: existing.name, strategy: existing.strategy, enabled: existing.enabled, maxAttempts: existing.max_attempts, requestTimeoutMs: existing.request_timeout_ms, fallbackEnabled: existing.fallback_enabled, providerPreferences: existing.provider_preferences, modelPreferences: existing.model_preferences, constraints: existing.constraints, weights: existing.weights, scope: existing.environment_id ? 'environment' : existing.project_id ? 'project' : 'workspace' };
 			const after = { name: v.name, strategy: v.strategy, enabled: v.enabled, maxAttempts: v.maxAttempts, requestTimeoutMs: v.requestTimeoutMs, fallbackEnabled: v.fallbackEnabled, providerPreferences: v.providerPreferences, modelPreferences: v.modelPreferences, constraints: v.constraints, weights: v.weights, scope };
-			await database.execute(sql`update routing_policy set workspace_id = ${workspaceId}, project_id = ${scope === 'project' ? proj.id : null}, environment_id = ${environmentId}, name = ${v.name}, strategy = ${v.strategy}, enabled = ${v.enabled}, max_attempts = ${v.maxAttempts}, request_timeout_ms = ${v.requestTimeoutMs}, fallback_enabled = ${v.fallbackEnabled}, provider_preferences = ${JSON.stringify(v.providerPreferences)}::jsonb, model_preferences = ${JSON.stringify(v.modelPreferences)}::jsonb, constraints = ${JSON.stringify(v.constraints)}::jsonb, weights = ${JSON.stringify(v.weights)}::jsonb, updated_at = now() where id = ${id}`);
+			// Ownership predicate repeated on the UPDATE, not just the lookup —
+			// same hole the alerts/update comment documents: the row could change
+			// between the two statements, and an UPDATE anchored only by primary
+			// key lets a member rewrite another workspace's policy.
+			const updated = rowsOf(await database.execute(sql`update routing_policy set workspace_id = ${workspaceId}, project_id = ${scope === 'project' ? proj.id : null}, environment_id = ${environmentId}, name = ${v.name}, strategy = ${v.strategy}, enabled = ${v.enabled}, max_attempts = ${v.maxAttempts}, request_timeout_ms = ${v.requestTimeoutMs}, fallback_enabled = ${v.fallbackEnabled}, provider_preferences = ${JSON.stringify(v.providerPreferences)}::jsonb, model_preferences = ${JSON.stringify(v.modelPreferences)}::jsonb, constraints = ${JSON.stringify(v.constraints)}::jsonb, weights = ${JSON.stringify(v.weights)}::jsonb, updated_at = now() where id = ${id} and ${owned} returning id`));
+			if (!updated.length) return fail(res, 404, 'Policy not found');
 			await audit(database, { actorUserId: userRow.id, action: 'routing.update', resource: 'routing_policy', resourceId: id, workspaceId, before, after });
 			return res.json({ updated: v.name });
 		});
@@ -1185,13 +1399,20 @@ export function registerPages(app, ctx) {
 			const id = String(okBody(req).id ?? '').trim();
 			if (!id) return fail(res, 400, 'Missing policy id');
 			const envIds = rowsOf(await database.execute(sql`select id from environment where project_id = ${proj.id}`)).map((e) => e.id);
-			const existing = (envIds.length
-				? rowsOf(await database.execute(sql`select id, name, strategy, enabled, max_attempts, request_timeout_ms, fallback_enabled, workspace_id, project_id, environment_id, provider_preferences, model_preferences, constraints, weights from routing_policy where id = ${id} and (project_id = ${proj.id} or (workspace_id = ${workspaceId} and project_id is null) or environment_id in (${sql.join(envIds, sql`, `)})) limit 1`))
-				: rowsOf(await database.execute(sql`select id, name, strategy, enabled, max_attempts, request_timeout_ms, fallback_enabled, workspace_id, project_id, environment_id, provider_preferences, model_preferences, constraints, weights from routing_policy where id = ${id} and (project_id = ${proj.id} or (workspace_id = ${workspaceId} and project_id is null)) limit 1`)))[0];
+			// The ownership fragment branches on envIds because an empty list
+			// would render `environment_id in ()` — a syntax error, not a no-op.
+			const owned = envIds.length
+				? sql`(project_id = ${proj.id} or (workspace_id = ${workspaceId} and project_id is null) or environment_id in (${sql.join(envIds, sql`, `)}))`
+				: sql`(project_id = ${proj.id} or (workspace_id = ${workspaceId} and project_id is null))`;
+			const existing = rowsOf(await database.execute(sql`select id, name, strategy, enabled, max_attempts, request_timeout_ms, fallback_enabled, workspace_id, project_id, environment_id, provider_preferences, model_preferences, constraints, weights from routing_policy where id = ${id} and ${owned} limit 1`))[0];
 			if (!existing) return fail(res, 404, 'Policy not found');
 			const bound = rowsOf(await database.execute(sql`select name from environment where routing_policy_id = ${id}`)).map((r) => r.name);
 			const before = { name: existing.name, strategy: existing.strategy, enabled: existing.enabled, maxAttempts: existing.max_attempts, requestTimeoutMs: existing.request_timeout_ms, fallbackEnabled: existing.fallback_enabled, providerPreferences: existing.provider_preferences, modelPreferences: existing.model_preferences, constraints: existing.constraints, weights: existing.weights, scope: existing.environment_id ? 'environment' : existing.project_id ? 'project' : 'workspace', unboundEnvironments: bound };
-			await database.execute(sql`delete from routing_policy where id = ${id}`);
+			// Ownership predicate repeated on the DELETE, not just the lookup —
+			// same hole the alerts/remove comment documents: a delete anchored
+			// only by primary key is the same ownership hole one statement later.
+			const deleted = rowsOf(await database.execute(sql`delete from routing_policy where id = ${id} and ${owned} returning id`));
+			if (!deleted.length) return fail(res, 404, 'Policy not found');
 			await audit(database, { actorUserId: userRow.id, action: 'routing.delete', resource: 'routing_policy', resourceId: id, workspaceId, before });
 			return res.json({ deleted: existing.name });
 		});
@@ -1412,7 +1633,15 @@ export function registerPages(app, ctx) {
 			if (!parsed.ok) return fail(res, 400, parsed.error);
 			const before = rowsOf(await database.execute(sql`select id, name from alert where id = ${id} and project_id = ${proj.id} limit 1`))[0];
 			if (!before) return fail(res, 404, 'Alert not found');
-			await database.execute(sql`update alert set name = ${parsed.value.name}, condition = ${JSON.stringify(parsed.value.condition)}::jsonb, channel = ${parsed.value.channel}, enabled = ${parsed.value.enabled}, updated_at = now() where id = ${id}`);
+			// 3c: the project predicate is repeated on the UPDATE, not just the
+			// lookup — same hole the model_alias delete comment below documents:
+			// the row could change between the two statements, and an UPDATE
+			// anchored only by primary key lets any member with alert.write
+			// rewrite another project's alert (the lookup row being theirs proves
+			// nothing about the write). Ownership is not implied by "not found
+			// elsewhere"; it has to be stated on the write itself.
+			const updated = rowsOf(await database.execute(sql`update alert set name = ${parsed.value.name}, condition = ${JSON.stringify(parsed.value.condition)}::jsonb, channel = ${parsed.value.channel}, enabled = ${parsed.value.enabled}, updated_at = now() where id = ${id} and project_id = ${proj.id} and workspace_id = ${workspaceId} returning id`));
+			if (!updated.length) return fail(res, 404, 'Alert not found');
 			return res.json({ saved: id });
 		});
 	}));
@@ -1425,7 +1654,11 @@ export function registerPages(app, ctx) {
 			if (!id) return fail(res, 400, 'Missing alert id');
 			const before = rowsOf(await database.execute(sql`select id, name from alert where id = ${id} and project_id = ${proj.id} limit 1`))[0];
 			if (!before) return fail(res, 404, 'Alert not found');
-			await database.execute(sql`delete from alert where id = ${id}`);
+			// 3c: predicate repeated on the DELETE for the same reason as the
+			// UPDATE above and the alias-delete comment below — a delete anchored
+			// only by primary key is the same ownership hole one statement later.
+			const deleted = rowsOf(await database.execute(sql`delete from alert where id = ${id} and project_id = ${proj.id} and workspace_id = ${workspaceId} returning id`));
+			if (!deleted.length) return fail(res, 404, 'Alert not found');
 			await audit(database, { actorUserId: userRow.id, action: 'alert.delete', resource: 'alert', resourceId: id, workspaceId, before: { name: before.name } });
 			return res.json({ removed: id });
 		});
@@ -1619,10 +1852,18 @@ export function registerPages(app, ctx) {
 			const id = String(okBody(req).id ?? '').trim();
 			if (!id) return fail(res, 400, 'Missing budget id');
 			const envs = rowsOf(await database.execute(sql`select id from environment where project_id = ${proj.id}`)).map((e) => e.id);
-			const allowed = new Set([proj.id, ...envs]);
-			const row = rowsOf(await database.execute(sql`select id, scope_id from budget where id = ${id} limit 1`))[0];
-			if (!row || !allowed.has(row.scope_id)) return fail(res, 404, 'Budget not found');
-			await database.execute(sql`delete from budget where id = ${id}`);
+			// The workspace branch exists because the budgets GET lists
+			// workspace-scoped rows too ("Workspace (all projects)"), so a
+			// delete that only accepted project/env scope_ids would 404 on
+			// every row that list displayed.
+			const owned = sql`(scope_id in (${sql.join([proj.id, ...envs], sql`, `)}) or (scope = 'workspace' and scope_id = ${workspaceId}))`;
+			const row = rowsOf(await database.execute(sql`select id from budget where id = ${id} and ${owned} limit 1`))[0];
+			if (!row) return fail(res, 404, 'Budget not found');
+			// Ownership predicate repeated on the DELETE, not just the lookup —
+			// same hole the alerts/remove comment documents: a delete anchored
+			// only by primary key is the same ownership hole one statement later.
+			const deleted = rowsOf(await database.execute(sql`delete from budget where id = ${id} and ${owned} returning id`));
+			if (!deleted.length) return fail(res, 404, 'Budget not found');
 			return res.json({ removed: id });
 		});
 	}));

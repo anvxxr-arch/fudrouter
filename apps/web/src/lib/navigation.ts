@@ -28,21 +28,36 @@ export interface NavItem {
   nav: boolean;
 }
 
-// Public chrome is deliberately two links: Pricing and Docs. The catalogue,
-// provider directory, changelog and legal pages were withdrawn, so their
-// registry entries went with them — a `to` left here with no route behind it is
-// a nav item that 404s, which is exactly what the deleted /models entries had
-// become. `/`, `/login` and `/signup` stay as registry-only entries (nav: false)
-// because they are still public ROUTES: the head test asserts every public route
-// has SEO metadata, so dropping them here would hide that check rather than
-// satisfy it.
+// Public chrome is Models, Pricing, Changelog and Docs. The provider directory
+// and legal pages are still withdrawn, so their registry entries went with
+// them — a `to` left here with no route behind it is a nav item that 404s,
+// which is exactly what the deleted /models entries had become before the
+// catalogue page came back. `/` and
+// `/login` stay as registry-only entries (nav: false) because they are still
+// public ROUTES: the head test asserts every public route has SEO metadata, so
+// dropping them here would hide that check rather than satisfy it.
 export const PUBLIC_NAV: readonly NavItem[] = [
   { to: "/", label: "Home", scope: "public", cap: null, nav: false },
   { to: "/pricing", label: "Pricing", scope: "public", cap: null, nav: true },
+  { to: "/features", label: "Features", scope: "public", cap: null, nav: true },
+  { to: "/integrations", label: "Integrations", scope: "public", cap: null, nav: true },
+  { to: "/models", label: "Models", scope: "public", cap: null, nav: true },
+  { to: "/changelog", label: "Changelog", scope: "public", cap: null, nav: true },
   { to: "/docs", label: "Docs", scope: "public", cap: null, nav: true },
   { to: "/docs/*", label: "Docs section", scope: "public", cap: null, nav: false },
   { to: "/login", label: "Log in", scope: "public", cap: null, nav: false },
-  { to: "/signup", label: "Sign up", scope: "public", cap: null, nav: false },
+  // Security, Terms and Privacy are public ROUTES kept in the registry so the
+  // head test's "every public route has SEO metadata" check sees them. The top
+  // nav bar stays at Models/Pricing/Features/Integrations/Changelog/Docs; these
+  // three are footer links, so they are registry-only (nav: false).
+  { to: "/security", label: "Security", scope: "public", cap: null, nav: false },
+  { to: "/status", label: "Status", scope: "public", cap: null, nav: false },
+  { to: "/terms", label: "Terms", scope: "public", cap: null, nav: false },
+  { to: "/privacy", label: "Privacy", scope: "public", cap: null, nav: false },
+  // `/signup` is deliberately absent: it is a redirect to /login, not a page
+  // with its own chrome. A registry entry would keep advertising a destination
+  // that exists only to forward. The head test still knows the path (see
+  // lib/seo.ts), so it keeps answering 200 + noindex instead of a soft 404.
 ];
 
 // Member console. Primary bar mirrors DashShell.tsx verbatim (Overview, Keys,
@@ -53,6 +68,7 @@ export const CONSOLE_NAV: readonly NavItem[] = [
   { to: "/dashboard", label: "Overview", scope: "console", cap: "member", nav: true },
   { to: "/dashboard/keys", label: "Keys", scope: "console", cap: "member", nav: true },
   { to: "/dashboard/usage", label: "Usage", scope: "console", cap: "member", nav: true },
+  { to: "/dashboard/logs", label: "Logs", scope: "console", cap: "member", nav: true },
   { to: "/dashboard/billing", label: "Billing", scope: "console", cap: "member", nav: true },
   { to: "/dashboard/billing/credits", label: "Credits", scope: "console", cap: "member", nav: false },
   { to: "/dashboard/billing/invoices", label: "Invoices", scope: "console", cap: "member", nav: false },
@@ -62,6 +78,7 @@ export const CONSOLE_NAV: readonly NavItem[] = [
   { to: "/dashboard/team/members", label: "Team", scope: "console", cap: "member", nav: true },
   { to: "/dashboard/team/invitations", label: "Invitations", scope: "console", cap: "member", nav: false },
   { to: "/dashboard/team/roles", label: "Roles", scope: "console", cap: "member", nav: false },
+  { to: "/dashboard/settings", label: "Settings", scope: "console", cap: "member", nav: true },
   { to: "/dashboard/projects/new", label: "New project", scope: "console", cap: "member", nav: false },
   { to: "/dashboard/projects/:projectId", label: "Project", scope: "console", cap: "member", nav: false },
   { to: "/dashboard/projects/:projectId/playground", label: "Playground", scope: "console", cap: "member", nav: false },

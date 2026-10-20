@@ -9,7 +9,7 @@ PRD's resource model: `User → Workspace → Project → Environment → API Ke
 **Evidence:** table names/columns below are the literal DDL shipped in
 `infra/migrations/0006_platform_schema.sql` + `0007_platform_cutover.sql`; live row counts at
 design time were 3 users / 9 keys / 9 providers / 308 models / 30 request_log rows
-(`postgres-hardened`, db `fudrouter`).
+(`postgre`, db `fudrouter`).
 
 ---
 ## 0. Why this document exists

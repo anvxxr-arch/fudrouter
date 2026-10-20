@@ -65,6 +65,19 @@ func (h *Handler) ServeGeneric(w http.ResponseWriter, r *http.Request) {
 	stream := false
 	passthrough := false
 	validate := func(b []byte) (string, *apiError) {
+		// H6: the passthrough forwards r.URL.Path and the raw query verbatim,
+		// and escaped dot-segments (%2e%2e) are NOT normalized by the mux —
+		// a path like /v1/%2e%2e/%2e%2e/admin could escape the /v1/ prefix on
+		// an upstream that decodes before routing. Reject the raw spellings
+		// outright (case-insensitive) with the same truthful 404 the file
+		// already uses for unsupported paths; a legitimate /v1/* endpoint
+		// contains none of them.
+		lower := strings.ToLower(path)
+		if strings.Contains(lower, "..") || strings.Contains(lower, "%2e") || strings.Contains(lower, "%2f") {
+			return "", &apiError{Code: "MODEL_NOT_FOUND", Status: 404,
+				Type: "invalid_request_error",
+				Message: fmt.Sprintf("%s is not implemented on this router", path)}
+		}
 		// Stateful resources (spec §6 P2): honest 404, never a forwarded lie.
 		for _, p := range statefulPrefixes {
 			if path == p || strings.HasPrefix(path, p+"/") {
@@ -93,7 +106,16 @@ func (h *Handler) ServeGeneric(w http.ResponseWriter, r *http.Request) {
 			var probe map[string]any
 			if json.Unmarshal(b, &probe) == nil {
 				if st, _ := probe["stream"].(bool); st {
-					probe["stream_options"] = map[string]any{"include_usage": true}
+					// Merge, don't replace: the contract forwards the body
+					// essentially verbatim (inference.yaml), so client-supplied
+					// stream_options fields survive; include_usage is forced
+					// true because billing depends on it.
+					so, _ := probe["stream_options"].(map[string]any)
+					if so == nil {
+						so = map[string]any{}
+					}
+					so["include_usage"] = true
+					probe["stream_options"] = so
 					body, _ = json.Marshal(probe)
 					stream = true
 				}
@@ -117,9 +139,16 @@ func (h *Handler) ServeGeneric(w http.ResponseWriter, r *http.Request) {
 		}
 		// Inject stream_options.include_usage on JSON stream requests, exactly
 		// as the chat path does (endpoint-surface spec §6 P0 rule 5): a
-		// streamed call through this path must be billed.
+		// streamed call through this path must be billed. Merge into any
+		// client-supplied stream_options rather than replacing it — the
+		// contract forwards the body essentially verbatim (inference.yaml).
 		if st, _ := req["stream"].(bool); st {
-			req["stream_options"] = map[string]any{"include_usage": true}
+			so, _ := req["stream_options"].(map[string]any)
+			if so == nil {
+				so = map[string]any{}
+			}
+			so["include_usage"] = true
+			req["stream_options"] = so
 			body, _ = json.Marshal(req)
 			stream = true
 		}
@@ -151,6 +180,11 @@ func (h *Handler) ServeGeneric(w http.ResponseWriter, r *http.Request) {
 	lc.stream = stream
 
 	upstreamPath := strings.TrimPrefix(path, "/v1")
+	// The query is forwarded for EVERY path: endpoint-surface spec §6 P0
+	// documents query passthrough on the generic surface (pinned by
+	// TestEndpointSurfaceSpec3Rows/DELETE), so dropping it for the
+	// passthrough hatch was a behavior regression, not hardening. The PATH is
+	// the traversal surface and is validated by the guard in validate above.
 	upCtx := lc.upstreamContext(r, stream)
 	resp, err := lc.dispatch(upCtx, body, r.Method, r.URL.RawQuery, upstreamPath)
 	if err != nil || resp == nil {

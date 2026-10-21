@@ -82,6 +82,26 @@ control the operator had set.
   `workspace_id`), and the dashboard, limits, billing, aliases, routing, alerts
   and admin pages render with zero workspace/project wording.
 
+## Deploy
+
+`0019` is one-way and **not applied to the production database by this commit** —
+pushing code does not migrate. Run it as the app role, never the superuser, or the
+tables end up `postgres`-owned and the app gets "permission denied" on its first
+write:
+
+```sh
+# as the fudrouter role, not postgres
+DATABASE_URL=postgres://fudrouter:<pw>@127.0.0.1:5432/fudrouter ops/migrate.sh
+pm2 restart fudrouter-router fudrouter-workers fudrouter-scheduler fudrouter-console
+bash ops/verify/pm2-env-hygiene.sh
+```
+
+`pm2 restart` must not be run from an agent shell: PM2 captures the creating
+client's environment into `dump.pm2` and replays it on every `pm2 resurrect`. The
+hygiene check runs **after** the restart, and `filter_env` must stay an array —
+`true` is a no-op because PM2 tests `.length`, which is how provider keys leaked
+into the router env once already.
+
 The scratch databases (`flat_go`, `flat_go2`, `flat_prodshape`, `flat_final`)
 were dropped after the run; the rehearsal is reproducible from the recipe above
 — `pg_dump --schema-only` of the live database plus its `schema_migration` rows

@@ -76,8 +76,21 @@ other, and both are testable independently."
 - **Deliberate non-goals:** no Rust backend until a measured bottleneck exists;
   no Go management API (the Express `/api/admin/*` surface stays); no e2e or load
   harness.
-- **Undecided:** self-serve payments (billing is settled by the operator
-  offline), multi-region deployment, and any team or sharing feature.
+- **Self-serve checkout is planned.** Customers will buy credits themselves
+  rather than relying on the operator to post ledger rows from `/admin`. Until it
+  ships, billing stays operator-settled: the customer-facing billing page reports
+  balance and spend but takes no card details, and every credit lands through an
+  audited `credit_ledger` posting.
+- **Undecided:** multi-region deployment, and any team or sharing feature.
+
+## Accessibility & Inclusion
+
+Target: **WCAG 3** (<https://www.w3.org/TR/wcag-3.0/>). WCAG 3 is a W3C Working
+Draft, not yet a Recommendation and with no conformance regime, so it directs the
+work rather than certifying it. Until it stabilises, the enforceable floor is
+WCAG 2.2 AA: contrast, visible focus, keyboard operability and target size on
+every console surface. State the tradeoff rather than silently substituting a
+different standard.
 
 ## Brand Commitments
 

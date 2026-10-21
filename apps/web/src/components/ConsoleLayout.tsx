@@ -34,25 +34,37 @@ export function ConsoleLayout({ children }: { children: ReactNode }) {
   const params = useParams();
   const pid = params.projectId ?? shell?.projectId ?? null;
   const items = filterNav(CONSOLE_NAV, user?.role ?? null);
+  const [collapsed, setCollapsed] = useState(false);
   const switchWs = (id: string) => apiPost("/api/pages/workspace/switch", { workspaceId: id }).then(() => location.reload());
   const switchProj = (id: string) => apiPost(`/api/pages/projects/${id}/switch`, {}).then(() => location.reload());
   return (
-    <div className="console-shell">
+    <div className={"console-shell" + (collapsed ? " collapsed" : "")}>
       <aside className="console-side">
-        <div className="stack" style={{ gap: "var(--space-sm)" }}>
-          {shell ? (<>
-            <Switcher label="Workspace" items={shell.workspaces} active={shell.workspaceId} onPick={switchWs} />
-            <Switcher label="Project" items={shell.projects} active={pid} onPick={switchProj} />
-          </>) : <span className="muted">Loading shell…</span>}
-        </div>
-        <nav className="console-side-nav" aria-label="Dashboard">
-          {items.map((i) => (
-            <NavLink key={i.to} to={i.to} end={i.to === "/dashboard"} className={({ isActive }) => (isActive ? "current" : undefined)}>
-              {i.label}
-            </NavLink>
-          ))}
-          {pid ? <Link to={"/dashboard/projects/" + pid + "/playground"}>Playground</Link> : null}
-        </nav>
+        <button
+          type="button"
+          className="console-side-toggle"
+          aria-expanded={!collapsed}
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          onClick={() => setCollapsed((c) => !c)}
+        >
+          {collapsed ? "»" : "«"}
+        </button>
+        {!collapsed && (<>
+          <div className="stack" style={{ gap: "var(--space-sm)" }}>
+            {shell ? (<>
+              <Switcher label="Workspace" items={shell.workspaces} active={shell.workspaceId} onPick={switchWs} />
+              <Switcher label="Project" items={shell.projects} active={pid} onPick={switchProj} />
+            </>) : <span className="muted">Loading shell…</span>}
+          </div>
+          <nav className="console-side-nav" aria-label="Dashboard">
+            {items.map((i) => (
+              <NavLink key={i.to} to={i.to} end={i.to === "/dashboard"} className={({ isActive }) => (isActive ? "current" : undefined)}>
+                {i.label}
+              </NavLink>
+            ))}
+            {pid ? <Link to={"/dashboard/projects/" + pid + "/playground"}>Playground</Link> : null}
+          </nav>
+        </>)}
       </aside>
       <div className="console-main">{children}</div>
     </div>

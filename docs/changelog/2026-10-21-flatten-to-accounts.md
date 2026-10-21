@@ -65,8 +65,9 @@ control the operator had set.
 ## Gates
 
 - `npm run check` → tsc ×3, contracts (7 inference / 159 management), structure
-  PASS. The management floor moved 180 → 150 because 32 hierarchy routes left
-  the surface; the floor still fails a scanner that matches nothing.
+  PASS. The management surface went 191 → 159 when the hierarchy routes left; the
+  non-triviality floor moved 180 → 150 to track it, and still fails a scanner
+  that matches nothing.
 - `go vet ./...`, `go build ./...` → clean; `go test ./...` → **13/13 packages**
   against a freshly migrated database (proxy 85.5 s, store 10.2 s).
 - `npm test` → **128 pass / 0 fail / 6 skipped** (Valkey and two
@@ -84,10 +85,10 @@ control the operator had set.
 
 ## Deploy
 
-`0019` is one-way and **not applied to the production database by this commit** —
-pushing code does not migrate. Run it as the app role, never the superuser, or the
-tables end up `postgres`-owned and the app gets "permission denied" on its first
-write:
+`0019` is one-way. As of 2026-10-21 it was **not applied to the production
+database** — pushing code does not migrate. Run it as the app role, never the
+superuser, or the tables end up `postgres`-owned and the app gets "permission
+denied" on its first write:
 
 ```sh
 # as the fudrouter role, not postgres

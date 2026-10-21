@@ -47,9 +47,6 @@ func (h *Handler) authenticate(r *http.Request) (*store.APIKeyRow, error) {
 		if errors.Is(err, store.ErrKeyExpired) {
 			return nil, h.authFail(r, errors.New("api key expired"))
 		}
-		if errors.Is(err, store.ErrKeyScope) {
-			return nil, h.authFail(r, errors.New("api key's workspace, project or environment is not active"))
-		}
 		// A lookup FAILURE (bad SQL, missing column) is not "invalid api key":
 		// say so loudly here while the client still gets the no-key-oracle
 		// answer below (spec §3).

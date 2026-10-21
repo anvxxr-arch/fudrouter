@@ -98,7 +98,7 @@ export const PUBLIC_SEO: readonly SeoMeta[] = [
     to: '/features',
     title: `Features — routing, billing, limits | ${SITE_NAME}`,
     description:
-      'Automatic fallback, combo routing, integer micro-unit credit billing, multi-tenant limits, budget gates, audit logging and provider health — plus the roadmap.',
+      'Automatic fallback, combo routing, integer micro-unit credit billing, per-account limits, budget gates, audit logging and provider health — plus the roadmap.',
     indexable: true,
     changefreq: 'weekly',
     priority: 0.8,
@@ -171,7 +171,7 @@ export const PUBLIC_SEO: readonly SeoMeta[] = [
     // this registry exists to prevent.
     to: '/signup',
     title: `Log in with Discord | ${SITE_NAME}`,
-    description: `Sign in to ${SITE_NAME} with Discord. The first sign-in provisions your workspace, a project and three environments.`,
+    description: `Sign in to ${SITE_NAME} with Discord. The first sign-in provisions your account.`,
     indexable: false,
   },
   {
@@ -327,13 +327,13 @@ export function seoFor(pathname: string): SeoMeta {
  * so a 200 made every typo'd URL look indexable.
  *
  * Guarded routes are listed as PREFIXES because that is how the SPA nests them
- * (dashboard/keys, dashboard/team/roles, admin/models, …) and enumerating them
+ * (dashboard/keys, dashboard/limits, admin/models, …) and enumerating them
  * here would duplicate navigation.ts. `/login` and `/signup` are in the registry
  * above, so they are covered without a prefix rule.
  */
 export function isKnownRoute(pathname: string): boolean {
   if (PUBLIC_SEO.some((m) => patternMatches(m.to, pathname))) return true;
-  return /^\/(dashboard|admin)(\/|$)/.test(pathname) || /^\/invite\/[^/]+$/.test(pathname);
+  return /^\/(dashboard|admin)(\/|$)/.test(pathname);
 }
 
 /**

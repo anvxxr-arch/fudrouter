@@ -640,30 +640,22 @@ function changelog() {
 	});
 }
 
-const QUICKSTART = `Five steps from nothing to a request that shows up in your logs. Each step
+const QUICKSTART = `Four steps from nothing to a request that shows up in your logs. Each step
 links to the dashboard page that performs it.
 
 ## 1. Sign in
 
 Open [/login](/login) and approve the Discord prompt. There is no separate
-signup form: the first sign-in provisions your account, workspace, a default
-project and three environments (Development, Staging, Production) — nothing to
-set up before step 2.
+signup form: the first sign-in provisions your account and its billing account —
+nothing to set up before step 2.
 
-## 2. Create a project
+## 2. Generate an API key
 
-Projects hold the environments, keys and logs for one application. Create one
-at [/dashboard/projects/new](/dashboard/projects/new) and name it after what
-the keys will serve. Every project starts with the three default environments.
+Open [/dashboard/keys](/dashboard/keys) and mint a key. Keys are shown exactly
+once and look like \`sk-ar-<prefix>_<secret>\` — only \`sha256(secret)\` is
+stored, so copy it into your secret manager before leaving the page.
 
-## 3. Generate an API key
-
-Inside the project, open **API Keys** and generate a key for the environment
-you want to call from. Keys are shown exactly once and look like
-\`sk-ar-<prefix>_<secret>\` — only \`sha256(secret)\` is stored, so copy it into
-your secret manager before leaving the page.
-
-## 4. First request
+## 3. First request
 
 Send a chat completion to \`POST /v1/chat/completions\` with the \`sk-ar-\` key as
 the bearer token. Any OpenAI-compatible client works; plain \`curl\` is enough
@@ -681,7 +673,7 @@ The response body is the chat-completion shape your SDK expects, including a
 
 The key itself is minted at [/dashboard/keys](/dashboard/keys).
 
-## 5. View request logs
+## 4. View request logs
 
 Every call writes one ledger row. Open
 [/dashboard/usage](/dashboard/usage) to see it: model, provider, tokens, cost,
@@ -699,9 +691,9 @@ A missing, malformed or revoked key gets \`401\` with an
 \`AUTHENTICATION_ERROR\`. Keys are stored hash-only (\`sha256(secret)\`), so a
 secret cannot be recovered — generate a new key instead.
 
-A key is bound to a workspace and can be scoped to a project and environment.
-That scope decides which models and routing policy apply, and where the
-request lands in your logs.`;
+A key belongs to one user account. That account's policy decides which models
+and routing rules apply, and every request the key makes lands in your logs
+under that account.`;
 
 const API_MODELS = `\`GET /v1/models\` is served natively by the router: it lists the models your
 key can actually reach, in the OpenAI list shape (\`object: "list"\` with
@@ -797,10 +789,11 @@ are retryable. The dashboard playground and the request logs show the same
 codes — the request id in the
 [x-fudrouter-request-id](/docs/api/headers) header ties them together.`;
 
-const API_RATE_LIMITS = `Limits are configured per key and environment — there are no global numbers
-to code against. Each API key carries its own limits (requests per minute,
-tokens per minute and spend), and the bound policy decides what applies to a
-given call.
+const API_RATE_LIMITS = `Limits are configured per account and per key — there are no global numbers
+to code against. Each account carries its own limits (requests per minute,
+tokens per minute and spend) and each key may tighten them further; the
+router enforces the tightest value across the chain, so an override only ever
+lowers a limit.
 
 When a call exceeds a configured limit the router answers \`429\` with a
 \`RATE_LIMITED\` error and does not forward the request. Limits that must not
@@ -867,7 +860,7 @@ work:
 
 - **Canonical slug** — the stable id from the catalog (\`grok-4.6\`). Use this
   in code you control end to end.
-- **Model alias** — a name your workspace defines (for example
+- **Model alias** — a name your account defines (for example
   \`production-chat\`) that points at a target list. The alias is what your
   application sends, so targets can change without a redeploy.
 - **Virtual form** — \`fudrouter/*\` names, resolved by the routing policy.
@@ -909,31 +902,28 @@ that cannot finish inside it. Attempts, the fallback flag and the failing
 error are all recorded on the request log, so "this call cost two attempts"
 is readable per request in [Usage](/docs/usage/usage).`;
 
-const PROJECTS_PROJECTS = `The hierarchy is workspace → project → environment → API key.
+const PROJECTS_PROJECTS = `The account is the tenant. There is one level, not a tree:
 
-- **Workspace** — the billing and team boundary. Members, roles and the
-  billing account live here.
-- **Project** — one application. Its keys, aliases, routing policy and logs
-  hang off it.
-- **Environment** — Development, Staging and Production are created with each
-  project. Keys and limits are per environment, so a staging key cannot spend
-  production money.
-- **API key** — scoped to the project and environment it was made in. See
-  [API Keys](/docs/api-keys/api-keys).
+- **Account** — the user account you signed in with. Its billing account,
+  budgets, rate limits, routing policies, alerts, webhooks and model aliases
+  all hang off it directly.
+- **API key** — belongs to that account. A key carries its own limits, which
+  can only tighten the account's. See [API Keys](/docs/api-keys/api-keys).
 
-Create projects at [/dashboard/projects/new](/dashboard/projects/new); usage
-and request logs break down by project and environment.`;
+There is no workspace, project or environment layer, so there is nothing to
+create before your first request. Usage and request logs break down by model,
+provider, key and status at [/dashboard/usage](/dashboard/usage).`;
 
 const APIKEYS_KEYS = `An API key is the \`sk-ar-<prefix>_<secret>\` string your client sends as a
 bearer token. The plaintext is shown once at creation; only
 \`sha256(secret)\` is stored, so a lost key is replaced, never recovered.
 
-A key belongs to one user and is scoped to a workspace, and optionally to a
-project and environment. Its scope and bound policy decide which models it
-can reach, its rate and spend limits, and where its requests log.
+A key belongs to one user account. That account's routing policy decides which
+models it can reach, and its rate and spend limits apply to the key's traffic;
+a key may carry tighter limits of its own.
 
-Keys are managed at [/dashboard/keys](/dashboard/keys) or inside a project.
-Rotate or revoke from the same pages — revocation takes effect immediately
+Keys are managed at [/dashboard/keys](/dashboard/keys).
+Rotate or revoke from the same page — revocation takes effect immediately
 for new requests. The playground runs in a key's context without ever knowing
 its secret: it mints a short-lived run key scoped exactly like the original
 and reclaims it when the run ends.`;
@@ -944,9 +934,9 @@ error code when it failed. The ledger is append-only — it is the financial
 and usage record.
 
 Your view of it is [/dashboard/usage](/dashboard/usage): the request list
-plus per-model and per-project totals. Cost is computed per request from the
-normalized price of the route that served it, in integer micro-units — the
-same number that appears in billing.
+plus per-model, per-provider and per-key totals. Cost is computed per request
+from the normalized price of the route that served it, in integer micro-units
+— the same number that appears in billing.
 
 The request id (\`x-fudrouter-request-id\`) joins the ledger to the response
 you received; when something looks wrong, that id is the one thing support
@@ -955,7 +945,7 @@ needs.`;
 const OBSERVABILITY_OBSERVABILITY = `Observability is the request log, and it is deliberately one place. No
 sampling, no separate tracing store: if a call happened, a row exists.
 
-Per request: what was asked (model, key, project, environment), what ran
+Per request: what was asked (model, key), what ran
 (resolved model, provider, connection, attempts, fallback), what it cost
 (tokens, cost), how it went (status, error code, latency, TTFT) and when
 (start, end). The playground's metrics panel reads the same rows as your
@@ -1154,9 +1144,9 @@ export const DOC_CATEGORIES = [
 		]
 	},
 	{
-		slug: 'projects',
-		title: 'Projects',
-		pages: [{ slug: 'projects', title: 'Projects and environments', markdown: PROJECTS_PROJECTS }]
+		slug: 'accounts',
+		title: 'Accounts',
+		pages: [{ slug: 'accounts', title: 'Accounts and keys', markdown: PROJECTS_PROJECTS }]
 	},
 	{
 		slug: 'api-keys',

@@ -16,12 +16,15 @@ func orDash(s string) string {
 	return s
 }
 
-// policyKey keys a resolved routing policy by the key's scope triple — the
-// only inputs RoutingPolicyFor reads (store.RoutingPolicyFor) — under the
-// process's database namespace.
-func (h *Handler) policyKey(env, project, workspace string) string {
-	return cacheKey(h.cacheNS(), "policy:v1",
-		orDash(env)+"/"+orDash(project)+"/"+orDash(workspace))
+// policyKey keys a resolved routing policy by the key's account — the only
+// input RoutingPolicyFor reads (store.RoutingPolicyFor) — under the process's
+// database namespace.
+//
+// The cache key used to carry an environment/project/workspace triple; those
+// levels were removed in migration 0019, and keeping them in the key would have
+// meant a stale entry per key that could never be reached again.
+func (h *Handler) policyKey(account string) string {
+	return cacheKey(h.cacheNS(), "policy:v2", orDash(account))
 }
 
 // cachedRoutingPolicy wraps Store.RoutingPolicyFor with a short Valkey TTL.
@@ -29,7 +32,7 @@ func (h *Handler) policyKey(env, project, workspace string) string {
 // missing/disabled/failing Valkey degrades to a direct DB read and never
 // fails the request (spec §12 fail-open).
 func (h *Handler) cachedRoutingPolicy(ctx context.Context, k *store.APIKeyRow) (*store.RoutingPolicy, error) {
-	key := h.policyKey(k.EnvironmentID, k.ProjectID, k.WorkspaceID)
+	key := h.policyKey(k.UserID)
 	var pol store.RoutingPolicy
 	if err := h.vk.GetJSON(ctx, key, &pol, 5*time.Second); err == nil {
 		return &pol, nil

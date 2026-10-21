@@ -3,8 +3,8 @@
 // The baseline records "better-auth session + Discord OAuth callback: no
 // coverage". This suite drives the real /api/auth/* endpoints over HTTP and
 // asserts the two things that must hold for every other management route: a
-// session cookie authenticates, and sign-up provisions the workspace tree that
-// /api/pages/workspace reports.
+// session cookie authenticates, and sign-up provisions the billing account
+// that /api/pages/billing reads.
 //
 // Gating: the module evaluates `integrationEnabled()` once at load. With no
 // DATABASE_URL outside CI it returns false, `test.before` returns early, and
@@ -15,6 +15,7 @@
 // exercised, so CI fails loudly by design.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import postgres from 'postgres';
 import { startServer, signUp, uniqueEmail, integrationEnabled } from './harness.mjs';
 
 // One predicate, shared with the harness: it throws when DATABASE_URL names the
@@ -24,12 +25,14 @@ const hasDb = integrationEnabled();
 const SKIP = 'no throwaway DATABASE_URL — integration suite skipped';
 
 let server;
+let sql;
 let cookie;
 let email;
 
 test.before(async () => {
 	if (!hasDb) return;
 	server = await startServer();
+	sql = postgres(process.env.DATABASE_URL, { max: 2 });
 	const signed = await signUp(server.baseUrl, { email: uniqueEmail('auth') });
 	assert.equal(signed.status, 200, `sign-up failed: ${JSON.stringify(signed.body)}`);
 	cookie = signed.cookie;
@@ -39,50 +42,47 @@ test.before(async () => {
 
 test.after(async () => {
 	await server?.stop();
+	await sql?.end({ timeout: 5 });
 });
 
-test('sign-up provisions the workspace tree /api/pages/workspace reads', { skip: !hasDb && SKIP }, async () => {
-	// The user.create.after hook (index.mjs:391-400) provisions workspace,
-	// project, environments, role, member and billing account. If that hook
-	// regresses, every /api/pages/* route that resolves the ownership tree
-	// fails, so assert the tree exists.
+test('sign-up provisions the billing account /api/pages/billing reads', { skip: !hasDb && SKIP }, async () => {
+	// The user.create.after hook (index.mjs provisionAccount) creates the billing
+	// account and nothing else — migration 0019 made the user account the tenant,
+	// so there is no workspace tree left to provision.
 	//
-	// /api/pages/workspace is the endpoint that reports it: it returns
-	// { workspace, owner, isOwner, projectCount, memberCount, members }
-	// (pages.mjs:572). /api/pages/dashboard returns only usage totals, so it
-	// cannot observe provisioning at all.
-	const res = await fetch(`${server.baseUrl}/api/pages/workspace`, {
-		headers: { cookie }
-	});
+	// The read path self-heals (`billingAccountFor` inserts on conflict do
+	// nothing), so asserting the 200 alone would pass even with the hook broken.
+	// The row must exist BEFORE the first read: query it directly.
+	const rows = await sql`
+		select ba.id, ba.currency from billing_account ba
+		join "user" u on u.id = ba.user_id
+		where u.email = ${email}`;
+	assert.equal(rows.length, 1, 'sign-up must provision exactly one billing account');
+	assert.equal(rows[0].currency, 'USD');
+
+	const res = await fetch(`${server.baseUrl}/api/pages/billing`, { headers: { cookie } });
 	const raw = await res.text();
-	assert.equal(res.status, 200, `workspace page failed: ${raw}`);
+	assert.equal(res.status, 200, `billing page failed: ${raw}`);
 	const body = JSON.parse(raw);
-	assert.ok(body.workspace?.id, 'a workspace must be provisioned for a new user');
-	assert.ok(body.workspace?.name, 'the workspace must carry a name');
-	assert.ok(
-		body.projectCount >= 1,
-		`the hook creates a project; got projectCount=${body.projectCount}`,
-	);
-	assert.ok(
-		body.memberCount >= 1,
-		`the hook adds the owner as a member; got memberCount=${body.memberCount}`,
-	);
-	assert.ok(body.isOwner === true, 'the signed-up user must own the provisioned workspace');
+	assert.equal(body.currency, 'USD', 'the billing account must carry a currency');
+	assert.equal(body.canWrite, true, 'the account owner must be able to write billing settings');
+	assert.equal(typeof body.balanceMicro, 'string', 'the billing page must report a balance');
+	assert.equal(typeof body.period?.spentMicro, 'string', 'the billing page must report period spend');
 });
 
 test('a session cookie authenticates; no cookie is 401', { skip: !hasDb && SKIP }, async () => {
-	const authed = await fetch(`${server.baseUrl}/api/pages/workspace`, {
+	const authed = await fetch(`${server.baseUrl}/api/pages/account`, {
 		headers: { cookie }
 	});
 	assert.equal(authed.status, 200);
 
-	const anon = await fetch(`${server.baseUrl}/api/pages/workspace`);
+	const anon = await fetch(`${server.baseUrl}/api/pages/account`);
 	assert.equal(anon.status, 401, 'an unauthenticated request must be 401, not an empty 200');
 });
 
 test('the session survives a second request (cookie is not single-use)', { skip: !hasDb && SKIP }, async () => {
-	const first = await fetch(`${server.baseUrl}/api/pages/workspace`, { headers: { cookie } });
-	const second = await fetch(`${server.baseUrl}/api/pages/workspace`, { headers: { cookie } });
+	const first = await fetch(`${server.baseUrl}/api/pages/account`, { headers: { cookie } });
+	const second = await fetch(`${server.baseUrl}/api/pages/account`, { headers: { cookie } });
 	assert.equal(first.status, 200);
 	assert.equal(second.status, 200, 'the session cookie must be reusable');
 });
@@ -105,7 +105,7 @@ test('sign-in with the right password works and the wrong one is rejected', { sk
 });
 
 test('a forged session cookie is rejected, not trusted', { skip: !hasDb && SKIP }, async () => {
-	const res = await fetch(`${server.baseUrl}/api/pages/workspace`, {
+	const res = await fetch(`${server.baseUrl}/api/pages/account`, {
 		headers: { cookie: 'better-auth.session_token=forged-token-value' }
 	});
 	assert.equal(res.status, 401, 'a forged session token must not authenticate');

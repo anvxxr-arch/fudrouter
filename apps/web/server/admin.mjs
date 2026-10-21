@@ -120,8 +120,6 @@ export const rl = pgTable('request_log', {
 	ttftMs: integer('ttft_ms'),
 	status: text('status').notNull(),
 	createdAt: timestamp('created_at', tz).notNull().defaultNow(),
-	workspaceId: text('workspace_id'),
-	projectId: text('project_id'),
 	endpoint: text('endpoint'),
 	requestedModel: text('requested_model'),
 	connectionId: text('connection_id'),
@@ -141,39 +139,9 @@ export const useDay = pgTable('usage_daily', {
 	tokensOut: bigint('tokens_out', { mode: 'number' }).notNull().default(0),
 	costMicro: bi('cost_micro').notNull().default(sql`0`)
 });
-export const ws = pgTable('workspace', {
-	id: text('id').primaryKey(),
-	name: text('name').notNull(),
-	slug: text('slug').notNull(),
-	ownerUserId: text('owner_user_id'),
-	status: text('status').notNull().default('active'),
-	createdAt: timestamp('created_at', tz).notNull().defaultNow()
-});
-export const wsMem = pgTable('workspace_member', {
-	id: text('id').primaryKey(),
-	workspaceId: text('workspace_id').notNull(),
-	userId: text('user_id').notNull()
-});
-export const proj = pgTable('project', {
-	id: text('id').primaryKey(),
-	workspaceId: text('workspace_id').notNull(),
-	name: text('name').notNull(),
-	slug: text('slug').notNull(),
-	status: text('status').notNull().default('active'),
-	createdAt: timestamp('created_at', tz).notNull().defaultNow()
-});
-export const env = pgTable('environment', {
-	id: text('id').primaryKey(),
-	projectId: text('project_id').notNull(),
-	name: text('name').notNull(),
-	slug: text('slug').notNull(),
-	type: text('type').notNull(),
-	status: text('status').notNull().default('active'),
-	routingPolicyId: text('routing_policy_id')
-});
 export const bac = pgTable('billing_account', {
 	id: text('id').primaryKey(),
-	workspaceId: text('workspace_id').notNull(),
+	userId: text('user_id').notNull(),
 	currency: char('currency', { length: 3 }).notNull().default('USD'),
 	status: text('status').notNull().default('active'),
 	warningThresholdMicro: bi('warning_threshold_micro').notNull().default(sql`10000000`),
@@ -207,9 +175,7 @@ export const inv = pgTable('invoice', {
 });
 export const rpol = pgTable('routing_policy', {
 	id: text('id').primaryKey(),
-	workspaceId: text('workspace_id'),
-	projectId: text('project_id'),
-	environmentId: text('environment_id'),
+	accountId: text('account_id'),
 	name: text('name').notNull(),
 	strategy: text('strategy').notNull().default('balanced'),
 	enabled: boolean('enabled').notNull().default(true),
@@ -267,10 +233,7 @@ export const akey = pgTable('api_key', {
 	limits: jsonb('limits').notNull().default({}),
 	lastUsedAt: timestamp('last_used_at', tz),
 	revokedAt: timestamp('revoked_at', tz),
-	createdAt: timestamp('created_at', tz).notNull().defaultNow(),
-	workspaceId: text('workspace_id'),
-	projectId: text('project_id'),
-	environmentId: text('environment_id')
+	createdAt: timestamp('created_at', tz).notNull().defaultNow()
 });
 export const ausr = pgTable('user', {
 	id: text('id').primaryKey(),
@@ -324,15 +287,13 @@ const SIM_STRATEGIES = ['balanced', 'lowest_cost', 'lowest_latency', 'highest_re
 const STRATEGY_USES = { balanced: 'price · latency · reliability · capacity (equal-ish mix)', lowest_cost: 'estimated cost for the token estimate', lowest_latency: 'observed p95 latency', highest_reliability: 'observed availability', provider_priority: 'provider priority', weighted: 'weights jsonb (price / latency / reliability / capacity)', round_robin: 'rotation slot (simulated order is deterministic)', random: 'shuffle slot (simulated order is deterministic)', smart: 'weights jsonb (price / latency / reliability / capacity)' };
 const RETRYABLE_CODES = ['RATE_LIMITED', 'PROVIDER_TIMEOUT', 'PROVIDER_UNAVAILABLE', 'CIRCUIT_OPEN', 'UPSTREAM_ERROR', 'transport'];
 const NEVER_RETRY_CODES = ['INVALID_REQUEST', 'UNSUPPORTED_PARAMETER', 'CONTEXT_TOO_LONG', 'MODEL_NOT_FOUND', 'AUTHORIZATION_ERROR', 'CONTENT_REJECTED'];
-const PROJECT_STATUSES = ['active', 'archived', 'suspended'];
-const WORKSPACE_STATUSES = ['active', 'archived', 'suspended'];
 const JOB_STATUSES = ['pending', 'running', 'done', 'failed', 'cancelled'];
 const RETRYABLE_JOBS = ['failed', 'cancelled'];
 const CANCELLABLE_JOBS = ['pending', 'running'];
 const REQUEST_STATUSES = ['success', 'client_error', 'provider_error', 'timeout', 'rate_limited', 'cancelled', 'internal_error', 'error', 'upstream_error'];
 const LAST_USED_AGES = ['1', '24', '168', '720'];
-const RATE_SCOPES = ['workspace', 'project', 'environment', 'api_key'];
-const POLICY_SCOPES = ['platform', 'workspace', 'project', 'environment'];
+const RATE_SCOPES = ['account', 'api_key'];
+const POLICY_SCOPES = ['platform', 'account'];
 const KEY_LIFECYCLE_ACTIONS = ['key.rotate', 'api_key.rotate', 'key.create'];
 const TIMING_KEYS = ['auth', 'rate_limit', 'routing', 'queue', 'connection', 'generation'];
 const VK_NAMESPACES = ['rl', 'conc', 'spend', 'usage', 'health', 'credential', 'circuit', 'model', 'catalog', 'session', 'idem', 'lock', 'metric', 'ver'];
@@ -409,13 +370,12 @@ export function registerAdminRoutes(app, ctx) {
 
 	// Overview (admin/+page.server.ts): counts + top consumers + recent.
 	app.get('/api/admin/overview', handler('analytics', async (database) => {
-		const [[providers], [models], [connections], [keys], [users], [workspaces], [reqAgg]] = await Promise.all([
+		const [[providers], [models], [connections], [keys], [users], [reqAgg]] = await Promise.all([
 			database.select({ n: sql`count(*)::int` }).from(prv),
 			database.select({ n: sql`count(*)::int` }).from(mdl),
 			database.select({ n: sql`count(*)::int` }).from(conn),
 			database.select({ n: sql`count(*) filter (where ${akey.status} = 'active')::int` }).from(akey),
 			database.select({ n: sql`count(*)::int` }).from(ausr),
-			database.select({ n: sql`count(*)::int` }).from(ws),
 			database.select({
 				n: sql`count(*)::int`,
 				tokens: sql`coalesce(sum(${rl.tokensIn} + ${rl.tokensOut}), 0)::int`,
@@ -453,7 +413,7 @@ export function registerAdminRoutes(app, ctx) {
 			.orderBy(desc(rl.createdAt))
 			.limit(12);
 		return {
-			counts: { providers: providers.n, models: models.n, connections: connections.n, activeKeys: keys.n, users: users.n, workspaces: workspaces.n, requests: reqAgg.n, tokens: reqAgg.tokens, costMicro: reqAgg.costMicro },
+			counts: { providers: providers.n, models: models.n, connections: connections.n, activeKeys: keys.n, users: users.n, requests: reqAgg.n, tokens: reqAgg.tokens, costMicro: reqAgg.costMicro },
 			series,
 			revenueMtdMicro: rev?.total ?? '0',
 			topConsumers,
@@ -528,10 +488,10 @@ export function registerAdminRoutes(app, ctx) {
 	// Billing: accounts + ledger sums + totals + recent + invoices.
 	app.get('/api/admin/billing', handler('billing', async (database) => {
 		const accounts = await database
-			.select({ id: bac.id, workspaceId: bac.workspaceId, workspaceName: ws.name, currency: bac.currency, status: bac.status, warningThresholdMicro: bac.warningThresholdMicro, hardStopThresholdMicro: bac.hardStopThresholdMicro, balanceMicro: bac.balanceMicro })
+			.select({ id: bac.id, userId: bac.userId, accountEmail: ausr.email, currency: bac.currency, status: bac.status, warningThresholdMicro: bac.warningThresholdMicro, hardStopThresholdMicro: bac.hardStopThresholdMicro, balanceMicro: bac.balanceMicro })
 			.from(bac)
-			.innerJoin(ws, eq(ws.id, bac.workspaceId))
-			.orderBy(ws.name);
+			.innerJoin(ausr, eq(ausr.id, bac.userId))
+			.orderBy(ausr.email);
 		const sums = await database.select({ billingAccountId: ledger.billingAccountId, total: sql`coalesce(sum(${ledger.amountMicro}), 0)::text` }).from(ledger).groupBy(ledger.billingAccountId);
 		const sumBy = new Map(sums.map((s) => [s.billingAccountId, s.total]));
 		const totals = await database.select({ type: ledger.type, total: sql`coalesce(sum(${ledger.amountMicro}), 0)::text` }).from(ledger).groupBy(ledger.type).orderBy(ledger.type);
@@ -545,7 +505,7 @@ export function registerAdminRoutes(app, ctx) {
 			.from(inv)
 			.orderBy(desc(inv.createdAt), desc(inv.id))
 			.limit(100);
-		const info = new Map(accounts.map((a) => [a.id, { workspaceName: a.workspaceName, currency: String(a.currency).trim() }]));
+		const info = new Map(accounts.map((a) => [a.id, { accountEmail: a.accountEmail, currency: String(a.currency).trim() }]));
 		// 12 months of ledger totals, zero-filled server-side: the overview's revenue
 		// chart needs a fixed-length series and the ledger is the only table with
 		// full history (request_log is pruned by retention). Per-tier is impossible —
@@ -566,11 +526,11 @@ export function registerAdminRoutes(app, ctx) {
 			return { month, series: LEDGER_TYPES.map((t) => ({ type: t, totalMicro: rows.find((r) => r.type === t)?.totalMicro ?? '0' })) };
 		});
 		return {
-			accounts: accounts.map((a) => ({ id: a.id, workspaceName: a.workspaceName, currency: String(a.currency).trim(), status: a.status, warningThresholdMicro: B(a.warningThresholdMicro), hardStopThresholdMicro: B(a.hardStopThresholdMicro), balanceMicro: B(a.balanceMicro), ledgerSumMicro: sumBy.get(a.id) ?? '0' })),
+			accounts: accounts.map((a) => ({ id: a.id, accountEmail: a.accountEmail, currency: String(a.currency).trim(), status: a.status, warningThresholdMicro: B(a.warningThresholdMicro), hardStopThresholdMicro: B(a.hardStopThresholdMicro), balanceMicro: B(a.balanceMicro), ledgerSumMicro: sumBy.get(a.id) ?? '0' })),
 			totals: totals.map((t) => ({ type: t.type, totalMicro: t.total })),
 			monthly,
-			recent: recent.map((r) => ({ id: r.id, workspaceName: info.get(r.billingAccountId)?.workspaceName ?? '—', type: r.type, amountMicro: B(r.amountMicro), currency: String(r.currency).trim(), requestId: r.requestId, description: r.description, createdBy: r.createdBy, createdAt: r.createdAt })),
-			invoices: invoices.map((v) => ({ id: v.id, workspaceName: info.get(v.billingAccountId)?.workspaceName ?? '—', number: v.number, periodStart: v.periodStart, periodEnd: v.periodEnd, amountMicro: B(v.amountMicro), currency: String(v.currency).trim(), status: v.status, issuedAt: v.issuedAt, paidAt: v.paidAt }))
+			recent: recent.map((r) => ({ id: r.id, accountEmail: info.get(r.billingAccountId)?.accountEmail ?? '—', type: r.type, amountMicro: B(r.amountMicro), currency: String(r.currency).trim(), requestId: r.requestId, description: r.description, createdBy: r.createdBy, createdAt: r.createdAt })),
+			invoices: invoices.map((v) => ({ id: v.id, accountEmail: info.get(v.billingAccountId)?.accountEmail ?? '—', number: v.number, periodStart: v.periodStart, periodEnd: v.periodEnd, amountMicro: B(v.amountMicro), currency: String(v.currency).trim(), status: v.status, issuedAt: v.issuedAt, paidAt: v.paidAt }))
 		};
 	}));
 
@@ -637,12 +597,9 @@ export function registerAdminRoutes(app, ctx) {
 	app.get('/api/admin/keys', handler('keys', async (database) => {
 		const users = await database.select({ id: ausr.id, email: ausr.email, name: ausr.name, role: ausr.role }).from(ausr).orderBy(ausr.email);
 		const keys = await database
-			.select({ id: akey.id, name: akey.name, prefix: akey.prefix, status: akey.status, limits: akey.limits, lastUsedAt: akey.lastUsedAt, revokedAt: akey.revokedAt, createdAt: akey.createdAt, userId: akey.userId, email: ausr.email, workspaceName: ws.name, projectName: proj.name, environmentName: env.name })
+			.select({ id: akey.id, name: akey.name, prefix: akey.prefix, status: akey.status, limits: akey.limits, lastUsedAt: akey.lastUsedAt, revokedAt: akey.revokedAt, createdAt: akey.createdAt, userId: akey.userId, email: ausr.email })
 			.from(akey)
 			.innerJoin(ausr, eq(ausr.id, akey.userId))
-			.leftJoin(ws, eq(ws.id, akey.workspaceId))
-			.leftJoin(proj, eq(proj.id, akey.projectId))
-			.leftJoin(env, eq(env.id, akey.environmentId))
 			.orderBy(desc(akey.createdAt));
 		const usage = await database
 			.select({ apiKeyId: rl.apiKeyId, requests: sql`count(*)::int`, tokensIn: sql`coalesce(sum(${rl.tokensIn}), 0)::int`, tokensOut: sql`coalesce(sum(${rl.tokensOut}), 0)::int`, cost: sql`coalesce(sum(${rl.cost}), 0)::text` })
@@ -722,28 +679,6 @@ export function registerAdminRoutes(app, ctx) {
 		return { providers, models: visible, summary, providerFilter, stateFilter, allowDev, statuses: MODEL_STATUSES, counts: { all: rows.length, served: rows.filter((r) => r.served).length, hidden: rows.filter((r) => !r.served).length, published: rows.filter((r) => r.status === 'active').length } };
 	}));
 
-	// Projects + usage/env/key counts.
-	app.get('/api/admin/projects', handler('projects', async (database) => {
-		const rows = await database
-			.select({ id: proj.id, name: proj.name, slug: proj.slug, status: proj.status, workspaceName: ws.name, createdAt: proj.createdAt })
-			.from(proj)
-			.innerJoin(ws, eq(ws.id, proj.workspaceId))
-			.orderBy(ws.name, proj.name);
-		const projIds = rows.map((r) => r.id);
-		const usageBy = new Map(projIds.map((id) => [id, { requests: 0, cost: '0' }]));
-		const envBy = new Map(projIds.map((id) => [id, 0]));
-		const keyBy = new Map(projIds.map((id) => [id, 0]));
-		if (projIds.length > 0) {
-			const usage = await database.select({ projectId: rl.projectId, requests: sql`count(*)::int`, cost: sql`coalesce(sum(${rl.cost}), 0)::text` }).from(rl).where(inArray(rl.projectId, projIds)).groupBy(rl.projectId);
-			for (const u of usage) if (u.projectId) usageBy.set(u.projectId, { requests: u.requests, cost: u.cost });
-			const envs = await database.select({ projectId: env.projectId, n: sql`count(*)::int` }).from(env).where(inArray(env.projectId, projIds)).groupBy(env.projectId);
-			for (const e of envs) envBy.set(e.projectId, e.n);
-			const keys = await database.select({ projectId: akey.projectId, n: sql`count(*)::int` }).from(akey).where(inArray(akey.projectId, projIds)).groupBy(akey.projectId);
-			for (const k of keys) if (k.projectId) keyBy.set(k.projectId, k.n);
-		}
-		return { projects: rows.map((r) => ({ ...r, environments: envBy.get(r.id) ?? 0, keys: keyBy.get(r.id) ?? 0, requests: usageBy.get(r.id)?.requests ?? 0, cost: usageBy.get(r.id)?.cost ?? '0' })) };
-	}));
-
 	// Providers: metadata + model/connection counts + credential health.
 	app.get('/api/admin/providers', handler('providers', async (database) => {
 		const rows = await database
@@ -815,34 +750,26 @@ export function registerAdminRoutes(app, ctx) {
 	// Routing: policies + resolution chain + platform default.
 	app.get('/api/admin/routing', handler('routing', async (database) => {
 		const policies = await database
-			.select({ id: rpol.id, name: rpol.name, strategy: rpol.strategy, enabled: rpol.enabled, maxAttempts: rpol.maxAttempts, fallbackEnabled: rpol.fallbackEnabled, workspaceId: rpol.workspaceId, projectId: rpol.projectId, environmentId: rpol.environmentId })
+			.select({ id: rpol.id, name: rpol.name, strategy: rpol.strategy, enabled: rpol.enabled, maxAttempts: rpol.maxAttempts, fallbackEnabled: rpol.fallbackEnabled, accountId: rpol.accountId })
 			.from(rpol)
 			.orderBy(rpol.name);
-		const [workspaces, projects, envs, defRow] = await Promise.all([
-			database.select({ id: ws.id, name: ws.name }).from(ws).orderBy(ws.name),
-			database.select({ id: proj.id, name: proj.name, workspaceId: proj.workspaceId }).from(proj).orderBy(proj.name),
-			database.select({ id: env.id, name: env.name, projectId: env.projectId, routingPolicyId: env.routingPolicyId }).from(env).orderBy(env.name),
+		const [accounts, defRow] = await Promise.all([
+			database.select({ id: bac.id, email: ausr.email }).from(bac).innerJoin(ausr, eq(ausr.id, bac.userId)).orderBy(ausr.email),
 			database.select({ value: sysSet.value }).from(sysSet).where(eq(sysSet.key, 'default_routing_policy')).limit(1)
 		]);
-		const wsName = new Map(workspaces.map((w) => [w.id, w.name]));
-		const projById = new Map(projects.map((p) => [p.id, p]));
-		const envName = new Map(envs.map((e) => [e.id, e.name]));
+		const acctEmail = new Map(accounts.map((a) => [a.id, a.email]));
 		const policyById = new Map(policies.map((p) => [p.id, p]));
 		const scoped = policies.map((p) => {
-			const scope = p.environmentId ? 'environment' : p.projectId ? 'project' : p.workspaceId ? 'workspace' : 'platform';
-			let scopeName = 'platform';
-			if (p.environmentId && envName.has(p.environmentId)) {
-				const e = envs.find((x) => x.id === p.environmentId);
-				scopeName = `environment: ${envName.get(p.environmentId)} (${e ? (projById.get(e.projectId)?.name ?? e.projectId) : ''})`;
-			} else if (p.projectId && projById.has(p.projectId)) scopeName = `project: ${projById.get(p.projectId)?.name}`;
-			else if (p.workspaceId && wsName.has(p.workspaceId)) scopeName = `workspace: ${wsName.get(p.workspaceId)}`;
+			const scope = p.accountId ? 'account' : 'platform';
+			const scopeName = p.accountId ? `account: ${acctEmail.get(p.accountId) ?? p.accountId}` : 'platform';
 			return { ...p, scope, scopeName };
 		});
-		const chain = envs.map((e) => {
-			const pr = projById.get(e.projectId);
-			return { environment: e.name, project: pr?.name ?? e.projectId, workspace: pr ? (wsName.get(pr.workspaceId) ?? pr.workspaceId) : '—', policyId: e.routingPolicyId, policyName: e.routingPolicyId ? (policyById.get(e.routingPolicyId)?.name ?? null) : null };
-		});
+		// Resolution chain: platform default -> account policy (else the default).
 		const platformDefaultId = defRow[0]?.value?.id ?? null;
+		const chain = accounts.map((a) => {
+			const p = policies.find((x) => x.accountId === a.id);
+			return { account: a.email, policyId: p?.id ?? null, policyName: p ? p.name : (platformDefaultId ? (policyById.get(platformDefaultId)?.name ?? null) : null) };
+		});
 		return { policies: scoped, chain, platformDefaultId, platformDefaultName: platformDefaultId ? (policyById.get(platformDefaultId)?.name ?? platformDefaultId) : null };
 	}));
 
@@ -864,7 +791,7 @@ export function registerAdminRoutes(app, ctx) {
 		const maintenance = got('maintenance'), passthrough = got('generic_passthrough'), registration = got('registration');
 		const retention = got('retention'), defaultRouting = got('default_routing_policy'), hardLimits = got('platform_hard_limits');
 		const policies = await database.select({ id: rpol.id, name: rpol.name, strategy: rpol.strategy }).from(rpol).orderBy(rpol.name);
-		const accounts = await database.select({ workspaceId: bac.workspaceId, warningThresholdMicro: bac.warningThresholdMicro, hardStopThresholdMicro: bac.hardStopThresholdMicro }).from(bac).orderBy(bac.createdAt);
+		const accounts = await database.select({ userId: bac.userId, warningThresholdMicro: bac.warningThresholdMicro, hardStopThresholdMicro: bac.hardStopThresholdMicro }).from(bac).orderBy(bac.createdAt);
 		return {
 			maintenance: maintenance?.enabled ?? false,
 			genericPassthrough: passthrough?.enabled ?? false,
@@ -873,7 +800,7 @@ export function registerAdminRoutes(app, ctx) {
 			defaultRoutingPolicyId: defaultRouting?.id ?? '',
 			hardLimits: { rpm: hardLimits?.rpm ?? 10000, tpm: hardLimits?.tpm ?? 100000000, concurrency: hardLimits?.concurrency ?? 1000 },
 			policies,
-			accounts: accounts.map((a) => ({ workspaceId: a.workspaceId, warningMicro: B(a.warningThresholdMicro), hardStopMicro: B(a.hardStopThresholdMicro) }))
+			accounts: accounts.map((a) => ({ userId: a.userId, warningMicro: B(a.warningThresholdMicro), hardStopMicro: B(a.hardStopThresholdMicro) }))
 		};
 	}));
 
@@ -906,7 +833,7 @@ export function registerAdminRoutes(app, ctx) {
 		return { hard: row?.value ?? null };
 	}));
 
-	// Users + usage/workspace/project/key counts + last activity.
+	// Users + usage/key counts + last activity.
 	app.get('/api/admin/users', handler('users', async (database) => {
 		const users = await database
 			.select({ id: ausr.id, name: ausr.name, email: ausr.email, role: ausr.role, banned: ausr.banned, createdAt: ausr.createdAt })
@@ -914,9 +841,6 @@ export function registerAdminRoutes(app, ctx) {
 			.orderBy(desc(ausr.createdAt));
 		const userIds = users.map((u) => u.id);
 		const usageBy = new Map(userIds.map((id) => [id, { requests: 0, cost: '0', lastRequest: null, firstRequest: null }]));
-		const wsBy = new Map(userIds.map((id) => [id, 0]));
-		const wsNameBy = new Map(userIds.map((id) => [id, null]));
-		const projBy = new Map(userIds.map((id) => [id, 0]));
 		const keyBy = new Map(userIds.map((id) => [id, 0]));
 		const lastBy = new Map(userIds.map((id) => [id, null]));
 		if (userIds.length > 0) {
@@ -924,20 +848,10 @@ export function registerAdminRoutes(app, ctx) {
 			// signups column needs it and a second request_log scan would double the cost.
 			const usage = await database.select({ userId: rl.userId, requests: sql`count(*)::int`, cost: sql`coalesce(sum(${rl.cost}), 0)::text`, lastRequest: sql`max(${rl.createdAt})`, firstRequest: sql`min(${rl.createdAt})` }).from(rl).where(inArray(rl.userId, userIds)).groupBy(rl.userId);
 			for (const u of usage) if (u.userId) usageBy.set(u.userId, u);
-			const mws = await database.select({ userId: wsMem.userId, n: sql`count(*)::int` }).from(wsMem).where(inArray(wsMem.userId, userIds)).groupBy(wsMem.userId);
-			for (const w of mws) wsBy.set(w.userId, w.n);
-			// One workspace name per user (the first by creation order) for the overview
-			// signups table; the Users page itself shows only counts.
-			const mwsNames = await database.select({ userId: wsMem.userId, name: ws.name }).from(wsMem).innerJoin(ws, eq(ws.id, wsMem.workspaceId)).where(inArray(wsMem.userId, userIds)).orderBy(asc(ws.createdAt));
-			for (const w of mwsNames) if (wsNameBy.get(w.userId) === null) wsNameBy.set(w.userId, w.name);
 			const keys = await database.select({ userId: akey.userId, n: sql`count(*)::int` }).from(akey).where(inArray(akey.userId, userIds)).groupBy(akey.userId);
 			for (const k of keys) keyBy.set(k.userId, k.n);
 			const ku = await database.select({ userId: akey.userId, at: sql`max(${akey.lastUsedAt})` }).from(akey).where(inArray(akey.userId, userIds)).groupBy(akey.userId);
 			const keyUse = new Map(ku.map((k) => [k.userId, k.at]));
-			try {
-				const pc = _rowsOf(await database.execute(sql`select wm.user_id as user_id, count(distinct p.id)::int as n from project p join workspace_member wm on wm.workspace_id = p.workspace_id where wm.user_id in (${sql.join(userIds.map((id) => sql`${id}`), sql`, `)}) group by wm.user_id`));
-				for (const r of pc) projBy.set(r.user_id, Number(r.n));
-			} catch {}
 			let sessUse = new Map(), audUse = new Map();
 			try { const s = _rowsOf(await database.execute(sql`select user_id, max(created_at) as at from session where user_id in (${sql.join(userIds.map((id) => sql`${id}`), sql`, `)}) group by user_id`)); sessUse = new Map(s.map((r) => [r.user_id, r.at])); } catch {}
 			try { const a = _rowsOf(await database.execute(sql`select actor_user_id as user_id, max(created_at) as at from audit_log where actor_user_id in (${sql.join(userIds.map((id) => sql`${id}`), sql`, `)}) group by actor_user_id`)); audUse = new Map(a.map((r) => [r.user_id, r.at])); } catch {}
@@ -951,49 +865,18 @@ export function registerAdminRoutes(app, ctx) {
 		// Express sent status 200, `Content-Type: application/json`, and ZERO bytes.
 		// The admin Users page's `res.json()` then threw on the empty body, so a
 		// total failure surfaced as a transport error while the server logged
-		// nothing. Every other admin list handler returns (see the workspaces
-		// sibling just below): a handler that builds a payload must hand it back.
+		// nothing. Every other admin list handler returns: a handler that builds a
+		// payload must hand it back.
 		return {
 			users: users.map((u) => ({
 				...u,
 				requests: usageBy.get(u.id)?.requests ?? 0,
 				cost: usageBy.get(u.id)?.cost ?? '0',
-				workspaces: wsBy.get(u.id) ?? 0,
-				workspaceName: wsNameBy.get(u.id) ?? null,
 				firstRequestAt: usageBy.get(u.id)?.firstRequest ?? null,
-				projects: projBy.get(u.id) ?? 0,
 				keys: keyBy.get(u.id) ?? 0,
 				lastSeenAt: lastBy.get(u.id) ?? null
 			}))
 		};
-	}));
-
-	// Workspaces + member/project/request counts + ledger balance.
-	app.get('/api/admin/workspaces', handler('workspaces', async (database) => {
-		const rows = await database
-			.select({ id: ws.id, name: ws.name, slug: ws.slug, status: ws.status, ownerEmail: ausr.email, createdAt: ws.createdAt })
-			.from(ws)
-			.leftJoin(ausr, eq(ausr.id, ws.ownerUserId))
-			.orderBy(ws.name);
-		const wsIds = rows.map((r) => r.id);
-		const usageBy = new Map(wsIds.map((id) => [id, { requests: 0, cost: '0' }]));
-		const memBy = new Map(wsIds.map((id) => [id, 0]));
-		const projBy = new Map(wsIds.map((id) => [id, 0]));
-		const balBy = new Map(wsIds.map((id) => [id, '0']));
-		if (wsIds.length > 0) {
-			const usage = await database.select({ workspaceId: rl.workspaceId, requests: sql`count(*)::int`, cost: sql`coalesce(sum(${rl.cost}), 0)::text` }).from(rl).where(inArray(rl.workspaceId, wsIds)).groupBy(rl.workspaceId);
-			for (const u of usage) if (u.workspaceId) usageBy.set(u.workspaceId, { requests: u.requests, cost: u.cost });
-			const members = await database.select({ workspaceId: wsMem.workspaceId, n: sql`count(*)::int` }).from(wsMem).where(inArray(wsMem.workspaceId, wsIds)).groupBy(wsMem.workspaceId);
-			for (const m of members) memBy.set(m.workspaceId, m.n);
-			const projs = await database.select({ workspaceId: proj.workspaceId, n: sql`count(*)::int` }).from(proj).where(inArray(proj.workspaceId, wsIds)).groupBy(proj.workspaceId);
-			for (const p of projs) projBy.set(p.workspaceId, p.n);
-			const accts = await database.select({ workspaceId: bac.workspaceId, id: bac.id }).from(bac).where(inArray(bac.workspaceId, wsIds));
-			for (const a of accts) {
-				const [s] = await database.select({ total: sql`coalesce(sum(${ledger.amountMicro}), 0)::text` }).from(ledger).where(eq(ledger.billingAccountId, a.id));
-				balBy.set(a.workspaceId, s?.total ?? '0');
-			}
-		}
-		return { workspaces: rows.map((r) => ({ ...r, members: memBy.get(r.id) ?? 0, projects: projBy.get(r.id) ?? 0, requests: usageBy.get(r.id)?.requests ?? 0, cost: usageBy.get(r.id)?.cost ?? '0', balanceMicro: balBy.get(r.id) ?? '0' })) };
 	}));
 
 // ---- parity block: models ----
@@ -1425,30 +1308,6 @@ export function registerAdminRoutes(app, ctx) {
 		return { added, mapped, changed, message: `Sync applied: ${added} added, ${mapped} mapped, ${changed} changed.` };
 	}));
 
-	// ---- parity block: projects ----
-	// Project detail (admin/projects/[id]) + setStatus.
-	app.get('/api/admin/projects/:id', handler('projects', async (database, url) => {
-		const id = String(url.pathname.split('/').pop());
-		const proj = _rowsOf(await database.execute(sql`select p.id, p.name, p.slug, p.description, p.status, p.created_at, p.updated_at, w.id as workspace_id, w.name as workspace_name from project p join workspace w on w.id = p.workspace_id where p.id = ${id} limit 1`))[0];
-		if (!proj) { const e = new ctx.HttpError(404, 'Project not found'); throw e; }
-		const environments = _rowsOf(await database.execute(sql`select id, name, slug, type, status, routing_policy_id from environment where project_id = ${id} order by name`));
-		const keys = _rowsOf(await database.execute(sql`select id, name, prefix, status, environment_id, last_used_at, revoked_at, created_at from api_key where project_id = ${id} order by created_at`));
-		const usage = _rowsOf(await database.execute(sql`select count(*)::int as requests, coalesce(sum(tokens_in),0)::int as tokens_in, coalesce(sum(tokens_out),0)::int as tokens_out, coalesce(sum(cost),0)::text as cost from request_log where project_id = ${id}`))[0] ?? { requests: 0, tokensIn: 0, tokensOut: 0, cost: '0' };
-		return { project: { id: proj.id, name: proj.name, slug: proj.slug, description: proj.description, status: proj.status, createdAt: proj.created_at, updatedAt: proj.updated_at, workspaceId: proj.workspace_id, workspaceName: proj.workspace_name }, environments: environments.map((e) => ({ id: e.id, name: e.name, slug: e.slug, type: e.type, status: e.status, routingPolicyId: e.routing_policy_id })), keys: keys.map((k) => ({ id: k.id, name: k.name, prefix: k.prefix, status: k.status, environmentId: k.environment_id, lastUsedAt: k.last_used_at, revokedAt: k.revoked_at, createdAt: k.created_at })), usage: { requests: _num(usage.requests), tokensIn: _num(usage.tokens_in), tokensOut: _num(usage.tokens_out), cost: String(usage.cost ?? '0') }, statuses: PROJECT_STATUSES };
-	}));
-	app.post('/api/admin/projects/setStatus', poster('projects', async (database, body, userRow) => {
-		const id = String(body.id ?? '').trim();
-		const status = String(body.status ?? '').trim();
-		if (!id) _fail(400, 'Missing project id');
-		if (!PROJECT_STATUSES.includes(status)) _fail(400, 'Invalid status');
-		const target = _rowsOf(await database.execute(sql`select status, workspace_id from project where id = ${id} limit 1`))[0];
-		if (!target) _fail(404, 'Project not found');
-		await database.transaction(async (tx) => {
-			await tx.execute(sql`update project set status = ${status} where id = ${id}`);
-			await _audit(tx, { actorUserId: userRow.id, action: 'project.status_set', resource: 'project', resourceId: id, workspaceId: target.workspace_id, before: { status: target.status }, after: { status } });
-		});
-		return { statusSet: id };
-	}));
 	// Providers list POSTs (admin/providers): create/update/delete.
 	app.post('/api/admin/providers/create', poster('providers', async (database, body, userRow) => {
 		const name = _cleanField(body.name);
@@ -1556,7 +1415,7 @@ export function registerAdminRoutes(app, ctx) {
 		const mappings = _rowsOf(await database.execute(sql`select pm.id, pm.provider_model_id, m.slug as model_slug, pm.connection_id, pm.enabled, pm.status, pm.context_override from provider_model pm join model m on m.id = pm.model_id where pm.provider_id = ${id}`));
 		const pricing = _rowsOf(await database.execute(sql`select pr.id, m.slug as model_slug, pr.version, pr.currency, pr.input_price::text as input_price, pr.cached_input_price::text as cached_input_price, pr.output_price::text as output_price, pr.reasoning_price::text as reasoning_price, pr.effective_from, pr.effective_until from pricing_rule pr join model m on m.id = pr.model_id where m.provider_id = ${id} order by pr.effective_from desc limit 50`));
 		// No provider-scoped rate_limit query: 'provider' is not in the
-		// rate_limit_scope_check vocabulary (workspace/project/environment/api_key), so it
+		// rate_limit_scope_check vocabulary (account/api_key), so it
 		// could only ever return zero rows — and widening the vocabulary would create a
 		// limit the data plane's EffectiveLimits chain never reads.
 		const breakers = _rowsOf(await database.execute(sql`select * from circuit_breaker where target = 'provider' and target_id = ${id}`));
@@ -1983,7 +1842,7 @@ export function registerAdminRoutes(app, ctx) {
 	// Request detail (admin/requests/[id]): detail + bodies + attempts + timing.
 	app.get('/api/admin/requests/:id', handler('requests', async (database, url) => {
 		const id = String(url.pathname.split('/').pop());
-		const row = _rowsOf(await database.execute(sql`select r.id, r.created_at, u.email, k.name as key_name, k.prefix as key_prefix, r.workspace_id, r.project_id, r.environment_id, r.endpoint, r.requested_model, m.slug as model_slug, r.provider_model_id, pm.provider_model_id as upstream_model_id, p.name as provider_name, c.name as connection_name, r.credential_id, r.routing_policy_id, r.strategy, r.status, r.error_code, r.error, r.http_status, r.tokens_in, r.cached_input_tokens, r.tokens_out, r.reasoning_tokens, r.total_tokens, r.input_price_micro, r.cached_input_price_micro, r.output_price_micro, r.reasoning_price_micro, r.pricing_rule_id, r.cost, r.currency, r.credit_charged_micro, r.provider_cost_micro, r.timing, r.ttft_ms, r.latency_ms, r.attempts, r.fallback_used, r.stream, r.client_disconnected, r.request_body, r.response_body from request_log r left join "user" u on u.id = r.user_id left join api_key k on k.id = r.api_key_id left join model m on m.id = r.model_id left join provider_model pm on pm.id = r.provider_model_id left join provider p on p.id = r.provider_id left join connection c on c.id = r.connection_id where r.id = ${id} limit 1`))[0];
+		const row = _rowsOf(await database.execute(sql`select r.id, r.created_at, u.email, k.name as key_name, k.prefix as key_prefix, r.endpoint, r.requested_model, m.slug as model_slug, r.provider_model_id, pm.provider_model_id as upstream_model_id, p.name as provider_name, c.name as connection_name, r.credential_id, r.routing_policy_id, r.strategy, r.status, r.error_code, r.error, r.http_status, r.tokens_in, r.cached_input_tokens, r.tokens_out, r.reasoning_tokens, r.total_tokens, r.input_price_micro, r.cached_input_price_micro, r.output_price_micro, r.reasoning_price_micro, r.pricing_rule_id, r.cost, r.currency, r.credit_charged_micro, r.provider_cost_micro, r.timing, r.ttft_ms, r.latency_ms, r.attempts, r.fallback_used, r.stream, r.client_disconnected, r.request_body, r.response_body from request_log r left join "user" u on u.id = r.user_id left join api_key k on k.id = r.api_key_id left join model m on m.id = r.model_id left join provider_model pm on pm.id = r.provider_model_id left join provider p on p.id = r.provider_id left join connection c on c.id = r.connection_id where r.id = ${id} limit 1`))[0];
 		if (!row) { const e = new ctx.HttpError(404, 'Request not found'); throw e; }
 		const attempts = _rowsOf(await database.execute(sql`select a.id, a.attempt, p.name as provider_name, c.name as connection_name, a.credential_id, a.http_status, a.error_code, a.retryable, a.latency_ms, a.ttft_ms, a.provider_cost_micro, a.reason, a.started_at, a.finished_at from request_attempt a left join provider p on p.id = a.provider_id left join connection c on c.id = a.connection_id where a.request_id = ${id} order by a.attempt`));
 		const retention = await _getSetting(database, 'retention');
@@ -2078,10 +1937,8 @@ export function registerAdminRoutes(app, ctx) {
 	// Policies (admin/routing/policies): GET + create/update/delete.
 	app.get('/api/admin/routing/policies', handler('routing', async (database) => {
 		const policies = _rowsOf(await database.execute(sql`select * from routing_policy order by name`));
-		const workspaces = _rowsOf(await database.execute(sql`select id, name from workspace order by name`));
-		const projects = _rowsOf(await database.execute(sql`select id, name from project order by name`));
-		const envs = _rowsOf(await database.execute(sql`select id, name, project_id from environment order by name`));
-		return { policies, workspaces, projects, environments: envs.map((e) => ({ id: e.id, name: e.name, projectId: e.project_id })), strategies: SIM_STRATEGIES, scopes: POLICY_SCOPES };
+		const accounts = _rowsOf(await database.execute(sql`select bac.id, ausr.email from billing_account bac join "user" ausr on ausr.id = bac.user_id order by ausr.email`));
+		return { policies, accounts, strategies: SIM_STRATEGIES, scopes: POLICY_SCOPES };
 	}));
 	const _policyPatch = (body) => {
 		const name = _cleanField(body.name);
@@ -2098,12 +1955,11 @@ export function registerAdminRoutes(app, ctx) {
 	const _resolveScope = async (database, body) => {
 		const scope = _parseEnum(POLICY_SCOPES, body.scope);
 		const scopeId = String(body.scopeId ?? '').trim();
-		if (scope === 'platform' || (!scope && !scopeId)) return { workspaceId: null, projectId: null, environmentId: null };
+		if (scope === 'platform' || (!scope && !scopeId)) return { accountId: null };
 		if (!scope || !scopeId) return null;
-		const tbl = scope === 'workspace' ? 'workspace' : scope === 'project' ? 'project' : 'environment';
-		const hit = _rowsOf(await database.execute(sql`select id from ${sql.raw(tbl)} where id = ${scopeId} limit 1`));
+		const hit = _rowsOf(await database.execute(sql`select id from "user" where id = ${scopeId} limit 1`));
 		if (!hit.length) return null;
-		return { workspaceId: scope === 'workspace' ? hit[0].id : null, projectId: scope === 'project' ? hit[0].id : null, environmentId: scope === 'environment' ? hit[0].id : null };
+		return { accountId: hit[0].id };
 	};
 	app.post('/api/admin/routing/policies/create', poster('routing', async (database, body, userRow) => {
 		const v = _policyPatch(body);
@@ -2112,7 +1968,7 @@ export function registerAdminRoutes(app, ctx) {
 		if (!s) _fail(400, 'Invalid scope');
 		const id = _newId(_IDP.routingPolicy);
 		await database.transaction(async (tx) => {
-			await tx.execute(sql`insert into routing_policy (id, workspace_id, project_id, environment_id, name, strategy, enabled, max_attempts, request_timeout_ms, fallback_enabled, provider_preferences, model_preferences, constraints, weights) values (${id}, ${s.workspaceId}, ${s.projectId}, ${s.environmentId}, ${v.values.name}, ${v.values.strategy}, ${v.values.enabled}, ${v.values.maxAttempts}, ${v.values.requestTimeoutMs}, ${v.values.fallbackEnabled}, ${JSON.stringify(v.values.providerPreferences)}::jsonb, ${JSON.stringify(v.values.modelPreferences)}::jsonb, ${JSON.stringify(v.values.constraints)}::jsonb, ${JSON.stringify(v.values.weights)}::jsonb)`);
+			await tx.execute(sql`insert into routing_policy (id, account_id, name, strategy, enabled, max_attempts, request_timeout_ms, fallback_enabled, provider_preferences, model_preferences, constraints, weights) values (${id}, ${s.accountId}, ${v.values.name}, ${v.values.strategy}, ${v.values.enabled}, ${v.values.maxAttempts}, ${v.values.requestTimeoutMs}, ${v.values.fallbackEnabled}, ${JSON.stringify(v.values.providerPreferences)}::jsonb, ${JSON.stringify(v.values.modelPreferences)}::jsonb, ${JSON.stringify(v.values.constraints)}::jsonb, ${JSON.stringify(v.values.weights)}::jsonb)`);
 			await _audit(tx, { actorUserId: userRow.id, action: 'routing_policy.create', resource: 'routing_policy', resourceId: id, after: { ...v.values, ...s } });
 		});
 		return { created: id };
@@ -2127,7 +1983,7 @@ export function registerAdminRoutes(app, ctx) {
 		const before = _rowsOf(await database.execute(sql`select * from routing_policy where id = ${id} limit 1`))[0];
 		if (!before) _fail(404, 'Policy not found');
 		await database.transaction(async (tx) => {
-			await tx.execute(sql`update routing_policy set workspace_id = ${s.workspaceId}, project_id = ${s.projectId}, environment_id = ${s.environmentId}, name = ${v.values.name}, strategy = ${v.values.strategy}, enabled = ${v.values.enabled}, max_attempts = ${v.values.maxAttempts}, request_timeout_ms = ${v.values.requestTimeoutMs}, fallback_enabled = ${v.values.fallbackEnabled}, provider_preferences = ${JSON.stringify(v.values.providerPreferences)}::jsonb, model_preferences = ${JSON.stringify(v.values.modelPreferences)}::jsonb, constraints = ${JSON.stringify(v.values.constraints)}::jsonb, weights = ${JSON.stringify(v.values.weights)}::jsonb, updated_at = now() where id = ${id}`);
+			await tx.execute(sql`update routing_policy set account_id = ${s.accountId}, name = ${v.values.name}, strategy = ${v.values.strategy}, enabled = ${v.values.enabled}, max_attempts = ${v.values.maxAttempts}, request_timeout_ms = ${v.values.requestTimeoutMs}, fallback_enabled = ${v.values.fallbackEnabled}, provider_preferences = ${JSON.stringify(v.values.providerPreferences)}::jsonb, model_preferences = ${JSON.stringify(v.values.modelPreferences)}::jsonb, constraints = ${JSON.stringify(v.values.constraints)}::jsonb, weights = ${JSON.stringify(v.values.weights)}::jsonb, updated_at = now() where id = ${id}`);
 			await _audit(tx, { actorUserId: userRow.id, action: 'routing_policy.update', resource: 'routing_policy', resourceId: id, before: { name: before.name, strategy: before.strategy }, after: { ...v.values, ...s } });
 		});
 		return { updated: id };
@@ -2137,10 +1993,7 @@ export function registerAdminRoutes(app, ctx) {
 		if (!id) _fail(400, 'Missing policy id');
 		const before = _rowsOf(await database.execute(sql`select id, name from routing_policy where id = ${id} limit 1`))[0];
 		if (!before) _fail(404, 'Policy not found');
-		const refs = _rowsOf(await database.execute(sql`select id from environment where routing_policy_id = ${id} limit 1`));
-		if (refs.length) _fail(409, 'Policy is referenced by an environment');
 		await database.transaction(async (tx) => {
-			await tx.execute(sql`update environment set routing_policy_id = null where routing_policy_id = ${id}`);
 			await tx.execute(sql`delete from routing_policy where id = ${id}`);
 			await _audit(tx, { actorUserId: userRow.id, action: 'routing_policy.delete', resource: 'routing_policy', resourceId: id, before });
 		});
@@ -2154,8 +2007,7 @@ export function registerAdminRoutes(app, ctx) {
 	// Simulations (admin/routing/simulations): GET + simulate.
 	app.get('/api/admin/routing/simulations', handler('routing', async (database) => {
 		const models = _rowsOf(await database.execute(sql`select id, name, slug, status from model order by slug`));
-		const projects = _rowsOf(await database.execute(sql`select id, name from project order by name`));
-		return { models, projects, strategies: SIM_STRATEGIES };
+		return { models, strategies: SIM_STRATEGIES };
 	}));
 	app.post('/api/admin/routing/simulations/simulate', poster('routing', async (database, body) => {
 		const modelId = String(body.modelId ?? '').trim();
@@ -2169,7 +2021,6 @@ export function registerAdminRoutes(app, ctx) {
 		const w = (raw) => { const v = String(raw ?? '').trim(); if (!v) return undefined; const n = Number(v); return (Number.isFinite(n) && n >= 0 && n <= 1) ? n : undefined; };
 		const weights = { price: w(body.weightPrice), latency: w(body.weightLatency), reliability: w(body.weightReliability), capacity: w(body.weightCapacity) };
 		const region = String(body.region ?? '').trim().slice(0, 40) || null;
-		const projectId = String(body.projectId ?? '').trim().slice(0, 64) || null;
 		const cands = _rowsOf(await database.execute(sql`select p.id as provider_id, p.name as provider_name, p.priority as provider_priority, c.id as connection_id, c.name as connection_name, pm.id as pm_id, pm.enabled as pm_enabled, c.health_status, (select jsonb_build_object('input', pr.input_price::text, 'output', pr.output_price::text) from pricing_rule pr where pr.provider_model_id = pm.id and pr.effective_from <= now() and (pr.effective_until is null or pr.effective_until > now()) order by pr.version desc limit 1) as specific_price, (select jsonb_build_object('input', pr.input_price::text, 'output', pr.output_price::text) from pricing_rule pr where pr.model_id = ${modelId} and pr.provider_model_id is null and pr.effective_from <= now() and (pr.effective_until is null or pr.effective_until > now()) order by pr.version desc limit 1) as wide_price, m.input_price::text as legacy_input, m.output_price::text as legacy_output from provider_model pm join model m on m.id = pm.model_id join provider p on p.id = pm.provider_id left join connection c on c.id = pm.connection_id where pm.model_id = ${modelId} order by p.priority, p.name`));
 		const ids = cands.map((c) => c.pm_id);
 		let stats = new Map();
@@ -2208,7 +2059,7 @@ export function registerAdminRoutes(app, ctx) {
 			return { providerName: c.providerName, connectionName: c.connectionName, estimatedCostMicro: c.estimatedCostMicro.toString(), healthStatus: c.healthStatus, score: Math.round(score * 1000) / 1000, reason };
 		});
 		rows.sort((a, b) => (b.score !== a.score ? b.score - a.score : (BigInt(a.estimatedCostMicro) !== BigInt(b.estimatedCostMicro) ? (BigInt(a.estimatedCostMicro) < BigInt(b.estimatedCostMicro) ? -1 : 1) : 0)));
-		return { simulated: true, strategy, candidatesConsidered: scored.length, region, projectId, rows };
+		return { simulated: true, strategy, candidatesConsidered: scored.length, region, rows };
 	}));
 
 	// ---- parity block: security ----
@@ -2288,10 +2139,12 @@ export function registerAdminRoutes(app, ctx) {
 		const page = Math.max(1, Number(url.searchParams.get('page') ?? '1') || 1);
 		const action = (url.searchParams.get('action') ?? '').trim();
 		const rows = action
-			? _rowsOf(await database.execute(sql`select a.id, a.actor_user_id, a.actor_kind, u.email as actor_email, a.action, a.resource, a.resource_id, a.workspace_id, a.ip, a.before, a.after, a.metadata, a.created_at from audit_log a left join "user" u on u.id = a.actor_user_id where a.action = ${action} order by a.created_at desc limit 100 offset ${(page - 1) * 100}`))
-			: _rowsOf(await database.execute(sql`select a.id, a.actor_user_id, a.actor_kind, u.email as actor_email, a.action, a.resource, a.resource_id, a.workspace_id, a.ip, a.before, a.after, a.metadata, a.created_at from audit_log a left join "user" u on u.id = a.actor_user_id order by a.created_at desc limit 100 offset ${(page - 1) * 100}`));
+			? _rowsOf(await database.execute(sql`select a.id, a.actor_user_id, a.actor_kind, u.email as actor_email, a.action, a.resource, a.resource_id, a.ip, a.before, a.after, a.metadata, a.created_at from audit_log a left join "user" u on u.id = a.actor_user_id where a.action = ${action} order by a.created_at desc limit 100 offset ${(page - 1) * 100}`))
+			: _rowsOf(await database.execute(sql`select a.id, a.actor_user_id, a.actor_kind, u.email as actor_email, a.action, a.resource, a.resource_id, a.ip, a.before, a.after, a.metadata, a.created_at from audit_log a left join "user" u on u.id = a.actor_user_id order by a.created_at desc limit 100 offset ${(page - 1) * 100}`));
 		const actions = _rowsOf(await database.execute(sql`select action, count(*)::int as n from audit_log group by action order by count(*) desc limit 30`));
-		return { rows: rows.map((r) => _auditView({ id: r.id, actorUserId: r.actor_user_id, actorKind: r.actor_kind, actorEmail: r.actor_email, action: r.action, resource: r.resource, resourceId: r.resource_id, workspaceId: r.workspace_id, ip: r.ip, before: r.before, after: r.after, metadata: r.metadata, createdAt: r.created_at })), actions, page, action: action ?? '' };
+		// `audit_log.workspace_id` is deliberately not selected: it is historical
+		// evidence of the pre-0019 hierarchy, and no write has set it since.
+		return { rows: rows.map((r) => _auditView({ id: r.id, actorUserId: r.actor_user_id, actorKind: r.actor_kind, actorEmail: r.actor_email, action: r.action, resource: r.resource, resourceId: r.resource_id, ip: r.ip, before: r.before, after: r.after, metadata: r.metadata, createdAt: r.created_at })), actions, page, action: action ?? '' };
 	}));
 	// Blocked IPs (admin/security/blocked-ips): GET + add/remove.
 	app.get('/api/admin/security/blocked-ips', handler('security', async (database) => {
@@ -2527,11 +2380,11 @@ export function registerAdminRoutes(app, ctx) {
 	app.get('/api/admin/system/events', handler('system', async (database, url) => {
 		const type = (url.searchParams.get('type') ?? '').trim().slice(0, 120);
 		const rows = type
-			? _rowsOf(await database.execute(sql`select id, type, resource, resource_id, workspace_id, metadata, created_at from system_event where type = ${type} order by created_at desc limit 200`))
-			: _rowsOf(await database.execute(sql`select id, type, resource, resource_id, workspace_id, metadata, created_at from system_event order by created_at desc limit 200`));
+			? _rowsOf(await database.execute(sql`select id, type, resource, resource_id, metadata, created_at from system_event where type = ${type} order by created_at desc limit 200`))
+			: _rowsOf(await database.execute(sql`select id, type, resource, resource_id, metadata, created_at from system_event order by created_at desc limit 200`));
 		let types = [];
 		try { types = _rowsOf(await database.execute(sql`select distinct type from system_event order by type`)).map((r) => r.type); } catch { types = []; }
-		return { rows: rows.map((r) => ({ id: r.id, type: r.type, resource: r.resource, resourceId: r.resource_id, workspaceId: r.workspace_id, metadata: r.metadata, createdAt: r.created_at })), types, type };
+		return { rows: rows.map((r) => ({ id: r.id, type: r.type, resource: r.resource, resourceId: r.resource_id, metadata: r.metadata, createdAt: r.created_at })), types, type };
 	}));
 	// Health detail (admin/system/health): derived per-provider/component health.
 	app.get('/api/admin/system/health', handler('system', async (database) => {
@@ -2747,8 +2600,8 @@ export function registerAdminRoutes(app, ctx) {
 	// Throttling (admin/traffic/throttling): read-only GET.
 	app.get('/api/admin/traffic/throttling', handler('traffic', async (database) => {
 		const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
-		const recent = _rowsOf(await database.execute(sql`select r.id, r.created_at, r.api_key_id, k.name as key_name, r.project_id, p.name as project_name, r.workspace_id, r.status, r.error_code, r.http_status from request_log r left join api_key k on k.id = r.api_key_id left join project p on p.id = r.project_id where (r.status = 'rate_limited' or r.error_code = 'RATE_LIMITED') and r.created_at >= ${since.toISOString()} order by r.created_at desc limit 200`));
-		const hourly = _rowsOf(await database.execute(sql`select date_trunc('hour', r.created_at) as hour, r.api_key_id, k.name as key_name, r.project_id, p.name as project_name, count(*)::int as n from request_log r left join api_key k on k.id = r.api_key_id left join project p on p.id = r.project_id where (r.status = 'rate_limited' or r.error_code = 'RATE_LIMITED') and r.created_at >= ${since.toISOString()} group by date_trunc('hour', r.created_at), r.api_key_id, k.name, r.project_id, p.name order by date_trunc('hour', r.created_at) desc, count(*) desc limit 100`));
+		const recent = _rowsOf(await database.execute(sql`select r.id, r.created_at, r.api_key_id, k.name as key_name, r.status, r.error_code, r.http_status from request_log r left join api_key k on k.id = r.api_key_id where (r.status = 'rate_limited' or r.error_code = 'RATE_LIMITED') and r.created_at >= ${since.toISOString()} order by r.created_at desc limit 200`));
+		const hourly = _rowsOf(await database.execute(sql`select date_trunc('hour', r.created_at) as hour, r.api_key_id, k.name as key_name, count(*)::int as n from request_log r left join api_key k on k.id = r.api_key_id where (r.status = 'rate_limited' or r.error_code = 'RATE_LIMITED') and r.created_at >= ${since.toISOString()} group by date_trunc('hour', r.created_at), r.api_key_id, k.name order by date_trunc('hour', r.created_at) desc, count(*) desc limit 100`));
 		let concurrency = [];
 		let valkeyUp = false;
 		const vkClient = _vk();
@@ -2777,7 +2630,7 @@ export function registerAdminRoutes(app, ctx) {
 				}
 			} catch { concurrency = []; }
 		}
-		return { recent: recent.map((r) => ({ id: r.id, createdAt: r.created_at, apiKeyId: r.api_key_id, keyName: r.key_name, projectId: r.project_id, projectName: r.project_name, workspaceId: r.workspace_id, status: r.status, errorCode: r.error_code, httpStatus: r.http_status })), hourly: hourly.map((r) => ({ hour: r.hour, apiKeyId: r.api_key_id, keyName: r.key_name, projectId: r.project_id, projectName: r.project_name, n: _num(r.n) })), concurrency, valkeyUp };
+		return { recent: recent.map((r) => ({ id: r.id, createdAt: r.created_at, apiKeyId: r.api_key_id, keyName: r.key_name, status: r.status, errorCode: r.error_code, httpStatus: r.http_status })), hourly: hourly.map((r) => ({ hour: r.hour, apiKeyId: r.api_key_id, keyName: r.key_name, n: _num(r.n) })), concurrency, valkeyUp };
 	}));
 	// ---- parity block: users ----
 	// User role/ban POSTs (admin/users): setRole/toggleBan.
@@ -2817,16 +2670,14 @@ export function registerAdminRoutes(app, ctx) {
 		const id = String(url.pathname.split('/').pop());
 		const account = _rowsOf(await database.execute(sql`select id, name, email, role, banned, ban_reason, email_verified, created_at, updated_at from "user" where id = ${id} limit 1`))[0];
 		if (!account) { const e = new ctx.HttpError(404, 'User not found'); throw e; }
-		const memberships = _rowsOf(await database.execute(sql`select wm.id as member_id, w.id as workspace_id, w.name as workspace_name, w.slug as workspace_slug, w.status as workspace_status, wr.name as role, wm.status from workspace_member wm join workspace w on w.id = wm.workspace_id left join workspace_role wr on wr.id = wm.role_id where wm.user_id = ${id} order by w.name`));
-		const projects = _rowsOf(await database.execute(sql`select p.id, p.name, p.slug, p.status, w.name as workspace_name from project p join workspace_member wm on wm.workspace_id = p.workspace_id join workspace w on w.id = p.workspace_id where wm.user_id = ${id} order by w.name, p.name`));
 		const usage = _rowsOf(await database.execute(sql`select count(*)::int as requests, coalesce(sum(tokens_in),0)::int as tokens_in, coalesce(sum(tokens_out),0)::int as tokens_out, coalesce(sum(cost),0)::text as cost, max(created_at) as last_request from request_log where user_id = ${id}`))[0] ?? {};
-		const accounts = _rowsOf(await database.execute(sql`select ba.workspace_id, w.name as workspace_name, ba.id as account_id, ba.currency, ba.status, ba.balance_micro as cached_balance from billing_account ba join workspace_member wm on wm.workspace_id = ba.workspace_id join workspace w on w.id = ba.workspace_id where wm.user_id = ${id} order by w.name`));
+		const accounts = _rowsOf(await database.execute(sql`select ba.id as account_id, ba.currency, ba.status, ba.balance_micro as cached_balance from billing_account ba where ba.user_id = ${id} order by ba.created_at`));
 		const billing = [];
 		for (const a of accounts) {
 			let live = String(a.cached_balance ?? '0');
 			let balanceStale = false;
 			try { live = String(_rowsOf(await database.execute(sql`select coalesce(sum(amount_micro),0)::text as total from credit_ledger where billing_account_id = ${a.account_id}`))[0]?.total ?? live); } catch { balanceStale = true; }
-			billing.push({ workspaceId: a.workspace_id, workspaceName: a.workspace_name, accountId: a.account_id, currency: String(a.currency).trim(), status: a.status, cachedBalanceMicro: String(a.cached_balance ?? '0'), balanceMicro: live, balanceStale });
+			billing.push({ accountId: a.account_id, currency: String(a.currency).trim(), status: a.status, cachedBalanceMicro: String(a.cached_balance ?? '0'), balanceMicro: live, balanceStale });
 		}
 		const keys = _rowsOf(await database.execute(sql`select id, name, prefix, status, last_used_at, revoked_at, created_at from api_key where user_id = ${id} order by created_at`));
 		let sessionCount = 0;
@@ -2835,7 +2686,7 @@ export function registerAdminRoutes(app, ctx) {
 		try { sessAt = _rowsOf(await database.execute(sql`select max(created_at) as at from session where user_id = ${id}`))[0]?.at ?? null; } catch {}
 		try { keyAt = _rowsOf(await database.execute(sql`select max(last_used_at) as at from api_key where user_id = ${id}`))[0]?.at ?? null; } catch {}
 		const ds = [usage.last_request, sessAt, keyAt].filter((d) => d instanceof Date);
-		return { account: { id: account.id, name: account.name, email: account.email, role: account.role, banned: account.banned, banReason: account.ban_reason, emailVerified: account.email_verified, createdAt: account.created_at, updatedAt: account.updated_at }, memberships: memberships.map((m) => ({ memberId: m.member_id, workspaceId: m.workspace_id, workspaceName: m.workspace_name, workspaceSlug: m.workspace_slug, workspaceStatus: m.workspace_status, role: m.role, status: m.status })), projects, usage: { requests: _num(usage.requests), tokensIn: _num(usage.tokens_in), tokensOut: _num(usage.tokens_out), cost: String(usage.cost ?? '0'), lastRequest: usage.last_request ?? null }, billing, keys: keys.map((k) => ({ id: k.id, name: k.name, prefix: k.prefix, status: k.status, lastUsedAt: k.last_used_at, revokedAt: k.revoked_at, createdAt: k.created_at })), sessionCount, lastActivity: ds.length ? new Date(Math.max(...ds.map((d) => d.getTime()))) : null };
+		return { account: { id: account.id, name: account.name, email: account.email, role: account.role, banned: account.banned, banReason: account.ban_reason, emailVerified: account.email_verified, createdAt: account.created_at, updatedAt: account.updated_at }, usage: { requests: _num(usage.requests), tokensIn: _num(usage.tokens_in), tokensOut: _num(usage.tokens_out), cost: String(usage.cost ?? '0'), lastRequest: usage.last_request ?? null }, billing, keys: keys.map((k) => ({ id: k.id, name: k.name, prefix: k.prefix, status: k.status, lastUsedAt: k.last_used_at, revokedAt: k.revoked_at, createdAt: k.created_at })), sessionCount, lastActivity: ds.length ? new Date(Math.max(...ds.map((d) => d.getTime()))) : null };
 	}));
 	app.post('/api/admin/users/suspend', poster('users', async (database, body, userRow) => {
 		const id = String(body.id ?? '').trim();
@@ -2886,61 +2737,11 @@ export function registerAdminRoutes(app, ctx) {
 		});
 		return { accessDisabled: id, keysDisabled: disabled };
 	}));
-	// ---- parity block: workspaces ----
-	// Workspace detail (admin/workspaces/[id]): GET + setStatus/suspend/unsuspend.
-	app.get('/api/admin/workspaces/:id', handler('workspaces', async (database, url) => {
-		const id = String(url.pathname.split('/').pop());
-		const w = _rowsOf(await database.execute(sql`select w.id, w.name, w.slug, w.status, w.settings, w.created_at, w.updated_at, w.owner_user_id, u.email as owner_email from workspace w left join "user" u on u.id = w.owner_user_id where w.id = ${id} limit 1`))[0];
-		if (!w) { const e = new ctx.HttpError(404, 'Workspace not found'); throw e; }
-		const members = _rowsOf(await database.execute(sql`select wm.id as member_id, wm.user_id, u.email as user_email, u.name as user_name, wr.name as role, wm.status from workspace_member wm join "user" u on u.id = wm.user_id left join workspace_role wr on wr.id = wm.role_id where wm.workspace_id = ${id}`));
-		const projects = _rowsOf(await database.execute(sql`select id, name, slug, status, created_at from project where workspace_id = ${id} order by name`));
-		const usage = _rowsOf(await database.execute(sql`select count(*)::int as requests, coalesce(sum(tokens_in),0)::int as tokens_in, coalesce(sum(tokens_out),0)::int as tokens_out, coalesce(sum(cost),0)::text as cost from request_log where workspace_id = ${id}`))[0] ?? {};
-		const acct = _rowsOf(await database.execute(sql`select id, currency, status, balance_micro from billing_account where workspace_id = ${id} limit 1`))[0] ?? null;
-		let billing = null;
-		if (acct) {
-			let live = String(acct.balance_micro ?? '0');
-			let balanceStale = false;
-			try { live = String(_rowsOf(await database.execute(sql`select coalesce(sum(amount_micro),0)::text as total from credit_ledger where billing_account_id = ${acct.id}`))[0]?.total ?? live); } catch { balanceStale = true; }
-			billing = { accountId: acct.id, currency: String(acct.currency).trim(), status: acct.status, cachedBalanceMicro: String(acct.balance_micro ?? '0'), balanceMicro: live, balanceStale };
-		}
-		return { workspace: { id: w.id, name: w.name, slug: w.slug, status: w.status, settings: w.settings, createdAt: w.created_at, updatedAt: w.updated_at, ownerId: w.owner_user_id, ownerEmail: w.owner_email }, members: members.map((m) => ({ memberId: m.member_id, userId: m.user_id, userEmail: m.user_email, userName: m.user_name, role: m.role, status: m.status })), projects, usage: { requests: _num(usage.requests), tokensIn: _num(usage.tokens_in), tokensOut: _num(usage.tokens_out), cost: String(usage.cost ?? '0') }, billing, statuses: WORKSPACE_STATUSES };
-	}));
-	app.post('/api/admin/workspaces/setStatus', poster('workspaces', async (database, body, userRow) => {
-		const id = String(body.id ?? '').trim();
-		const status = String(body.status ?? '').trim();
-		if (!id) _fail(400, 'Missing workspace id');
-		if (!WORKSPACE_STATUSES.includes(status)) _fail(400, 'Invalid status');
-		const target = _rowsOf(await database.execute(sql`select status from workspace where id = ${id} limit 1`))[0];
-		if (!target) _fail(404, 'Workspace not found');
-		await database.transaction(async (tx) => {
-			await tx.execute(sql`update workspace set status = ${status} where id = ${id}`);
-			await _audit(tx, { actorUserId: userRow.id, action: 'workspace.status_set', resource: 'workspace', resourceId: id, workspaceId: id, before: { status: target.status }, after: { status } });
-		});
-		return { statusSet: id };
-	}));
-	app.post('/api/admin/workspaces/suspend', poster('workspaces', async (database, body, userRow) => {
-		const id = String(body.id ?? '').trim();
-		if (!id) _fail(400, 'Missing workspace id');
-		const target = _rowsOf(await database.execute(sql`select status from workspace where id = ${id} limit 1`))[0];
-		if (!target) _fail(404, 'Workspace not found');
-		const suspended = await database.transaction(async (tx) => {
-			await tx.execute(sql`update workspace set status = 'suspended' where id = ${id}`);
-			const rows = _rowsOf(await tx.execute(sql`update project set status = 'suspended' where workspace_id = ${id} returning id`));
-			await _audit(tx, { actorUserId: userRow.id, action: 'workspace.suspend', resource: 'workspace', resourceId: id, workspaceId: id, before: { status: target.status }, after: { status: 'suspended' }, metadata: { projectsSuspended: rows.map((p) => p.id) } });
-			return rows;
-		});
-		return { suspended: id, projectsSuspended: suspended.length };
-	}));
-	app.post('/api/admin/workspaces/unsuspend', poster('workspaces', async (database, body, userRow) => {
-		const id = String(body.id ?? '').trim();
-		if (!id) _fail(400, 'Missing workspace id');
-		const target = _rowsOf(await database.execute(sql`select status from workspace where id = ${id} limit 1`))[0];
-		if (!target) _fail(404, 'Workspace not found');
-		await database.transaction(async (tx) => {
-			await tx.execute(sql`update workspace set status = 'active' where id = ${id}`);
-			await _audit(tx, { actorUserId: userRow.id, action: 'workspace.unsuspend', resource: 'workspace', resourceId: id, workspaceId: id, before: { status: target.status }, after: { status: 'active' } });
-		});
-		return { unsuspended: id };
-	}));
+	// The workspace section (detail + setStatus/suspend/unsuspend) is gone with
+	// the `workspace` table in migration 0019. The tenant kill switch it carried
+	// now lives on `billing_account.status` (`/api/admin/billing` sets it) and on
+	// `user.banned` (`/api/admin/users`), which is where it belongs: the account
+	// IS the tenant, and suspending a billing account stops spend without
+	// inventing a second status column on a table that no longer exists.
 
 }

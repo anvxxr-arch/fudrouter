@@ -21,8 +21,7 @@ const TERMS: Section[] = [
     body: 'A few words this document uses in a specific sense.',
     list: [
       'Service — the FUDRouter console, the router that serves /v1, and the documentation.',
-      'Account — the user record created on first sign-in, plus the workspace it provisions.',
-      'Workspace — the billing and access boundary. Projects, environments and API keys live inside one.',
+      'Account — the user record created on first sign-in. It is the billing and access boundary, and API keys live inside it.',
       'Credits — the prepaid balance metered against each request.',
       'Content — the prompts you send and the completions you receive.',
     ],
@@ -30,7 +29,7 @@ const TERMS: Section[] = [
   {
     id: 'account-registration-eligibility',
     title: 'Account registration & eligibility',
-    body: 'You sign in with Discord; the first sign-in provisions your account, workspace, a default project and three environments. You are responsible for what happens under your account, and for keeping access to it.',
+    body: 'You sign in with Discord; the first sign-in provisions your account. You are responsible for what happens under your account, and for keeping access to it.',
     list: [
       'You must be old enough to form a binding contract where you live.',
       'One human per account. Sharing a login is how an audit trail stops being one.',
@@ -42,7 +41,7 @@ const TERMS: Section[] = [
     title: 'Acceptable use',
     body: 'Use the service lawfully and do not use it to attack anything. In particular:',
     list: [
-      'No probing, scanning or load-testing the shared host or another workspace.',
+      'No probing, scanning or load-testing the shared host or another customer.',
       'No bypassing rate limits, budgets or the SSRF guard.',
       'No reselling access to the service without a written agreement.',
       'No content that is unlawful where you are or where we operate.',
@@ -77,7 +76,7 @@ const TERMS: Section[] = [
   {
     id: 'your-content',
     title: 'Your content',
-    body: 'Your prompts and completions are yours. We do not train on them, and we do not record them unless content capture is explicitly enabled for your workspace. What we do keep is the request\u2019s metadata — model, provider, token counts, cost, latency, status and client IP — which is what the ledger and the usage pages are built from.',
+    body: 'Your prompts and completions are yours. We do not train on them, and we do not record them unless content capture is explicitly enabled for your account. What we do keep is the request\u2019s metadata — model, provider, token counts, cost, latency, status and client IP — which is what the ledger and the usage pages are built from.',
   },
   {
     id: 'our-liability',
@@ -127,14 +126,14 @@ const PRIVACY: Section[] = [
     title: 'What we collect',
     body: 'Two categories, and nothing else.',
     list: [
-      'Account data — the name and email from your Discord sign-in, and the workspace, project and environment records provisioned for you.',
+      'Account data — the name and email from your Discord sign-in, and the billing account provisioned for you.',
       'Usage data — one row per request: model, provider, token counts, cost, latency, status, and the client IP the request came from.',
     ],
   },
   {
     id: 'what-we-do-not-collect',
     title: 'What we do NOT collect',
-    body: 'Prompt and response content is not recorded. The request log has columns for it, and they stay empty unless content capture is explicitly enabled for the workspace — an operator setting, off by default, and the retention job blanks anything captured once the window closes.',
+    body: 'Prompt and response content is not recorded. The request log has columns for it, and they stay empty unless content capture is explicitly enabled for the account — an operator setting, off by default, and the retention job blanks anything captured once the window closes.',
   },
   {
     id: 'how-we-use-data',
@@ -187,7 +186,7 @@ const PRIVACY: Section[] = [
   {
     id: 'cookies-analytics',
     title: 'Cookies & analytics',
-    body: 'A session cookie keeps you signed in, and a cookie remembers which workspace you last selected. Beyond that we collect anonymous performance figures — CLS, LCP, INP, FCP and TTFB — from a 10% sample of page loads, with no identifier attached. There is no advertising or cross-site tracking.',
+    body: 'A session cookie keeps you signed in. Beyond that we collect anonymous performance figures — CLS, LCP, INP, FCP and TTFB — from a 10% sample of page loads, with no identifier attached. There is no advertising or cross-site tracking.',
   },
   {
     id: 'security-measures',
@@ -283,7 +282,7 @@ export function PrivacyPage() {
       </div>
       <Card title="Want your data?">
         <p className="card-desc">
-          Email <a href="mailto:privacy@your-domain">privacy@your-domain</a> with your workspace ID. We respond within 30
+          Email <a href="mailto:privacy@your-domain">privacy@your-domain</a> with your account email. We respond within 30
           days.
         </p>
       </Card>

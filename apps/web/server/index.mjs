@@ -138,56 +138,19 @@ export const requestLog = pgTable('request_log', {
 	id: text('id').primaryKey(),
 	status: text('status').notNull(),
 	endpoint: text('endpoint'),
-	// The ratchet the palette's request search needs: that route gated on
-	// request.read for the caller's workspace and then queried by id prefix
-	// alone, returning every tenant's ids. The predicate could not be expressed
-	// through this object without the column, and reaching for an undeclared one
-	// silently compiles to an EMPTY column reference (`and  = $2`) — a 500 at
-	// runtime, which is how the first attempt at the fix failed.
-	workspaceId: text('workspace_id'),
+	// The palette's request search is bound to the caller's account. The
+	// predicate must be expressed through this object: reaching for an
+	// undeclared column silently compiles to an EMPTY column reference
+	// (`and  = $2`) — a 500 at runtime, which is how the first attempt at the
+	// tenant-isolation fix failed.
+	userId: text('user_id'),
 	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
 });
-export const workspace = pgTable('workspace', {
-	id: text('id').primaryKey(),
-	name: text('name').notNull(),
-	slug: text('slug').notNull(),
-	ownerUserId: text('owner_user_id'),
-	status: text('status').notNull().default('active')
-});
-export const workspaceRole = pgTable('workspace_role', {
-	id: text('id').primaryKey(),
-	workspaceId: text('workspace_id'),
-	name: text('name').notNull(),
-	permissions: jsonb('permissions').$type().notNull().default([])
-});
-export const workspaceMember = pgTable('workspace_member', {
-	id: text('id').primaryKey(),
-	workspaceId: text('workspace_id').notNull(),
-	userId: text('user_id').notNull(),
-	roleId: text('role_id').notNull(),
-	status: text('status').notNull().default('active'),
-	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
-});
-export const project = pgTable('project', {
-	id: text('id').primaryKey(),
-	workspaceId: text('workspace_id').notNull(),
-	name: text('name').notNull(),
-	slug: text('slug').notNull(),
-	status: text('status').notNull().default('active'),
-	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
-});
-export const environment = pgTable('environment', {
-	id: text('id').primaryKey(),
-	projectId: text('project_id').notNull(),
-	name: text('name').notNull(),
-	slug: text('slug').notNull(),
-	type: text('type').notNull(),
-	status: text('status').notNull().default('active'),
-	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
-});
+// `workspace`, `workspace_role`, `workspace_member`, `project` and
+// `environment` were dropped by migration 0019; the account is the tenant.
 export const billingAccount = pgTable('billing_account', {
 	id: text('id').primaryKey(),
-	workspaceId: text('workspace_id').notNull()
+	userId: text('user_id').notNull()
 });
 export const auditLog = pgTable('audit_log', {
 	id: text('id').primaryKey(),
@@ -196,7 +159,8 @@ export const auditLog = pgTable('audit_log', {
 	action: text('action').notNull(),
 	resource: text('resource').notNull(),
 	resourceId: text('resource_id'),
-	workspaceId: text('workspace_id'),
+	// `workspace_id` exists in the table as historical evidence only; 0019
+	// stopped writing it, so it is not declared here and never inserted.
 	ip: text('ip'),
 	before: jsonb('before').$type(),
 	after: jsonb('after').$type(),
@@ -218,11 +182,6 @@ export const db = client
 				provider,
 				model,
 				requestLog,
-				workspace,
-				workspaceRole,
-				workspaceMember,
-				project,
-				environment,
 				billingAccount,
 				auditLog
 			}
@@ -239,11 +198,6 @@ function needDb(res) {
 // ------------------------------------------------------------ id/audit ------
 const ID_PREFIXES = {
 	user: 'usr_',
-	workspace: 'wrk_',
-	workspaceMember: 'mem_',
-	workspaceRole: 'rol_',
-	project: 'prj_',
-	environment: 'env_',
 	apiKey: 'key_',
 	provider: 'prv_',
 	model: 'mdl_',
@@ -290,7 +244,6 @@ async function writeAudit(dbtx, entry) {
 		action: entry.action,
 		resource: entry.resource,
 		resourceId: entry.resourceId ?? null,
-		workspaceId: entry.workspaceId ?? null,
 		ip: entry.ip ?? null,
 		before: entry.before ? redactSecrets(entry.before) : null,
 		after: entry.after ? redactSecrets(entry.after) : null,
@@ -299,92 +252,37 @@ async function writeAudit(dbtx, entry) {
 }
 
 // ------------------------------------------------------------ provision ----
-function slugify(input) {
-	const s = String(input)
-		.toLowerCase()
-		.normalize('NFKD')
-		.replace(/[^a-z0-9]+/g, '-')
-		.replace(/^-+|-+$/g, '');
-	return s || 'workspace';
-}
-const DEFAULT_ENVIRONMENTS = [
-	{ name: 'Development', slug: 'development', type: 'development' },
-	{ name: 'Staging', slug: 'staging', type: 'staging' },
-	{ name: 'Production', slug: 'production', type: 'production' }
-];
-async function createProject(dbtx, opts) {
-	let slug = opts.slug ?? slugify(opts.name);
-	for (let n = 2; ; n++) {
-		const [taken] = await dbtx.select({ id: project.id }).from(project).where(eq(project.slug, slug)).limit(1);
-		if (!taken) break;
-		slug = `${slugify(opts.name)}-${n}`;
-	}
-	const id = newId(ID_PREFIXES.project);
-	await dbtx.insert(project).values({ id, workspaceId: opts.workspaceId, name: opts.name, slug });
-	for (const e of DEFAULT_ENVIRONMENTS) {
-		await dbtx.insert(environment).values({ id: newId(ID_PREFIXES.environment), projectId: id, ...e });
-	}
-	return { id, slug };
-}
-async function provisionWorkspace(dbtx, opts) {
-	let slug = opts.slug ?? slugify(opts.name);
-	for (let n = 2; ; n++) {
-		const [taken] = await dbtx.select({ id: workspace.id }).from(workspace).where(eq(workspace.slug, slug)).limit(1);
-		if (!taken) break;
-		slug = `${slugify(opts.name)}-${n}`;
-	}
-	const workspaceId = newId(ID_PREFIXES.workspace);
-	await dbtx.insert(workspace).values({ id: workspaceId, name: opts.name, slug, ownerUserId: opts.ownerUserId });
-	const ownerRole = await dbtx
-		.select({ id: workspaceRole.id })
-		.from(workspaceRole)
-		.where(sql`${workspaceRole.workspaceId} IS NULL AND ${workspaceRole.name} = 'owner'`)
-		.limit(1);
-	if (!ownerRole.length) throw new Error('builtin owner workspace_role row is missing');
-	const memberId = newId(ID_PREFIXES.workspaceMember);
-	await dbtx.insert(workspaceMember).values({
-		id: memberId,
-		workspaceId,
-		userId: opts.ownerUserId,
-		roleId: ownerRole[0].id,
-		status: 'active'
-	});
-	const { id: projectId } = await createProject(dbtx, {
-		workspaceId,
-		name: `${opts.name.split("'")[0]}'s Project`
-	});
-	const environmentIds = await dbtx
-		.select({ id: environment.id })
-		.from(environment)
-		.where(eq(environment.projectId, projectId))
-		.then((rows) => rows.map((r) => r.id));
+// An account is the tenant (migration 0019): a new user gets a billing account
+// and nothing else. The workspace → project → environment tree this function
+// used to build was scaffolding — every key, budget and routing policy now hangs
+// off the user id directly, so there is nothing to create.
+//
+// The billing account is NOT optional: without one the router treats the user as
+// an S0 tenant with no credit line, and usage is recorded but never charged.
+async function provisionAccount(dbtx, opts) {
 	const billingAccountId = newId(ID_PREFIXES.billingAccount);
-	await dbtx.insert(billingAccount).values({ id: billingAccountId, workspaceId });
+	await dbtx.insert(billingAccount).values({ id: billingAccountId, userId: opts.userId });
 	await writeAudit(dbtx, {
-		actorUserId: opts.ownerUserId,
-		action: 'workspace.create',
-		resource: 'workspace',
-		resourceId: workspaceId,
-		workspaceId,
+		actorUserId: opts.userId,
+		action: 'account.provision',
+		resource: 'billing_account',
+		resourceId: billingAccountId,
 		ip: opts.ip ?? null,
-		after: { name: opts.name, slug },
-		metadata: { projectId, billingAccountId, environmentIds }
+		metadata: { userId: opts.userId }
 	});
-	return { workspaceId, projectId, environmentIds, memberId, billingAccountId, slug };
+	return { billingAccountId };
 }
-async function ensureUserWorkspace(dbtx, opts) {
+// Idempotent: called from the sign-up hook AND from the shell endpoint, so a
+// user created before 0019 (or by a path that skipped the hook) still gets an
+// account on first load instead of seeing a permanent "no credit line".
+async function ensureUserAccount(dbtx, opts) {
 	const [existing] = await dbtx
-		.select({ workspaceId: workspaceMember.workspaceId })
-		.from(workspaceMember)
-		.where(eq(workspaceMember.userId, opts.userId))
+		.select({ id: billingAccount.id })
+		.from(billingAccount)
+		.where(eq(billingAccount.userId, opts.userId))
 		.limit(1);
-	if (existing) return { workspaceId: existing.workspaceId };
-	const provisioned = await provisionWorkspace(dbtx, {
-		name: `${opts.name.split("'")[0]}'s Workspace`,
-		ownerUserId: opts.userId,
-		ip: opts.ip ?? null
-	});
-	return { workspaceId: provisioned.workspaceId };
+	if (existing) return { billingAccountId: existing.id };
+	return provisionAccount(dbtx, opts);
 }
 
 // ----------------------------------------------------------------- auth ----
@@ -426,12 +324,9 @@ export const auth = betterAuth({
 		user: {
 			create: {
 				after: async (created) => {
-					if (!db) throw new Error('DATABASE_URL is not set; cannot provision workspace');
+					if (!db) throw new Error('DATABASE_URL is not set; cannot provision account');
 					await db.transaction(async (tx) => {
-						await provisionWorkspace(tx, {
-							name: `${created.name.split("'")[0]}'s Workspace`,
-							ownerUserId: created.id
-						});
+						await provisionAccount(tx, { userId: created.id });
 					});
 				}
 			}
@@ -574,17 +469,6 @@ export const auth = betterAuth({
 // are re-exported here so existing importers of index.mjs keep working.
 export { ROLE_CAPS, capsFor } from './lib/rbac.mjs';
 import { ROLE_CAPS, capsFor } from './lib/rbac.mjs';
-const ALL_WORKSPACE_PERMISSIONS = [
-	'workspace.read', 'workspace.write', 'workspace.delete', 'member.read', 'member.invite',
-	'member.remove', 'project.read', 'project.write', 'project.delete', 'key.read',
-	'key.create', 'key.rotate', 'key.revoke', 'routing.read', 'routing.write', 'alias.read',
-	'alias.write', 'request.read', 'analytics.read', 'usage.read', 'budget.read',
-	'budget.write', 'limit.read', 'limit.write', 'alert.read', 'alert.write', 'webhook.read',
-	'webhook.write', 'billing.read', 'billing.write'
-];
-function isWorkspacePermission(v) {
-	return typeof v === 'string' && ALL_WORKSPACE_PERMISSIONS.includes(v);
-}
 function parseCookies(req) {
 	const out = {};
 	for (const part of String(req.headers.cookie || '').split(';')) {
@@ -618,61 +502,6 @@ async function getSessionUser(req) {
 	if (row?.banned && !(row.banExpires && row.banExpires.getTime() < Date.now())) return null;
 	return sessionUser;
 }
-async function memberContext(database, userId, workspaceId) {
-	const [row] = await database
-		.select({
-			memberId: workspaceMember.id,
-			memberRoleId: workspaceMember.roleId,
-			memberStatus: workspaceMember.status,
-			workspaceId: workspace.id,
-			workspaceName: workspace.name,
-			workspaceSlug: workspace.slug,
-			workspaceOwnerUserId: workspace.ownerUserId,
-			workspaceStatus: workspace.status,
-			permissions: workspaceRole.permissions
-		})
-		.from(workspaceMember)
-		.innerJoin(workspace, eq(workspace.id, workspaceMember.workspaceId))
-		.innerJoin(workspaceRole, eq(workspaceRole.id, workspaceMember.roleId))
-		.where(and(eq(workspaceMember.workspaceId, workspaceId), eq(workspaceMember.userId, userId)))
-		.limit(1);
-	if (!row) return null;
-	return {
-		member: { id: row.memberId, roleId: row.memberRoleId, status: row.memberStatus },
-		workspace: {
-			id: row.workspaceId,
-			name: row.workspaceName,
-			slug: row.workspaceSlug,
-			ownerUserId: row.workspaceOwnerUserId,
-			status: row.workspaceStatus
-		},
-		caps: new Set((row.permissions ?? []).filter(isWorkspacePermission))
-	};
-}
-async function currentWorkspaceId(database, userId, cookies) {
-	const wid = cookies.fwid;
-	if (wid) {
-		const [row] = await database
-			.select({ id: workspaceMember.workspaceId })
-			.from(workspaceMember)
-			.where(
-				and(
-					eq(workspaceMember.workspaceId, wid),
-					eq(workspaceMember.userId, userId),
-					eq(workspaceMember.status, 'active')
-				)
-			)
-			.limit(1);
-		if (row) return row.id;
-	}
-	const [first] = await database
-		.select({ id: workspaceMember.workspaceId })
-		.from(workspaceMember)
-		.where(and(eq(workspaceMember.userId, userId), eq(workspaceMember.status, 'active')))
-		.orderBy(asc(workspaceMember.createdAt))
-		.limit(1);
-	return first?.id ?? null;
-}
 class HttpError extends Error {
 	constructor(status, message) {
 		super(message);
@@ -682,13 +511,6 @@ class HttpError extends Error {
 function requireCap(userRow, cap) {
 	if (!userRow) throw new HttpError(401, 'Authentication required');
 	if (!capsFor(userRow.role).has(cap)) throw new HttpError(403, 'Forbidden');
-}
-async function requireMemberPermission(database, userRow, workspaceId, perm) {
-	if (!userRow) throw new HttpError(401, 'Authentication required');
-	const ctx = await memberContext(database, userRow.id, workspaceId);
-	if (!ctx || ctx.member.status !== 'active') throw new HttpError(403, 'Not a member of this workspace');
-	if (!ctx.caps.has(perm)) throw new HttpError(403, 'Missing permission: ' + perm);
-	return { member: ctx.member, workspace: ctx.workspace };
 }
 // --------------------------------------------------------------- palette ----
 function escapeLike(q) {
@@ -877,7 +699,7 @@ async function authedUser(req) {
 	return getSessionUser(req);
 }
 
-const PALETTE_TYPES = ['keys', 'models', 'providers', 'projects', 'requests', 'workspaces'];
+const PALETTE_TYPES = ['keys', 'models', 'providers', 'requests'];
 
 app.get('/api/palette/:type', async (req, res) => {
 	try {
@@ -888,15 +710,11 @@ app.get('/api/palette/:type', async (req, res) => {
 		if (!database) return;
 		const userRow = await authedUser(req);
 		requireCap(userRow, 'member');
-		const cookies = parseCookies(req);
 		const url = new URL(req.originalUrl, 'http://localhost');
 		const { q, limit } = paletteParams(url);
 		const pattern = likePattern(q);
 
 		if (req.params.type === 'keys') {
-			const workspaceId = await currentWorkspaceId(database, userRow.id, cookies);
-			if (!workspaceId) return res.json({ items: [] });
-			await requireMemberPermission(database, userRow, workspaceId, 'key.read');
 			const rows = await database
 				.select({ id: apiKey.id, name: apiKey.name, prefix: apiKey.prefix, status: apiKey.status })
 				.from(apiKey)
@@ -920,9 +738,6 @@ app.get('/api/palette/:type', async (req, res) => {
 			});
 		}
 		if (req.params.type === 'providers') {
-			const workspaceId = await currentWorkspaceId(database, userRow.id, cookies);
-			if (!workspaceId) return res.json({ items: [] });
-			await requireMemberPermission(database, userRow, workspaceId, 'workspace.read');
 			const rows = await database
 				.select({ id: provider.id, name: provider.name, slug: provider.slug })
 				.from(provider)
@@ -944,9 +759,6 @@ app.get('/api/palette/:type', async (req, res) => {
 			});
 		}
 		if (req.params.type === 'models') {
-			const workspaceId = await currentWorkspaceId(database, userRow.id, cookies);
-			if (!workspaceId) return res.json({ items: [] });
-			await requireMemberPermission(database, userRow, workspaceId, 'workspace.read');
 			const rows = await database
 				.select({ id: model.id, slug: model.slug, name: model.name, developer: model.developer })
 				.from(model)
@@ -969,93 +781,36 @@ app.get('/api/palette/:type', async (req, res) => {
 				}))
 			});
 		}
-		if (req.params.type === 'projects') {
-			const workspaceId = await currentWorkspaceId(database, userRow.id, cookies);
-			if (!workspaceId) return res.json({ items: [] });
-			await requireMemberPermission(database, userRow, workspaceId, 'project.read');
-			const rows = await database
-				.select({ id: project.id, name: project.name, slug: project.slug })
-				.from(project)
-				.where(
-					and(
-						eq(project.workspaceId, workspaceId),
-						q ? sql`${project.name} ilike ${pattern} or ${project.slug} ilike ${pattern}` : sql`true`
-					)
-				)
-				.orderBy(project.name)
-				.limit(limit);
-			return res.json({
-				items: rows.map((r) => ({
-					id: r.id,
-					type: 'project',
-					title: r.name,
-					subtitle: r.slug,
-					href: `/dashboard/projects/${r.id}`
-				}))
-			});
-		}
-		if (req.params.type === 'requests') {
-			const workspaceId = await currentWorkspaceId(database, userRow.id, cookies);
-			if (!workspaceId) return res.json({ items: [] });
-			await requireMemberPermission(database, userRow, workspaceId, 'request.read');
-			if (q.length < 3) return res.json({ items: [] });
-			const prefix = likePattern(q, 'prefix');
-			// The permission gate proves membership in the CALLER's workspace; it
-			// does not bind the query to it. Without the predicate below this
-			// returned every tenant's request ids (with status, endpoint and
-			// createdAt), because the only filter was an id prefix — and a uuidv7
-			// id is timestamp-prefixed, so the leading characters a caller must
-			// guess are enumerable.
-			//
-			// The builder, not raw SQL: `database.execute` returns the driver's
-			// RowList (snake_case) while the response mapping below reads camelCase
-			// properties, so raw SQL here silently yields undefined fields. That
-			// choice needs `requestLog.workspaceId` declared on the table object —
-			// referencing a column it does not know compiles to an EMPTY column
-			// reference (`and  = $2`), which is a 500, not a compile error. Both
-			// mistakes were made and caught here.
-			const rows = await database
-				.select({
-					id: requestLog.id,
-					status: requestLog.status,
-					endpoint: requestLog.endpoint,
-					createdAt: requestLog.createdAt
-				})
-				.from(requestLog)
-				.where(and(sql`${requestLog.id} ilike ${prefix}`, eq(requestLog.workspaceId, workspaceId)))
-				.orderBy(desc(requestLog.createdAt))
-				.limit(limit);
-			return res.json({
-				items: rows.map((r) => ({
-					id: r.id,
-					type: 'request',
-					title: r.id,
-					subtitle: `${r.status} · ${r.endpoint ?? '—'}`,
-					href: '/dashboard/usage'
-				}))
-			});
-		}
-		// workspaces: memberships only.
+		// requests
+		if (q.length < 3) return res.json({ items: [] });
+		const prefix = likePattern(q, 'prefix');
+		// The query is bound to the CALLER's account, not just to a permission:
+		// without the predicate below this returned every tenant's request ids
+		// (with status, endpoint and createdAt), because the only filter was an id
+		// prefix — and a uuidv7 id is timestamp-prefixed, so the leading
+		// characters a caller must guess are enumerable.
+		//
+		// The builder, not raw SQL: `database.execute` returns the driver's
+		// RowList (snake_case) while the response mapping below reads camelCase
+		// properties, so raw SQL here silently yields undefined fields.
 		const rows = await database
-			.select({ id: workspace.id, name: workspace.name, slug: workspace.slug })
-			.from(workspaceMember)
-			.innerJoin(workspace, eq(workspace.id, workspaceMember.workspaceId))
-			.where(
-				and(
-					eq(workspaceMember.userId, userRow.id),
-					eq(workspaceMember.status, 'active'),
-					q ? sql`${workspace.name} ilike ${pattern} or ${workspace.slug} ilike ${pattern}` : sql`true`
-				)
-			)
-			.orderBy(workspace.name)
+			.select({
+				id: requestLog.id,
+				status: requestLog.status,
+				endpoint: requestLog.endpoint,
+				createdAt: requestLog.createdAt
+			})
+			.from(requestLog)
+			.where(and(sql`${requestLog.id} ilike ${prefix}`, eq(requestLog.userId, userRow.id)))
+			.orderBy(desc(requestLog.createdAt))
 			.limit(limit);
 		return res.json({
 			items: rows.map((r) => ({
 				id: r.id,
-				type: 'workspace',
-				title: r.name,
-				subtitle: r.slug,
-				href: '/dashboard/workspace'
+				type: 'request',
+				title: r.id,
+				subtitle: `${r.status} · ${r.endpoint ?? '—'}`,
+				href: '/dashboard/usage'
 			}))
 		});
 	} catch (err) {
@@ -1066,48 +821,22 @@ app.get('/api/palette/:type', async (req, res) => {
 });
 
 // ------------------------------------------------------------ page loads ----
+// The shell used to return the workspace/project/environment tree plus three
+// selection cookies (fwid/fpid/feid). With the hierarchy gone (migration 0019)
+// there is nothing to switch between: the account IS the tenant. What remains is
+// the idempotent account provisioning, so a user who signed up before the
+// flatten still gets a billing account on first load.
 app.get('/api/pages/shell', async (req, res) => {
 	try {
 		const database = needDb(res);
 		if (!database) return;
 		const userRow = await authedUser(req);
 		requireCap(userRow, 'member');
-		const cookies = parseCookies(req);
-		await ensureUserWorkspace(database, { userId: userRow.id, name: userRow.name, ip: clientIp(req) });
-		const workspaces = await database
-			.select({ id: workspace.id, name: workspace.name })
-			.from(workspaceMember)
-			.innerJoin(workspace, eq(workspace.id, workspaceMember.workspaceId))
-			.where(and(eq(workspaceMember.userId, userRow.id), eq(workspaceMember.status, 'active')));
-		const workspaceId = await currentWorkspaceId(database, userRow.id, cookies);
-		if (workspaceId && workspaceId !== cookies.fwid) {
-			// httpOnly + secure: deployment is behind a cloudflared tunnel at
-			// https://fudrouter.my.id, so this only ever travels over HTTPS.
-			res.cookie('fwid', workspaceId, { path: '/', maxAge: 31536000000, sameSite: 'lax', httpOnly: true, secure: true });
-		}
-		const projects = workspaceId
-			? await database
-					.select({ id: project.id, name: project.name })
-					.from(project)
-					.where(and(eq(project.workspaceId, workspaceId), eq(project.status, 'active')))
-					.orderBy(asc(project.createdAt))
-			: [];
-		const projectId = projects.some((p) => p.id === cookies.fpid)
-			? cookies.fpid
-			: (projects[0]?.id ?? null);
-		const environments = projectId
-			? await database
-					.select({ id: environment.id, name: environment.name, slug: environment.slug })
-					.from(environment)
-					.where(and(eq(environment.projectId, projectId), eq(environment.status, 'active')))
-					.orderBy(asc(environment.createdAt))
-			: [];
-		const environmentId = environments.some((e) => e.id === cookies.feid)
-			? cookies.feid
-			: (environments[0]?.id ?? null);
-		return res.json({
-			shell: { workspaces, workspaceId, projects, projectId, environments, environmentId }
+		const { billingAccountId } = await ensureUserAccount(database, {
+			userId: userRow.id,
+			ip: clientIp(req)
 		});
+		return res.json({ shell: { userId: userRow.id, billingAccountId } });
 	} catch (err) {
 		if (err instanceof HttpError) return res.status(err.status).json({ error: err.message });
 		console.error('[pages/shell]', err);
@@ -1125,16 +854,9 @@ app.get('/api/pages/shell', async (req, res) => {
 registerPlayground(app, {
 	needDb,
 	authedUser,
-	parseCookies,
-	currentWorkspaceId,
-	requireMemberPermission,
 	requireCap,
 	HttpError,
-	provider,
-	environment,
-	project,
 	eq,
-	and,
 	newId,
 	ID_PREFIXES,
 	writeAudit,
@@ -1142,7 +864,7 @@ registerPlayground(app, {
 });
 
 registerAdminRoutes(app, { needDb, authedUser, requireCap, HttpError });
-registerPages(app, { getDb: () => db, needDb, authedUser, requireCap, requireMemberPermission, currentWorkspaceId, parseCookies, newId, writeAudit, ID_PREFIXES, HttpError });
+registerPages(app, { getDb: () => db, needDb, authedUser, requireCap, parseCookies, newId, writeAudit, ID_PREFIXES, HttpError });
 registerPublicRoutes(app, { needDb, HttpError });
 
 // Unknown page APIs are a contract break (typo, removed endpoint): 404 + log,

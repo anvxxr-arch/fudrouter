@@ -56,24 +56,18 @@ func (f *flexibleInt) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// APIKeyRow is one authenticated key with its whole ownership chain resolved
-// (spec §2–§3): workspace → project → environment, policy, and status.
+// APIKeyRow is one authenticated key with its policy and status. The key's
+// owner is the user account: the workspace → project → environment chain this
+// used to resolve was removed in migration 0019, and `user_id` (NOT NULL since
+// 0000) was always the real owner.
 type APIKeyRow struct {
-	ID            string
-	UserID        string
-	WorkspaceID   string
-	ProjectID     string
-	EnvironmentID string
-	KeyHash       string
-	Status        string // active|disabled|revoked (spec §3)
-	RevokedAt     *time.Time
-	ExpiresAt     *time.Time
-	// ParentStatuses carry the hierarchy's own state: a key inside an archived
-	// workspace or a disabled environment is as dead as a revoked key.
-	WorkspaceStatus  string
-	ProjectStatus    string
-	EnvironmentStatus string
-	Policy        KeyPolicy
+	ID      string
+	UserID  string
+	KeyHash string
+	Status  string // active|disabled|revoked (spec §3)
+	RevokedAt *time.Time
+	ExpiresAt *time.Time
+	Policy  KeyPolicy
 }
 
 // Auth errors. The proxy maps these to 401 responses with the OpenAI error body
@@ -82,36 +76,24 @@ type APIKeyRow struct {
 var (
 	ErrKeyInactive = errors.New("api key is disabled or revoked")
 	ErrKeyExpired  = errors.New("api key expired")
-	ErrKeyScope    = errors.New("api key's workspace, project or environment is not active")
 )
 
 // LookupAPIKey resolves a key by its public prefix (the secret is verified by
 // the caller against KeyHash, byte-compatible with the TS plane).
-//
-// It joins workspace/project/environment because the hot path needs the whole
-// chain for limits, budgets, routing policy and billing: one round trip beats
-// four (spec §3).
 func (s *Store) LookupAPIKey(ctx context.Context, prefix string) (*APIKeyRow, error) {
 	row := &APIKeyRow{}
 	var policyJSON, limitsJSON []byte
-	// The ownership chain is nullable in S0 (seeded keys carry NULL
-	// user/workspace ids until migration 0006's backfill runs) — scan through
-	// *string so a legacy row does not kill authentication.
-	var userID, wsID, prjID, envID *string
-	var wsStatus, prjStatus, envStatus *string
+	// user_id is nullable in S0 (seeded keys carried NULL until 0006's
+	// backfill), so scan through *string: a legacy row must not kill auth.
+	var userID *string
 	err := s.pool.QueryRow(ctx, `
-		select k.id, k.user_id, k.workspace_id, k.project_id, k.environment_id,
-		       k.key_hash, k.status, k.revoked_at, k.expires_at,
-		       k.policy, k.limits,
-		       ws.status, p.status, e.status
+		select k.id, k.user_id, k.key_hash, k.status, k.revoked_at, k.expires_at,
+		       k.policy, k.limits
 		from api_key k
-		left join workspace    ws on ws.id = k.workspace_id
-		left join project      p  on p.id  = k.project_id
-		left join environment  e  on e.id  = k.environment_id
 		where k.prefix = $1`, prefix,
-	).Scan(&row.ID, &userID, &wsID, &prjID, &envID,
+	).Scan(&row.ID, &userID,
 		&row.KeyHash, &row.Status, &row.RevokedAt, &row.ExpiresAt,
-		&policyJSON, &limitsJSON, &wsStatus, &prjStatus, &envStatus)
+		&policyJSON, &limitsJSON)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -120,24 +102,6 @@ func (s *Store) LookupAPIKey(ctx context.Context, prefix string) (*APIKeyRow, er
 	}
 	if userID != nil {
 		row.UserID = *userID
-	}
-	if wsID != nil {
-		row.WorkspaceID = *wsID
-	}
-	if prjID != nil {
-		row.ProjectID = *prjID
-	}
-	if envID != nil {
-		row.EnvironmentID = *envID
-	}
-	if wsStatus != nil {
-		row.WorkspaceStatus = *wsStatus
-	}
-	if prjStatus != nil {
-		row.ProjectStatus = *prjStatus
-	}
-	if envStatus != nil {
-		row.EnvironmentStatus = *envStatus
 	}
 
 	if len(policyJSON) > 0 {
@@ -156,17 +120,6 @@ func (s *Store) LookupAPIKey(ctx context.Context, prefix string) (*APIKeyRow, er
 	}
 	if row.ExpiresAt != nil && !row.ExpiresAt.After(time.Now()) {
 		return nil, ErrKeyExpired
-	}
-	// A key inherits its hierarchy's life: an archived workspace or disabled
-	// environment must not keep serving traffic (spec §2).
-	if row.WorkspaceStatus != "" && row.WorkspaceStatus != "active" {
-		return nil, ErrKeyScope
-	}
-	if row.ProjectStatus != "" && row.ProjectStatus != "active" {
-		return nil, ErrKeyScope
-	}
-	if row.EnvironmentStatus != "" && row.EnvironmentStatus != "active" {
-		return nil, ErrKeyScope
 	}
 	return row, nil
 }

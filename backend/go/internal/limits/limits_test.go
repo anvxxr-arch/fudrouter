@@ -43,7 +43,7 @@ func (f *fakeSpend) calls() (int, int) {
 }
 
 func identity(key string, s *fakeSpend) *limits.APIKeyIdentity {
-	return &limits.APIKeyIdentity{KeyID: key, WorkspaceID: "wrk_test", Store: s}
+	return &limits.APIKeyIdentity{KeyID: key, Store: s}
 }
 
 func ptr[T any](v T) *T { return &v }

@@ -80,9 +80,9 @@ func TestCatalogueCacheKeyIsolatesFlagAndDatabase(t *testing.T) {
 	}
 }
 
-// A policy entry is scoped by the key's environment/project/workspace triple —
-// the only inputs RoutingPolicyFor reads. An unscoped key must not share an
-// entry with a scoped one either.
+// A policy entry is scoped by the key's account — the only input
+// RoutingPolicyFor reads. An unscoped key must not share an entry with a
+// scoped one either.
 func TestPolicyCacheKeyIsolatesScopeAndDatabase(t *testing.T) {
 	ctx := context.Background()
 	newStore := func(t *testing.T, dsn string) *store.Store {
@@ -97,14 +97,14 @@ func TestPolicyCacheKeyIsolatesScopeAndDatabase(t *testing.T) {
 	hA := &Handler{store: newStore(t, "postgres://u:p@127.0.0.1:1/db_alpha")}
 	hB := &Handler{store: newStore(t, "postgres://u:p@127.0.0.1:1/db_beta")}
 
-	scoped := hA.policyKey("env_1", "prj_1", "wsp_1")
-	if scoped == hA.policyKey("", "", "") {
+	scoped := hA.policyKey("usr_1")
+	if scoped == hA.policyKey("") {
 		t.Error("policy key collapses an unscoped key into a scoped entry")
 	}
-	if scoped == hA.policyKey("env_1", "prj_1", "wsp_2") {
-		t.Error("policy key ignores the workspace")
+	if scoped == hA.policyKey("usr_2") {
+		t.Error("policy key ignores the account")
 	}
-	if scoped == hB.policyKey("env_1", "prj_1", "wsp_1") {
+	if scoped == hB.policyKey("usr_1") {
 		t.Error("policy key ignores the database: two deployments share one policy entry")
 	}
 }

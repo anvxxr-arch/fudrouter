@@ -65,7 +65,8 @@ test('/api/admin/overview carries a full 14-day series and revenue MTD', NEEDS_D
 		assert.equal(typeof s.costMicro, 'string', 'series costMicro must be a string (micros are bigint)');
 	}
 	assert.equal(typeof body.revenueMtdMicro, 'string', 'revenueMtdMicro must be a string (micros are bigint)');
-	assert.equal(typeof body.counts.workspaces, 'number', 'counts must carry the workspaces number');
+	// counts.workspaces was dropped from the overview with migration 0019.
+	assert.ok(!('workspaces' in body.counts), 'counts.workspaces must be gone');
 });
 
 test('/api/admin/billing carries a full 12-month ledger series', NEEDS_DB, async () => {
@@ -88,19 +89,18 @@ test('/api/admin/billing carries a full 12-month ledger series', NEEDS_DB, async
 	}
 });
 
-test('/api/admin/users carries firstRequestAt and workspaceName', NEEDS_DB, async () => {
+test('/api/admin/users carries firstRequestAt and per-user usage', NEEDS_DB, async () => {
 	const res = await fetch(`${server.baseUrl}/api/admin/users`, { headers: { cookie: adminCookie } });
 	const text = await res.text();
 	assert.equal(res.status, 200, `users = ${res.status}: ${text.slice(0, 160)}`);
 	const body = JSON.parse(text);
 	assert.ok(Array.isArray(body.users), 'the payload must carry a users array');
 	assert.ok(body.users.length > 0, 'the sign-up in test.before must be listed');
+	// The workspace columns left the payload with migration 0019; the counts
+	// that survive are the ones KeysView/UsersView still render.
 	for (const u of body.users) {
 		assert.ok('firstRequestAt' in u, 'the users payload is missing firstRequestAt');
-		assert.ok('workspaceName' in u, 'the users payload is missing workspaceName');
+		assert.ok('requests' in u, 'the users payload is missing requests');
+		assert.ok(!('workspaceName' in u), 'workspaceName was dropped with the hierarchy');
 	}
-	// The sign-up in test.before provisioned a workspace, so the newest user
-	// (ordered createdAt desc) must carry its name — the join, not just the key.
-	const newest = body.users[0];
-	assert.equal(typeof newest.workspaceName, 'string', `the newest user must carry a workspace name (got ${newest.workspaceName})`);
 });

@@ -28,7 +28,7 @@ a compromised console cannot mint traffic the router accepts
 **Inference request** (`/v1/chat/completions`): `proxy.ServeMux` → `lifecycle.begin`
 (sets `x-fudrouter-request-id` on *every* response) → `authenticate` (Bearer wins,
 else `x-api-key`; sha256 compare) → key-policy gates → `EffectiveLimits`
-(platform→workspace→project→environment→api_key MIN, 60s cache) → `limiter.Check`
+(platform→account→api_key MIN, 60s cache) → `limiter.Check`
 (Valkey `rl:`/`conc:`, in-process fallback, fail-open on cache error) →
 `checkBudgets` (402 `INSUFFICIENT_CREDITS`) → `ResolveModel` → `Candidates`
 (capability filter in SQL) → `routing.Filter`/`Select` → `routing.Execute` walks
@@ -40,7 +40,7 @@ tx with an idempotency key, then one `request_attempt` per attempt.
 **Dashboard load**: Caddy → Express on `PORT` → SPA boot → `RequireAuth` →
 `GET /api/auth/get-session` → page `useLoad` → `/api/pages/...` → `wrap()` runs the
 handler inside an `AsyncLocalStorage` carrying the proxy-aware client IP, then
-`mustAuth` → `mustWorkspace` → raw `sql` via `db.execute`. Mutations write an
+`mustAuth` → raw `sql` via `db.execute`. Mutations write an
 `audit_log` row through `writeAudit` (secrets redacted).
 
 **Playground** is the only path that crosses planes: Express mints a 5-minute
@@ -259,6 +259,16 @@ per page.
 - `schema_migration` baseline backfill: an empty `schema_migration` + an existing
   `api_key` table gets 0000–0005 recorded as applied, because the live DB was shaped
   by `drizzle-kit push` and has no bookkeeping.
+- **`0019_flatten_to_accounts.sql` is one-way and column-order sensitive.** It drops
+  the workspace/project/environment columns BEFORE the tables, because those tables
+  are the `ON DELETE CASCADE` parents of `api_key`, `request_log`, `billing_account`
+  and the ledger — dropping tables first would delete every key and every money row.
+  It also re-keys in place rather than recreating: `billing_account` keeps its id (the
+  ledger cascades off it), and workspace-scoped budgets/rate limits/aliases/routing
+  policies/alerts/webhooks are REMAPPED to `user.id`, not deleted. Rehearse it on a
+  prod-shaped database (`pg_dump --schema-only` + the real `schema_migration` rows)
+  before applying: the failure mode is a FK violation on a `wrk_…` id that never got
+  remapped, and it only shows up with real rows.
 
 **Secrets & environment**
 - **Never hardcode the Valkey endpoint.** `VALKEY_URL` is configuration; the shared

@@ -18,6 +18,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/store"
 	"github.com/anvxxr-arch/fudrouter/backend/go/tests"
 )
@@ -47,7 +49,7 @@ func TestResolveModelAliasIsOneQuery(t *testing.T) {
 	env := tests.SeedEnv(t, dsn, "http://127.0.0.1:1")
 	s, tr := startCounting(t, dsn)
 	ctx := context.Background()
-	key := &store.APIKeyRow{WorkspaceID: env.WorkspaceID, ProjectID: env.ProjectID}
+	key := &store.APIKeyRow{UserID: env.UserID}
 
 	tests.SeedAlias(t, dsn, env, "counted-alias", []string{env.ModelID})
 
@@ -86,14 +88,15 @@ func TestResolveModelAliasIsOneQuery(t *testing.T) {
 	}
 }
 
-// BudgetGateState folds the billing account and the environment's flat monthly
-// budget into ONE round trip, so the budget gate's common case (no `budget`
-// rows) costs 2 queries instead of 3. Both values are read on every request, so
-// the round trip is on the hot path rather than a rare branch.
+// BudgetGateState reads the user's billing account — the hard stop the
+// admission gate refuses at — in ONE round trip. Migration 0019 flattened the
+// hierarchy: the environment monthly-budget column this query used to
+// left-join is gone, so the gate state is the account row alone (the scoped
+// `budget` rows are BudgetsFor's read, pinned below).
 //
-// The two rows are independent — an account keyed by workspace, an environment
-// row keyed by environment — which is exactly why they used to be two queries
-// and why one left-joined anchor can now carry both.
+// The account read keeps its fail-CLOSED shape: an unknown user comes back as
+// a nil account and a nil error — the S0-tenant case the gate treats as "no
+// hard stop".
 func TestBudgetGateStateIsOneQuery(t *testing.T) {
 	dsn := tests.RequireDB(t)
 	env := tests.SeedEnv(t, dsn, "http://127.0.0.1:1")
@@ -101,7 +104,7 @@ func TestBudgetGateStateIsOneQuery(t *testing.T) {
 	ctx := context.Background()
 
 	tr.Reset()
-	acct, envBudget, err := s.BudgetGateState(ctx, env.WorkspaceID, env.EnvironmentID)
+	acct, err := s.BudgetGateState(ctx, env.UserID)
 	if err != nil {
 		t.Fatalf("BudgetGateState: %v", err)
 	}
@@ -109,43 +112,77 @@ func TestBudgetGateStateIsOneQuery(t *testing.T) {
 		t.Errorf("gate state issued %d queries, want 1: %v", got, tr.Texts())
 	}
 	if acct == nil {
-		t.Fatal("seeded workspace has no billing account through the join")
+		t.Fatal("seeded user has no billing account")
 	}
 	if acct.Status == "" || acct.ID == "" {
 		t.Errorf("account came back half-populated: %+v", acct)
 	}
-	if envBudget != nil {
-		t.Errorf("unset monthly_budget_micro decoded as %d, want nil", *envBudget)
-	}
 
-	// Setting the column must surface it WITHOUT another query — the value rode
-	// the same row, and a decode bug here is what would make the environment
-	// budget silently unenforceable.
-	tests.SetEnvironmentMonthlyBudgetMicro(t, dsn, env.EnvironmentID, 42)
-	tr.Reset()
-	_, envBudget, err = s.BudgetGateState(ctx, env.WorkspaceID, env.EnvironmentID)
+	// The account-scoped `budget` row (migration 0019's replacement for the
+	// environment's monthly_budget_micro column) must surface through
+	// BudgetsFor WITHOUT a second query, and the gate-state read must not grow
+	// now that a budget row exists — a decode or scope bug here is what would
+	// make an account budget silently unenforceable.
+	budgetID := "bdg_count_" + randSuffix()
+	conn, err := pgx.Connect(ctx, dsn)
 	if err != nil {
-		t.Fatalf("BudgetGateState after set: %v", err)
+		t.Fatal(err)
+	}
+	defer conn.Close(ctx)
+	if _, err := conn.Exec(ctx,
+		`insert into budget (id, scope, scope_id, period, amount_micro)
+		 values ($1, 'account', $2, 'monthly', 42)`, budgetID, env.UserID); err != nil {
+		t.Fatalf("seed account budget: %v", err)
+	}
+	t.Cleanup(func() {
+		c, err := pgx.Connect(context.Background(), dsn)
+		if err != nil {
+			t.Errorf("cleanup connect: %v", err)
+			return
+		}
+		defer c.Close(context.Background())
+		if _, err := c.Exec(context.Background(),
+			`delete from budget where id = $1`, budgetID); err != nil {
+			t.Errorf("cleanup budget row: %v", err)
+		}
+	})
+
+	key := &store.APIKeyRow{UserID: env.UserID, ID: env.APIKeyID}
+	tr.Reset()
+	budgets, err := s.BudgetsFor(ctx, key)
+	if err != nil {
+		t.Fatalf("BudgetsFor: %v", err)
 	}
 	if got := tr.Count(); got != 1 {
-		t.Errorf("gate state issued %d queries after set, want 1: %v", got, tr.Texts())
+		t.Errorf("budgets read issued %d queries, want 1: %v", got, tr.Texts())
 	}
-	if envBudget == nil || *envBudget != 42 {
-		t.Errorf("env budget = %v, want 42", envBudget)
+	if len(budgets) != 1 {
+		t.Fatalf("account budget rows = %d, want 1", len(budgets))
+	}
+	if budgets[0].Scope != "account" || budgets[0].ScopeID != env.UserID || budgets[0].AmountMicro != 42 {
+		t.Errorf("budget row = %+v, want the seeded account/monthly/42 row", budgets[0])
 	}
 
-	// A workspace with NO account must come back with a nil account and a nil
+	tr.Reset()
+	if _, err := s.BudgetGateState(ctx, env.UserID); err != nil {
+		t.Fatalf("BudgetGateState after budget insert: %v", err)
+	}
+	if got := tr.Count(); got != 1 {
+		t.Errorf("gate state issued %d queries after the budget insert, want 1: %v", got, tr.Texts())
+	}
+
+	// A user with NO account must come back with a nil account and a nil
 	// error — that is the S0-tenant case the gate must treat as "no hard stop".
 	tr.Reset()
-	acct, _, err = s.BudgetGateState(ctx, "wrk_does_not_exist", "env_does_not_exist")
+	acct, err = s.BudgetGateState(ctx, "usr_does_not_exist")
 	if err != nil {
-		t.Fatalf("unknown workspace: %v", err)
+		t.Fatalf("unknown account: %v", err)
 	}
 	if acct != nil {
-		t.Errorf("unknown workspace returned an account: %+v", acct)
+		t.Errorf("unknown account returned a billing account: %+v", acct)
 	}
 	if got := tr.Count(); got != 1 {
-		t.Errorf("unknown-workspace state issued %d queries, want 1: %v", got, tr.Texts())
+		t.Errorf("unknown-account state issued %d queries, want 1: %v", got, tr.Texts())
 	}
 }
 

@@ -1,5 +1,5 @@
 import { lazy, useEffect } from 'react';
-import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
+import { BrowserRouter, Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { PublicLayout } from './components/PublicLayout';
 import { RequireAuth, RequireRouteCap } from './components/guards';
 import { seoFor } from './lib/seo';
@@ -24,29 +24,22 @@ const AdminDetail = lazy(() => import('./routes/admin').then((m) => ({ default: 
 const AdminHome = lazy(() => import('./routes/admin').then((m) => ({ default: m.AdminHome })));
 const AdminSectionRoute = lazy(() => import('./routes/admin').then((m) => ({ default: m.AdminSectionRoute })));
 const AccountPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.AccountPage })));
+const AliasesPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.AliasesPage })));
+const AlertsPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.AlertsPage })));
 const BillingPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.BillingPage })));
+const BudgetsPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.BudgetsPage })));
 const CreditsPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.CreditsPage })));
 const DashboardHome = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.DashboardHome })));
-const InvitePage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.InvitePage })));
 const InvoicesPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.InvoicesPage })));
 const KeysPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.KeysPage })));
+const LimitsPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.LimitsPage })));
 const LogsPage = lazy(() => import('./routes/logs').then((m) => ({ default: m.LogsPage })));
 const PayMethodsPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.PayMethodsPage })));
 const PlaygroundPage2 = lazy(() => import('./routes/playground').then((m) => ({ default: m.PlaygroundPage2 })));
-const ProjectNewPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.ProjectNewPage })));
-const ProjectPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.ProjectPage })));
-const ProjectSubPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.ProjectSubPage })));
+const RoutingPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.RoutingPage })));
 const SettingsHub = lazy(() => import('./routes/settings').then((m) => ({ default: m.SettingsHub })));
-const TeamInvitesPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.TeamInvitesPage })));
-const TeamMembersPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.TeamMembersPage })));
-const TeamRolesPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.TeamRolesPage })));
 const UsagePage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.UsagePage })));
-const WorkspacePage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.WorkspacePage })));
 
-function ProjectSubRoute() {
-  const { name } = useParams();
-  return <ProjectSubPage name={name ?? ''} />;
-}
 // Route metadata is NOT re-listed here. It lives in lib/seo.ts, the registry the
 // Express server reads for /sitemap.xml and for the head it renders on the first
 // paint. This hook only keeps the client in step after the SPA takes over: the
@@ -131,15 +124,12 @@ export default function App() {
           <Route path="dashboard/billing/payment-methods" element={<RequireAuth><PayMethodsPage /></RequireAuth>} />
           <Route path="dashboard/account" element={<RequireAuth><AccountPage /></RequireAuth>} />
           <Route path="dashboard/settings" element={<RequireAuth><SettingsHub /></RequireAuth>} />
-          <Route path="dashboard/workspace" element={<RequireAuth><WorkspacePage /></RequireAuth>} />
-          <Route path="dashboard/team/members" element={<RequireAuth><TeamMembersPage /></RequireAuth>} />
-          <Route path="dashboard/team/invitations" element={<RequireAuth><TeamInvitesPage /></RequireAuth>} />
-          <Route path="dashboard/team/roles" element={<RequireAuth><TeamRolesPage /></RequireAuth>} />
-          <Route path="dashboard/projects/new" element={<RequireAuth><ProjectNewPage /></RequireAuth>} />
-          <Route path="dashboard/projects/:projectId" element={<RequireAuth><ProjectPage /></RequireAuth>} />
-          <Route path="dashboard/projects/:projectId/playground" element={<RequireAuth><PlaygroundPage2 /></RequireAuth>} />
-          <Route path="dashboard/projects/:projectId/:name" element={<RequireAuth><ProjectSubRoute /></RequireAuth>} />
-          <Route path="invite/:token" element={<RequireAuth><InvitePage /></RequireAuth>} />
+          <Route path="dashboard/limits" element={<RequireAuth><LimitsPage /></RequireAuth>} />
+          <Route path="dashboard/budgets" element={<RequireAuth><BudgetsPage /></RequireAuth>} />
+          <Route path="dashboard/aliases" element={<RequireAuth><AliasesPage /></RequireAuth>} />
+          <Route path="dashboard/routing" element={<RequireAuth><RoutingPage /></RequireAuth>} />
+          <Route path="dashboard/alerts" element={<RequireAuth><AlertsPage /></RequireAuth>} />
+          <Route path="dashboard/playground" element={<RequireAuth><PlaygroundPage2 /></RequireAuth>} />
           <Route path="admin" element={<RequireRouteCap><AdminHome /></RequireRouteCap>} />
           <Route path="admin/:name" element={<RequireRouteCap><AdminSectionRoute /></RequireRouteCap>} />
           <Route path="admin/:section/:id" element={<RequireRouteCap><AdminDetail /></RequireRouteCap>} />

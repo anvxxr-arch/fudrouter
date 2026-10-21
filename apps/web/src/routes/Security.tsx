@@ -28,11 +28,11 @@ const TRUST = [
 const PILLARS = [
   {
     title: 'Your keys stay yours',
-    body: 'Only the SHA-256 hash of a key secret is stored; the plaintext is shown once at creation and a lost key is replaced, never recovered. A key rotates in place, and every key is scoped to the project and environment it was minted in.',
+    body: 'Only the SHA-256 hash of a key secret is stored; the plaintext is shown once at creation and a lost key is replaced, never recovered. A key rotates in place, and every key is scoped to the account that minted it.',
   },
   {
     title: 'Your data stays minimal',
-    body: 'A request writes one ledger row — model, provider, token counts, cost, latency, status, client IP. Prompt and response bodies are not recorded unless content capture is explicitly enabled for the workspace.',
+    body: 'A request writes one ledger row — model, provider, token counts, cost, latency, status, client IP. Prompt and response bodies are not recorded unless content capture is explicitly enabled for the account.',
   },
   {
     title: 'Your blast radius stays small',
@@ -63,7 +63,7 @@ const COMPLIANCE: { name: string; status: string; tone: Tone; body: string }[] =
     // pages.mjs or anywhere in the tree — a human does it after an email.
     status: 'On request',
     tone: 'info',
-    body: 'Access, export and erasure requests are handled manually by the operator on request — email privacy@your-domain with your workspace ID. There is no self-serve export tool yet.',
+    body: 'Access, export and erasure requests are handled manually by the operator on request — email privacy@your-domain with your account email. There is no self-serve export tool yet.',
   },
   {
     name: 'SOC 2 Type II',
@@ -84,7 +84,7 @@ const DISCLOSURE_SCOPE = [
   'Out of scope: the upstream providers\u2019 own infrastructure, and anything needing physical access to the host.',
   'We acknowledge a report within 2 business days.',
   'We aim to ship a fix or a mitigation within 30 days of acknowledgement.',
-  'Please do not test against another workspace\u2019s data, and do not run automated scans against the shared host.',
+  'Please do not test against another customer\u2019s data, and do not run automated scans against the shared host.',
 ];
 
 export function SecurityPage() {

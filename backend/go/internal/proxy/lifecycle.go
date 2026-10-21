@@ -153,7 +153,7 @@ func (h *Handler) begin(w http.ResponseWriter, r *http.Request, start time.Time,
 	lc.lim = lim
 
 	adm, rej := h.limiter.Check(r.Context(),
-		&limits.APIKeyIdentity{KeyID: key.ID, WorkspaceID: key.WorkspaceID, Store: h.store},
+		&limits.APIKeyIdentity{KeyID: key.ID, Store: h.store},
 		lim, tokenEstimate(body))
 	if rej != nil {
 		status := "rate_limited"
@@ -764,7 +764,7 @@ func (lc *lifecycle) finish() {
 		// (Limiter.SpendAdd, budgetSpent), so an expired context can
 		// under-count a window but never leave usage unbilled.
 		defer lc.h.limiter.SpendAdd(ctx,
-			&limits.APIKeyIdentity{KeyID: lc.key.ID, WorkspaceID: lc.key.WorkspaceID, Store: lc.h.store},
+			&limits.APIKeyIdentity{KeyID: lc.key.ID, Store: lc.h.store},
 			row.Cost)
 		defer lc.h.budgetSpendAdd(ctx, lc, row.Cost)
 	}
@@ -794,7 +794,7 @@ func (lc *lifecycle) finish() {
 		}
 	}
 	if charge != nil && (charge.Warning || charge.HardStop) {
-		lc.h.raiseLowBalance(ctx, charge, row.WorkspaceID)
+		lc.h.raiseLowBalance(ctx, charge, row.UserID)
 	}
 
 	// Attempts come after the request row: request_attempt.request_id is an FK.
@@ -852,9 +852,6 @@ func (lc *lifecycle) buildRow(u usageCounts) *store.RequestLog {
 	if lc.key != nil {
 		row.UserID = lc.key.UserID
 		row.APIKeyID = lc.key.ID
-		row.WorkspaceID = lc.key.WorkspaceID
-		row.ProjectID = lc.key.ProjectID
-		row.EnvironmentID = lc.key.EnvironmentID
 	}
 	row.ClientIP = clientIP(lc.r)
 	row.ClientDisconnected = lc.clientDisconnected

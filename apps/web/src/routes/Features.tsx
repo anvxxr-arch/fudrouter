@@ -19,9 +19,9 @@ interface Feature {
 
 // Every claim here is backed by the repo: fallback/health in
 // backend/go/internal/routing, micro-unit billing in the credit_ledger path,
-// multi-tenant hierarchy in EffectiveLimits, budget gate returning 402
-// INSUFFICIENT_CREDITS, audit_log via writeAudit, alias rewrite in
-// ResolveModel. The Planned rows are the roadmap, not shipped features —
+// the platform → account → api_key limit chain in EffectiveLimits, budget gate
+// returning 402 INSUFFICIENT_CREDITS, audit_log via writeAudit, alias rewrite
+// in ResolveModel. The Planned rows are the roadmap, not shipped features —
 // they are labeled so the grid cannot oversell.
 const FEATURES: Feature[] = [
   {
@@ -40,8 +40,8 @@ const FEATURES: Feature[] = [
     status: 'GA',
   },
   {
-    title: 'Multi-tenant',
-    desc: 'workspace → project → api_key hierarchy; limits resolve as the MIN across platform, workspace, project, environment and key.',
+    title: 'Per-account limits',
+    desc: 'Account and key scopes; a limit resolves as the MIN across platform, account and key.',
     status: 'GA',
   },
   {
@@ -98,7 +98,7 @@ const COMPARISON: CompareRow[] = [
   { feature: 'Automatic fallback', us: '✓', nine: '—', omni: '—', lite: '—' },
   { feature: 'Combo routing', us: 'Planned', nine: '—', omni: '—', lite: '—' },
   { feature: 'Credit billing (integer micro-units)', us: '✓', nine: '—', omni: '—', lite: '—' },
-  { feature: 'Multi-tenant (workspace → project → api_key)', us: '✓', nine: '—', omni: '—', lite: '—' },
+  { feature: 'Per-account isolation (account → api_key)', us: '✓', nine: '—', omni: '—', lite: '—' },
   { feature: 'Budget gate (402 before provider)', us: '✓', nine: '—', omni: '—', lite: '—' },
   { feature: 'Audit log', us: '✓', nine: '—', omni: '—', lite: '—' },
   { feature: 'Provider health / circuit breaker', us: '✓', nine: '—', omni: '—', lite: '—' },

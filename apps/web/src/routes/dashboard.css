@@ -198,10 +198,11 @@
 .keys-secret code { font-family: var(--font-mono); font-size: var(--text-sm); }
 .keys-warn { margin: 0; color: var(--warning); font-size: var(--text-sm); font-weight: 600; }
 
-/* ---- project settings ---- */
+/* ---- account capability surfaces ---- */
 
-/* Shared by the aliases, limits and routing pages: an info rail for the
-   "what is this for" line, a labelled form grid, and inline save feedback. */
+/* Shared by the aliases, limits, budgets, routing and alerts pages: an info
+   rail for the "what is this for" line, a labelled form grid, and inline save
+   feedback. */
 .ps-note { padding: var(--space-sm) var(--space-md); border: 1px solid var(--color-border); border-left: 3px solid var(--color-info); border-radius: var(--radius-md); background: var(--color-surface); }
 .ps-note p { margin: 0; font-size: var(--text-sm); color: var(--color-text-muted); }
 .ps-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: var(--space-md); align-items: end; }
@@ -234,23 +235,11 @@
    own grid rather than borrowing .keys-form. */
 .ps-dialog-form { display: grid; gap: var(--space-md); }
 
-/* ---- project requests ---- */
+/* ---- form action rows ---- */
 
-/* Filter bar: 13 controls in the shared ps-form grid; the actions row spans
-   the full width so Apply/Reset/count sit under the fields. */
-.pr-filters { align-items: end; }
+/* The actions row spans the full width of the .ps-form grid so its buttons sit
+   under the fields. */
 .pr-actions { display: flex; align-items: center; gap: var(--space-sm); flex-wrap: wrap; }
-.pr-count { font-size: var(--text-sm); color: var(--color-text-muted); }
-
-/* Latency cell: the fallback badge sits beside the number, not under it. */
-.pr-latency { display: inline-flex; align-items: center; gap: var(--space-xs); }
-
-/* Pager: Previous / Page N / Next on one line, Next disabled at the end. */
-.pr-pager { align-items: center; gap: var(--space-sm); }
-
-/* Drawer: the served model is highlighted when it differs from the requested
-   one, so a fallback reads without the word. */
-.pr-fallback { color: var(--warning); font-weight: 600; }
 /* ---- admin models ---- */
 /* The price cell swaps a button for an input plus a confirm row, so it needs a
    grid; the table cell's own padding is the gutter. */

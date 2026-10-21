@@ -27,7 +27,9 @@ export interface AuditEntry {
 	action: string;
 	resource: string;
 	resourceId?: string | null;
-	workspaceId?: string | null;
+	// No `workspaceId`: migration 0019 flattened the hierarchy and stopped
+	// writing `audit_log.workspace_id`. The column survives as historical
+	// evidence of what was true then; nothing new may put a user id in it.
 	ip?: string | null;
 	before?: Record<string, unknown> | null;
 	after?: Record<string, unknown> | null;
@@ -72,7 +74,6 @@ export async function writeAudit(dbtx: DbTx, entry: AuditEntry): Promise<void> {
 		action: entry.action,
 		resource: entry.resource,
 		resourceId: entry.resourceId ?? null,
-		workspaceId: entry.workspaceId ?? null,
 		ip,
 		before: entry.before ? redactSecrets(entry.before) : null,
 		after: entry.after ? redactSecrets(entry.after) : null,

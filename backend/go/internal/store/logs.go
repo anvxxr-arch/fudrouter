@@ -22,9 +22,6 @@ type RequestLog struct {
 	ID              string
 	UserID          string
 	APIKeyID        string
-	WorkspaceID     string
-	ProjectID       string
-	EnvironmentID   string
 	Endpoint        string
 	RequestedModel  string
 	ModelID         string
@@ -69,7 +66,7 @@ type RequestLog struct {
 }
 
 const requestLogColumns = `
-	id, user_id, api_key_id, workspace_id, project_id, environment_id,
+	id, user_id, api_key_id,
 	endpoint, requested_model, model_id, provider_model_id, provider_id,
 	connection_id, credential_id, routing_policy_id, strategy,
 	status, error_code, error, http_status,
@@ -103,8 +100,7 @@ func (r *RequestLog) args() []any {
 		clientIP = r.ClientIP
 	}
 	return []any{
-		r.ID, nullStr(r.UserID), nullStr(r.APIKeyID), nullStr(r.WorkspaceID),
-		nullStr(r.ProjectID), nullStr(r.EnvironmentID),
+		r.ID, nullStr(r.UserID), nullStr(r.APIKeyID),
 		nullStr(r.Endpoint), nullStr(r.RequestedModel), nullStr(r.ModelID),
 		nullStr(r.ProviderModelID), nullStr(r.ProviderID), nullStr(r.ConnectionID),
 		nullStr(r.CredentialID), nullStr(r.RoutingPolicyID), nullStr(r.Strategy),
@@ -131,7 +127,7 @@ func nullStr(s string) any {
 func (s *Store) InsertRequestLog(ctx context.Context, r *RequestLog) error {
 	_, err := s.pool.Exec(ctx, `
 		insert into request_log (`+requestLogColumns+`)
-		values (`+placeholders(43)+`)
+		values (`+placeholders(40)+`)
 		on conflict (id) do nothing`, r.args()...)
 	return err
 }
@@ -166,19 +162,19 @@ func (s *Store) InsertRequestLogWithLedger(ctx context.Context, r *RequestLog) e
 	}
 	if _, err := tx.Exec(ctx, `
 		insert into request_log (`+requestLogColumns+`)
-		values (`+placeholders(43)+`)
+		values (`+placeholders(40)+`)
 		on conflict (id) do nothing`, r.args()...); err != nil {
 		return err
 	}
-	if r.WorkspaceID == "" {
+	if r.UserID == "" {
 		// Account-less tenant: nothing to charge, same as ChargeRequest.
 		return tx.Commit(ctx)
 	}
 	var accountID string
 	var currency string
 	err = tx.QueryRow(ctx, `
-		select id, currency from billing_account where workspace_id = $1`,
-		r.WorkspaceID,
+		select id, currency from billing_account where user_id = $1`,
+		r.UserID,
 	).Scan(&accountID, &currency)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):

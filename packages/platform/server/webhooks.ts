@@ -59,8 +59,7 @@ export const WEBHOOK_EVENTS = [
 export type WebhookEvent = (typeof WEBHOOK_EVENTS)[number];
 
 export interface EventPayload {
-	workspaceId?: string | null;
-	projectId?: string | null;
+	accountId?: string | null;
 	[key: string]: unknown;
 }
 
@@ -105,20 +104,18 @@ export async function checkWebhookUrl(url: string): Promise<string | null> {
 /**
  * Fan an internal event out to matching webhooks.
  *
- * Matching is by scope (exact workspace, and the hook's `project_id` must be
- * NULL or equal to the event's) plus the `events` jsonb filter — an empty or
- * absent filter means "all events" (a hook that subscribes to nothing gets
- * nothing, but the schema default is `[]` and would silently unsubscribe every
- * existing hook if read literally).
+ * Matching is by account (the hook's `account_id` must equal the event's) plus
+ * the `events` jsonb filter — an empty or absent filter means "all events" (a
+ * hook that subscribes to nothing gets nothing, but the schema default is `[]`
+ * and would silently unsubscribe every existing hook if read literally).
  */
 export async function dispatchEvent(
 	event: WebhookEvent,
 	payload: EventPayload,
 	handle: WebhookHandle = db
 ): Promise<DispatchResult> {
-	const workspaceId = payload.workspaceId ?? null;
-	if (!workspaceId) return { matched: 0, deliveryIds: [] };
-	const projectId = payload.projectId ?? null;
+	const accountId = payload.accountId ?? null;
+	if (!accountId) return { matched: 0, deliveryIds: [] };
 	const candidates = await handle
 		.select({
 			id: webhook.id,
@@ -127,13 +124,7 @@ export async function dispatchEvent(
 			events: webhook.events
 		})
 		.from(webhook)
-		.where(
-			and(
-				eq(webhook.workspaceId, workspaceId),
-				eq(webhook.enabled, true),
-				projectId === null ? sql`true` : sql`(${webhook.projectId} is null or ${webhook.projectId} = ${projectId})`
-			)
-		);
+		.where(and(eq(webhook.accountId, accountId), eq(webhook.enabled, true)));
 	const matches: WebhookMatch[] = [];
 	for (const c of candidates) {
 		const filter = Array.isArray(c.events) ? (c.events as string[]) : [];

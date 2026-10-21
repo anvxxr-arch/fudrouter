@@ -10,9 +10,9 @@ import (
 	"github.com/anvxxr-arch/fudrouter/backend/go/tests"
 )
 
-// A key with no environment/project/workspace binding must still resolve the
-// platform default policy. The lookup's outer `coalesce(...)` returned SQL NULL
-// when no level bound a policy, and scanning NULL into a string made
+// A key with no account binding must still resolve the platform default
+// policy. The lookup's outer `coalesce(...)` returned SQL NULL
+// when no account row bound a policy, and scanning NULL into a string made
 // RoutingPolicyFor fail for EVERY unscoped key. The proxy swallows that error
 // and falls back to DefaultRoutingPolicy(), so the stored policy —
 // max_attempts, weights, constraints, strategy — silently never applied.

@@ -3,9 +3,9 @@
   "note": "Mechanical extraction of the live HTTP surface. Regenerate with `npm run extract -w @fudrouter/contracts`. A changed hash in `sources` with an unchanged route list means the surface survived an edit; a changed route list means the public API changed and downstream clients/OpenAPI must follow. `line` is RECORDED but deliberately NOT part of the staleness comparison: it is what the OpenAPI entries cite (\"Registered at <file>:<line>\"), so it is kept for a human tracing an operation, while a registration that merely SHIFTED because an unrelated edit added a line above it is not a surface change and must not turn this lock red — a lock that fails on a moved line number teaches people to regenerate it without reading the diff, which is the failure mode a lock exists to prevent. What IS compared is the route set, both directions, and the middleware set.",
   "counts": {
     "inference": 7,
-    "management": 191,
-    "management_get": 87,
-    "management_post": 103,
+    "management": 159,
+    "management_get": 72,
+    "management_post": 86,
     "middleware": 13
   },
   "inference": [
@@ -57,313 +57,289 @@
       "method": "ALL",
       "path": "/api/auth/{*path}",
       "file": "index.mjs",
-      "line": 737
+      "line": 561
     },
     {
       "method": "GET",
       "path": "{*path}",
       "file": "index.mjs",
-      "line": 1218
+      "line": 949
     },
     {
       "method": "GET",
       "path": "/api/admin/analytics",
       "file": "admin.mjs",
-      "line": 464
+      "line": 425
     },
     {
       "method": "GET",
       "path": "/api/admin/billing",
       "file": "admin.mjs",
-      "line": 528
+      "line": 489
     },
     {
       "method": "GET",
       "path": "/api/admin/connections",
       "file": "admin.mjs",
-      "line": 577
+      "line": 538
     },
     {
       "method": "GET",
       "path": "/api/admin/health",
       "file": "admin.mjs",
-      "line": 592
+      "line": 553
     },
     {
       "method": "GET",
       "path": "/api/admin/incidents",
       "file": "admin.mjs",
-      "line": 621
+      "line": 582
     },
     {
       "method": "GET",
       "path": "/api/admin/keys",
       "file": "admin.mjs",
-      "line": 636
+      "line": 597
     },
     {
       "method": "GET",
       "path": "/api/admin/models",
       "file": "admin.mjs",
-      "line": 660
+      "line": 618
     },
     {
       "method": "GET",
       "path": "/api/admin/models/:id",
       "file": "admin.mjs",
-      "line": 1021
+      "line": 905
     },
     {
       "method": "GET",
       "path": "/api/admin/models/mappings",
       "file": "admin.mjs",
-      "line": 1000
+      "line": 884
     },
     {
       "method": "GET",
       "path": "/api/admin/models/pricing",
       "file": "admin.mjs",
-      "line": 1007
+      "line": 891
     },
     {
       "method": "GET",
       "path": "/api/admin/models/sync",
       "file": "admin.mjs",
-      "line": 1017
+      "line": 901
     },
     {
       "method": "GET",
       "path": "/api/admin/overview",
       "file": "admin.mjs",
-      "line": 410
-    },
-    {
-      "method": "GET",
-      "path": "/api/admin/projects",
-      "file": "admin.mjs",
-      "line": 725
-    },
-    {
-      "method": "GET",
-      "path": "/api/admin/projects/:id",
-      "file": "admin.mjs",
-      "line": 1423
+      "line": 372
     },
     {
       "method": "GET",
       "path": "/api/admin/providers",
       "file": "admin.mjs",
-      "line": 747
+      "line": 683
     },
     {
       "method": "GET",
       "path": "/api/admin/providers/:id",
       "file": "admin.mjs",
-      "line": 1536
+      "line": 1402
     },
     {
       "method": "GET",
       "path": "/api/admin/providers/:id/connections",
       "file": "admin.mjs",
-      "line": 1508
+      "line": 1374
     },
     {
       "method": "GET",
       "path": "/api/admin/providers/:id/credentials",
       "file": "admin.mjs",
-      "line": 1517
+      "line": 1383
     },
     {
       "method": "GET",
       "path": "/api/admin/providers/:id/verification",
       "file": "admin.mjs",
-      "line": 1574
+      "line": 1440
     },
     {
       "method": "GET",
       "path": "/api/admin/requests",
       "file": "admin.mjs",
-      "line": 783
+      "line": 719
     },
     {
       "method": "GET",
       "path": "/api/admin/requests/:id",
       "file": "admin.mjs",
-      "line": 1955
+      "line": 1843
     },
     {
       "method": "GET",
       "path": "/api/admin/routing",
       "file": "admin.mjs",
-      "line": 815
+      "line": 751
     },
     {
       "method": "GET",
       "path": "/api/admin/routing/circuit-breakers",
       "file": "admin.mjs",
-      "line": 1968
+      "line": 1856
     },
     {
       "method": "GET",
       "path": "/api/admin/routing/fallbacks",
       "file": "admin.mjs",
-      "line": 2045
+      "line": 1933
     },
     {
       "method": "GET",
       "path": "/api/admin/routing/policies",
       "file": "admin.mjs",
-      "line": 2050
+      "line": 1938
     },
     {
       "method": "GET",
       "path": "/api/admin/routing/simulations",
       "file": "admin.mjs",
-      "line": 2126
+      "line": 2008
     },
     {
       "method": "GET",
       "path": "/api/admin/routing/strategies",
       "file": "admin.mjs",
-      "line": 2121
+      "line": 2003
     },
     {
       "method": "GET",
       "path": "/api/admin/security",
       "file": "admin.mjs",
-      "line": 849
+      "line": 777
     },
     {
       "method": "GET",
       "path": "/api/admin/security/abuse",
       "file": "admin.mjs",
-      "line": 2242
+      "line": 2122
     },
     {
       "method": "GET",
       "path": "/api/admin/security/audit-log",
       "file": "admin.mjs",
-      "line": 2258
+      "line": 2138
     },
     {
       "method": "GET",
       "path": "/api/admin/security/blocked-ips",
       "file": "admin.mjs",
-      "line": 2268
+      "line": 2148
     },
     {
       "method": "GET",
       "path": "/api/admin/security/blocked-keys",
       "file": "admin.mjs",
-      "line": 2299
+      "line": 2179
     },
     {
       "method": "GET",
       "path": "/api/admin/settings",
       "file": "admin.mjs",
-      "line": 859
+      "line": 787
     },
     {
       "method": "GET",
       "path": "/api/admin/settings/feature-flags",
       "file": "admin.mjs",
-      "line": 2415
+      "line": 2295
     },
     {
       "method": "GET",
       "path": "/api/admin/system",
       "file": "admin.mjs",
-      "line": 880
+      "line": 808
     },
     {
       "method": "GET",
       "path": "/api/admin/system/database",
       "file": "admin.mjs",
-      "line": 2484
+      "line": 2364
     },
     {
       "method": "GET",
       "path": "/api/admin/system/events",
       "file": "admin.mjs",
-      "line": 2498
+      "line": 2378
     },
     {
       "method": "GET",
       "path": "/api/admin/system/health",
       "file": "admin.mjs",
-      "line": 2508
+      "line": 2388
     },
     {
       "method": "GET",
       "path": "/api/admin/system/jobs",
       "file": "admin.mjs",
-      "line": 2538
+      "line": 2418
     },
     {
       "method": "GET",
       "path": "/api/admin/system/metrics",
       "file": "admin.mjs",
-      "line": 2583
+      "line": 2463
     },
     {
       "method": "GET",
       "path": "/api/admin/system/valkey",
       "file": "admin.mjs",
-      "line": 2596
+      "line": 2476
     },
     {
       "method": "GET",
       "path": "/api/admin/system/workers",
       "file": "admin.mjs",
-      "line": 2631
+      "line": 2511
     },
     {
       "method": "GET",
       "path": "/api/admin/traffic",
       "file": "admin.mjs",
-      "line": 903
+      "line": 831
     },
     {
       "method": "GET",
       "path": "/api/admin/traffic/queues",
       "file": "admin.mjs",
-      "line": 2655
+      "line": 2535
     },
     {
       "method": "GET",
       "path": "/api/admin/traffic/rate-limits",
       "file": "admin.mjs",
-      "line": 2665
+      "line": 2545
     },
     {
       "method": "GET",
       "path": "/api/admin/traffic/throttling",
       "file": "admin.mjs",
-      "line": 2719
+      "line": 2599
     },
     {
       "method": "GET",
       "path": "/api/admin/users",
       "file": "admin.mjs",
-      "line": 909
+      "line": 837
     },
     {
       "method": "GET",
       "path": "/api/admin/users/:id",
       "file": "admin.mjs",
-      "line": 2787
-    },
-    {
-      "method": "GET",
-      "path": "/api/admin/workspaces",
-      "file": "admin.mjs",
-      "line": 971
-    },
-    {
-      "method": "GET",
-      "path": "/api/admin/workspaces/:id",
-      "file": "admin.mjs",
-      "line": 2862
+      "line": 2667
     },
     {
       "method": "GET",
@@ -393,7 +369,7 @@
       "method": "GET",
       "path": "/api/health",
       "file": "index.mjs",
-      "line": 719
+      "line": 543
     },
     {
       "method": "GET",
@@ -423,121 +399,55 @@
       "method": "GET",
       "path": "/api/pages/{*path}",
       "file": "index.mjs",
-      "line": 1141
+      "line": 872
+    },
+    {
+      "method": "GET",
+      "path": "/api/pages/alerts",
+      "file": "pages.mjs",
+      "line": 1032
+    },
+    {
+      "method": "GET",
+      "path": "/api/pages/aliases",
+      "file": "pages.mjs",
+      "line": 849
+    },
+    {
+      "method": "GET",
+      "path": "/api/pages/budgets",
+      "file": "pages.mjs",
+      "line": 776
     },
     {
       "method": "GET",
       "path": "/api/pages/dashboard",
       "file": "pages.mjs",
-      "line": 284
+      "line": 217
     },
     {
       "method": "GET",
-      "path": "/api/pages/dashboard/usage/requests",
+      "path": "/api/pages/limits",
       "file": "pages.mjs",
-      "line": 503
+      "line": 641
     },
     {
       "method": "GET",
-      "path": "/api/pages/invite/:token",
+      "path": "/api/pages/routing",
       "file": "pages.mjs",
-      "line": 1926
-    },
-    {
-      "method": "GET",
-      "path": "/api/pages/projects/:projectId",
-      "file": "pages.mjs",
-      "line": 1023
-    },
-    {
-      "method": "GET",
-      "path": "/api/pages/projects/:projectId/alerts",
-      "file": "pages.mjs",
-      "line": 1574
-    },
-    {
-      "method": "GET",
-      "path": "/api/pages/projects/:projectId/aliases",
-      "file": "pages.mjs",
-      "line": 1630
-    },
-    {
-      "method": "GET",
-      "path": "/api/pages/projects/:projectId/analytics",
-      "file": "pages.mjs",
-      "line": 1713
-    },
-    {
-      "method": "GET",
-      "path": "/api/pages/projects/:projectId/budgets",
-      "file": "pages.mjs",
-      "line": 1750
-    },
-    {
-      "method": "GET",
-      "path": "/api/pages/projects/:projectId/environments",
-      "file": "pages.mjs",
-      "line": 1826
-    },
-    {
-      "method": "GET",
-      "path": "/api/pages/projects/:projectId/keys",
-      "file": "pages.mjs",
-      "line": 1108
-    },
-    {
-      "method": "GET",
-      "path": "/api/pages/projects/:projectId/keys/:keyId",
-      "file": "pages.mjs",
-      "line": 1857
-    },
-    {
-      "method": "GET",
-      "path": "/api/pages/projects/:projectId/limits",
-      "file": "pages.mjs",
-      "line": 1164
-    },
-    {
-      "method": "GET",
-      "path": "/api/pages/projects/:projectId/playground",
-      "file": "pages.mjs",
-      "line": 1532
-    },
-    {
-      "method": "GET",
-      "path": "/api/pages/projects/:projectId/requests",
-      "file": "pages.mjs",
-      "line": 1396
-    },
-    {
-      "method": "GET",
-      "path": "/api/pages/projects/:projectId/requests/:requestId",
-      "file": "pages.mjs",
-      "line": 1897
-    },
-    {
-      "method": "GET",
-      "path": "/api/pages/projects/:projectId/routing",
-      "file": "pages.mjs",
-      "line": 1298
-    },
-    {
-      "method": "GET",
-      "path": "/api/pages/projects/:projectId/settings",
-      "file": "pages.mjs",
-      "line": 1483
+      "line": 921
     },
     {
       "method": "GET",
       "path": "/api/pages/shell",
       "file": "index.mjs",
-      "line": 1039
+      "line": 829
     },
     {
       "method": "GET",
       "path": "/api/palette/:type",
       "file": "index.mjs",
-      "line": 852
+      "line": 704
     },
     {
       "method": "GET",
@@ -573,463 +483,439 @@
       "method": "GET",
       "path": "/robots.txt",
       "file": "index.mjs",
-      "line": 1154
+      "line": 885
     },
     {
       "method": "GET",
       "path": "/sitemap.xml",
       "file": "index.mjs",
-      "line": 1169
+      "line": 900
     },
     {
       "method": "POST",
       "path": "/api/admin/models/:id/mapping",
       "file": "admin.mjs",
-      "line": 1188
+      "line": 1072
     },
     {
       "method": "POST",
       "path": "/api/admin/models/:id/update",
       "file": "admin.mjs",
-      "line": 1160
+      "line": 1044
     },
     {
       "method": "POST",
       "path": "/api/admin/models/bulk",
       "file": "admin.mjs",
-      "line": 1043
+      "line": 927
     },
     {
       "method": "POST",
       "path": "/api/admin/models/create",
       "file": "admin.mjs",
-      "line": 1076
+      "line": 960
     },
     {
       "method": "POST",
       "path": "/api/admin/models/delete",
       "file": "admin.mjs",
-      "line": 1146
+      "line": 1030
     },
     {
       "method": "POST",
       "path": "/api/admin/models/mappings/create",
       "file": "admin.mjs",
-      "line": 1204
+      "line": 1088
     },
     {
       "method": "POST",
       "path": "/api/admin/models/mappings/delete",
       "file": "admin.mjs",
-      "line": 1265
+      "line": 1155
     },
     {
       "method": "POST",
       "path": "/api/admin/models/mappings/update",
       "file": "admin.mjs",
-      "line": 1234
+      "line": 1124
     },
     {
       "method": "POST",
       "path": "/api/admin/models/pricing/apply",
       "file": "admin.mjs",
-      "line": 1309
+      "line": 1199
     },
     {
       "method": "POST",
       "path": "/api/admin/models/pricing/preview",
       "file": "admin.mjs",
-      "line": 1297
+      "line": 1187
     },
     {
       "method": "POST",
       "path": "/api/admin/models/provider",
       "file": "admin.mjs",
-      "line": 1059
+      "line": 943
     },
     {
       "method": "POST",
       "path": "/api/admin/models/sync/apply",
       "file": "admin.mjs",
-      "line": 1375
+      "line": 1265
     },
     {
       "method": "POST",
       "path": "/api/admin/models/sync/fetch",
       "file": "admin.mjs",
-      "line": 1333
+      "line": 1223
     },
     {
       "method": "POST",
       "path": "/api/admin/models/update",
       "file": "admin.mjs",
-      "line": 1116
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/projects/setStatus",
-      "file": "admin.mjs",
-      "line": 1432
+      "line": 1000
     },
     {
       "method": "POST",
       "path": "/api/admin/providers/:id/chat",
       "file": "admin.mjs",
-      "line": 1750
+      "line": 1626
     },
     {
       "method": "POST",
       "path": "/api/admin/providers/:id/connections/create",
       "file": "admin.mjs",
-      "line": 1804
+      "line": 1680
     },
     {
       "method": "POST",
       "path": "/api/admin/providers/:id/disable",
       "file": "admin.mjs",
-      "line": 1673
+      "line": 1549
     },
     {
       "method": "POST",
       "path": "/api/admin/providers/:id/enable",
       "file": "admin.mjs",
-      "line": 1635
+      "line": 1501
     },
     {
       "method": "POST",
       "path": "/api/admin/providers/:id/fetchCatalog",
       "file": "admin.mjs",
-      "line": 1617
+      "line": 1483
     },
     {
       "method": "POST",
       "path": "/api/admin/providers/:id/strategy",
       "file": "admin.mjs",
-      "line": 1777
+      "line": 1653
     },
     {
       "method": "POST",
       "path": "/api/admin/providers/:id/testAll",
       "file": "admin.mjs",
-      "line": 1706
+      "line": 1582
     },
     {
       "method": "POST",
       "path": "/api/admin/providers/:id/testCredential",
       "file": "admin.mjs",
-      "line": 1686
+      "line": 1562
     },
     {
       "method": "POST",
       "path": "/api/admin/providers/:id/testModel",
       "file": "admin.mjs",
-      "line": 1725
+      "line": 1601
     },
     {
       "method": "POST",
       "path": "/api/admin/providers/:id/verify",
       "file": "admin.mjs",
-      "line": 1602
+      "line": 1468
     },
     {
       "method": "POST",
       "path": "/api/admin/providers/connections/delete",
       "file": "admin.mjs",
-      "line": 1838
+      "line": 1720
     },
     {
       "method": "POST",
       "path": "/api/admin/providers/connections/update",
       "file": "admin.mjs",
-      "line": 1821
+      "line": 1701
     },
     {
       "method": "POST",
       "path": "/api/admin/providers/create",
       "file": "admin.mjs",
-      "line": 1446
+      "line": 1312
     },
     {
       "method": "POST",
       "path": "/api/admin/providers/credentials/create",
       "file": "admin.mjs",
-      "line": 1860
+      "line": 1742
     },
     {
       "method": "POST",
       "path": "/api/admin/providers/credentials/delete",
       "file": "admin.mjs",
-      "line": 1942
+      "line": 1830
     },
     {
       "method": "POST",
       "path": "/api/admin/providers/credentials/disable",
       "file": "admin.mjs",
-      "line": 1913
+      "line": 1801
     },
     {
       "method": "POST",
       "path": "/api/admin/providers/credentials/enable",
       "file": "admin.mjs",
-      "line": 1914
+      "line": 1802
     },
     {
       "method": "POST",
       "path": "/api/admin/providers/credentials/revoke",
       "file": "admin.mjs",
-      "line": 1930
+      "line": 1818
     },
     {
       "method": "POST",
       "path": "/api/admin/providers/credentials/rotate",
       "file": "admin.mjs",
-      "line": 1915
+      "line": 1803
     },
     {
       "method": "POST",
       "path": "/api/admin/providers/credentials/update",
       "file": "admin.mjs",
-      "line": 1881
+      "line": 1769
     },
     {
       "method": "POST",
       "path": "/api/admin/providers/delete",
       "file": "admin.mjs",
-      "line": 1493
+      "line": 1359
     },
     {
       "method": "POST",
       "path": "/api/admin/providers/update",
       "file": "admin.mjs",
-      "line": 1469
+      "line": 1335
     },
     {
       "method": "POST",
       "path": "/api/admin/routing/circuit-breakers/create",
       "file": "admin.mjs",
-      "line": 2006
+      "line": 1894
     },
     {
       "method": "POST",
       "path": "/api/admin/routing/circuit-breakers/delete",
       "file": "admin.mjs",
-      "line": 2033
+      "line": 1921
     },
     {
       "method": "POST",
       "path": "/api/admin/routing/circuit-breakers/update",
       "file": "admin.mjs",
-      "line": 2020
+      "line": 1908
     },
     {
       "method": "POST",
       "path": "/api/admin/routing/policies/create",
       "file": "admin.mjs",
-      "line": 2079
+      "line": 1964
     },
     {
       "method": "POST",
       "path": "/api/admin/routing/policies/delete",
       "file": "admin.mjs",
-      "line": 2106
+      "line": 1991
     },
     {
       "method": "POST",
       "path": "/api/admin/routing/policies/update",
       "file": "admin.mjs",
-      "line": 2091
+      "line": 1976
     },
     {
       "method": "POST",
       "path": "/api/admin/routing/simulations/simulate",
       "file": "admin.mjs",
-      "line": 2131
+      "line": 2012
     },
     {
       "method": "POST",
       "path": "/api/admin/security/blocked-ips/add",
       "file": "admin.mjs",
-      "line": 2272
+      "line": 2152
     },
     {
       "method": "POST",
       "path": "/api/admin/security/blocked-ips/remove",
       "file": "admin.mjs",
-      "line": 2287
+      "line": 2167
     },
     {
       "method": "POST",
       "path": "/api/admin/security/blocked-keys/add",
       "file": "admin.mjs",
-      "line": 2312
+      "line": 2192
     },
     {
       "method": "POST",
       "path": "/api/admin/security/blocked-keys/remove",
       "file": "admin.mjs",
-      "line": 2326
+      "line": 2206
     },
     {
       "method": "POST",
       "path": "/api/admin/security/create",
       "file": "admin.mjs",
-      "line": 2187
+      "line": 2067
     },
     {
       "method": "POST",
       "path": "/api/admin/security/delete",
       "file": "admin.mjs",
-      "line": 2230
+      "line": 2110
     },
     {
       "method": "POST",
       "path": "/api/admin/security/update",
       "file": "admin.mjs",
-      "line": 2208
+      "line": 2088
     },
     {
       "method": "POST",
       "path": "/api/admin/settings/feature-flags/create",
       "file": "admin.mjs",
-      "line": 2419
+      "line": 2299
     },
     {
       "method": "POST",
       "path": "/api/admin/settings/feature-flags/delete",
       "file": "admin.mjs",
-      "line": 2470
+      "line": 2350
     },
     {
       "method": "POST",
       "path": "/api/admin/settings/feature-flags/toggle",
       "file": "admin.mjs",
-      "line": 2458
+      "line": 2338
     },
     {
       "method": "POST",
       "path": "/api/admin/settings/feature-flags/update",
       "file": "admin.mjs",
-      "line": 2437
+      "line": 2317
     },
     {
       "method": "POST",
       "path": "/api/admin/settings/setBillingDefaults",
       "file": "admin.mjs",
-      "line": 2401
+      "line": 2281
     },
     {
       "method": "POST",
       "path": "/api/admin/settings/updateDefaultRouting",
       "file": "admin.mjs",
-      "line": 2375
+      "line": 2255
     },
     {
       "method": "POST",
       "path": "/api/admin/settings/updateGeneral",
       "file": "admin.mjs",
-      "line": 2340
+      "line": 2220
     },
     {
       "method": "POST",
       "path": "/api/admin/settings/updateHardLimits",
       "file": "admin.mjs",
-      "line": 2388
+      "line": 2268
     },
     {
       "method": "POST",
       "path": "/api/admin/settings/updateRegistration",
       "file": "admin.mjs",
-      "line": 2353
+      "line": 2233
     },
     {
       "method": "POST",
       "path": "/api/admin/settings/updateRetention",
       "file": "admin.mjs",
-      "line": 2362
+      "line": 2242
     },
     {
       "method": "POST",
       "path": "/api/admin/system/jobs/cancel",
       "file": "admin.mjs",
-      "line": 2567
+      "line": 2447
     },
     {
       "method": "POST",
       "path": "/api/admin/system/jobs/retry",
       "file": "admin.mjs",
-      "line": 2552
+      "line": 2432
     },
     {
       "method": "POST",
       "path": "/api/admin/traffic/rate-limits/create",
       "file": "admin.mjs",
-      "line": 2679
+      "line": 2559
     },
     {
       "method": "POST",
       "path": "/api/admin/traffic/rate-limits/delete",
       "file": "admin.mjs",
-      "line": 2707
+      "line": 2587
     },
     {
       "method": "POST",
       "path": "/api/admin/traffic/rate-limits/update",
       "file": "admin.mjs",
-      "line": 2694
+      "line": 2574
     },
     {
       "method": "POST",
       "path": "/api/admin/traffic/save",
       "file": "admin.mjs",
-      "line": 2641
+      "line": 2521
     },
     {
       "method": "POST",
       "path": "/api/admin/users/disableAccess",
       "file": "admin.mjs",
-      "line": 2841
+      "line": 2719
     },
     {
       "method": "POST",
       "path": "/api/admin/users/setRole",
       "file": "admin.mjs",
-      "line": 2755
+      "line": 2635
     },
     {
       "method": "POST",
       "path": "/api/admin/users/suspend",
       "file": "admin.mjs",
-      "line": 2811
+      "line": 2689
     },
     {
       "method": "POST",
       "path": "/api/admin/users/toggleBan",
       "file": "admin.mjs",
-      "line": 2770
+      "line": 2650
     },
     {
       "method": "POST",
       "path": "/api/admin/users/unsuspend",
       "file": "admin.mjs",
-      "line": 2827
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/workspaces/setStatus",
-      "file": "admin.mjs",
-      "line": 2879
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/workspaces/suspend",
-      "file": "admin.mjs",
-      "line": 2892
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/workspaces/unsuspend",
-      "file": "admin.mjs",
-      "line": 2905
+      "line": 2705
     },
     {
       "method": "POST",
@@ -1039,176 +925,92 @@
     },
     {
       "method": "POST",
-      "path": "/api/pages/projects/:projectId/alerts/create",
+      "path": "/api/pages/alerts/create",
       "file": "pages.mjs",
-      "line": 1586
+      "line": 1041
     },
     {
       "method": "POST",
-      "path": "/api/pages/projects/:projectId/alerts/remove",
+      "path": "/api/pages/alerts/remove",
       "file": "pages.mjs",
-      "line": 1615
+      "line": 1073
     },
     {
       "method": "POST",
-      "path": "/api/pages/projects/:projectId/alerts/update",
+      "path": "/api/pages/alerts/update",
       "file": "pages.mjs",
-      "line": 1599
+      "line": 1052
     },
     {
       "method": "POST",
-      "path": "/api/pages/projects/:projectId/aliases/create",
+      "path": "/api/pages/aliases/create",
       "file": "pages.mjs",
-      "line": 1651
+      "line": 868
     },
     {
       "method": "POST",
-      "path": "/api/pages/projects/:projectId/aliases/delete",
+      "path": "/api/pages/aliases/delete",
       "file": "pages.mjs",
-      "line": 1679
+      "line": 899
     },
     {
       "method": "POST",
-      "path": "/api/pages/projects/:projectId/archive",
+      "path": "/api/pages/budgets/remove",
       "file": "pages.mjs",
-      "line": 1058
+      "line": 830
     },
     {
       "method": "POST",
-      "path": "/api/pages/projects/:projectId/budgets/remove",
+      "path": "/api/pages/budgets/save",
       "file": "pages.mjs",
-      "line": 1810
+      "line": 801
     },
     {
       "method": "POST",
-      "path": "/api/pages/projects/:projectId/budgets/save",
+      "path": "/api/pages/limits/remove",
       "file": "pages.mjs",
-      "line": 1779
+      "line": 745
     },
     {
       "method": "POST",
-      "path": "/api/pages/projects/:projectId/delete",
+      "path": "/api/pages/limits/save",
       "file": "pages.mjs",
-      "line": 1090
+      "line": 706
     },
     {
       "method": "POST",
-      "path": "/api/pages/projects/:projectId/environments/create",
+      "path": "/api/pages/routing/create",
       "file": "pages.mjs",
-      "line": 1837
+      "line": 938
     },
     {
       "method": "POST",
-      "path": "/api/pages/projects/:projectId/keys/:keyId/disable",
+      "path": "/api/pages/routing/delete",
       "file": "pages.mjs",
-      "line": 1872,
-      "expanded_from": "/api/pages/projects/:projectId/keys/:keyId/${kact}"
+      "line": 980
     },
     {
       "method": "POST",
-      "path": "/api/pages/projects/:projectId/keys/:keyId/enable",
+      "path": "/api/pages/routing/update",
       "file": "pages.mjs",
-      "line": 1872,
-      "expanded_from": "/api/pages/projects/:projectId/keys/:keyId/${kact}"
-    },
-    {
-      "method": "POST",
-      "path": "/api/pages/projects/:projectId/keys/:keyId/revoke",
-      "file": "pages.mjs",
-      "line": 1872,
-      "expanded_from": "/api/pages/projects/:projectId/keys/:keyId/${kact}"
-    },
-    {
-      "method": "POST",
-      "path": "/api/pages/projects/:projectId/keys/:keyId/rotate",
-      "file": "pages.mjs",
-      "line": 1872,
-      "expanded_from": "/api/pages/projects/:projectId/keys/:keyId/${kact}"
-    },
-    {
-      "method": "POST",
-      "path": "/api/pages/projects/:projectId/keys/create",
-      "file": "pages.mjs",
-      "line": 1120
-    },
-    {
-      "method": "POST",
-      "path": "/api/pages/projects/:projectId/keys/disable",
-      "file": "pages.mjs",
-      "line": 1147,
-      "expanded_from": "/api/pages/projects/:projectId/keys/${st}"
-    },
-    {
-      "method": "POST",
-      "path": "/api/pages/projects/:projectId/keys/enable",
-      "file": "pages.mjs",
-      "line": 1147,
-      "expanded_from": "/api/pages/projects/:projectId/keys/${st}"
-    },
-    {
-      "method": "POST",
-      "path": "/api/pages/projects/:projectId/limits/remove",
-      "file": "pages.mjs",
-      "line": 1276
-    },
-    {
-      "method": "POST",
-      "path": "/api/pages/projects/:projectId/limits/save",
-      "file": "pages.mjs",
-      "line": 1238
-    },
-    {
-      "method": "POST",
-      "path": "/api/pages/projects/:projectId/restore",
-      "file": "pages.mjs",
-      "line": 1068
-    },
-    {
-      "method": "POST",
-      "path": "/api/pages/projects/:projectId/routing/create",
-      "file": "pages.mjs",
-      "line": 1320
-    },
-    {
-      "method": "POST",
-      "path": "/api/pages/projects/:projectId/routing/delete",
-      "file": "pages.mjs",
-      "line": 1376
-    },
-    {
-      "method": "POST",
-      "path": "/api/pages/projects/:projectId/routing/update",
-      "file": "pages.mjs",
-      "line": 1342
-    },
-    {
-      "method": "POST",
-      "path": "/api/pages/projects/:projectId/switch",
-      "file": "pages.mjs",
-      "line": 1078
-    },
-    {
-      "method": "POST",
-      "path": "/api/pages/projects/:projectId/update",
-      "file": "pages.mjs",
-      "line": 1034
+      "line": 955
     },
     {
       "method": "POST",
       "path": "/api/playground/compare",
       "file": "playground.mjs",
-      "line": 464
+      "line": 431
     },
     {
       "method": "POST",
       "path": "/api/playground/stream",
       "file": "playground.mjs",
-      "line": 326
+      "line": 299
     }
   ],
   "management_by_prefix": {
-    "api/admin": 125,
-    "api/pages": 44,
+    "api/admin": 117,
+    "api/pages": 20,
     "api/models": 3,
     "api/changelog": 2,
     "api/docs": 2,
@@ -1228,89 +1030,89 @@
     {
       "path": "/api/admin",
       "file": "index.mjs",
-      "line": 844,
+      "line": 696,
       "kind": "rate-limit"
     },
     {
       "path": "/api/auth",
       "file": "index.mjs",
-      "line": 730,
+      "line": 554,
       "kind": "middleware"
     },
     {
       "path": "/api/changelog",
       "file": "index.mjs",
-      "line": 841,
+      "line": 693,
       "kind": "rate-limit"
     },
     {
       "path": "/api/docs",
       "file": "index.mjs",
-      "line": 840,
+      "line": 692,
       "kind": "rate-limit"
     },
     {
       "path": "/api/metrics",
       "file": "index.mjs",
-      "line": 838,
+      "line": 690,
       "kind": "rate-limit"
     },
     {
       "path": "/api/models",
       "file": "index.mjs",
-      "line": 835,
+      "line": 687,
       "kind": "middleware"
     },
     {
       "path": "/api/pages",
       "file": "index.mjs",
-      "line": 843,
+      "line": 695,
       "kind": "rate-limit"
     },
     {
       "path": "/api/palette",
       "file": "index.mjs",
-      "line": 842,
+      "line": 694,
       "kind": "rate-limit"
     },
     {
       "path": "/api/playground",
       "file": "index.mjs",
-      "line": 845,
+      "line": 697,
       "kind": "rate-limit"
     },
     {
       "path": "/api/pricing",
       "file": "index.mjs",
-      "line": 837,
+      "line": 689,
       "kind": "middleware"
     },
     {
       "path": "/api/providers",
       "file": "index.mjs",
-      "line": 836,
+      "line": 688,
       "kind": "middleware"
     },
     {
       "path": "/api/status",
       "file": "index.mjs",
-      "line": 839,
+      "line": 691,
       "kind": "rate-limit"
     },
     {
       "path": "/assets",
       "file": "index.mjs",
-      "line": 1197,
+      "line": 928,
       "kind": "static"
     }
   ],
   "sources": {
-    "apps/web/server/admin.mjs": "3c4f4bd3eeb626c095fdb4d6944b3e510b4638631cb0ca962018ae0d96563212",
-    "apps/web/server/index.mjs": "c4178b2d88af7f7b9d010ba52a69d26ff0e8889c28513ccda97b80db8c7bd634",
-    "apps/web/server/pages.mjs": "9518b2d43d89aae4eb5bd41e159fb3d6033251e9ecc6a3d739276cd92b66dd8b",
-    "apps/web/server/playground.mjs": "a875ff7c9362a9e9a72b5f2c0d0f581d1fd6415bbd3cb8aa91b7b7759d6252ff",
+    "apps/web/server/admin.mjs": "24793f127e41737b46977c193d87169bdec523359904e6ad09da681b914e5770",
+    "apps/web/server/index.mjs": "1e0792dead3c196ac061860a7923c2877134e5d996f5f756522e622cf5de79ab",
+    "apps/web/server/pages.mjs": "649b20e0f106e9c8993be47a2528ea800520f9acb26996a1ecd55c818adebd59",
+    "apps/web/server/playground.mjs": "b637ebe0b569d08047febe204e5772334546c3b5d0cc45bb6db4f35406dbef54",
     "apps/web/server/public.mjs": "30a7b3356d26b3aecb89471b66a9803149aa71af7ca7435df85599cb2ca706a7",
     "apps/web/server/rate-limit.mjs": "72545a3d910a086142a322a28938fb01b4f81cff750225afd39915e3203e3bbd",
-    "backend/go/internal/proxy/proxy.go": "c6a1cefd0bc7428620d1d00556b7006477699e499baf3c9ae5e2477683410649"
+    "backend/go/internal/proxy/proxy.go": "3e1decd164a36ae270116b6e6f6851b56dda3d743062521ad691df139464ec41"
   }
 }

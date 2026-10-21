@@ -25,25 +25,23 @@ import (
 // `action_at_100 = 'block'` refuses the request. `notify` and `restrict` let it
 // through and let the alert tell the story.
 
-// checkBudgets gates admission on every budget in the key's chain plus the
-// workspace billing account's hard stop.
+// checkBudgets gates admission on every budget in the account's chain plus the
+// account billing hard stop.
 func (h *Handler) checkBudgets(ctx context.Context, lc *lifecycle) error {
-	// ONE query for the billing hard stop (spec §10) AND the environment's flat
-	// monthly budget (spec §2): two reads that used to be two round trips for
-	// two rows that never interact. Both are needed on every request, so this
-	// is the common-case path a workspace with no `budget` rows pays.
-	//
-	// The read is CACHED in-process (store.AdmissionGateState): it was 525µs of
-	// the hot path — Postgres round-trip latency, paid per request — against
-	// single-digit microseconds for everything around it. The account carries
-	// the balance, so its entry is short-lived and the charge path drops it the
-	// moment the hard stop is crossed; see store/admission.go.
+	// The billing hard stop (spec §10), read through the in-process cache: it
+	// was 525µs of the hot path — Postgres round-trip latency, paid per request
+	// — against single-digit microseconds for everything around it. The account
+	// carries the balance, so its entry is short-lived and the charge path drops
+	// it the moment the hard stop is crossed; see store/admission.go.
 	//
 	// The account read keeps its fail-CLOSED behaviour: an error here refuses
 	// the request rather than admitting unbounded spend (spec §10). That was
 	// already true when it was the first statement of this function, and the
 	// cache never stores an error.
-	acct, envBudget, err := h.store.AdmissionGateState(ctx, lc.key.WorkspaceID, lc.key.EnvironmentID)
+	//
+	// The environment's flat monthly budget column used to ride this read; it
+	// went with the `environment` table in migration 0019.
+	acct, err := h.store.AdmissionGateState(ctx, lc.key.UserID)
 	if err != nil {
 		return err
 	}
@@ -76,34 +74,6 @@ func (h *Handler) checkBudgets(ctx context.Context, lc *lifecycle) error {
 		h.budgetEvaluate(ctx, lc, &b, used)
 		if used >= b.AmountMicro && b.ActionAt100 == "block" {
 			return errBudgetBlocked
-		}
-	}
-
-	// The environment's flat monthly_budget_micro column (spec §2) is honoured
-	// as a monthly budget with default thresholds. Its value rode the same
-	// query as the account above.
-	//
-	// The spend read goes through budgetSpent, NOT sinceMicro: the column is
-	// nullable and an operator sets it, so before this every request for such an
-	// environment paid a Postgres SUM over request_log — the exact round trip
-	// admission stopped paying elsewhere — while budgetSpendAdd already maintains
-	// the period-named `spend:environment:<id>:month:<yyyymm>` key, which is the
-	// key budgetSpent builds here.
-	// The error path is the loop's above, not silence: a failed read is logged
-	// and the request admitted (fail open, spec §12), the same as a failed
-	// budget-row sum.
-	if envBudget != nil && *envBudget > 0 {
-		b := &store.Budget{Scope: "environment", ScopeID: lc.key.EnvironmentID,
-			Period: "monthly", AmountMicro: *envBudget, WarnPercent: 70, CriticalPercent: 90,
-			ActionAt100: "block"}
-		used, err := h.budgetSpent(ctx, lc, b)
-		if err != nil {
-			log.Printf("[proxy] env budget sum failed for %s: %v", b.ScopeID, err)
-		} else {
-			h.budgetEvaluate(ctx, lc, b, used)
-			if used >= *envBudget {
-				return errBudgetBlocked
-			}
 		}
 	}
 	return nil
@@ -177,14 +147,15 @@ func (h *Handler) budgetSpendAdd(ctx context.Context, lc *lifecycle, micro int64
 		return
 	}
 	keys := make([]string, 0, 6)
-	ttls := make([]time.Duration, 0, 6)
+	ttls := make([]time.Duration, 0, 4)
 	// One TTL per key: the day buckets age out in 25h, the month buckets in 32d.
 	// A shared TTL would either expire today's counter early or keep a day bucket
 	// alive for a month, and the day/month pair is read separately.
+	//
+	// The three hierarchy scopes collapsed into `account` in migration 0019, so
+	// this writes two counters per period instead of six.
 	for _, pair := range [][2]string{
-		{"workspace", lc.key.WorkspaceID},
-		{"project", lc.key.ProjectID},
-		{"environment", lc.key.EnvironmentID},
+		{"account", lc.key.UserID},
 	} {
 		if pair[1] == "" {
 			continue
@@ -268,7 +239,7 @@ func (h *Handler) budgetEvaluate(ctx context.Context, lc *lifecycle, b *store.Bu
 		return
 	}
 
-	alertID, err := h.store.FindOrCreateAlert(ctx, lc.key.WorkspaceID,
+	alertID, err := h.store.FindOrCreateAlert(ctx, lc.key.UserID,
 		"Budget "+b.Period+" threshold", "budget",
 		map[string]any{
 			"type":           "budget",
@@ -295,7 +266,7 @@ func (h *Handler) budgetEvaluate(ctx context.Context, lc *lifecycle, b *store.Bu
 		"firing", float64(used)); err != nil {
 		log.Printf("[proxy] alert_event insert failed: %v", err)
 	}
-	if err := h.store.InsertSystemEvent(ctx, kind, b.Scope, b.ScopeID, lc.key.WorkspaceID, map[string]any{
+	if err := h.store.InsertSystemEvent(ctx, kind, b.Scope, b.ScopeID, lc.key.UserID, map[string]any{
 		"percent": percent, "used_micro": used, "amount_micro": b.AmountMicro,
 		"budget_id": b.ID, "period": b.Period,
 	}); err != nil {
@@ -303,19 +274,19 @@ func (h *Handler) budgetEvaluate(ctx context.Context, lc *lifecycle, b *store.Bu
 	}
 }
 
-// raiseLowBalance fires the workspace's low-balance alert (spec §10, PRD §129)
+// raiseLowBalance fires the account's low-balance alert (spec §10, PRD §129)
 // when a charge crosses the warning or hard-stop threshold. The alert row shape
 // is agreed with the billing control plane: {"type":"low_balance",
 // "threshold_micro":…, "hard_stop_threshold_micro":…}.
-func (h *Handler) raiseLowBalance(ctx context.Context, res *store.ChargeResult, workspaceID string) {
-	if workspaceID == "" || (!res.Warning && !res.HardStop) {
+func (h *Handler) raiseLowBalance(ctx context.Context, res *store.ChargeResult, accountID string) {
+	if accountID == "" || (!res.Warning && !res.HardStop) {
 		return
 	}
-	b, err := h.store.BillingAccountByWorkspace(ctx, workspaceID)
+	b, err := h.store.BillingAccountByUser(ctx, accountID)
 	if err != nil {
 		return
 	}
-	alertID, err := h.store.FindOrCreateAlert(ctx, workspaceID, "Low balance", "low_balance",
+	alertID, err := h.store.FindOrCreateAlert(ctx, accountID, "Low balance", "low_balance",
 		map[string]any{
 			"type":                      "low_balance",
 			"threshold_micro":           b.WarningThresholdMicro,
@@ -348,7 +319,7 @@ func (h *Handler) raiseLowBalance(ctx context.Context, res *store.ChargeResult, 
 	if res.HardStop {
 		kind = "budget.hard_stop"
 	}
-	_ = h.store.InsertSystemEvent(ctx, kind, "workspace", workspaceID, workspaceID, map[string]any{
+	_ = h.store.InsertSystemEvent(ctx, kind, "account", accountID, accountID, map[string]any{
 		"balance_micro":             res.BalanceMicro,
 		"warning_threshold_micro":   b.WarningThresholdMicro,
 		"hard_stop_threshold_micro": b.HardStopThresholdMicro,

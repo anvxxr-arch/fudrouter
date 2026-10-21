@@ -10,11 +10,6 @@ import { uuidv7 } from 'uuidv7';
  */
 export const ID_PREFIXES: Record<string, string> = {
 	user: 'usr_',
-	workspace: 'wrk_',
-	workspaceMember: 'mem_',
-	workspaceRole: 'rol_',
-	project: 'prj_',
-	environment: 'env_',
 	apiKey: 'key_',
 	provider: 'prv_',
 	connection: 'con_',

@@ -265,7 +265,7 @@ func TestLoadSustained(t *testing.T) {
 }
 
 // ledgerRows returns the usage_charge row count and the number of DISTINCT
-// idempotency keys for this environment's billing account.
+// idempotency keys for this account's billing account.
 //
 // Two numbers, not one, because they fail differently: a count that grew too far
 // means a double-write, and distinct < rows means the `usage:<request id>` key —

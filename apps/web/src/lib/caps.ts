@@ -27,9 +27,8 @@ export const ROUTE_CAPS: [string, Capability][] = [
   ["/admin/security", "admin.audit"], ["/admin/incidents", "admin.ops"],
   ["/admin/system", "admin.ops"], ["/admin/traffic", "admin.ops"],
   ["/admin/routing", "admin.ops"], ["/admin/health", "admin.ops"],
-  ["/admin/workspaces", "admin.users"], ["/admin/projects", "admin.users"],
   ["/admin/analytics", "admin.view"], ["/admin", "admin.view"],
-  ["/dashboard", "member"], ["/invite", "member"],
+  ["/dashboard", "member"],
 ];
 function seg(p: string): string[] { return p.split("/").filter(Boolean); }
 function entryMatches(entry: string[], path: string[]): boolean {

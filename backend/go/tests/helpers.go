@@ -114,11 +114,9 @@ type Env struct {
 	ModelID     string
 	ProviderID  string
 	UpstreamKey string
-	// The 0006 chain (spec §2–§4): ownership, billing and the provider
-	// network a request resolves through.
-	WorkspaceID      string
-	ProjectID        string
-	EnvironmentID    string
+	// The account chain (spec §2–§4 after migration 0019): the key belongs to
+	// the user, the billing account belongs to the user, and the provider
+	// network a request resolves through hangs off the model.
 	BillingAccountID string
 	ConnectionID     string
 	ProviderModelID  string
@@ -244,37 +242,15 @@ func seedEnvCred(t testing.TB, dsn, upstreamBaseURL, status string, extraCred ma
 		t.Fatalf("seed user: %v", err)
 	}
 
-	// The full 0006 ownership chain (spec §2): LookupAPIKey, the limits chain
-	// and billing JOIN workspace/project/environment, and store.Candidates
-	// resolves through the provider network below — a seed without these rows
-	// yields zero routable targets and every request answers 404.
-	wsID := ids.New("wrk")
-	if _, err := conn.Exec(ctx,
-		`insert into workspace (id, name, slug, owner_user_id, status)
-		 values ($1,'T',$2,$3,'active')`, wsID, "t_"+randChars(6), uid); err != nil {
-		t.Fatalf("seed workspace: %v", err)
-	}
-	prjID := ids.New("prj")
-	if _, err := conn.Exec(ctx,
-		`insert into project (id, workspace_id, name, slug, status)
-		 values ($1,$2,'T','default','active')`, prjID, wsID); err != nil {
-		t.Fatalf("seed project: %v", err)
-	}
-	envID := ids.New("env")
-	if _, err := conn.Exec(ctx,
-		`insert into environment (id, project_id, name, slug, type, status)
-		 values ($1,$2,'production','production','production','active')`, envID, prjID); err != nil {
-		t.Fatalf("seed environment: %v", err)
-	}
-
-	// Billing account (spec §10): a workspace with no account has no credit
-	// line and the usage_charge ledger path never runs. Funded far above the
-	// default warning threshold so ordinary test traffic never trips the hard
-	// stop (tests that need a stop set one explicitly).
+	// Billing account (spec §10): a user with no account has no credit line and
+	// the usage_charge ledger path never runs. Funded far above the default
+	// warning threshold so ordinary test traffic never trips the hard stop
+	// (tests that need a stop set one explicitly). Keyed by user since
+	// migration 0019 removed the workspace it used to hang off.
 	baID := ids.New("bac")
 	if _, err := conn.Exec(ctx,
-		`insert into billing_account (id, workspace_id, currency, status, balance_micro)
-		 values ($1,$2,'USD','active',10000000000)`, baID, wsID); err != nil {
+		`insert into billing_account (id, user_id, currency, status, balance_micro)
+		 values ($1,$2,'USD','active',10000000000)`, baID, uid); err != nil {
 		t.Fatalf("seed billing account: %v", err)
 	}
 
@@ -282,9 +258,9 @@ func seedEnvCred(t testing.TB, dsn, upstreamBaseURL, status string, extraCred ma
 	secret := randChars(32)
 	kid := ids.New("key")
 	_, err = conn.Exec(ctx,
-		`insert into api_key (id, user_id, workspace_id, project_id, environment_id, name, prefix, key_hash, limits, created_at)
-		 values ($1,$2,$3,$4,$5,'test',$6,$7,'{}'::jsonb, now())`,
-		kid, uid, wsID, prjID, envID, prefix, secretHash(secret))
+		`insert into api_key (id, user_id, name, prefix, key_hash, limits, created_at)
+		 values ($1,$2,'test',$3,$4,'{}'::jsonb, now())`,
+		kid, uid, prefix, secretHash(secret))
 	if err != nil {
 		t.Fatalf("seed key: %v", err)
 	}
@@ -404,7 +380,7 @@ func seedEnvCred(t testing.TB, dsn, upstreamBaseURL, status string, extraCred ma
 		}
 		// request_attempt rides along (request_id FK is ON DELETE CASCADE);
 		// credit_ledger rides along with its billing account (same cascade).
-		exec(`delete from request_log where api_key_id = $1 or model_id = $2 or workspace_id = $3`, kid, mid, wsID)
+		exec(`delete from request_log where api_key_id = $1 or model_id = $2 or user_id = $3`, kid, mid, uid)
 		// Orphan rows (failed-auth outcomes) carry no owner at all: only their
 		// birth time links them to this seed.
 		exec(`delete from request_log where created_at >= $1 and api_key_id is null and model_id is null`, start)
@@ -416,15 +392,12 @@ func seedEnvCred(t testing.TB, dsn, upstreamBaseURL, status string, extraCred ma
 		exec(`delete from provider where id = $1`, pid)
 		exec(`delete from billing_account where id = $1`, baID)
 		exec(`delete from api_key where id = $1`, kid)
-		exec(`delete from project where id = $1`, prjID) // cascades environment
-		exec(`delete from workspace where id = $1`, wsID)
 		exec(`delete from "user" where id = $1`, uid)
 	})
 
 	return &Env{
 		Key: "sk-ar-" + prefix + "_" + secret, Prefix: prefix, APIKeyID: kid, UserID: uid,
 		Slug: slug, ModelID: mid, ProviderID: pid, UpstreamKey: UpstreamKeyPlain,
-		WorkspaceID: wsID, ProjectID: prjID, EnvironmentID: envID,
 		BillingAccountID: baID, ConnectionID: conID, ProviderModelID: pmID,
 		CredentialID: credIDs[0],
 	}
@@ -548,7 +521,7 @@ func SetKeyLimits(t *testing.T, dsn, keyID, limitsJSON string) {
 	}
 }
 
-// SetBillingAccountHardStop pins a workspace's billing thresholds and balance,
+// SetBillingAccountHardStop pins a user account's billing thresholds and balance,
 // so a test can drive the admission hard stop (spec §10: at/under
 // hard_stop_threshold_micro the request is refused with 402
 // INSUFFICIENT_CREDITS).
@@ -558,7 +531,7 @@ func SetKeyLimits(t *testing.T, dsn, keyID, limitsJSON string) {
 // gate's REJECT branch — the one that decides whether a customer can spend —
 // had no end-to-end test at all. SetKeyLimits covers the key-level caps, not
 // this.
-func SetBillingAccountHardStop(t *testing.T, dsn, workspaceID string, hardStopMicro, balanceMicro int64) {
+func SetBillingAccountHardStop(t *testing.T, dsn, userID string, hardStopMicro, balanceMicro int64) {
 	t.Helper()
 	ctx := context.Background()
 	conn, err := pgx.Connect(ctx, dsn)
@@ -568,7 +541,7 @@ func SetBillingAccountHardStop(t *testing.T, dsn, workspaceID string, hardStopMi
 	defer conn.Close(ctx)
 	if _, err := conn.Exec(ctx,
 		`update billing_account set hard_stop_threshold_micro = $2, balance_micro = $3
-		 where workspace_id = $1`, workspaceID, hardStopMicro, balanceMicro); err != nil {
+		 where user_id = $1`, userID, hardStopMicro, balanceMicro); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -576,7 +549,7 @@ func SetBillingAccountHardStop(t *testing.T, dsn, workspaceID string, hardStopMi
 // SetBillingAccountStatus flips `billing_account.status` ('active'/'suspended'
 // and whatever the control plane writes next), so a test can prove the
 // admission gate refuses a non-active account independently of its balance.
-func SetBillingAccountStatus(t *testing.T, dsn, workspaceID, status string) {
+func SetBillingAccountStatus(t *testing.T, dsn, userID, status string) {
 	t.Helper()
 	ctx := context.Background()
 	conn, err := pgx.Connect(ctx, dsn)
@@ -585,30 +558,15 @@ func SetBillingAccountStatus(t *testing.T, dsn, workspaceID, status string) {
 	}
 	defer conn.Close(ctx)
 	if _, err := conn.Exec(ctx,
-		`update billing_account set status = $2 where workspace_id = $1`,
-		workspaceID, status); err != nil {
+		`update billing_account set status = $2 where user_id = $1`,
+		userID, status); err != nil {
 		t.Fatal(err)
 	}
 }
 
-// SetEnvironmentMonthlyBudgetMicro writes `environment.monthly_budget_micro`,
-// the flat column that predates the `budget` table (spec §2). checkBudgets
-// honours it as a monthly budget with default thresholds, and nothing else in
-// the suite exercised that branch.
-func SetEnvironmentMonthlyBudgetMicro(t *testing.T, dsn, environmentID string, amountMicro int64) {
-	t.Helper()
-	ctx := context.Background()
-	conn, err := pgx.Connect(ctx, dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer conn.Close(ctx)
-	if _, err := conn.Exec(ctx,
-		`update environment set monthly_budget_micro = $2 where id = $1`,
-		environmentID, amountMicro); err != nil {
-		t.Fatal(err)
-	}
-}
+// SetEnvironmentMonthlyBudgetMicro is gone with `environment.monthly_budget_micro`
+// in migration 0019. The equivalent cap is an account-scoped `budget` row
+// (scope 'account', scope_id = user id), which SeedBudget writes.
 
 // RequestLogCount returns how many request_log rows belong to a key, so a test
 // can assert that a path actually wrote a usage row (or did not).
@@ -679,7 +637,7 @@ func SeedModels(t testing.TB, dsn string, env *Env, n int) []string {
 	return out
 }
 
-// SeedAlias inserts a project-scoped `model_alias` with its `model_alias_target`
+// SeedAlias inserts an account-scoped `model_alias` with its `model_alias_target`
 // rows, in the given order (spec §5: alias targets are ordered by `position`).
 //
 // It exists because the alias branch of ResolveModel was two queries — the row
@@ -688,11 +646,11 @@ func SeedModels(t testing.TB, dsn string, env *Env, n int) []string {
 // which carry no targets and take the virtual fall-through instead. A
 // query-count change there would have had no test to break.
 func SeedAlias(t testing.TB, dsn string, env *Env, name string, modelIDs []string) string {
-	return SeedAliasAtScope(t, dsn, env, name, modelIDs, "project")
+	return SeedAliasAtScope(t, dsn, env, name, modelIDs, "account")
 }
 
 // SeedAliasAtScope is SeedAlias with an explicit scope, so a test can prove
-// project beats workspace beats global.
+// account beats global.
 func SeedAliasAtScope(t testing.TB, dsn string, env *Env, name string, modelIDs []string, scope string) string {
 	t.Helper()
 	ctx := context.Background()
@@ -703,23 +661,21 @@ func SeedAliasAtScope(t testing.TB, dsn string, env *Env, name string, modelIDs 
 	defer conn.Close(ctx)
 
 	aliasID := "als_test_" + randChars(10)
-	var workspaceID, projectID any
+	var accountID any
 	switch scope {
-	case "project":
-		// Project scope wins in ResolveModel's ORDER BY, so this is the shape a
+	case "account":
+		// Account scope wins in ResolveModel's ORDER BY, so this is the shape a
 		// customer actually creates.
-		workspaceID, projectID = env.WorkspaceID, env.ProjectID
-	case "workspace":
-		workspaceID = env.WorkspaceID
+		accountID = env.UserID
 	case "global":
-		// both NULL — the `[NAME]/*` virtual descriptor shape
+		// NULL — the `[NAME]/*` virtual descriptor shape
 	default:
 		t.Fatalf("unknown alias scope %q", scope)
 	}
 	if _, err := conn.Exec(ctx,
-		`insert into model_alias (id, workspace_id, project_id, name, enabled)
-		 values ($1, $2, $3, $4, true)`,
-		aliasID, workspaceID, projectID, name); err != nil {
+		`insert into model_alias (id, account_id, name, enabled)
+		 values ($1, $2, $3, true)`,
+		aliasID, accountID, name); err != nil {
 		t.Fatalf("seed %s alias %s: %v", scope, name, err)
 	}
 	for i, modelID := range modelIDs {
@@ -815,11 +771,11 @@ type LastLog struct {
 // can set up a month-to-date total that the monthly cost cap is checked against,
 // or spend against a budget scope.
 //
-// workspace_id / project_id / environment_id are populated because the budget
-// sums key off them (store.SpendMicro: `environment_id = $1` and friends). The
-// earlier version set NONE of them, so the row was invisible to every scoped
-// sum and the environment-budget branch could never be exercised — a test
-// written against it silently passed a 200.
+// user_id / api_key_id are populated because the budget sums key off them
+// (store.SpendMicro: `user_id = $1` for the account scope, `api_key_id = $1`
+// for the key scope). The earlier version set NONE of them, so the row was
+// invisible to every scoped sum and the account-budget branch could never be
+// exercised — a test written against it silently passed a 200.
 func InsertRequestLogRow(t *testing.T, dsn string, env *Env, costMicro int64) {
 	t.Helper()
 	ctx := context.Background()
@@ -830,12 +786,12 @@ func InsertRequestLogRow(t *testing.T, dsn string, env *Env, costMicro int64) {
 	defer conn.Close(ctx)
 	_, err = conn.Exec(ctx, `
 		insert into request_log
-		  (id, user_id, workspace_id, project_id, environment_id, api_key_id,
+		  (id, user_id, api_key_id,
 		   model_id, provider_id, tokens_in, tokens_out,
 		   cost, currency, latency_ms, status, error)
-		values ($1,$2,$3,$4,$5,$6,$7,$8,0,0,$9,'USD',0,'success','')`,
-		uuid.Must(uuid.NewV7()).String(), env.UserID, env.WorkspaceID, env.ProjectID,
-		env.EnvironmentID, env.APIKeyID, env.ModelID, env.ProviderID, costMicro)
+		values ($1,$2,$3,$4,$5,0,0,$6,'USD',0,'success','')`,
+		uuid.Must(uuid.NewV7()).String(), env.UserID, env.APIKeyID,
+		env.ModelID, env.ProviderID, costMicro)
 	if err != nil {
 		t.Fatalf("insert request_log: %v", err)
 	}

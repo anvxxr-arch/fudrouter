@@ -96,7 +96,7 @@ export interface EvaluationOutcome {
 const DEFAULT_WINDOW_SECONDS = 300;
 
 /**
- * Measure one condition inside the workspace/project scope of `alertRow`.
+ * Measure one condition inside the account scope of `alertRow`.
  *
  * Pure-ish: reads the aggregates, returns a number + breach direction. The
  * unit of `value` is pinned per type in `CONDITION_UNITS` — comparisons are
@@ -104,9 +104,12 @@ const DEFAULT_WINDOW_SECONDS = 300;
  * GROWS past the threshold of the period budget, so it flips to `below` only
  * for the balance-shaped `credit_threshold` (low balance = value falling under
  * the threshold).
+ *
+ * Scope is the user account (migration 0019): `request_log` carries no
+ * workspace/project columns, so `user_id` is what an alert can be scoped by.
  */
 export async function measureCondition(
-	alertRow: { workspaceId: string | null; projectId: string | null; condition: Record<string, unknown> },
+	alertRow: { accountId: string | null; condition: Record<string, unknown> },
 	handle: JobHandle = db
 ): Promise<Measurement> {
 	const cond = alertRow.condition as Partial<AlertCondition>;
@@ -115,10 +118,7 @@ export async function measureCondition(
 	const windowSeconds = Number(cond.window_seconds ?? DEFAULT_WINDOW_SECONDS);
 	const since = new Date(Date.now() - windowSeconds * 1000);
 	const scope = [
-		alertRow.workspaceId === null
-			? sql`true`
-			: eq(requestLog.workspaceId, alertRow.workspaceId),
-		alertRow.projectId === null ? sql`true` : eq(requestLog.projectId, alertRow.projectId),
+		alertRow.accountId === null ? sql`true` : eq(requestLog.userId, alertRow.accountId),
 		gte(requestLog.createdAt, since)
 	];
 
@@ -194,7 +194,7 @@ export async function measureCondition(
 				warn: billingAccount.warningThresholdMicro
 			})
 			.from(billingAccount)
-			.where(eq(billingAccount.workspaceId, alertRow.workspaceId ?? ''))
+			.where(eq(billingAccount.userId, alertRow.accountId ?? ''))
 			.limit(1);
 		const account = accounts[0];
 		if (!account) return { value: null, direction: 'above', message: 'no billing account' };
@@ -216,24 +216,16 @@ export async function measureCondition(
 			.where(
 				and(
 					gte(usageHourly.bucketStart, periodStart),
-					alertRow.workspaceId === null
+					alertRow.accountId === null
 						? sql`true`
-						: eq(usageHourly.workspaceId, alertRow.workspaceId),
-					alertRow.projectId === null
-						? sql`true`
-						: eq(usageHourly.projectId, alertRow.projectId)
+						: eq(usageHourly.accountId, alertRow.accountId)
 				)
 			);
 		const spend = Number(rows[0]?.spend ?? 0);
 		const budgets = await handle
 			.select({ amount: budget.amountMicro })
 			.from(budget)
-			.where(
-				and(
-					eq(budget.scope, alertRow.projectId ? 'project' : 'workspace'),
-					eq(budget.scopeId, alertRow.projectId ?? alertRow.workspaceId ?? '')
-				)
-			)
+			.where(and(eq(budget.scope, 'account'), eq(budget.scopeId, alertRow.accountId ?? '')))
 			.limit(1);
 		const amount = Number(budgets[0]?.amount ?? 0) || threshold;
 		const value = amount > 0 ? spend / amount : 0;
@@ -340,7 +332,7 @@ export async function evaluateAlerts(): Promise<EvaluationOutcome[]> {
  * reuses the delivery pipeline.
  */
 async function notifyChannels(
-	a: { id: string; name: string; channel: string; workspaceId: string | null; projectId: string | null },
+	a: { id: string; name: string; channel: string; accountId: string | null },
 	type: AlertConditionType,
 	m: Measurement,
 	eventId: string
@@ -351,7 +343,8 @@ async function notifyChannels(
 			type: 'alert_email',
 			resource: 'alert',
 			resourceId: a.id,
-			workspaceId: a.workspaceId,
+			// 0019 stopped writing system_event.workspace_id: it is an opaque
+			// historical column with no FK, and the alert id already scopes it.
 			metadata: { alertEventId: eventId, name: a.name, message: m.message, value: m.value }
 		});
 		await db.update(alertEvent).set({ deliveredAt: new Date() }).where(eq(alertEvent.id, eventId));
@@ -359,8 +352,7 @@ async function notifyChannels(
 	}
 	if (a.channel === 'webhook') {
 		await dispatchEvent(CONDITION_WEBHOOK_EVENT[type], {
-			workspaceId: a.workspaceId,
-			projectId: a.projectId,
+			accountId: a.accountId,
 			alertId: a.id,
 			alertEventId: eventId,
 			condition: type,

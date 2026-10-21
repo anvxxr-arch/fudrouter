@@ -4,7 +4,7 @@ package proxy_test
 //
 // This used to say the gate "touches Postgres on every single request", which is
 // no longer true: the three reads admission makes (the billing account +
-// environment budget, the scoped budget rows, and the rate_limit chain) are served
+// account budget, the scoped budget rows, and the rate_limit chain) are served
 // from the in-process cache in store/admission.go, and the account's is the only
 // one that is not purely policy-cached. It is kept because it is the number the
 // cache was built against: 525,393 ns/op before, 391 ns/op after
@@ -40,8 +40,7 @@ func BenchmarkBudgetGate(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	// The default shape: an active account, no `budget` rows, no environment
-	// column.
+	// The default shape: an active account, no `budget` rows.
 	//
 	// The first call is OUTSIDE the timed loop: it fills the cache, so a timed
 	// run measures the steady state rather than one cache miss amortised over

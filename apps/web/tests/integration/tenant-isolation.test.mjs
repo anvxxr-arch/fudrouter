@@ -1,15 +1,15 @@
 // tests/integration/tenant-isolation.test.mjs — cross-tenant authorization.
 //
 // Why this file exists: four separate routes proved the same missing idea — that
-// a permission check on the CALLER's workspace does not bind the DATA to it.
-// Each was reachable by an ordinary member of a second workspace:
+// a permission check on the CALLER's tenant does not bind the DATA to it.
+// Each was reachable by an ordinary member of a second tenant:
 //
 //   1. POST /api/pages/projects/:projectId/aliases/delete fetched the alias by
 //      primary key from the request body and accepted it when it was "not
 //      global" (workspace_id IS NOT NULL) and "not another project's"
-//      (project_id IS NULL). Another workspace's WORKSPACE-SCOPED alias has
-//      exactly that shape, so any member with alias.write deleted it outright,
-//      and the audit row was filed under the actor's own workspaceId.
+//      (project_id IS NULL). Another tenant's alias had exactly that shape, so
+//      any member with alias.write deleted it outright, and the audit row was
+//      filed under the actor's own workspaceId.
 //   2. GET /api/palette/requests checked request.read against the caller's
 //      workspace and then queried request_log by id prefix alone, returning
 //      every tenant's request ids. A uuidv7 id is timestamp-prefixed, so the
@@ -17,10 +17,15 @@
 //   3. POST /api/pages/team/members/invite resolved the role with a lookup that
 //      admits the builtin owner template and then inserted the membership with
 //      no dominance check — the rule changeRole enforces on itself, bypassed by
-//      inviting instead of changing.
+//      inviting instead of changing. (Removed with the membership surface in
+//      0019; see the note where the test used to be.)
 //   4. GET /api/admin/users built its payload and never returned it, so the
 //      wrapper serialised undefined: HTTP 200 with zero bytes, which the SPA
 //      reports as a transport error.
+//
+// Migration 0019 flattened the hierarchy, so "tenant" now means the user
+// account. The invariants are unchanged and the alias tests were re-expressed
+// against /api/pages/aliases rather than deleted.
 //
 // Every test ASSERTS THE ABSENCE OF THE CROSS-TENANT EFFECT and was checked to
 // FAIL on the pre-fix code (see the mutation note in each). A test of this shape
@@ -43,28 +48,25 @@ const NEEDS_DB = { skip: !hasDb && SKIP };
 
 let server;
 let sql;
-let a; // the attacker: an ordinary member of its own workspace
-let b; // the victim: a second, unrelated workspace
+let a; // the attacker: an ordinary account
+let b; // the victim: a second, unrelated account
 let modelId; // a real model row, so the alias routes get past their guards
 
-/** Sign up a tenant and return { cookie, projectId }. */
+/** Sign up a tenant (the user account is the tenant after migration 0019). */
 async function tenant(tag) {
 	const signed = await signUp(server.baseUrl, { email: uniqueEmail(tag) });
 	assert.equal(signed.status, 200, `sign-up(${tag}) failed: ${JSON.stringify(signed.body)}`);
-	const ws = await fetch(`${server.baseUrl}/api/pages/workspace`, { headers: { cookie: signed.cookie } });
-	assert.ok((await ws.json()).workspace?.id, `${tag} has no workspace`);
-	const projects = await fetch(`${server.baseUrl}/api/pages/projects`, { headers: { cookie: signed.cookie } });
-	const list = (await projects.json()).projects ?? [];
-	assert.ok(list.length > 0, `${tag} was provisioned without a project`);
-	return { cookie: signed.cookie, projectId: list[0].id };
+	const acct = await fetch(`${server.baseUrl}/api/pages/account`, { headers: { cookie: signed.cookie } });
+	assert.equal(acct.status, 200, `${tag} has no account page`);
+	return { cookie: signed.cookie };
 }
 
-/** Create a workspace-scoped alias in a tenant, or fail loudly. */
+/** Create an account-scoped alias in a tenant, or fail loudly. */
 async function createAlias(t, name) {
-	const res = await fetch(`${server.baseUrl}/api/pages/projects/${t.projectId}/aliases/create`, {
+	const res = await fetch(`${server.baseUrl}/api/pages/aliases/create`, {
 		method: 'POST',
 		headers: { cookie: t.cookie, 'content-type': 'application/json' },
-		body: JSON.stringify({ name, scope: 'workspace', targets: [modelId] })
+		body: JSON.stringify({ name, scope: 'account', targets: [modelId] })
 	});
 	const body = await res.json().catch(() => ({}));
 	assert.equal(res.status, 200, `alias create failed (${res.status}): ${JSON.stringify(body)}`);
@@ -72,9 +74,9 @@ async function createAlias(t, name) {
 	return body.id;
 }
 
-/** The ids of the aliases a tenant can see through its own project page. */
+/** The ids of the aliases a tenant can see through its own aliases page. */
 async function visibleAliases(t) {
-	const res = await fetch(`${server.baseUrl}/api/pages/projects/${t.projectId}/aliases`, { headers: { cookie: t.cookie } });
+	const res = await fetch(`${server.baseUrl}/api/pages/aliases`, { headers: { cookie: t.cookie } });
 	assert.equal(res.status, 200, 'the aliases list must answer');
 	return ((await res.json()).aliases ?? []).map((x) => x.id);
 }
@@ -108,7 +110,7 @@ test.before(async () => {
 			on conflict (id) do nothing`;
 		modelId = mid;
 	}
-	const seen = await fetch(`${server.baseUrl}/api/pages/projects/${a.projectId}/aliases`, { headers: { cookie: a.cookie } });
+	const seen = await fetch(`${server.baseUrl}/api/pages/aliases`, { headers: { cookie: a.cookie } });
 	const models = (await seen.json()).models ?? [];
 	assert.ok(models.some((m) => m.id === modelId), `the seeded model is not visible to the alias form (got ${models.length} models)`);
 });
@@ -118,37 +120,37 @@ test.after(async () => {
 	await sql?.end({ timeout: 5 });
 });
 
-test('an alias in another workspace cannot be deleted by id', NEEDS_DB, async () => {
-	// B creates a WORKSPACE-scoped alias — the shape that slipped through:
-	// workspace_id set, project_id NULL.
+test('an alias in another account cannot be deleted by id', NEEDS_DB, async () => {
+	// B creates an account-scoped alias — the shape that slipped through before
+	// 0019: owned by a tenant, but the delete only checked "not global".
 	const aliasId = await createAlias(b, 'victim-alias');
 	assert.ok(
 		(await visibleAliases(b)).includes(aliasId),
 		'fixture check: the victim alias must exist before the attack'
 	);
 
-	// A, an unrelated tenant, deletes it by id through its OWN project path.
-	const attack = await fetch(`${server.baseUrl}/api/pages/projects/${a.projectId}/aliases/delete`, {
+	// A, an unrelated account, deletes it by id.
+	const attack = await fetch(`${server.baseUrl}/api/pages/aliases/delete`, {
 		method: 'POST',
 		headers: { cookie: a.cookie, 'content-type': 'application/json' },
 		body: JSON.stringify({ id: aliasId })
 	});
 
-	// Mutation: removing the `workspace_id !== workspaceId` guard makes the
-	// delete succeed (attack 200) and this assertion fails with "cross-tenant
-	// alias delete succeeded".
+	// Mutation: removing the `account_id !== userRow.id` guard makes the delete
+	// succeed (attack 200) and this assertion fails with "cross-tenant alias
+	// delete succeeded".
 	assert.ok(
 		(await visibleAliases(b)).includes(aliasId),
-		`cross-tenant alias delete succeeded (attack status ${attack.status}) — another workspace's alias was removed`
+		`cross-tenant alias delete succeeded (attack status ${attack.status}) — another account's alias was removed`
 	);
 });
 
-test('an alias from another workspace is not visible in the list', NEEDS_DB, async () => {
-	// Same shape as the delete, read side: the list query unions
-	// `project_id = proj` OR `workspace_id = actor AND project_id is null` OR
-	// global. B's workspace-scoped alias must not appear in A's page.
+test('an alias from another account is not visible in the list', NEEDS_DB, async () => {
+	// Same shape as the delete, read side: the list query is
+	// `account_id = caller OR account_id IS NULL`. B's account alias must not
+	// appear in A's page.
 	const aliasId = await createAlias(b, 'victim-read-alias');
-	assert.ok(!(await visibleAliases(a)).includes(aliasId), 'another workspace\'s alias leaked into the list');
+	assert.ok(!(await visibleAliases(a)).includes(aliasId), 'another account\'s alias leaked into the list');
 });
 
 test('the palette request search cannot see another tenant', NEEDS_DB, async () => {
@@ -166,56 +168,11 @@ test('the palette request search cannot see another tenant', NEEDS_DB, async () 
 	);
 });
 
-test('invite cannot grant the owner role to a non-owner', NEEDS_DB, async () => {
-	// The escalation path: `member.invite` is a LOWER bar than `workspace.write`
-	// (changeRole's gate), so without a dominance check here an admin can mint
-	// an owner. B's owner may grant owner (the feature must not break); a
-	// SECOND member of B holding roleId=rol_admin may not.
-	const roles = (await (await fetch(`${server.baseUrl}/api/pages/team/members`, { headers: { cookie: b.cookie } })).json()).roles ?? [];
-	const ownerRole = roles.find((r) => r.id === 'rol_owner' || String(r.name).toLowerCase() === 'owner');
-	assert.ok(ownerRole, 'the builtin owner role must be listed');
-	const adminRole = roles.find((r) => r.id === 'rol_admin' || String(r.name).toLowerCase() === 'admin');
-	assert.ok(adminRole, 'the builtin admin role must be listed');
-
-	// A non-owner member of B: invite a distinct address into B's admin role.
-	const adminEmail = uniqueEmail('iso-admin');
-	const promoted = await signUp(server.baseUrl, { email: uniqueEmail('iso-member') });
-	assert.equal(promoted.status, 200);
-	const memberEmail = promoted.body?.user?.email;
-	const bWs = (await (await fetch(`${server.baseUrl}/api/pages/workspace`, { headers: { cookie: b.cookie } })).json()).workspace?.id;
-	// Per-run id: a fixed one collides with the previous run's row (the DB is
-	// reused between runs), which reports as a fixture error rather than a
-	// finding — the same mistake a fixed request_log id made earlier.
-	const memberRowId = `wsm_isotest_${Date.now().toString(36)}`;
-	await sql`insert into workspace_member (id, workspace_id, user_id, role_id, status, invited_by)
-		select ${memberRowId}, ${bWs}, u.id, ${adminRole.id}, 'active', null from "user" u where u.email = ${memberEmail}
-		on conflict (workspace_id, user_id) do update set role_id = ${adminRole.id}, status = 'active'`;
-
-	// The non-owner member tries to invite into the OWNER role — acting INSIDE
-	// B, which is what the `fwid` cookie selects (currentWorkspaceId reads it,
-	// and only honours it for an active member of that workspace). Without the
-	// cookie the request resolves to the member's own workspace, where they
-	// legitimately ARE the owner, and the test would assert the wrong thing.
-	const actingInB = `${promoted.cookie}; fwid=${bWs}`;
-	const escalate = await fetch(`${server.baseUrl}/api/pages/team/members/invite`, {
-		method: 'POST',
-		headers: { cookie: actingInB, 'content-type': 'application/json' },
-		body: JSON.stringify({ email: adminEmail, roleId: ownerRole.id })
-	});
-	assert.equal(
-		escalate.status,
-		403,
-		`a non-owner granted the owner role through invite (status ${escalate.status}) — changeRole refuses this, so invite must too: ${(await escalate.text()).slice(0, 120)}`
-	);
-
-	// And a bogus role is still refused rather than inserted.
-	const bogus = await fetch(`${server.baseUrl}/api/pages/team/members/invite`, {
-		method: 'POST',
-		headers: { cookie: b.cookie, 'content-type': 'application/json' },
-		body: JSON.stringify({ email: uniqueEmail('invite-bogus'), roleId: 'rol_does_not_exist' })
-	});
-	assert.equal(bogus.status, 400, 'an unknown role must be a 400, not a silent membership');
-});
+// The `member.invite` escalation test that used to live here is gone with the
+// surface it guarded: migration 0019 dropped `workspace_member` and
+// `workspace_role`, and with them /api/pages/team/**. There is no membership
+// to insert and no role to escalate to — an account has exactly one user, so
+// the hole cannot be reintroduced without restoring the hierarchy first.
 
 test('/api/admin/users returns a JSON payload, not an empty 200', NEEDS_DB, async () => {
 	// The handler built its maps and never returned, so handler()'s res.json()
@@ -240,7 +197,7 @@ test('/api/admin/users returns a JSON payload, not an empty 200', NEEDS_DB, asyn
 	// handler's whole job is joining those maps onto the user list.
 	if (body.users.length > 0) {
 		const u = body.users[0];
-		for (const field of ['requests', 'cost', 'workspaces', 'projects', 'keys', 'lastSeenAt']) {
+		for (const field of ['requests', 'cost', 'keys', 'firstRequestAt', 'lastSeenAt']) {
 			assert.ok(field in u, `the users payload is missing ${field}`);
 		}
 	}

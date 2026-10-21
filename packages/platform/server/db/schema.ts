@@ -44,11 +44,8 @@ export const apiKey = pgTable(
 		revokedAt: timestamp('revoked_at', { withTimezone: true }),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 		// -- added by 0006_platform_schema.sql --
-		workspaceId: text('workspace_id').references(() => workspace.id, { onDelete: 'cascade' }),
-		projectId: text('project_id').references(() => project.id, { onDelete: 'cascade' }),
-		environmentId: text('environment_id').references(() => environment.id, {
-			onDelete: 'cascade'
-		}),
+		// 0019 dropped the workspace/project/environment columns: `user_id` above
+		// is the owner, and a key has no second scope.
 		status: text('status').notNull().default('active'),
 		policy: jsonb('policy').$type<Record<string, unknown>>().notNull().default({}),
 		expiresAt: timestamp('expires_at', { withTimezone: true }),
@@ -56,9 +53,7 @@ export const apiKey = pgTable(
 	},
 	(t) => [
 		uniqueIndex('api_key_prefix_idx').on(t.prefix),
-		index('api_key_user_idx').on(t.userId),
-		index('api_key_project_idx').on(t.projectId),
-		index('api_key_environment_idx').on(t.environmentId)
+		index('api_key_user_idx').on(t.userId)
 	]
 );
 
@@ -159,13 +154,9 @@ export const requestLog = pgTable(
 		error: text('error'),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 		// -- added by 0006_platform_schema.sql --
-		// Organizational FKs CASCADE (deleting a project takes its request rows
-		// with it — scoped history); subject FKs above stay SET NULL.
-		workspaceId: text('workspace_id').references(() => workspace.id, { onDelete: 'cascade' }),
-		projectId: text('project_id').references(() => project.id, { onDelete: 'cascade' }),
-		environmentId: text('environment_id').references(() => environment.id, {
-			onDelete: 'cascade'
-		}),
+		// 0019 dropped the workspace/project/environment columns. Ownership is
+		// the nullable `user_id`/`api_key_id` above, which stay SET NULL so the
+		// financial record survives subject deletion.
 		endpoint: text('endpoint'),
 		requestedModel: text('requested_model'),
 		providerModelId: text('provider_model_id'),
@@ -202,8 +193,6 @@ export const requestLog = pgTable(
 	(t) => [
 		index('request_log_user_created_idx').on(t.userId, t.createdAt),
 		index('request_log_api_key_created_idx').on(t.apiKeyId, t.createdAt),
-		index('request_log_project_created_idx').on(t.projectId, t.createdAt),
-		index('request_log_workspace_created_idx').on(t.workspaceId, t.createdAt),
 		index('request_log_provider_created_idx').on(t.providerId, t.createdAt),
 		index('request_log_model_created_idx').on(t.modelId, t.createdAt),
 		index('request_log_status_created_idx').on(t.status, t.createdAt),
@@ -212,91 +201,16 @@ export const requestLog = pgTable(
 );
 
 // ------------------------------------------------------------- accounts ----
-// PRD §6: User -> Workspace -> Project -> Environment -> API Key.
+// The account IS the tenant (migration 0019). `workspace`, `workspace_member`,
+// `workspace_role`, `project` and `environment` are gone; a key, billing account,
+// budget, rate limit and routing policy hang off `user.id` directly.
 
-export const workspace = pgTable(
-	'workspace',
-	{
-		id: text('id').primaryKey(),
-		name: text('name').notNull(),
-		slug: text('slug').notNull(),
-		ownerUserId: text('owner_user_id').references(() => user.id, { onDelete: 'set null' }),
-		status: text('status').notNull().default('active'),
-		settings: jsonb('settings').$type<Record<string, unknown>>().notNull().default({}),
-		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
-	},
-	(t) => [
-		uniqueIndex('workspace_slug_idx').on(t.slug),
-		index('workspace_owner_idx').on(t.ownerUserId)
-	]
-);
-
-// Roles are ROWS (spec §2): builtin templates carry workspace_id NULL; a custom
-// role is a workspace-scoped row. `permissions` is a jsonb array of PRD §46
-// permission codes — the complete code list is pinned in lib/server/rbac.ts.
-export const workspaceRole = pgTable('workspace_role', {
-	id: text('id').primaryKey(),
-	workspaceId: text('workspace_id').references(() => workspace.id, { onDelete: 'cascade' }),
-	name: text('name').notNull(),
-	permissions: jsonb('permissions').$type<string[]>().notNull().default([]),
-	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
-	// The (workspace_id, name) uniqueness is the COALESCE expression index
-	// "workspace_role_ws_name_idx" in 0006_platform_schema.sql — COALESCE
-	// because NULL workspace_id is the builtin tier and NULLs are distinct in a
-	// plain unique index, so without it two `owner` templates could coexist.
-});
-
-export const workspaceMember = pgTable(
-	'workspace_member',
-	{
-		id: text('id').primaryKey(),
-		workspaceId: text('workspace_id')
-			.notNull()
-			.references(() => workspace.id, { onDelete: 'cascade' }),
-		userId: text('user_id')
-			.notNull()
-			.references(() => user.id, { onDelete: 'cascade' }),
-		roleId: text('role_id')
-			.notNull()
-			.references(() => workspaceRole.id, { onDelete: 'restrict' }),
-		status: text('status').notNull().default('active'),
-		invitedBy: text('invited_by'),
-		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
-	},
-	(t) => [
-		uniqueIndex('workspace_member_ws_user_idx').on(t.workspaceId, t.userId),
-		index('workspace_member_user_idx').on(t.userId)
-	]
-);
-
-export const project = pgTable(
-	'project',
-	{
-		id: text('id').primaryKey(),
-		workspaceId: text('workspace_id')
-			.notNull()
-			.references(() => workspace.id, { onDelete: 'cascade' }),
-		name: text('name').notNull(),
-		slug: text('slug').notNull(),
-		description: text('description'),
-		status: text('status').notNull().default('active'),
-		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
-	},
-	(t) => [uniqueIndex('project_ws_slug_idx').on(t.workspaceId, t.slug)]
-);
-
-// Routing policy is created before `environment` only because
-// environment.routing_policy_id references it (spec §9).
 export const routingPolicy = pgTable(
 	'routing_policy',
 	{
 		id: text('id').primaryKey(),
-		workspaceId: text('workspace_id'),
-		projectId: text('project_id'),
-		environmentId: text('environment_id'),
+		// NULL = the platform default. Account rows carry the owner's user id.
+		accountId: text('account_id').references(() => user.id, { onDelete: 'cascade' }),
 		name: text('name').notNull(),
 		strategy: text('strategy').notNull().default('balanced'),
 		enabled: boolean('enabled').notNull().default(true),
@@ -315,35 +229,8 @@ export const routingPolicy = pgTable(
 		weights: jsonb('weights').$type<Record<string, unknown>>().notNull().default({}),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
-		// Scope columns are intentionally NOT foreign keys (0006 declares none):
-		// a policy may be detached (all three NULL = platform default).
 	},
-	(t) => [
-		index('routing_policy_ws_idx').on(t.workspaceId),
-		index('routing_policy_project_idx').on(t.projectId),
-		index('routing_policy_env_idx').on(t.environmentId)
-	]
-);
-
-export const environment = pgTable(
-	'environment',
-	{
-		id: text('id').primaryKey(),
-		projectId: text('project_id')
-			.notNull()
-			.references(() => project.id, { onDelete: 'cascade' }),
-		name: text('name').notNull(),
-		slug: text('slug').notNull(),
-		type: text('type').notNull(),
-		status: text('status').notNull().default('active'),
-		routingPolicyId: text('routing_policy_id').references(() => routingPolicy.id, {
-			onDelete: 'set null'
-		}),
-		monthlyBudgetMicro: bigint('monthly_budget_micro', { mode: 'bigint' }),
-		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
-	},
-	(t) => [uniqueIndex('environment_project_slug_idx').on(t.projectId, t.slug)]
+	(t) => [index('routing_policy_account_idx').on(t.accountId)]
 );
 
 // ------------------------------------------------------------- provider net ----
@@ -440,20 +327,18 @@ export const providerModel = pgTable(
 	]
 );
 
-// workspace_id NULL = the global `fudrouter/*` virtual models (PRD §36).
+// account_id NULL = the global `fudrouter/*` virtual models (PRD §36).
 export const modelAlias = pgTable('model_alias', {
 	id: text('id').primaryKey(),
-	workspaceId: text('workspace_id').references(() => workspace.id, { onDelete: 'cascade' }),
-	projectId: text('project_id').references(() => project.id, { onDelete: 'cascade' }),
+	accountId: text('account_id').references(() => user.id, { onDelete: 'cascade' }),
 	name: text('name').notNull(),
 	description: text('description'),
 	enabled: boolean('enabled').notNull().default(true),
 	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 	updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
 	// Scope+name uniqueness is the COALESCE expression index
-	// "model_alias_scope_name_idx" in 0006_platform_schema.sql
-	// (COALESCE(workspace_id,''), COALESCE(project_id,''), name) — the NULL
-	// scopes (global virtuals, workspace-level) must collide on name too.
+	// "model_alias_scope_name_idx" in 0019 (COALESCE(account_id,''), name) —
+	// the NULL scope (global virtuals) must collide on name too.
 });
 
 export const modelAliasTarget = pgTable(
@@ -602,9 +487,7 @@ export const requestAttempt = pgTable(
 // them ('' sentinel) because NULLs are distinct.
 export const usageHourly = pgTable('usage_hourly', {
 	bucketStart: timestamp('bucket_start', { withTimezone: true }).notNull(),
-	workspaceId: text('workspace_id'),
-	projectId: text('project_id'),
-	environmentId: text('environment_id'),
+	accountId: text('account_id'),
 	apiKeyId: text('api_key_id'),
 	modelId: text('model_id'),
 	providerId: text('provider_id'),
@@ -640,9 +523,7 @@ export const usageHourly = pgTable('usage_hourly', {
 // Same shape as usage_hourly; bucket_start = day start in UTC.
 export const usageDaily = pgTable('usage_daily', {
 	bucketStart: timestamp('bucket_start', { withTimezone: true }).notNull(),
-	workspaceId: text('workspace_id'),
-	projectId: text('project_id'),
-	environmentId: text('environment_id'),
+	accountId: text('account_id'),
 	apiKeyId: text('api_key_id'),
 	modelId: text('model_id'),
 	providerId: text('provider_id'),
@@ -681,9 +562,9 @@ export const billingAccount = pgTable(
 	'billing_account',
 	{
 		id: text('id').primaryKey(),
-		workspaceId: text('workspace_id')
+		userId: text('user_id')
 			.notNull()
-			.references(() => workspace.id, { onDelete: 'cascade' }),
+			.references(() => user.id, { onDelete: 'cascade' }),
 		currency: char('currency', { length: 3 }).notNull().default('USD'),
 		status: text('status').notNull().default('active'),
 		warningThresholdMicro: bigint('warning_threshold_micro', { mode: 'bigint' })
@@ -698,7 +579,7 @@ export const billingAccount = pgTable(
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
 	},
-	(t) => [uniqueIndex('billing_account_workspace_idx').on(t.workspaceId)]
+	(t) => [uniqueIndex('billing_account_user_idx').on(t.userId)]
 );
 
 export const creditLedger = pgTable(
@@ -757,8 +638,7 @@ export const alert = pgTable(
 	'alert',
 	{
 		id: text('id').primaryKey(),
-		workspaceId: text('workspace_id').references(() => workspace.id, { onDelete: 'cascade' }),
-		projectId: text('project_id').references(() => project.id, { onDelete: 'cascade' }),
+		accountId: text('account_id').references(() => user.id, { onDelete: 'cascade' }),
 		name: text('name').notNull(),
 		condition: jsonb('condition').$type<Record<string, unknown>>().notNull().default({}),
 		channel: text('channel').notNull().default('inapp'),
@@ -766,7 +646,7 @@ export const alert = pgTable(
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
 	},
-	(t) => [index('alert_workspace_idx').on(t.workspaceId)]
+	(t) => [index('alert_account_idx').on(t.accountId)]
 );
 
 export const alertEvent = pgTable(
@@ -790,10 +670,9 @@ export const webhook = pgTable(
 	'webhook',
 	{
 		id: text('id').primaryKey(),
-		workspaceId: text('workspace_id')
+		accountId: text('account_id')
 			.notNull()
-			.references(() => workspace.id, { onDelete: 'cascade' }),
-		projectId: text('project_id'),
+			.references(() => user.id, { onDelete: 'cascade' }),
 		url: text('url').notNull(),
 		secretEnc: text('secret_enc'),
 		events: jsonb('events').$type<string[]>().notNull().default([]),
@@ -801,7 +680,7 @@ export const webhook = pgTable(
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
 	},
-	(t) => [index('webhook_workspace_idx').on(t.workspaceId)]
+	(t) => [index('webhook_account_idx').on(t.accountId)]
 );
 
 export const webhookDelivery = pgTable(

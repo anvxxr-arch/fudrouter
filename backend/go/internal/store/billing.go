@@ -9,10 +9,11 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// BillingAccount is the workspace's prepaid credit account (spec §10).
+// BillingAccount is the user account's prepaid credit account (spec §10).
+// Keyed by user since migration 0019 removed the workspace it used to hang off.
 type BillingAccount struct {
 	ID                      string
-	WorkspaceID             string
+	UserID                  string
 	Currency                string
 	Status                  string
 	WarningThresholdMicro   int64
@@ -25,22 +26,22 @@ type BillingAccount struct {
 // INSUFFICIENT_CREDITS code (PRD §88).
 var ErrInsufficientCredits = errors.New("insufficient credits")
 
-// BillingAccountByWorkspace loads the account for a workspace. A workspace with
-// no billing account (created outside the control plane's backfill) has no
-// credit line: ErrNotFound tells the caller to treat spending as unlimited or
-// to refuse, depending on its gate. The data plane treats "no account" as "no
-// hard stop" — an account-less workspace is an S0-style tenant, and the S0
-// promise is that those keep working (spec §14).
-func (s *Store) BillingAccountByWorkspace(ctx context.Context, workspaceID string) (*BillingAccount, error) {
-	if workspaceID == "" {
+// BillingAccountByUser loads the account for a user. A user with no billing
+// account (created outside the control plane) has no credit line: ErrNotFound
+// tells the caller to treat spending as unlimited or to refuse, depending on its
+// gate. The data plane treats "no account" as "no hard stop" — an account-less
+// user is an S0-style tenant, and the S0 promise is that those keep working
+// (spec §14).
+func (s *Store) BillingAccountByUser(ctx context.Context, userID string) (*BillingAccount, error) {
+	if userID == "" {
 		return nil, ErrNotFound
 	}
 	b := &BillingAccount{}
 	err := s.pool.QueryRow(ctx, `
-		select id, workspace_id, currency, status,
+		select id, user_id, currency, status,
 		       warning_threshold_micro, hard_stop_threshold_micro, balance_micro
-		from billing_account where workspace_id = $1`, workspaceID,
-	).Scan(&b.ID, &b.WorkspaceID, &b.Currency, &b.Status,
+		from billing_account where user_id = $1`, userID,
+	).Scan(&b.ID, &b.UserID, &b.Currency, &b.Status,
 		&b.WarningThresholdMicro, &b.HardStopThresholdMicro, &b.BalanceMicro)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -49,45 +50,35 @@ func (s *Store) BillingAccountByWorkspace(ctx context.Context, workspaceID strin
 }
 
 // BudgetGateState is everything the admission budget gate needs beyond the
-// budget rows themselves: the workspace's billing account (hard stop) and the
-// environment's flat monthly budget column. Both are read in ONE query.
+// budget rows themselves: the user's billing account (hard stop). The
+// environment's flat monthly budget column went with the `environment` table in
+// migration 0019.
 //
-// Why one query: checkBudgets runs before every dispatch, and these two reads
-// were separate round trips for two rows that never interact — a billing
-// account keyed by workspace and an environment row keyed by environment. A
-// `left join` pair off a one-row anchor returns both or neither in a single
-// round trip.
+// `acct` is nil when the user has no billing account (the S0 tenant the caller
+// must treat as having no hard stop).
 //
-// `acct` is nil when the workspace has no billing account (the S0 tenant the
-// caller must treat as having no hard stop); `envBudget` is nil when the column
-// is NULL or the environment does not exist.
-//
-// Only the account read keeps its fail-CLOSED behaviour: a query error is
-// returned, and the caller refuses (spec §10 — a billing read that cannot be
-// trusted must not admit spend). That was already true of this path, because
-// the account read was the first thing checkBudgets did.
-func (s *Store) BudgetGateState(ctx context.Context, workspaceID, environmentID string) (*BillingAccount, *int64, error) {
+// The account read keeps its fail-CLOSED behaviour: a query error is returned,
+// and the caller refuses (spec §10 — a billing read that cannot be trusted must
+// not admit spend).
+func (s *Store) BudgetGateState(ctx context.Context, userID string) (*BillingAccount, error) {
 	var (
-		acct                            *BillingAccount
-		id, wsID, currency, status      *string
+		acct                             *BillingAccount
+		id, uid, currency, status        *string
 		warnThreshold, hardStop, balance *int64
-		envBudget                       *int64
 	)
 	err := s.pool.QueryRow(ctx, `
-		select ba.id, ba.workspace_id, ba.currency, ba.status,
-		       ba.warning_threshold_micro, ba.hard_stop_threshold_micro, ba.balance_micro,
-		       e.monthly_budget_micro
+		select ba.id, ba.user_id, ba.currency, ba.status,
+		       ba.warning_threshold_micro, ba.hard_stop_threshold_micro, ba.balance_micro
 		from (select 1) anchor
-		left join billing_account ba on ba.workspace_id = $1
-		left join environment e on e.id = $2`, workspaceID, environmentID,
-	).Scan(&id, &wsID, &currency, &status, &warnThreshold, &hardStop, &balance, &envBudget)
+		left join billing_account ba on ba.user_id = $1`, userID,
+	).Scan(&id, &uid, &currency, &status, &warnThreshold, &hardStop, &balance)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if id != nil {
 		acct = &BillingAccount{ID: *id}
-		if wsID != nil {
-			acct.WorkspaceID = *wsID
+		if uid != nil {
+			acct.UserID = *uid
 		}
 		if currency != nil {
 			acct.Currency = *currency
@@ -105,7 +96,7 @@ func (s *Store) BudgetGateState(ctx context.Context, workspaceID, environmentID 
 			acct.BalanceMicro = *balance
 		}
 	}
-	return acct, envBudget, nil
+	return acct, nil
 }
 
 // ChargeResult reports what the charge did to the account, so the caller can
@@ -128,11 +119,11 @@ type ChargeResult struct {
 // `balance_micro` is a cache and is always reconcilable from
 // SUM(credit_ledger.amount_micro).
 //
-// Usage is charged whenever a workspace has a billing account: tokens that were
+// Usage is charged whenever a user has a billing account: tokens that were
 // consumed are owed whether or not the account is at its hard stop. The hard
 // stop gates ADMISSION (store.BudgetGateState, called from checkBudgets), not
 // payment, and ChargeResult.HardStop tells the caller to stop admitting further
-// requests for this workspace.
+// requests for this user.
 //
 // MEASURED COST: ONE round trip. It was six — BEGIN, the request_log insert, a
 // `for update` on billing_account, the credit_ledger insert, the balance update,
@@ -141,7 +132,7 @@ type ChargeResult struct {
 //
 // The round trips were not the real damage; the LOCK HOLD was. The explicit
 // `for update` was held from statement 3 until statement 6, five round trips, so
-// every concurrent request for the SAME workspace queued on it. Folding the block
+// every concurrent request for the SAME account queued on it. Folding the block
 // into one statement keeps the lock — the atomic `balance_micro + $45` still needs
 // it — but holds it for the tail of a single statement instead of four network
 // waits. The evidence is the round-trip COUNT (6 -> 1, pinned by
@@ -165,12 +156,12 @@ func (s *Store) ChargeRequest(ctx context.Context, r *RequestLog) (*ChargeResult
 	}
 
 	res := &ChargeResult{Charged: true}
-	if r.WorkspaceID == "" {
+	if r.UserID == "" {
 		// Account-less tenant (S0): there is no billing_account row to lock and
 		// nothing to charge, so this is one insert and nothing else.
 		if _, err := s.pool.Exec(ctx, `
 			insert into request_log (`+requestLogColumns+`)
-			values (`+placeholders(43)+`)
+			values (`+placeholders(40)+`)
 			on conflict (id) do nothing`, r.args()...); err != nil {
 			return nil, err
 		}
@@ -208,21 +199,21 @@ func (s *Store) ChargeRequest(ctx context.Context, r *RequestLog) (*ChargeResult
 	err := s.pool.QueryRow(ctx, `
 		with rl as (
 			insert into request_log (`+requestLogColumns+`)
-			values (`+placeholders(43)+`)
+			values (`+placeholders(40)+`)
 			on conflict (id) do nothing
 			returning 1
 		), ledger as (
 			insert into credit_ledger
 			  (id, billing_account_id, type, amount_micro, currency, request_id,
 			   idempotency_key, description, metadata)
-			select $44, ba.id, 'usage_charge', $45, $46, $47, $48, $49, '{}'::jsonb
+			select $41, ba.id, 'usage_charge', $42, $43, $44, $45, $46, '{}'::jsonb
 			from billing_account ba
-			where ba.workspace_id = $50
+			where ba.user_id = $47
 			on conflict (idempotency_key) do nothing
 			returning id, billing_account_id
 		), bal as (
 			update billing_account ba
-			set balance_micro = ba.balance_micro + $45, updated_at = now()
+			set balance_micro = ba.balance_micro + $42, updated_at = now()
 			from ledger l
 			where ba.id = l.billing_account_id
 			returning ba.id, ba.warning_threshold_micro, ba.hard_stop_threshold_micro, ba.balance_micro
@@ -237,14 +228,14 @@ func (s *Store) ChargeRequest(ctx context.Context, r *RequestLog) (*ChargeResult
 		-- is what the first version of this statement returned.
 		select ba.id, ba.warning_threshold_micro, ba.hard_stop_threshold_micro, ba.balance_micro, false
 		from billing_account ba
-		where ba.workspace_id = $50 and not exists (select 1 from bal)`,
+		where ba.user_id = $47 and not exists (select 1 from bal)`,
 		append(append([]any{}, r.args()...),
 			ids.New("txn"), -r.Cost, r.Currency, nullStr(r.ID),
-			"usage:"+r.ID, "usage charge for "+r.ID, nullStr(r.WorkspaceID))...,
+			"usage:"+r.ID, "usage charge for "+r.ID, nullStr(r.UserID))...,
 	).Scan(&accountID, &warningThreshold, &hardStop, &balance, &charged)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
-		// No billing account for this workspace: the S0 tenant that predates
+		// No billing account for this user: the S0 tenant that predates
 		// billing. `Charged` stays true — the usage was recorded and there was
 		// nothing to charge, which is the semantics this returned before the
 		// statements were folded together.
@@ -263,14 +254,14 @@ func (s *Store) ChargeRequest(ctx context.Context, r *RequestLog) (*ChargeResult
 		if res.Charged {
 			res.Warning = warningThreshold != nil && *balance <= *warningThreshold
 			res.HardStop = hardStop != nil && *balance <= *hardStop
-			// The cached gate state is holding this workspace's PRE-charge
+			// The cached gate state is holding this account's PRE-charge
 			// balance. Drop it the moment the line is crossed so the next
 			// request re-reads and refuses, instead of being admitted for up to
 			// gateTTL off a balance that no longer exists. Only on the crossing
 			// (not every charge) — a cache miss per charge would put the round
 			// trip back on the hot path this cache exists to remove.
 			if res.HardStop {
-				s.InvalidateAdmission(r.WorkspaceID)
+				s.InvalidateAdmission(r.UserID)
 			}
 		}
 	}
@@ -312,17 +303,14 @@ func (s *Store) spendMicro(ctx context.Context, where, id, sinceExpr string) (in
 // durable aggregate the budget checks re-verify when a Valkey counter is
 // missing (spec §7: "counter loss must never make spending unbounded").
 //
-// scope is workspace|project|environment|api_key (the rate_limit/budget scope
-// vocabulary, spec §7).
+// scope is account|api_key (the rate_limit/budget scope vocabulary after
+// migration 0019; the three hierarchy scopes are gone).
 func (s *Store) SpendMicro(ctx context.Context, scope, scopeID string, since time.Time) (int64, error) {
 	var where string
 	switch scope {
-	case "workspace":
-		where = `workspace_id = $1`
-	case "project":
-		where = `project_id = $1`
-	case "environment":
-		where = `environment_id = $1`
+	case "account":
+		// `account` is the user: request_log.user_id is the ownership column.
+		where = `user_id = $1`
 	case "api_key":
 		where = `api_key_id = $1`
 	default:

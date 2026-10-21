@@ -62,7 +62,10 @@ test('the extraction is non-trivial (guards against an empty/greedy scan)', () =
   // If a refactor moved the route registrations, a regex that silently matched
   // nothing would make every other assertion in this file vacuous.
   assert.ok(routes.counts.inference >= 7, `inference routes: ${routes.counts.inference}`);
-  assert.ok(routes.counts.management >= 180, `management routes: ${routes.counts.management}`);
+  // 159 after migration 0019 dropped the workspace/project/environment
+  // hierarchy (was 191). The floor tracks the real surface with headroom, so a
+  // scanner that matches nothing or silently loses a file still fails here.
+  assert.ok(routes.counts.management >= 150, `management routes: ${routes.counts.management}`);
   assert.ok(routes.counts.middleware >= 10, `middleware entries: ${routes.counts.middleware}`);
 });
 

@@ -56,71 +56,37 @@ function fmtMicro(v: string | null | undefined) {
 const LOG_STATUSES = ["success", "client_error", "provider_error", "timeout", "rate_limited", "cancelled", "internal_error", "error", "upstream_error"];
 const LOG_DAYS = [1, 7, 30, 90];
 
-type LogRow = { id: string; projectId: string | null; createdAt: string; requestedModel: string | null; modelSlug: string | null; providerName: string | null; attempts: number; fallbackUsed: boolean; tokensIn: number; tokensOut: number; costMicro: string; latencyMs: number; ttftMs: number | null; status: string; errorCode: string | null };
+type LogRow = { id: string; createdAt: string; requestedModel: string | null; modelSlug: string | null; providerName: string | null; attempts: number; fallbackUsed: boolean; tokensIn: number; tokensOut: number; costMicro: string; latencyMs: number; ttftMs: number | null; status: string; errorCode: string | null };
 type LogData = { rows: LogRow[]; total: number; page: number; pages: number };
-// Detail response of GET /api/pages/projects/:projectId/requests/:requestId —
-// only the fields the handler actually returns; nothing invented.
-type DetailRow = { id: string; createdAt: string; status: string; endpoint: string | null; projectName: string | null; environmentName: string | null; keyName: string | null; keyPrefix: string | null; requestedModel: string | null; resolvedSlug: string | null; providerName: string | null; strategy: string | null; tokensIn: number; tokensOut: number; totalTokens: number; costMicro: string; currency: string | null; providerCostMicro: string | null; ttftMs: number | null; latencyMs: number | null; attemptsCount: number; fallbackUsed: boolean; stream: boolean | null; error: string | null; errorCode: string | null; httpStatus: number | null };
-type DetailAttempt = { id: string; attempt: number; providerName: string | null; httpStatus: number | null; errorCode: string | null; retryable: boolean; latencyMs: number | null; ttftMs: number | null; providerCostMicro: string | null; reason: string | null; startedAt: string | null; finishedAt: string | null };
-type DetailTiming = { stage: string; ms: number };
-type DetailData = { denied: boolean; projectId: string; project: { id: string; name: string }; row: DetailRow | null; attempts: DetailAttempt[]; timing: DetailTiming[]; content: { state: string; requestBody: null; responseBody: null } };
 
 const TABS = ["Requests", "Console", "Activity"] as const;
 type Tab = (typeof TABS)[number];
 
-function RequestDetailDrawer({ projectId, requestId, onClose }: { projectId: string; requestId: string; onClose: () => void }) {
-  const { data, error, loading } = useLoad<DetailData>(`/api/pages/projects/${projectId}/requests/${requestId}`);
+// The account request log has no per-id detail endpoint (the project-scoped
+// one died with /api/pages/projects/**), so the drawer renders the row the
+// list already returned: every field here is on LogRow, nothing invented.
+function RequestDetailDrawer({ row, onClose }: { row: LogRow; onClose: () => void }) {
   return (<div className="usage-drawer-backdrop" onClick={onClose}>
     <div className="usage-drawer" role="dialog" aria-modal="true" aria-label="Request details" onClick={(e) => e.stopPropagation()}>
       <div className="row usage-drawer-head">
         <h3>Request</h3>
         <Button size="sm" variant="ghost" onClick={onClose}>Close</Button>
       </div>
-      <p className="usage-drawer-id"><code>{requestId}</code></p>
-      <LoadState loading={loading} error={error} />
-      {data ? (data.row ? (<>
-        <dl className="usage-drawer-grid">
-          <dt>Created</dt><dd>{fmtDate(data.row.createdAt)}</dd>
-          <dt>Status</dt><dd>{data.row.status}{data.row.httpStatus == null ? "" : ` · HTTP ${data.row.httpStatus}`}</dd>
-          <dt>Project</dt><dd>{data.row.projectName ?? "—"}</dd>
-          <dt>Environment</dt><dd>{data.row.environmentName ?? "—"}</dd>
-          <dt>API key</dt><dd>{data.row.keyName ? `${data.row.keyName}${data.row.keyPrefix ? ` (${data.row.keyPrefix})` : ""}` : "—"}</dd>
-          <dt>Requested model</dt><dd>{data.row.requestedModel ?? "—"}</dd>
-          <dt>Served model</dt><dd>{data.row.resolvedSlug ?? "—"}</dd>
-          <dt>Provider</dt><dd>{data.row.providerName ?? "—"}</dd>
-          <dt>Strategy</dt><dd>{data.row.strategy ?? "—"}</dd>
-          <dt>Endpoint</dt><dd>{data.row.endpoint ?? "—"}</dd>
-          <dt>Tokens in</dt><dd>{data.row.tokensIn}</dd>
-          <dt>Tokens out</dt><dd>{data.row.tokensOut}</dd>
-          <dt>Tokens total</dt><dd>{data.row.totalTokens}</dd>
-          <dt>Cost</dt><dd>{fmtMicro(data.row.costMicro)}{data.row.currency ? ` ${data.row.currency}` : ""}</dd>
-          <dt>Provider cost</dt><dd>{data.row.providerCostMicro == null ? "—" : fmtMicro(data.row.providerCostMicro)}</dd>
-          <dt>Latency</dt><dd>{data.row.latencyMs == null ? "—" : `${data.row.latencyMs} ms`}</dd>
-          <dt>TTFT</dt><dd>{data.row.ttftMs == null ? "—" : `${data.row.ttftMs} ms`}</dd>
-          <dt>Attempts</dt><dd>{data.row.attemptsCount}{data.row.fallbackUsed ? " (fallback used)" : ""}</dd>
-          <dt>Stream</dt><dd>{data.row.stream == null ? "—" : (data.row.stream ? "yes" : "no")}</dd>
-          <dt>Error code</dt><dd>{data.row.errorCode ?? "—"}</dd>
-          <dt>Error</dt><dd>{data.row.error ?? "—"}</dd>
-        </dl>
-        {data.attempts.length > 0 ? (<>
-          <h4>Attempts</h4>
-          <Table head={["#", "Provider", "HTTP", "Latency", "Reason"]} rows={data.attempts.map((a) => [
-            String(a.attempt),
-            a.providerName ?? "—",
-            a.httpStatus == null ? "—" : String(a.httpStatus),
-            a.latencyMs == null ? "—" : `${a.latencyMs} ms`,
-            a.reason ?? a.errorCode ?? "—",
-          ])} />
-        </>) : null}
-        {data.timing.length > 0 ? (<>
-          <h4>Timing</h4>
-          <dl className="usage-drawer-grid">
-            {data.timing.map((t) => (<div key={t.stage} style={{ display: "contents" }}>
-              <dt>{t.stage}</dt><dd>{t.ms} ms</dd>
-            </div>))}
-          </dl>
-        </>) : null}
-      </>) : <p className="muted">This request is not part of the selected project.</p>) : null}
+      <p className="usage-drawer-id"><code>{row.id}</code></p>
+      <dl className="usage-drawer-grid">
+        <dt>Created</dt><dd>{fmtDate(row.createdAt)}</dd>
+        <dt>Status</dt><dd>{row.status}</dd>
+        <dt>Requested model</dt><dd>{row.requestedModel ?? "—"}</dd>
+        <dt>Served model</dt><dd>{row.modelSlug ?? "—"}</dd>
+        <dt>Provider</dt><dd>{row.providerName ?? "—"}</dd>
+        <dt>Attempts</dt><dd>{row.attempts}{row.fallbackUsed ? " (fallback used)" : ""}</dd>
+        <dt>Tokens in</dt><dd>{row.tokensIn}</dd>
+        <dt>Tokens out</dt><dd>{row.tokensOut}</dd>
+        <dt>Cost</dt><dd>{fmtMicro(row.costMicro)}</dd>
+        <dt>Latency</dt><dd>{row.latencyMs} ms</dd>
+        <dt>TTFT</dt><dd>{row.ttftMs == null ? "—" : `${row.ttftMs} ms`}</dd>
+        <dt>Error code</dt><dd>{row.errorCode ?? "—"}</dd>
+      </dl>
     </div>
   </div>);
 }
@@ -172,32 +138,7 @@ function RequestsTab() {
       <Button size="sm" variant="secondary" disabled={!log || log.page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>Prev</Button>
       <Button size="sm" variant="secondary" disabled={!log || log.page >= log.pages} onClick={() => setPage((p) => p + 1)}>Next</Button>
     </div>
-    {open ? (open.projectId
-      ? <RequestDetailDrawer projectId={open.projectId} requestId={open.id} onClose={() => setOpen(null)} />
-      : (<div className="usage-drawer-backdrop" onClick={() => setOpen(null)}>
-          <div className="usage-drawer" role="dialog" aria-modal="true" aria-label="Request details" onClick={(e) => e.stopPropagation()}>
-            <div className="row usage-drawer-head">
-              <h3>Request</h3>
-              <Button size="sm" variant="ghost" onClick={() => setOpen(null)}>Close</Button>
-            </div>
-            <p className="usage-drawer-id"><code>{open.id}</code></p>
-            <dl className="usage-drawer-grid">
-              <dt>Created</dt><dd>{fmtDate(open.createdAt)}</dd>
-              <dt>Requested model</dt><dd>{open.requestedModel ?? "—"}</dd>
-              <dt>Served model</dt><dd>{open.modelSlug ?? "—"}</dd>
-              <dt>Provider</dt><dd>{open.providerName ?? "—"}</dd>
-              <dt>Attempts</dt><dd>{open.attempts}{open.fallbackUsed ? " (fallback used)" : ""}</dd>
-              <dt>Tokens in</dt><dd>{open.tokensIn}</dd>
-              <dt>Tokens out</dt><dd>{open.tokensOut}</dd>
-              <dt>Cost</dt><dd>{fmtMicro(open.costMicro)}</dd>
-              <dt>Latency</dt><dd>{open.latencyMs} ms</dd>
-              <dt>TTFT</dt><dd>{open.ttftMs == null ? "—" : `${open.ttftMs} ms`}</dd>
-              <dt>Status</dt><dd>{open.status}</dd>
-              <dt>Error code</dt><dd>{open.errorCode ?? "—"}</dd>
-            </dl>
-            <p className="muted">This request has no project, so the full detail view is not available for it.</p>
-          </div>
-        </div>)) : null}
+    {open ? <RequestDetailDrawer row={open} onClose={() => setOpen(null)} /> : null}
   </>);
 }
 
@@ -221,8 +162,8 @@ export function LogsPage() {
         <div className="card">
           <h3 className="card-title">{tab}</h3>
           <p className="muted">{tab === "Console"
-            ? "Application console logs are not exposed to workspace members."
-            : "Workspace activity is not exposed to workspace members."}</p>
+            ? "Application console logs are not exposed to members."
+            : "Account activity is not exposed to members."}</p>
         </div>
       )}
     </div>

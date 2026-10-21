@@ -88,7 +88,12 @@ const HISTOGRAM_SQL = sql<string>`jsonb_build_object(
  * instead of inflating the aggregates. Dimensions are the spec §8 tuple; the
  * unique index is a COALESCE expression index, so the conflict target is too.
  */
-const USAGE_DIMENSIONS = sql`"workspace_id", "project_id", "environment_id", "api_key_id",
+// The rollup dimension tuple after 0019: the account column is `account_id` on
+// the aggregate but `user_id` on the source row, so the insert list and the
+// select list cannot be the same fragment.
+const USAGE_DIMENSIONS = sql`"account_id", "api_key_id",
+	"model_id", "provider_id", "connection_id", "status", "endpoint"`;
+const SOURCE_DIMENSIONS = sql`"user_id", "api_key_id",
 	"model_id", "provider_id", "connection_id", "status", "endpoint"`;
 
 async function rollupUsage(
@@ -110,7 +115,7 @@ async function rollupUsage(
 			"reasoning_tokens", "total_tokens", "cost_micro", "latency_ms_sum",
 			"latency_histogram", "ttft_ms_sum", "fallback_count", "retry_count", "updated_at"
 		)
-		select date_trunc('${sql.raw(trunc)}', "created_at"), ${USAGE_DIMENSIONS},
+		select date_trunc('${sql.raw(trunc)}', "created_at"), ${SOURCE_DIMENSIONS},
 			count(*),
 			count(*) filter (where "status" = 'success'),
 			coalesce(sum(${requestLog.tokensIn}), 0),
@@ -127,10 +132,10 @@ async function rollupUsage(
 			now()
 		from "request_log"
 		where "created_at" >= ${fromIso}::timestamptz and "created_at" < ${toIso}::timestamptz
-		group by 1, 2, 3, 4, 5, 6, 7, 8, 9, 10
+		group by 1, 2, 3, 4, 5, 6, 7, 8
 		on conflict (
 			"bucket_start",
-			coalesce("workspace_id", ''), coalesce("project_id", ''), coalesce("environment_id", ''),
+			coalesce("account_id", ''),
 			coalesce("api_key_id", ''), coalesce("model_id", ''), coalesce("provider_id", ''),
 			coalesce("connection_id", ''), "status", "endpoint"
 		) do update set

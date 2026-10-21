@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
 import { api, formatMs } from "../lib/api";
 import type { RunMetrics } from "../lib/api";
 import { compareChunk, type CompareFrame } from "../lib/compare-frame";
@@ -82,8 +81,6 @@ type CompareRun = {
 };
 
 export function PlaygroundPage2() {
-  const { projectId } = useParams();
-  const pid = projectId ?? "";
   const [groups, setGroups] = useState<PricingGroup[] | null>(null);
   const [pricingError, setPricingError] = useState<string | null>(null);
   const [model, setModel] = useState("");
@@ -206,7 +203,6 @@ export function PlaygroundPage2() {
     );
     try {
       const body: Record<string, unknown> = {
-        projectId: pid,
         messages: [{ role: "user", content: prompt }],
       };
       if (compare) body.models = models;
@@ -525,7 +521,7 @@ export function PlaygroundPage2() {
               </div>
             </>
           ) : !busy && !metrics ? (
-            <p className="pg-empty">A run uses the workspace key and appears in the request log.</p>
+            <p className="pg-empty">A run uses your account&apos;s key and appears in the request log.</p>
           ) : null}
         </section>
         )}

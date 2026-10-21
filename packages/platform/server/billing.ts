@@ -96,25 +96,25 @@ export function parseAmountToMicro(input: string): bigint | null {
 }
 
 /**
- * The workspace's billing account — the one `workspace_id` allows (unique
- * index), created on first touch so a workspace predating 0006's backfill gets
- * its account instead of a dead billing page. Insert-first with DO NOTHING on
- * the unique key: two racing requests both end up reading the same row.
+ * The account's billing account — the one `user_id` allows (unique index),
+ * created on first touch so a user who predates the row still gets a working
+ * billing page instead of a dead one. Insert-first with DO NOTHING on the
+ * unique key: two racing requests both end up reading the same row.
  */
 export async function ensureBillingAccount(
 	dbtx: BillingHandle,
-	workspaceId: string
+	userId: string
 ): Promise<typeof billingAccount.$inferSelect> {
 	await dbtx
 		.insert(billingAccount)
-		.values({ id: newId(ID_PREFIXES.billingAccount), workspaceId })
-		.onConflictDoNothing({ target: billingAccount.workspaceId });
+		.values({ id: newId(ID_PREFIXES.billingAccount), userId })
+		.onConflictDoNothing({ target: billingAccount.userId });
 	const [account] = await dbtx
 		.select()
 		.from(billingAccount)
-		.where(eq(billingAccount.workspaceId, workspaceId))
+		.where(eq(billingAccount.userId, userId))
 		.limit(1);
-	if (!account) throw new Error(`billing_account missing for workspace ${workspaceId}`);
+	if (!account) throw new Error(`billing_account missing for user ${userId}`);
 	return account;
 }
 
@@ -187,17 +187,11 @@ export async function postLedger(
 				updatedAt: new Date()
 			})
 			.where(eq(billingAccount.id, billingAccountId));
-		const [account] = await tx
-			.select({ workspaceId: billingAccount.workspaceId })
-			.from(billingAccount)
-			.where(eq(billingAccount.id, billingAccountId))
-			.limit(1);
 		await writeAudit(tx, {
 			actorUserId: input.createdBy ?? null,
 			action: 'billing.adjustment',
 			resource: 'credit_ledger',
 			resourceId: id,
-			workspaceId: account?.workspaceId ?? null,
 			before: null,
 			after: {
 				type,

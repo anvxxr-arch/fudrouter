@@ -9,16 +9,8 @@ export function registerPlayground(app, deps) {
   const {
     needDb,
     authedUser,
-    parseCookies,
-    currentWorkspaceId,
-    requireMemberPermission,
     requireCap,
     HttpError,
-    provider,
-    environment,
-    project,
-    eq,
-    and,
     newId,
     ID_PREFIXES,
     writeAudit,
@@ -215,7 +207,7 @@ export function registerPlayground(app, deps) {
 		status: pick('status')
 	};
   }
-  async function pgFetchRunMetrics(database, requestId) {
+  async function pgFetchRunMetrics(requestId) {
   	if (!requestId || !client) return {};
   	for (let i = 0; i < 5; i++) {
   		const rows = await client`select id, provider_id, requested_model, tokens_in, tokens_out, total_tokens, ttft_ms, latency_ms, cost, status, fallback_used, attempts from request_log where id = ${requestId} limit 1`;
@@ -223,11 +215,7 @@ export function registerPlayground(app, deps) {
   			const row = rows[0];
   			let providerName = null;
   			if (row.provider_id) {
-  				const [prov] = await database
-  					.select({ slug: provider.slug, name: provider.name })
-  					.from(provider)
-  					.where(eq(provider.id, row.provider_id))
-  					.limit(1);
+  				const [prov] = await client`select slug, name from provider where id = ${row.provider_id} limit 1`;
   				if (prov) providerName = prov.slug ?? prov.name;
   			}
   			return {
@@ -250,33 +238,18 @@ export function registerPlayground(app, deps) {
   	}
   	return {};
   }
-  async function pgResolveRunContext(database, userId, workspaceId, { keyId, projectId }) {
+  async function pgResolveRunContext(userId, { keyId }) {
   	if (keyId) {
-  		const rows = await client`select id, name, workspace_id, project_id, environment_id, policy from api_key where id = ${keyId} and user_id = ${userId} and status = 'active' limit 1`;
+  		const rows = await client`select id, name, policy from api_key where id = ${keyId} and user_id = ${userId} and status = 'active' limit 1`;
   		const key = rows[0];
-  		// A key from another workspace must never leak into this one's run.
-  		if (!key || (key.workspace_id !== null && key.workspace_id !== workspaceId)) return null;
+  		// A key from another user must never leak into this one's run.
+  		if (!key) return null;
   		return {
-  			workspaceId: key.workspace_id ?? workspaceId,
-  			projectId: key.project_id ?? projectId ?? null,
-  			environmentId: key.environment_id ?? null,
   			policy: { ...(key.policy ?? {}), playground: true },
   			sourceKeyName: key.name
   		};
   	}
-  	const [prod] = await database
-  		.select({ id: environment.id })
-  		.from(environment)
-  		.innerJoin(project, eq(project.id, environment.projectId))
-  		.where(and(eq(project.workspaceId, workspaceId), eq(environment.slug, 'production')))
-  		.limit(1);
-  	return {
-  		workspaceId,
-  		projectId: projectId ?? null,
-  		environmentId: prod?.id ?? null,
-  		policy: { playground: true },
-  		sourceKeyName: 'platform defaults'
-  	};
+  	return { policy: { playground: true }, sourceKeyName: 'platform defaults' };
   }
   async function pgMintRunKey(database, userId, ctx) {
   	const { randomBytes, createHash } = await import('node:crypto');
@@ -290,14 +263,13 @@ export function registerPlayground(app, deps) {
   	const name = `[playground] ${new Date().toISOString().slice(0, 19)}Z`;
   	const expiresAt = new Date(Date.now() + PLAYGROUND_RUN_KEY_TTL_MS);
   	const policyJson = JSON.stringify(ctx.policy);
-  await client`insert into api_key (id, user_id, name, prefix, key_hash, workspace_id, project_id, environment_id, status, policy, expires_at) values (${id}, ${userId}, ${name}, ${prefix}, ${keyHash}, ${ctx.workspaceId}, ${ctx.projectId}, ${ctx.environmentId}, 'active', ${policyJson}::jsonb, ${expiresAt.toISOString()})`;
+  await client`insert into api_key (id, user_id, name, prefix, key_hash, status, policy, expires_at) values (${id}, ${userId}, ${name}, ${prefix}, ${keyHash}, 'active', ${policyJson}::jsonb, ${expiresAt.toISOString()})`;
   	await database.transaction(async (tx) => {
         await writeAudit(tx, {
           actorUserId: userId,
           action: 'key.create',
           resource: 'api_key',
           resourceId: id,
-          workspaceId: ctx.workspaceId,
           ip: _ipStore.getStore() ?? null,
           after: { name, policy: ctx.policy, playground: true }
         });
@@ -314,7 +286,6 @@ export function registerPlayground(app, deps) {
             action: 'key.revoke',
             resource: 'api_key',
             resourceId: id,
-            workspaceId: ctx.workspaceId,
             ip: _ipStore.getStore() ?? null,
             metadata: { playground: true, reason: 'run key reclaimed' }
           });
@@ -331,11 +302,6 @@ export function registerPlayground(app, deps) {
   		if (!database) return;
   		const userRow = await authedUser(req);
   		requireCap(userRow, 'member');
-  		const cookies = parseCookies(req);
-  		const workspaceId = await currentWorkspaceId(database, userRow.id, cookies);
-  		if (!workspaceId) throw new HttpError(403, 'No workspace selected');
-  		// The run mints a key, so the permission names that side effect.
-  		await requireMemberPermission(database, userRow, workspaceId, 'key.create');
   		const raw = req.body ?? {};
   		const parsed = parsePlaygroundBody(raw);
   		if (!parsed.ok) {
@@ -343,15 +309,14 @@ export function registerPlayground(app, deps) {
   				.status(400)
   				.json({ error: { code: 'INVALID_REQUEST', message: parsed.error, requestId: null } });
   		}
-  		const ctx = await pgResolveRunContext(database, userRow.id, workspaceId, {
-  			keyId: parsed.value.keyId || undefined,
-  			projectId: typeof raw.projectId === 'string' && raw.projectId ? raw.projectId : undefined
+  		const ctx = await pgResolveRunContext(userRow.id, {
+  			keyId: parsed.value.keyId || undefined
   		});
   		if (!ctx) {
   			return res.status(403).json({
   				error: {
   					code: 'AUTHORIZATION_ERROR',
-  					message: 'Key not found in this workspace.',
+  					message: 'Key not found in this account.',
   					requestId: null
   				}
   			});
@@ -393,7 +358,7 @@ export function registerPlayground(app, deps) {
   			const normalized = pgNormalize({ status: upstream.status, headers: upstream.headers, json: payload, text });
   			const metrics = pgMergeMetrics(
   				normalized.metrics,
-  				await pgFetchRunMetrics(database, normalized.error?.requestId ?? '')
+  				await pgFetchRunMetrics(normalized.error?.requestId ?? '')
   			);
   			await reclaim();
   			reclaim = null;
@@ -427,7 +392,7 @@ export function registerPlayground(app, deps) {
   			}
   			const metrics = pgMergeMetrics(
   				{ ...PG_EMPTY_METRICS, requestId: requestId ?? null, latencyMs: Date.now() - start, ttftMs },
-  				await pgFetchRunMetrics(database, requestId ?? '')
+  				await pgFetchRunMetrics(requestId ?? '')
   			);
   			res.write(`event: metrics\ndata: ${JSON.stringify(metrics)}\n\n`);
   		} catch {
@@ -469,10 +434,6 @@ export function registerPlayground(app, deps) {
   		if (!database) return;
   		const userRow = await authedUser(req);
   		requireCap(userRow, 'member');
-  		const cookies = parseCookies(req);
-  		const workspaceId = await currentWorkspaceId(database, userRow.id, cookies);
-  		if (!workspaceId) throw new HttpError(403, 'No workspace selected');
-  		await requireMemberPermission(database, userRow, workspaceId, 'key.create');
   		const raw = req.body ?? {};
   		const models = Array.isArray(raw.models) ? raw.models.map(String).map((m) => m.trim()).filter(Boolean) : [];
   		const unique = [...new Set(models)];
@@ -487,15 +448,14 @@ export function registerPlayground(app, deps) {
   				.status(400)
   				.json({ error: { code: 'INVALID_REQUEST', message: base.error, requestId: null } });
   		}
-  		const ctx = await pgResolveRunContext(database, userRow.id, workspaceId, {
-  			keyId: base.value.keyId || undefined,
-  			projectId: typeof raw.projectId === 'string' && raw.projectId ? raw.projectId : undefined
+  		const ctx = await pgResolveRunContext(userRow.id, {
+  			keyId: base.value.keyId || undefined
   		});
   		if (!ctx) {
   			return res.status(403).json({
   				error: {
   					code: 'AUTHORIZATION_ERROR',
-  					message: 'Key not found in this workspace.',
+  					message: 'Key not found in this account.',
   					requestId: null
   				}
   			});
@@ -599,7 +559,7 @@ export function registerPlayground(app, deps) {
   					const normalized = pgNormalize({ status: upstream.status, headers: upstream.headers, json: payload, text });
   					const metrics = pgMergeMetrics(
   						normalized.metrics,
-  						await pgFetchRunMetrics(database, normalized.error?.requestId ?? '')
+  						await pgFetchRunMetrics(normalized.error?.requestId ?? '')
   					);
   					send('metrics', { model: run.model, ...metrics, error: normalized.error });
   					return;
@@ -647,7 +607,7 @@ export function registerPlayground(app, deps) {
   					if (run.controller.signal.aborted) return;
   					const metrics = pgMergeMetrics(
   						{ ...PG_EMPTY_METRICS, requestId: requestId ?? null, latencyMs: Date.now() - start, ttftMs },
-  						await pgFetchRunMetrics(database, requestId ?? '')
+  						await pgFetchRunMetrics(requestId ?? '')
   					);
   					send('metrics', { model: run.model, ...metrics });
   				} catch {
@@ -658,7 +618,7 @@ export function registerPlayground(app, deps) {
   					if (pending !== '') send('chunk', { model: run.model, chunk: pending });
   					const metrics = pgMergeMetrics(
   						{ ...PG_EMPTY_METRICS, requestId: requestId ?? null, latencyMs: Date.now() - start, ttftMs },
-  						await pgFetchRunMetrics(database, requestId ?? '')
+  						await pgFetchRunMetrics(requestId ?? '')
   					);
   					send('metrics', { model: run.model, ...metrics });
   				}

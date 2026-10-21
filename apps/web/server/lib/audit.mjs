@@ -22,6 +22,6 @@ export const _auditView = (row) => ({ ...row, before: row.before ? _dropRedacted
 export function makeAudit(ipStore) {
 	return async (dbx, entry) => {
 		const redact = _sanitizeAudit;
-		await dbx.execute(sql`insert into audit_log (id, actor_user_id, actor_kind, action, resource, resource_id, workspace_id, ip, before, after, metadata) values (${'aud_' + uuidv7()}, ${entry.actorUserId ?? null}, ${entry.actorUserId ? 'user' : 'system'}, ${entry.action}, ${entry.resource}, ${entry.resourceId ?? null}, ${entry.workspaceId ?? null}, ${entry.ip ?? ipStore?.getStore?.() ?? null}, ${entry.before ? JSON.stringify(redact(entry.before)) : null}::jsonb, ${entry.after ? JSON.stringify(redact(entry.after)) : null}::jsonb, ${JSON.stringify(redact(entry.metadata ?? {}))}::jsonb)`);
+		await dbx.execute(sql`insert into audit_log (id, actor_user_id, actor_kind, action, resource, resource_id, ip, before, after, metadata) values (${'aud_' + uuidv7()}, ${entry.actorUserId ?? null}, ${entry.actorUserId ? 'user' : 'system'}, ${entry.action}, ${entry.resource}, ${entry.resourceId ?? null}, ${entry.ip ?? ipStore?.getStore?.() ?? null}, ${entry.before ? JSON.stringify(redact(entry.before)) : null}::jsonb, ${entry.after ? JSON.stringify(redact(entry.after)) : null}::jsonb, ${JSON.stringify(redact(entry.metadata ?? {}))}::jsonb)`);
 	};
 }

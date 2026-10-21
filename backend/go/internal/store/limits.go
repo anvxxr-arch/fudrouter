@@ -8,10 +8,10 @@ import (
 
 // Limits is the effective per-request limit set (spec §7).
 //
-// Effective limit = MINIMUM across the chain platform hard limit → workspace →
-// project → environment → api_key: a specific level may tighten, never exceed
-// the platform hard limit kept in `system_setting['platform_hard_limits']`.
-// A nil pointer means "no limit at this level" and does not constrain the min.
+// Effective limit = MINIMUM across platform hard limit → account → api_key:
+// a specific level may tighten, never exceed the platform hard limit kept in
+// `system_setting['platform_hard_limits']`. A nil pointer means "no limit at
+// this level" and does not constrain the min.
 type Limits struct {
 	RPM               *int64
 	TPM               *int64
@@ -72,15 +72,14 @@ func (s *Store) EffectiveLimits(ctx context.Context, k *APIKeyRow) (*Limits, err
 	}
 
 	// Scope rows, ordered from least to most specific so the running minimum
-	// can be folded in one pass.
+	// can be folded in one pass. The account scope replaced the three hierarchy
+	// scopes in migration 0019; `account` rows are keyed by user id.
 	rows, err := s.pool.Query(ctx, `
 		select scope, rpm, tpm, rpd, tpd, concurrency, daily_spend_micro, monthly_spend_micro
 		from rate_limit
-		where (scope = 'workspace'   and scope_id = $1)
-		   or (scope = 'project'     and scope_id = $2)
-		   or (scope = 'environment' and scope_id = $3)
-		   or (scope = 'api_key'     and scope_id = $4)`,
-		k.WorkspaceID, k.ProjectID, k.EnvironmentID, k.ID)
+		where (scope = 'account' and scope_id = $1)
+		   or (scope = 'api_key' and scope_id = $2)`,
+		k.UserID, k.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -126,7 +125,7 @@ func int64Ptr(v *int) *int64 {
 // Budget is a scoped spend budget with its threshold actions (spec §7).
 type Budget struct {
 	ID                string
-	Scope             string // workspace|project|environment
+	Scope             string // account|api_key
 	ScopeID           string
 	Period            string // daily|weekly|monthly
 	AmountMicro       int64
@@ -150,18 +149,16 @@ func (b *Budget) PeriodStart(now time.Time) time.Time {
 	}
 }
 
-// BudgetsFor returns every budget in the key's ownership chain, most specific
-// last. All of them apply (spec §7: the chain is conjunctive — the tightest
-// budget wins).
+// BudgetsFor returns the account budget and the key's own budget, most specific
+// last. Both apply (spec §7: the chain is conjunctive — the tightest wins).
 func (s *Store) BudgetsFor(ctx context.Context, k *APIKeyRow) ([]Budget, error) {
 	rows, err := s.pool.Query(ctx, `
 		select id, scope, scope_id, period, amount_micro,
 		       warn_percent, critical_percent, action_at_100
 		from budget
-		where (scope = 'workspace'   and scope_id = $1)
-		   or (scope = 'project'     and scope_id = $2)
-		   or (scope = 'environment' and scope_id = $3)
-		order by scope, period`, k.WorkspaceID, k.ProjectID, k.EnvironmentID)
+		where (scope = 'account' and scope_id = $1)
+		   or (scope = 'api_key' and scope_id = $2)
+		order by scope, period`, k.UserID, k.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -178,26 +175,8 @@ func (s *Store) BudgetsFor(ctx context.Context, k *APIKeyRow) ([]Budget, error) 
 	return out, rows.Err()
 }
 
-// EnvironmentMonthlyBudgetMicro is the environment's flat monthly budget column
-// (spec §2 `environment.monthly_budget_micro`), which predates the `budget`
-// table and is honoured as a monthly budget with default thresholds.
-//
-// NO LONGER CALLED by the budget gate: BudgetGateState carries this value in
-// the same query as the billing account it already had to read, which removed a
-// round trip from every request's admission path (BENCH: 2699 → 2416 ns/op
-// mean, one fewer query). Kept because it is the only reader of the column
-// outside the control plane and the admin surfaces still expect it to exist;
-// delete it with the next caller audit, not silently.
-func (s *Store) EnvironmentMonthlyBudgetMicro(ctx context.Context, environmentID string) (int64, bool, error) {
-	if environmentID == "" {
-		return 0, false, nil
-	}
-	var amount *int64
-	err := s.pool.QueryRow(ctx,
-		`select monthly_budget_micro from environment where id = $1`, environmentID,
-	).Scan(&amount)
-	if err != nil || amount == nil {
-		return 0, false, err
-	}
-	return *amount, true, nil
-}
+// The environment's flat monthly budget column had no reader left once
+// migration 0019 dropped `environment`: BudgetGateState used to carry it inside
+// the account query, and this function was already noted as dead. It went with
+// the table rather than living on as a query against a dropped table.
+

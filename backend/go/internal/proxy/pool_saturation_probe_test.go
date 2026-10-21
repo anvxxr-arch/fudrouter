@@ -112,12 +112,12 @@ func runProbeConfig(t *testing.T, base string, cfg probeConfig, cw *probeLogCoun
 	env := tests.SeedEnv(t, base, up.URL)
 
 	// The probe's ledger deltas are only meaningful if ChargeRequest actually
-	// reaches the ledger insert. store/billing.go:245-251 has an S0 arm: a
-	// workspace with NO billing_account row returns ErrNoRows and the charge
-	// answers `res, nil` with no ledger row — a seed problem would then read
-	// as ledger loss (or mask a real one). Check the assumption instead of
-	// trusting the seeder: the key must carry a workspace and that workspace
-	// must have its billing_account row. Base DSN, not poolDSN: a bare
+	// reaches the ledger insert. store/billing.go has an S0 arm: a user with
+	// NO billing_account row returns ErrNoRows and the charge answers
+	// `res, nil` with no ledger row — a seed problem would then read as
+	// ledger loss (or mask a real one). Check the assumption instead of
+	// trusting the seeder: the key must carry a user id and that user must
+	// have its billing_account row. Base DSN, not poolDSN: a bare
 	// pgx.Connect would forward pool_max_conns as a startup parameter and
 	// FATAL (see the poolDSN comment above).
 	{
@@ -127,17 +127,17 @@ func runProbeConfig(t *testing.T, base string, cfg probeConfig, cw *probeLogCoun
 			t.Fatalf("probe precondition connect: %v", err)
 		}
 		defer conn.Close(ctx)
-		var ws string
+		var userID string
 		if err := conn.QueryRow(ctx,
-			`select workspace_id from api_key where id = $1`,
-			env.APIKeyID).Scan(&ws); err != nil || ws == "" {
-			t.Fatalf("probe precondition: seeded key has no workspace_id (%q, err=%v) — the S0 arm would bypass the ledger and the probe would misreport", ws, err)
+			`select user_id from api_key where id = $1`,
+			env.APIKeyID).Scan(&userID); err != nil || userID == "" {
+			t.Fatalf("probe precondition: seeded key has no user_id (%q, err=%v) — the S0 arm would bypass the ledger and the probe would misreport", userID, err)
 		}
 		var accounts int
 		if err := conn.QueryRow(ctx,
-			`select count(*) from billing_account where workspace_id = $1`,
-			ws).Scan(&accounts); err != nil || accounts == 0 {
-			t.Fatalf("probe precondition: workspace %s has no billing_account — ChargeRequest would take the S0 arm", ws)
+			`select count(*) from billing_account where user_id = $1`,
+			userID).Scan(&accounts); err != nil || accounts == 0 {
+			t.Fatalf("probe precondition: user %s has no billing_account — ChargeRequest would take the S0 arm", userID)
 		}
 	}
 
@@ -220,7 +220,7 @@ func probePoolConns(t *testing.T, dsn string) int {
 	return n
 }
 
-// probeAttemptCount counts request_attempt rows belonging to this environment's
+// probeAttemptCount counts request_attempt rows belonging to this account's
 // requests (request_attempt.request_id is an FK to request_log.id).
 func probeAttemptCount(t *testing.T, dsn string, env *tests.Env) int {
 	t.Helper()

@@ -26,16 +26,14 @@ func TestBudgetSpendKeysCarryThePeriod(t *testing.T) {
 	f := vk.NewFake()
 	h := &Handler{vk: f}
 	lc := &lifecycle{h: h, key: &store.APIKeyRow{
-		ID:            "key_1",
-		WorkspaceID:   "wrk_1",
-		ProjectID:     "prj_1",
-		EnvironmentID: "env_1",
+		ID:     "key_1",
+		UserID: "usr_1",
 	}}
 
 	// Write, then read: the read must see the counter, not the durable sum.
 	h.budgetSpendAdd(context.Background(), lc, 500)
 
-	b := &store.Budget{Scope: "workspace", ScopeID: "wrk_1", Period: "daily"}
+	b := &store.Budget{Scope: "account", ScopeID: "usr_1", Period: "daily"}
 	used, err := h.budgetSpent(context.Background(), lc, b)
 	if err != nil {
 		t.Fatalf("budgetSpent: %v", err)
@@ -44,7 +42,7 @@ func TestBudgetSpendKeysCarryThePeriod(t *testing.T) {
 		t.Fatalf("read %d after writing 500 — read and write keys disagree (H4)", used)
 	}
 
-	bm := &store.Budget{Scope: "workspace", ScopeID: "wrk_1", Period: "monthly"}
+	bm := &store.Budget{Scope: "account", ScopeID: "usr_1", Period: "monthly"}
 	used, err = h.budgetSpent(context.Background(), lc, bm)
 	if err != nil {
 		t.Fatalf("budgetSpent monthly: %v", err)
@@ -65,16 +63,14 @@ func TestBudgetSpendKeyFromPreviousPeriodMisses(t *testing.T) {
 	t.Cleanup(st.Close)
 	h := &Handler{vk: f, store: st}
 	lc := &lifecycle{h: h, key: &store.APIKeyRow{
-		ID:            "key_2",
-		WorkspaceID:   "wrk_2",
-		ProjectID:     "prj_2",
-		EnvironmentID: "env_2",
+		ID:     "key_2",
+		UserID: "usr_2",
 	}}
 
 	// Seed the counter under YESTERDAY's period-named key, exactly as the old
 	// unperioded key left behind at the UTC boundary.
 	yesterday := time.Now().UTC().AddDate(0, 0, -1).Format("20060102")
-	stale := "spend:workspace:wrk_2:day:" + yesterday
+	stale := "spend:account:usr_2:day:" + yesterday
 	if _, err := f.IncrByBucket(context.Background(), []string{stale}, 9_999, 25*time.Hour); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
@@ -84,7 +80,7 @@ func TestBudgetSpendKeyFromPreviousPeriodMisses(t *testing.T) {
 	// assertions are two-sided: not 9999 (the stale bucket was not read) and
 	// an error (the fallback WAS consulted — the key missed rather than
 	// silently returning zero).
-	b := &store.Budget{Scope: "workspace", ScopeID: "wrk_2", Period: "daily"}
+	b := &store.Budget{Scope: "account", ScopeID: "usr_2", Period: "daily"}
 	used, err := h.budgetSpent(context.Background(), lc, b)
 	if used == 9_999 {
 		t.Fatal("read 9999 from a previous period's key — the stale bucket leaked into today's budget (H4)")

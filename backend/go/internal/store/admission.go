@@ -70,15 +70,8 @@ type accountEntry struct {
 	exp  time.Time
 }
 
-type envBudgetEntry struct {
-	amount *int64
-	exp    time.Time
-}
-
 type budgetCacheKey struct {
-	workspaceID   string
-	projectID     string
-	environmentID string
+	accountID string
 }
 
 type budgetEntry struct {
@@ -87,10 +80,8 @@ type budgetEntry struct {
 }
 
 type limitsCacheKey struct {
-	workspaceID   string
-	projectID     string
-	environmentID string
-	apiKeyID      string
+	accountID string
+	apiKeyID  string
 }
 
 type limitsEntry struct {
@@ -104,7 +95,6 @@ type limitsEntry struct {
 type admissionCache struct {
 	mu         sync.RWMutex
 	accounts   map[string]accountEntry
-	envBudgets map[string]envBudgetEntry
 	budgets    map[budgetCacheKey]budgetEntry
 	limits     map[limitsCacheKey]limitsEntry
 	// ttl overrides the account TTL in tests (export_test.go). Zero means
@@ -131,41 +121,35 @@ func (c *admissionCache) policyTTL() time.Duration {
 // AdmissionGateState is BudgetGateState with the in-process cache in front of it.
 // It is what checkBudgets calls; BudgetGateState itself stays uncached so its
 // query count remains pinned by TestBudgetGateStateIsOneQuery.
-func (s *Store) AdmissionGateState(ctx context.Context, workspaceID, environmentID string) (*BillingAccount, *int64, error) {
+func (s *Store) AdmissionGateState(ctx context.Context, accountID string) (*BillingAccount, error) {
 	now := time.Now()
 	c := &s.admission
 	c.mu.RLock()
-	acctEntry, acctOK := c.accounts[workspaceID]
-	envEntry, envOK := c.envBudgets[environmentID]
+	acctEntry, acctOK := c.accounts[accountID]
 	c.mu.RUnlock()
-	if acctOK && envOK && now.Before(acctEntry.exp) && now.Before(envEntry.exp) {
-		return acctEntry.acct, envEntry.amount, nil
+	if acctOK && now.Before(acctEntry.exp) {
+		return acctEntry.acct, nil
 	}
 
-	acct, envBudget, err := s.BudgetGateState(ctx, workspaceID, environmentID)
+	acct, err := s.BudgetGateState(ctx, accountID)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	c.store(workspaceID, environmentID, acct, envBudget, now)
-	return acct, envBudget, nil
+	c.store(accountID, acct, now)
+	return acct, nil
 }
 
-func (c *admissionCache) store(workspaceID, environmentID string, acct *BillingAccount, envBudget *int64, now time.Time) {
+func (c *admissionCache) store(accountID string, acct *BillingAccount, now time.Time) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.accounts == nil {
 		c.accounts = make(map[string]accountEntry, 64)
-		c.envBudgets = make(map[string]envBudgetEntry, 64)
 		c.budgets = make(map[budgetCacheKey]budgetEntry, 64)
 	}
 	if len(c.accounts) >= admissionCacheMax {
 		evictAccounts(c.accounts, now)
 	}
-	if len(c.envBudgets) >= admissionCacheMax {
-		evictEnvBudgets(c.envBudgets, now)
-	}
-	c.accounts[workspaceID] = accountEntry{acct: acct, exp: now.Add(c.accountTTL())}
-	c.envBudgets[environmentID] = envBudgetEntry{amount: envBudget, exp: now.Add(c.policyTTL())}
+	c.accounts[accountID] = accountEntry{acct: acct, exp: now.Add(c.accountTTL())}
 }
 
 // AdmissionLimits is EffectiveLimits with the in-process cache in front of it:
@@ -179,7 +163,7 @@ func (s *Store) AdmissionLimits(ctx context.Context, k *APIKeyRow) (*Limits, err
 	if k == nil {
 		return s.EffectiveLimits(ctx, k)
 	}
-	key := limitsCacheKey{k.WorkspaceID, k.ProjectID, k.EnvironmentID, k.ID}
+	key := limitsCacheKey{k.UserID, k.ID}
 	now := time.Now()
 	c := &s.admission
 	c.mu.RLock()
@@ -204,16 +188,16 @@ func (s *Store) AdmissionLimits(ctx context.Context, k *APIKeyRow) (*Limits, err
 	return lim, nil
 }
 
-// InvalidateAdmission drops the cached billing account for one workspace. Called
+// InvalidateAdmission drops the cached billing account for one account. Called
 // by ChargeRequest when a charge crosses the hard stop: the very next request
 // must see the line it just crossed rather than the pre-charge balance the cache
 // is still holding.
-func (s *Store) InvalidateAdmission(workspaceID string) {
-	if workspaceID == "" {
+func (s *Store) InvalidateAdmission(accountID string) {
+	if accountID == "" {
 		return
 	}
 	s.admission.mu.Lock()
-	delete(s.admission.accounts, workspaceID)
+	delete(s.admission.accounts, accountID)
 	s.admission.mu.Unlock()
 }
 
@@ -222,7 +206,7 @@ func (s *Store) AdmissionBudgets(ctx context.Context, k *APIKeyRow) ([]Budget, e
 	if k == nil {
 		return s.BudgetsFor(ctx, k)
 	}
-	key := budgetCacheKey{k.WorkspaceID, k.ProjectID, k.EnvironmentID}
+	key := budgetCacheKey{k.UserID}
 	now := time.Now()
 	c := &s.admission
 	c.mu.RLock()
@@ -252,18 +236,6 @@ func (s *Store) AdmissionBudgets(ctx context.Context, k *APIKeyRow) ([]Budget, e
 // a hot key by construction. The alternative (clearing the map) would answer a
 // single insert with a stampede of queries for every other workspace.
 func evictAccounts(m map[string]accountEntry, now time.Time) {
-	for k, v := range m {
-		if now.After(v.exp) {
-			delete(m, k)
-		}
-	}
-	for k := range m {
-		delete(m, k)
-		break
-	}
-}
-
-func evictEnvBudgets(m map[string]envBudgetEntry, now time.Time) {
 	for k, v := range m {
 		if now.After(v.exp) {
 			delete(m, k)

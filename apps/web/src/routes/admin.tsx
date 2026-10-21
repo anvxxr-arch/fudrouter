@@ -89,7 +89,7 @@ export function AdminHome() {
           <StatCard title="Tokens" value={String(v.counts.tokens)} delta={today && yesterday ? pctDelta(today.tokens, yesterday.tokens) : undefined} spark={v.series.map((s) => s.tokens)} />
           <StatCard title="Cost" value={fmtUsd(v.counts.costMicro)} delta={today && yesterday ? pctDelta(Number(BigInt(today.costMicro || "0")), Number(BigInt(yesterday.costMicro || "0"))) : undefined} spark={v.series.map((s) => Number(BigInt(s.costMicro || "0")))} />
           <StatCard title="Revenue MTD" value={fmtUsd(v.revenueMtdMicro)} />
-          {["providers", "models", "connections", "activeKeys", "users", "workspaces"].map((k) => <Card key={k} title={k} desc={String(v.counts[k] ?? "—")} />)}
+          {["providers", "models", "connections", "activeKeys", "users"].map((k) => <Card key={k} title={k} desc={String(v.counts[k] ?? "—")} />)}
         </div>
         {billing.d ? (<>
           <h2>Revenue by ledger type (12 months)</h2>
@@ -97,7 +97,7 @@ export function AdminHome() {
         </>) : null}
         {users.d ? (<>
           <h2>Recent signups</h2>
-          <Table head={["Email", "Workspace", "Role", "Created", "First request"]} rows={users.d.users.slice(0, 8).map((u) => [u.email, u.workspaceName ?? "—", u.role ?? "—", fmtDate(u.createdAt), u.firstRequestAt ? fmtDate(u.firstRequestAt) : "—"])} />
+          <Table head={["Email", "Role", "Created", "First request"]} rows={users.d.users.slice(0, 8).map((u) => [u.email, u.role ?? "—", fmtDate(u.createdAt), u.firstRequestAt ? fmtDate(u.firstRequestAt) : "—"])} />
         </>) : null}
         <h2>Top consumers</h2>
         <Table head={["Key", "Owner", "Requests", "Cost"]} rows={v.topConsumers.map((t) => [t.keyName, t.email, String(t.requests), fmtUsd(t.costMicro)])} />
@@ -165,18 +165,18 @@ function AnalyticsView() {
   </>);
 }
 
-type Billing = { accounts: { id: string; workspaceName: string; currency: string; status: string; warningThresholdMicro: string; hardStopThresholdMicro: string; balanceMicro: string; ledgerSumMicro: string }[]; totals: { type: string; totalMicro: string }[]; monthly: { month: string; series: { type: string; totalMicro: string }[] }[]; recent: { id: string; workspaceName: string; type: string; amountMicro: string; currency: string; requestId: string | null; description: string | null; createdBy: string | null; createdAt: string }[]; invoices: { id: string; workspaceName: string; number: string; periodStart: string; periodEnd: string; amountMicro: string; currency: string; status: string; issuedAt: string | null; paidAt: string | null }[] };
+type Billing = { accounts: { id: string; accountEmail: string; currency: string; status: string; warningThresholdMicro: string; hardStopThresholdMicro: string; balanceMicro: string; ledgerSumMicro: string }[]; totals: { type: string; totalMicro: string }[]; monthly: { month: string; series: { type: string; totalMicro: string }[] }[]; recent: { id: string; accountEmail: string; type: string; amountMicro: string; currency: string; requestId: string | null; description: string | null; createdBy: string | null; createdAt: string }[]; invoices: { id: string; accountEmail: string; number: string; periodStart: string; periodEnd: string; amountMicro: string; currency: string; status: string; issuedAt: string | null; paidAt: string | null }[] };
 function BillingView() {
   const { d, err } = useLoad<Billing>("/api/admin/billing");
   return (<State err={err} d={d}>{(v: Billing) => (<>
     <h2>Accounts (balance is a cache — ledger sum is truth)</h2>
-    <Table head={["Workspace", "Status", "Balance", "Ledger sum", "Drift", "Warn", "Hard stop"]} rows={v.accounts.map((a) => [a.workspaceName, a.status, fmtUsd(a.balanceMicro), fmtUsd(a.ledgerSumMicro), a.balanceMicro === a.ledgerSumMicro ? "—" : fmtUsd(String(BigInt(a.balanceMicro) - BigInt(a.ledgerSumMicro))), fmtUsd(a.warningThresholdMicro), fmtUsd(a.hardStopThresholdMicro)])} />
+    <Table head={["Account", "Status", "Balance", "Ledger sum", "Drift", "Warn", "Hard stop"]} rows={v.accounts.map((a) => [a.accountEmail, a.status, fmtUsd(a.balanceMicro), fmtUsd(a.ledgerSumMicro), a.balanceMicro === a.ledgerSumMicro ? "—" : fmtUsd(String(BigInt(a.balanceMicro) - BigInt(a.ledgerSumMicro))), fmtUsd(a.warningThresholdMicro), fmtUsd(a.hardStopThresholdMicro)])} />
     <h2>Ledger totals by type</h2>
     <Table head={["Type", "Total"]} rows={v.totals.map((t) => [t.type, fmtUsd(t.totalMicro)])} />
     <h2>Recent ledger entries</h2>
-    <Table head={["Workspace", "Type", "Amount", "Request", "Description", "At"]} rows={v.recent.map((r) => [r.workspaceName, r.type, fmtUsd(r.amountMicro), r.requestId ?? "—", (r.description ?? "—").slice(0, 80), fmtDate(r.createdAt)])} />
+    <Table head={["Account", "Type", "Amount", "Request", "Description", "At"]} rows={v.recent.map((r) => [r.accountEmail, r.type, fmtUsd(r.amountMicro), r.requestId ?? "—", (r.description ?? "—").slice(0, 80), fmtDate(r.createdAt)])} />
     <h2>Invoices</h2>
-    <Table head={["Number", "Workspace", "Amount", "Status", "Period", "Paid"]} rows={v.invoices.map((i) => [i.number, i.workspaceName, fmtUsd(i.amountMicro), i.status, fmtDate(i.periodStart).slice(0, 10) + " → " + fmtDate(i.periodEnd).slice(0, 10), i.paidAt ? fmtDate(i.paidAt) : "—"])} />
+    <Table head={["Number", "Account", "Amount", "Status", "Period", "Paid"]} rows={v.invoices.map((i) => [i.number, i.accountEmail, fmtUsd(i.amountMicro), i.status, fmtDate(i.periodStart).slice(0, 10) + " → " + fmtDate(i.periodEnd).slice(0, 10), i.paidAt ? fmtDate(i.paidAt) : "—"])} />
   </>)}</State>);
 }
 
@@ -211,11 +211,11 @@ function IncidentsView() {
   </>)}</State>);
 }
 
-type Keys = { users: { id: string; email: string }[]; keys: { id: string; name: string; prefix: string; status: string; email: string; workspaceName: string | null; projectName: string | null; environmentName: string | null; rpm: number | null; monthlyCapMicro: string | null; lastUsedAt: string | null; createdAt: string; usage: { requests: number; tokensIn: number; tokensOut: number; cost: string } }[] };
+type Keys = { users: { id: string; email: string }[]; keys: { id: string; name: string; prefix: string; status: string; email: string; rpm: number | null; monthlyCapMicro: string | null; lastUsedAt: string | null; createdAt: string; usage: { requests: number; tokensIn: number; tokensOut: number; cost: string } }[] };
 function KeysView() {
   const { d, err } = useLoad<Keys>("/api/admin/keys");
   return (<State err={err} d={d}>{(v: Keys) => (
-    <Table head={["Name", "Owner", "Prefix", "Status", "Scope", "Req", "Cost", "RPM", "Last used"]} rows={v.keys.map((k) => [k.name, k.email, k.prefix, k.status, [k.workspaceName, k.projectName, k.environmentName].filter(Boolean).join(" / ") || "user", String(k.usage.requests), fmtUsd(k.usage.cost), k.rpm === null ? "—" : String(k.rpm), k.lastUsedAt ? fmtDate(k.lastUsedAt) : "—"])} />
+    <Table head={["Name", "Owner", "Prefix", "Status", "Req", "Cost", "RPM", "Last used"]} rows={v.keys.map((k) => [k.name, k.email, k.prefix, k.status, String(k.usage.requests), fmtUsd(k.usage.cost), k.rpm === null ? "—" : String(k.rpm), k.lastUsedAt ? fmtDate(k.lastUsedAt) : "—"])} />
   )}</State>);
 }
 
@@ -497,14 +497,6 @@ function ModelsView() {
       {modal ? <ModelModal model={modal.model} providers={v.providers} onClose={() => setModal(null)} onSaved={() => setTick((n) => n + 1)} /> : null}
     </>);
   }}</State>);
-}
-
-type Projects = { projects: { id: string; name: string; slug: string; status: string; workspaceName: string; environments: number; keys: number; requests: number; cost: string; createdAt: string }[] };
-function ProjectsView() {
-  const { d, err } = useLoad<Projects>("/api/admin/projects");
-  return (<State err={err} d={d}>{(v: Projects) => (
-    <Table head={["Project", "Workspace", "Status", "Envs", "Keys", "Req", "Cost"]} rows={v.projects.map((p) => [p.name + " (" + p.slug + ")", p.workspaceName, p.status, String(p.environments), String(p.keys), String(p.requests), fmtUsd(p.cost)])} />
-  )}</State>);
 }
 
 type Providers = { providers: { id: string; name: string; slug: string | null; description: string | null; type: string | null; status: string; tier: string; homepage: string | null; documentationUrl: string | null; enabled: boolean; priority: number; modelCount: number; connectionCount: number; credentials: { total: number; healthy: number; unknown: number; bad: number } }[] };
@@ -815,20 +807,20 @@ function RequestsView() {
   </>);
 }
 
-type Routing = { policies: { id: string; name: string; strategy: string; enabled: boolean; maxAttempts: number; fallbackEnabled: boolean; scope: string; scopeName: string }[]; chain: { environment: string; project: string; workspace: string; policyId: string | null; policyName: string | null }[]; platformDefaultId: string | null; platformDefaultName: string | null };
+type Routing = { policies: { id: string; name: string; strategy: string; enabled: boolean; maxAttempts: number; fallbackEnabled: boolean; scope: string; scopeName: string }[]; chain: { account: string; policyId: string | null; policyName: string | null }[]; platformDefaultId: string | null; platformDefaultName: string | null };
 function RoutingView() {
   const { d, err } = useLoad<Routing>("/api/admin/routing");
   return (<State err={err} d={d}>{(v: Routing) => (<>
     <Card titleAs="h2" title="Platform default" desc={v.platformDefaultName ?? v.platformDefaultId ?? "none"} />
     <h2>Policies</h2>
     <Table head={["Name", "Scope", "Strategy", "Enabled", "Attempts", "Fallback"]} rows={v.policies.map((p) => [p.name, p.scopeName, p.strategy, String(p.enabled), String(p.maxAttempts), String(p.fallbackEnabled)])} />
-    <h2>Resolution chain (environment → policy)</h2>
-    <Table head={["Workspace", "Project", "Environment", "Policy"]} rows={v.chain.map((c) => [c.workspace, c.project, c.environment, c.policyName ?? "—"])} />
+    <h2>Resolution chain (account → policy)</h2>
+    <Table head={["Account", "Policy"]} rows={v.chain.map((c) => [c.account, c.policyName ?? "—"])} />
   </>)}</State>);
 }
 
 type Security = { rules: { id: string; name: string; kind: string; config: unknown; enabled: boolean; action: string }[] };
-type Audit = { rows: { id: string; actorUserId: string | null; actorKind: string; actorEmail: string | null; action: string; resource: string | null; resourceId: string | null; workspaceId: string | null; ip: string | null; before: unknown; after: unknown; metadata: unknown; createdAt: string }[]; actions: { action: string; n: number }[]; page: number; action: string };
+type Audit = { rows: { id: string; actorUserId: string | null; actorKind: string; actorEmail: string | null; action: string; resource: string | null; resourceId: string | null; ip: string | null; before: unknown; after: unknown; metadata: unknown; createdAt: string }[]; actions: { action: string; n: number }[]; page: number; action: string };
 function SecurityView() {
   const { d, err } = useLoad<Security>("/api/admin/security");
   const [page, setPage] = useState(1);
@@ -862,7 +854,7 @@ function SecurityView() {
   </>)}</State>);
 }
 
-type Settings = { maintenance: boolean; genericPassthrough: boolean; registration: boolean; retention: Record<string, number>; defaultRoutingPolicyId: string; hardLimits: { rpm: number; tpm: number; concurrency: number }; policies: { id: string; name: string; strategy: string }[]; accounts: { workspaceId: string; warningMicro: string; hardStopMicro: string }[] };
+type Settings = { maintenance: boolean; genericPassthrough: boolean; registration: boolean; retention: Record<string, number>; defaultRoutingPolicyId: string; hardLimits: { rpm: number; tpm: number; concurrency: number }; policies: { id: string; name: string; strategy: string }[]; accounts: { userId: string; warningMicro: string; hardStopMicro: string }[] };
 type Flags = { flags: { id: string; name: string; description: string; enabled: boolean; rollout: unknown; updatedAt: string }[] };
 function SettingsView() {
   const [tick, setTick] = useState(0);
@@ -916,8 +908,6 @@ function SettingsView() {
     </form>
     <h2>Routing policies</h2>
     <Table head={["Name", "Strategy"]} rows={v.policies.map((p) => [p.name, p.strategy])} />
-    <h2>Billing thresholds ({v.accounts.length} accounts)</h2>
-    <Table head={["Workspace ID", "Warning", "Hard stop"]} rows={v.accounts.slice(0, 50).map((a) => [a.workspaceId, fmtUsd(a.warningMicro), fmtUsd(a.hardStopMicro)])} />
     <h2>Feature flags</h2>
     <State err={f.err} d={f.d}>{(w: Flags) => (<>
       <Table head={["Name", "Description", "Enabled", "Rollout", "Updated", "Actions"]} rows={w.flags.map((x) => [x.name, x.description, String(x.enabled), JSON.stringify(x.rollout), fmtDate(x.updatedAt),
@@ -965,7 +955,7 @@ function TrafficView() {
 // The server validates setRole against ROLE_CAPS (admin.mjs), so the select's
 // options come from that same table rather than a second copy in this file.
 const ROLES = Object.keys(ROLE_CAPS);
-type Users = { users: { id: string; name: string; email: string; role: string | null; banned: boolean | null; workspaces: number; workspaceName: string | null; firstRequestAt: string | null; projects: number; keys: number; requests: number; cost: string; lastSeenAt: string | null; createdAt: string }[] };
+type Users = { users: { id: string; name: string; email: string; role: string | null; banned: boolean | null; firstRequestAt: string | null; keys: number; requests: number; cost: string; lastSeenAt: string | null; createdAt: string }[] };
 function UsersView() {
   const [tick, setTick] = useState(0);
   const [actionErr, setActionErr] = useState<string | null>(null);
@@ -1031,13 +1021,13 @@ function UsersView() {
         <Button size="sm" variant="secondary" onClick={reset}>Reset</Button>
       </div>
     ) : (
-    <Table head={[<input key="all" type="checkbox" aria-label="Select all filtered users" checked={allSel} onChange={(e) => setSel(e.currentTarget.checked ? ids : [])} />, "Email", "Name", "Role", "Banned", "WS", "Keys", "Req", "Cost", "Last activity", "Actions"]} rows={rows.map((u) => [
+    <Table head={[<input key="all" type="checkbox" aria-label="Select all filtered users" checked={allSel} onChange={(e) => setSel(e.currentTarget.checked ? ids : [])} />, "Email", "Name", "Role", "Banned", "Keys", "Req", "Cost", "Last activity", "Actions"]} rows={rows.map((u) => [
       <input key={u.id} type="checkbox" aria-label={"Select " + u.email} checked={sel.includes(u.id)} onChange={(e) => setSel((s) => e.currentTarget.checked ? [...s, u.id] : s.filter((x) => x !== u.id))} />,
       u.email, u.name,
       <select key={u.id} value={u.role ?? ""} onChange={(e) => run(() => postJSON("/api/admin/users/setRole", { id: u.id, role: e.currentTarget.value }))}>
         {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
       </select>,
-      String(!!u.banned), String(u.workspaces), String(u.keys), String(u.requests), fmtUsd(u.cost), u.lastSeenAt ? fmtDate(u.lastSeenAt) : "—",
+      String(!!u.banned), String(u.keys), String(u.requests), fmtUsd(u.cost), u.lastSeenAt ? fmtDate(u.lastSeenAt) : "—",
       <span key={u.id} className="row">
         <Button size="sm" onClick={() => run(() => postJSON("/api/admin/users/toggleBan", { id: u.id }))}>{u.banned ? "Unban" : "Ban"}</Button>
         <Button size="sm" onClick={() => { if (window.confirm("Suspend " + u.email + "? Their sessions are revoked.")) run(() => postJSON("/api/admin/users/suspend", { id: u.id, confirm: "on" })); }}>Suspend</Button>
@@ -1045,14 +1035,6 @@ function UsersView() {
       </span>])} />
     )}
     </>)}}</State>);
-}
-
-type Workspaces = { workspaces: { id: string; name: string; slug: string; status: string; ownerEmail: string | null; members: number; projects: number; requests: number; cost: string; balanceMicro: string; createdAt: string }[] };
-function WorkspacesView() {
-  const { d, err } = useLoad<Workspaces>("/api/admin/workspaces");
-  return (<State err={err} d={d}>{(v: Workspaces) => (
-    <Table head={["Workspace", "Owner", "Status", "Members", "Projects", "Req", "Cost", "Balance"]} rows={v.workspaces.map((w) => [w.name + " (" + w.slug + ")", w.ownerEmail ?? "—", w.status, String(w.members), String(w.projects), String(w.requests), fmtUsd(w.cost), fmtUsd(w.balanceMicro)])} />
-  )}</State>);
 }
 
 const VIEWS: Record<string, { lede: string; el: () => ReactNode }> = {
@@ -1063,16 +1045,14 @@ const VIEWS: Record<string, { lede: string; el: () => ReactNode }> = {
   incidents: { lede: "Status-page incidents with timelines.", el: IncidentsView },
   keys: { lede: "API key metadata and per-key usage. Hashes never leave the server.", el: KeysView },
   models: { lede: "Model catalog, effective prices, and publish state.", el: ModelsView },
-  projects: { lede: "Customer projects with usage and resource counts.", el: ProjectsView },
   providers: { lede: "Providers with model, connection, and credential counts.", el: ProvidersView },
   requests: { lede: "Request log. Bodies never cross this boundary.", el: RequestsView },
-  routing: { lede: "Routing policies and the environment resolution chain.", el: RoutingView },
+  routing: { lede: "Routing policies and the account resolution chain.", el: RoutingView },
   security: { lede: "Abuse-signal rules. Enforcement lists live on their own pages.", el: SecurityView },
   settings: { lede: "Platform settings, retention, limits, and billing defaults.", el: SettingsView },
   system: { lede: "Database, queue backlog, incidents, and events.", el: SystemView },
   traffic: { lede: "Platform hard limits — the ceiling every scope is capped by.", el: TrafficView },
   users: { lede: "Accounts with usage and activity.", el: UsersView },
-  workspaces: { lede: "Customer workspaces with members, projects, and balances.", el: WorkspacesView },
 };
 
 export function AdminSectionRoute() {
@@ -1087,7 +1067,7 @@ export function AdminSection({ name }: { name: string }) {
   return (<Page title={"Admin / " + name} lede={v.lede}><El /></Page>);
 }
 
-const LIST_KEYS = ["incidents", "connections", "providers", "models", "users", "keys", "projects", "workspaces", "policies", "rules", "rows", "accounts", "recent", "topConsumers", "openIncidents", "events"] as const;
+const LIST_KEYS = ["incidents", "connections", "providers", "models", "users", "keys", "policies", "rules", "rows", "accounts", "recent", "topConsumers", "openIncidents", "events"] as const;
 export function AdminDetail() {
   const p = useParams();
   const section = p.section ?? "";

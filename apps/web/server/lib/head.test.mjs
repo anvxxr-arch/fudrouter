@@ -157,7 +157,7 @@ test('the exact-depth rule keeps a sub-path out of a page it does not belong to'
 });
 
 test('guarded and unknown routes are noindex', () => {
-	for (const p of ['/dashboard', '/dashboard/keys', '/admin/models', '/invite/abc', '/nonsense']) {
+	for (const p of ['/dashboard', '/dashboard/keys', '/admin/models', '/dashboard/settings', '/nonsense']) {
 		assert.equal(seo.seoFor(p).indexable, false, `${p} must not be indexable`);
 	}
 });
@@ -175,7 +175,6 @@ test('isKnownRoute separates a served page from a typo', () => {
 		'/signup',
 		'/dashboard/keys',
 		'/admin/models',
-		'/invite/tok_1',
 	]) {
 		assert.equal(seo.isKnownRoute(p), true, `${p} must be known`);
 	}
@@ -184,7 +183,8 @@ test('isKnownRoute separates a served page from a typo', () => {
 	// shell for a page that no longer exists — a soft 404 a crawler indexes.
 	// This is the list to revisit if one of them comes back. /changelog and the
 	// catalogue left it when their pages were rebuilt; the legal pages did not.
-	for (const p of ['/models/compare', '/providers', '/providers/xai', '/legal/terms', '/legal/privacy']) {
+	// /invite left it with the workspace hierarchy in migration 0019.
+	for (const p of ['/models/compare', '/providers', '/providers/xai', '/legal/terms', '/legal/privacy', '/invite/tok_1']) {
 		assert.equal(seo.isKnownRoute(p), false, `${p} was withdrawn and must be unknown`);
 	}
 	// Exact depth matters: `/admin` is a real route while `/dashboardish` is a

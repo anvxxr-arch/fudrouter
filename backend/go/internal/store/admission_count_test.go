@@ -6,9 +6,9 @@ package store_test
 // model all key off the SAME api_key row and its ownership chain —
 //
 //	LookupAPIKey(prefix)       -> the key row (auth)
-//	EffectiveLimits(key)       -> rate_limit rows for its 4 scopes + policy
-//	BudgetGateState(ws, env)   -> billing_account + environment.monthly_budget
-//	BudgetsFor(key)            -> budget rows for its 3 scopes
+//	AdmissionLimits(key)       -> rate_limit rows for its 2 scopes + policy
+//	AdmissionGateState(user)   -> billing_account (the hard stop)
+//	AdmissionBudgets(key)      -> budget rows for its 2 scopes (account, api_key)
 //
 // — and each was its own round trip. Measured on a warm pool, one store query on
 // this box is ~360µs, so four is ~1.4ms of pure round-trip latency inside a <5ms
@@ -20,9 +20,15 @@ package store_test
 // deliberate — a cached key row would delay revocation, and this is the security
 // boundary the data plane owns.
 //
+// Migration 0019 flattened workspace/project/environment into the user account:
+// the gate read lost the environment monthly-budget join (it stays ONE query,
+// now for the account row alone) and the rate_limit/budget scopes collapsed
+// from four and three to account + api_key. The pinned counts are unchanged by
+// that flatten and are re-pinned here for the new shapes.
+//
 // The assert is an exact count because a budget ("at most N") passes when a
 // query is added without another being removed — the regression worth catching.
-// Both states are pinned: COLD (the first request for a workspace, where every
+// Both states are pinned: COLD (the first request for an account, where every
 // cache misses) and WARM (the steady state).
 
 import (
@@ -50,7 +56,7 @@ func admissionReads(t *testing.T, s *store.Store, prefix string) {
 	if _, err := s.AdmissionLimits(ctx, key); err != nil {
 		t.Fatalf("AdmissionLimits: %v", err)
 	}
-	if _, _, err := s.AdmissionGateState(ctx, key.WorkspaceID, key.EnvironmentID); err != nil {
+	if _, err := s.AdmissionGateState(ctx, key.UserID); err != nil {
 		t.Fatalf("AdmissionGateState: %v", err)
 	}
 	if _, err := s.AdmissionBudgets(ctx, key); err != nil {
@@ -77,7 +83,7 @@ func fullRequestWork(t *testing.T, s *store.Store, env *tests.Env) {
 	if _, err := s.AdmissionLimits(ctx, key); err != nil {
 		t.Fatalf("AdmissionLimits: %v", err)
 	}
-	if _, _, err := s.AdmissionGateState(ctx, key.WorkspaceID, key.EnvironmentID); err != nil {
+	if _, err := s.AdmissionGateState(ctx, key.UserID); err != nil {
 		t.Fatalf("AdmissionGateState: %v", err)
 	}
 	if _, err := s.AdmissionBudgets(ctx, key); err != nil {
@@ -92,8 +98,7 @@ func fullRequestWork(t *testing.T, s *store.Store, env *tests.Env) {
 	}
 	// Write side: one request_log + ledger row, then one attempt row.
 	row := &store.RequestLog{
-		ID: "rql_counttest", WorkspaceID: key.WorkspaceID, ProjectID: key.ProjectID,
-		EnvironmentID: key.EnvironmentID, APIKeyID: key.ID, ModelID: res.ModelIDs[0],
+		ID: "rql_counttest", UserID: key.UserID, APIKeyID: key.ID, ModelID: res.ModelIDs[0],
 		TokensIn: 1, TokensOut: 1, Cost: 1, Currency: "USD", Status: "success",
 	}
 	if _, err := s.ChargeRequest(ctx, row); err != nil {
@@ -131,7 +136,7 @@ func TestAdmissionReadsAreOneRoundTrip(t *testing.T) {
 			"contract in this test AND the note in lifecycle.begin", warm, wantWarm)
 	}
 
-	// COLD is a workspace's first request: the gate reads miss the cache and fall
+	// COLD is an account's first request: the gate reads miss the cache and fall
 	// back to Postgres, so the shape is the original four PLUS the platform
 	// hard-limits row, whose 60s cache is also empty on a fresh Store. Pinned
 	// because a cache that quietly stopped caching would otherwise only show up
@@ -159,8 +164,7 @@ func TestWritePathRoundTrips(t *testing.T) {
 		t.Fatal(err)
 	}
 	row := &store.RequestLog{
-		ID: "rql_writecount", WorkspaceID: key.WorkspaceID, ProjectID: key.ProjectID,
-		EnvironmentID: key.EnvironmentID, APIKeyID: key.ID, ModelID: env.ModelID,
+		ID: "rql_writecount", UserID: key.UserID, APIKeyID: key.ID, ModelID: env.ModelID,
 		TokensIn: 1, TokensOut: 1, Cost: 1, Currency: "USD", Status: "success",
 	}
 	// Warm the pool.

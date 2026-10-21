@@ -7,8 +7,8 @@
 // route is registered before registerPages(), so the incomplete one won.
 //
 // The page then crashed on every load: KeysPage renders
-// `b.usage30d.requests` while sorting and `k.projectName` while rendering, and
-// neither key existed in the shadowing response. The server never logged a 500
+// `b.usage30d.requests` while sorting, and neither key existed in the
+// shadowing response. The server never logged a 500
 // — it answered 200 with a valid-but-wrong shape — so no error appeared in the
 // console log and the failure looked client-side.
 //
@@ -66,7 +66,7 @@ test('/api/pages/dashboard/keys returns fields the page dereferences', NEEDS_DB,
 		'usage30d must carry the exact counters the page reads'
 	);
 	assert.equal(k.usage30d.requests, 0, 'a new key has no usage yet');
-	for (const field of ['id', 'name', 'prefix', 'status', 'createdAt', 'projectId', 'projectName', 'environmentName', 'expiresAt', 'revokedAt', 'lastUsedAt']) {
+	for (const field of ['id', 'name', 'prefix', 'status', 'createdAt', 'expiresAt', 'revokedAt', 'lastUsedAt']) {
 		assert.ok(field in k, `keys[0].${field} is missing — the page reads it`);
 	}
 });

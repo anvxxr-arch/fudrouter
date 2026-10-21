@@ -1,7 +1,7 @@
 // Package limits enforces the per-request limit chain (spec §7): effective
-// limit = minimum across platform hard limit → workspace → project →
-// environment → api_key policy, counted in Valkey on the fast path with the S0
-// in-process limiter as fallback.
+// limit = minimum across platform hard limit → account → api_key policy,
+// counted in Valkey on the fast path with the S0 in-process limiter as
+// fallback.
 //
 // Two distinct failures have two distinct answers (spec §12):
 //
@@ -252,7 +252,7 @@ func ttlFor(suffix string) int64 {
 
 // periodSuffix is the `{period}:{period start}` tail of a spend counter key
 // ("day:20261020", "month:202610"). H4 in proxy/budget.go fixed this exact bug
-// for the workspace/project/environment budgets and it was missed here: the
+// for the account budgets and it was missed here: the
 // unperioded `spend:api_key:<id>:day` key's 25h TTL outlives the UTC day
 // boundary, so yesterday's counter was still live after midnight and read as
 // today's spend — false 402 INSUFFICIENT_CREDITS until the TTL aged it out.
@@ -270,9 +270,12 @@ func periodSuffix(suffix string, now time.Time) string {
 
 // APIKeyIdentity is the minimal identity the counters need: the key id and its
 // DB handles for the durable spend fallback.
+//
+// It carried a WorkspaceID that no counter ever read — every key this type
+// builds is scoped `api_key` + KeyID. Migration 0019 removed the workspace, and
+// the field went with it rather than staying as a permanent empty string.
 type APIKeyIdentity struct {
-	KeyID       string
-	WorkspaceID string
+	KeyID string
 	// Store is consulted only when a Valkey spend counter is missing.
 	Store SpendStore
 }

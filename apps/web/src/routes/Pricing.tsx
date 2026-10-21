@@ -45,7 +45,7 @@ const TIERS: Tier[] = [
     price: '$99',
     period: 'per month',
     blurb: 'For teams that need an audit trail.',
-    features: ['Multi-project', 'Audit log', 'Priority support'],
+    features: ['Audit log', 'Priority support'],
     cta: 'Get Team',
     to: '/login',
   },

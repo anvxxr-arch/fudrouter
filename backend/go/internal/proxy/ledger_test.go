@@ -81,7 +81,6 @@ func TestChargeRequestIsIdempotent(t *testing.T) {
 	newRow := func() *store.RequestLog {
 		return &store.RequestLog{
 			ID: ids.New("req"), UserID: env.UserID, APIKeyID: env.APIKeyID,
-			WorkspaceID: env.WorkspaceID, ProjectID: env.ProjectID, EnvironmentID: env.EnvironmentID,
 			Endpoint: "/v1/chat/completions", ModelID: env.ModelID, ProviderID: env.ProviderID,
 			Status: "success", TokensIn: 11, TokensOut: 7, Cost: 6, Currency: "USD",
 		}

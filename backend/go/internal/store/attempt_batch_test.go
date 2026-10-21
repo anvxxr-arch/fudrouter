@@ -138,8 +138,7 @@ func seedRequestLog(t *testing.T, s *store.Store, env *tests.Env, ids ...string)
 	ctx := context.Background()
 	for _, id := range ids {
 		row := &store.RequestLog{
-			ID: id, WorkspaceID: env.WorkspaceID, ProjectID: env.ProjectID,
-			EnvironmentID: env.EnvironmentID, APIKeyID: env.APIKeyID, ModelID: env.ModelID,
+			ID: id, UserID: env.UserID, APIKeyID: env.APIKeyID, ModelID: env.ModelID,
 			TokensIn: 1, TokensOut: 1, Cost: 1, Currency: "USD", Status: "success",
 		}
 		id := id

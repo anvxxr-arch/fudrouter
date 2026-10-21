@@ -13,9 +13,7 @@ import (
 // RoutingPolicy is the routing configuration in force for a request (spec §9).
 type RoutingPolicy struct {
 	ID                 string
-	WorkspaceID        string
-	ProjectID          string
-	EnvironmentID      string
+	AccountID          string
 	Name               string
 	Strategy           string // balanced|lowest_cost|lowest_latency|highest_reliability|provider_priority|weighted|round_robin|random|smart
 	Enabled            bool
@@ -46,12 +44,12 @@ func DefaultRoutingPolicy() *RoutingPolicy {
 	}
 }
 
-// RoutingPolicyFor resolves the policy chain: environment → project →
-// workspace → platform default (`system_setting['default_routing_policy']`,
-// spec §9). The first level that names a policy wins; nothing else is merged.
+// RoutingPolicyFor resolves the policy chain: account → platform default
+// (`system_setting['default_routing_policy']`, spec §9). The first level that
+// names a policy wins; nothing else is merged. The environment → project →
+// workspace levels this used to walk were removed in migration 0019.
 func (s *Store) RoutingPolicyFor(ctx context.Context, k *APIKeyRow) (*RoutingPolicy, error) {
-	// The most specific binding wins: environment.routing_policy_id, then a
-	// policy row scoped to the project, then to the workspace.
+	// The most specific binding wins: a policy row scoped to the account.
 	//
 	// The trailing `''` matters: with no binding at any level every subquery is
 	// NULL and a bare coalesce() yields NULL, which cannot scan into a string.
@@ -61,15 +59,11 @@ func (s *Store) RoutingPolicyFor(ctx context.Context, k *APIKeyRow) (*RoutingPol
 	var policyID string
 	err := s.pool.QueryRow(ctx, `
 		select coalesce(
-			(select e.routing_policy_id from environment e where e.id = $1 and e.routing_policy_id is not null),
 			(select rp.id from routing_policy rp
-			 where rp.enabled and rp.project_id = $2 and rp.environment_id is null
-			 order by rp.id limit 1),
-			(select rp.id from routing_policy rp
-			 where rp.enabled and rp.workspace_id = $3 and rp.project_id is null and rp.environment_id is null
+			 where rp.enabled and rp.account_id = $1
 			 order by rp.id limit 1),
 			''
-		)`, k.EnvironmentID, k.ProjectID, k.WorkspaceID,
+		)`, k.UserID,
 	).Scan(&policyID)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return nil, err
@@ -96,11 +90,11 @@ func (s *Store) RoutingPolicyFor(ctx context.Context, k *APIKeyRow) (*RoutingPol
 	p := &RoutingPolicy{}
 	var prefs, modelPrefs, constraints, weights []byte
 	err = s.pool.QueryRow(ctx, `
-		select id, coalesce(workspace_id,''), coalesce(project_id,''), coalesce(environment_id,''),
+		select id, coalesce(account_id,''),
 		       name, strategy, enabled, max_attempts, request_timeout_ms, fallback_enabled,
 		       provider_preferences, model_preferences, constraints, weights
 		from routing_policy where id = $1`, policyID,
-	).Scan(&p.ID, &p.WorkspaceID, &p.ProjectID, &p.EnvironmentID,
+	).Scan(&p.ID, &p.AccountID,
 		&p.Name, &p.Strategy, &p.Enabled, &p.MaxAttempts, &p.RequestTimeoutMs, &p.FallbackEnabled,
 		&prefs, &modelPrefs, &constraints, &weights)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -212,18 +206,21 @@ func (s *Store) InsertAlertEvent(ctx context.Context, alertID, message, state st
 	return err
 }
 
-// FindOrCreateAlert locates a workspace alert by its `condition->>'type'`, or
+// FindOrCreateAlert locates an account alert by its `condition->>'type'`, or
 // creates one with the given condition (spec §11 `alert.condition` = {"type",
 // "threshold", "window_seconds"} — low-balance alerts carry the billing
 // thresholds so the control plane can render them; see the billing plane's
 // agreement on `{"type":"low_balance", …}`).
-func (s *Store) FindOrCreateAlert(ctx context.Context, workspaceID, name, alertType string, condition map[string]any) (string, error) {
+//
+// `accountID` is the user account: `alert.account_id` replaced
+// `alert.workspace_id` in migration 0019.
+func (s *Store) FindOrCreateAlert(ctx context.Context, accountID, name, alertType string, condition map[string]any) (string, error) {
 	var id string
 	err := s.pool.QueryRow(ctx, `
 		select id from alert
-		where workspace_id is not distinct from $1
+		where account_id is not distinct from $1
 		  and condition->>'type' = $2
-		order by created_at desc limit 1`, nullStr(workspaceID), alertType,
+		order by created_at desc limit 1`, nullStr(accountID), alertType,
 	).Scan(&id)
 	if err == nil {
 		return id, nil
@@ -237,16 +234,16 @@ func (s *Store) FindOrCreateAlert(ctx context.Context, workspaceID, name, alertT
 		return "", err
 	}
 	err = s.pool.QueryRow(ctx, `
-		insert into alert (id, workspace_id, name, condition, channel, enabled)
+		insert into alert (id, account_id, name, condition, channel, enabled)
 		values ($1, $2, $3, $4, 'inapp', true)
 		on conflict (id) do nothing
-		returning id`, id, nullStr(workspaceID), name, cond).Scan(&id)
+		returning id`, id, nullStr(accountID), name, cond).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// A concurrent insert won the race; re-read it.
 		err = s.pool.QueryRow(ctx, `
 			select id from alert
-			where workspace_id is not distinct from $1 and condition->>'type' = $2
-			order by created_at desc limit 1`, nullStr(workspaceID), alertType).Scan(&id)
+			where account_id is not distinct from $1 and condition->>'type' = $2
+			order by created_at desc limit 1`, nullStr(accountID), alertType).Scan(&id)
 	}
 	return id, err
 }
@@ -254,7 +251,11 @@ func (s *Store) FindOrCreateAlert(ctx context.Context, workspaceID, name, alertT
 // InsertSystemEvent records an observability event (spec §11). Budget
 // threshold crossings write one so the status page and the alert history see
 // the same story.
-func (s *Store) InsertSystemEvent(ctx context.Context, eventType, resource, resourceID, workspaceID string, metadata map[string]any) error {
+//
+// The final argument is the user account. `system_event.workspace_id` keeps its
+// historical name and value (it is opaque text with no FK); new writes pass the
+// account id into it.
+func (s *Store) InsertSystemEvent(ctx context.Context, eventType, resource, resourceID, accountID string, metadata map[string]any) error {
 	meta := []byte("{}")
 	if len(metadata) > 0 {
 		if b, err := json.Marshal(metadata); err == nil {
@@ -264,7 +265,7 @@ func (s *Store) InsertSystemEvent(ctx context.Context, eventType, resource, reso
 	_, err := s.pool.Exec(ctx, `
 		insert into system_event (id, type, resource, resource_id, workspace_id, metadata)
 		values ($1,$2,$3,$4,$5,$6)`,
-		ids.New("evt"), eventType, nullStr(resource), nullStr(resourceID), nullStr(workspaceID), meta)
+		ids.New("evt"), eventType, nullStr(resource), nullStr(resourceID), nullStr(accountID), meta)
 	return err
 }
 

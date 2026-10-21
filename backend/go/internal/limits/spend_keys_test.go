@@ -2,8 +2,8 @@ package limits_test
 
 // H4, second sighting: the per-API-key spend counter keys must name the PERIOD
 // they count, and the read (Check) and write (SpendAdd) paths must spell them
-// identically. The same bug was already fixed for the workspace/project/
-// environment budgets in proxy/budget.go (budget_keys_test.go) and missed here
+// identically. The same bug was already fixed for the account/api_key budgets
+// in proxy/budget.go (budget_keys_test.go) and missed here
 // because the per-key path lives in another package.
 //
 // The bug: the keys were `spend:api_key:<id>:day|month` with no period, and

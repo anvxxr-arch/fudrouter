@@ -31,18 +31,19 @@ const NEEDS_DB = { skip: !hasDb && SKIP };
 let server;
 let sql;
 let cookie;
-let workspaceId;
+let userId;
 let modelA; // resolved model: the filter target
 let modelB; // a second model, so the facet list has more than one entry
 let run; // per-run suffix, so re-runs never collide on the fixed fixture ids
 
-/** Sign up a tenant and return its session cookie. */
+/** Sign up a tenant (the account is the tenant) and return its session cookie. */
 async function tenant(tag) {
 	const signed = await signUp(server.baseUrl, { email: uniqueEmail(tag) });
 	assert.equal(signed.status, 200, `sign-up(${tag}) failed: ${JSON.stringify(signed.body)}`);
-	const ws = await fetch(`${server.baseUrl}/api/pages/workspace`, { headers: { cookie: signed.cookie } });
-	assert.ok((await ws.json()).workspace?.id, `${tag} has no workspace`);
-	return signed.cookie;
+	const acct = await fetch(`${server.baseUrl}/api/pages/account`, { headers: { cookie: signed.cookie } });
+	const body = await acct.json();
+	assert.ok(body.account?.id, `${tag} has no account`);
+	return { cookie: signed.cookie, userId: body.account.id };
 }
 
 test.before(async () => {
@@ -50,10 +51,9 @@ test.before(async () => {
 	server = await startServer();
 	sql = postgres(process.env.DATABASE_URL, { max: 2 });
 	run = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-	cookie = await tenant('usage');
-
-	const ws = await fetch(`${server.baseUrl}/api/pages/workspace`, { headers: { cookie } });
-	workspaceId = (await ws.json()).workspace.id;
+	const t = await tenant('usage');
+	cookie = t.cookie;
+	userId = t.userId;
 
 	// Two real models (the model FK requires a provider) plus a known
 	// request_log fixture: 3 rows on modelA, 2 on modelB, 1 with a NULL
@@ -78,8 +78,8 @@ test.before(async () => {
 
 	const row = async (id, modelId, status, latency) => {
 		await sql`
-			insert into request_log (id, workspace_id, model_id, requested_model, tokens_in, tokens_out, cost, latency_ms, status, created_at)
-			values (${`${id}_${run}`}, ${workspaceId}, ${modelId}, ${modelId ? `usage-test-${modelId}` : null}, 10, 5, 100, ${latency}, ${status}, now())`;
+			insert into request_log (id, user_id, model_id, requested_model, tokens_in, tokens_out, cost, latency_ms, status, endpoint, created_at)
+			values (${`${id}_${run}`}, ${userId}, ${modelId}, ${modelId ? `usage-test-${modelId}` : null}, 10, 5, 100, ${latency}, ${status}, '/v1/chat/completions', now())`;
 	};
 	await row('req_usagetest_a1', modelA, 'success', 100);
 	await row('req_usagetest_a2', modelA, 'success', 200);
@@ -163,7 +163,7 @@ test('the usage breakdowns, model filter and facets agree', NEEDS_DB, async () =
 });
 
 // The credits page's spend chart: the top-5 series plus the Other bucket must
-// sum to exactly the workspace's cost>0 spend. The pre-fix handler compared
+// sum to exactly the account's cost>0 spend. The pre-fix handler compared
 // model_id keys against slug labels, so no entry ever matched, every top model
 // was ALSO summed into Other, and the chart double-counted (2x the true spend
 // with a single model). This is the assertion that catches it.
@@ -174,7 +174,7 @@ test('the credits spend series reconciles with request_log cost', NEEDS_DB, asyn
 
 	const expected = await sql`
 		select coalesce(sum(cost), 0)::text as total from request_log
-		where workspace_id = ${workspaceId} and cost > 0 and created_at >= now() - interval '30 days'`;
+		where user_id = ${userId} and cost > 0 and created_at >= now() - interval '30 days'`;
 	const want = BigInt(expected[0].total);
 
 	const got = (body.series ?? []).reduce(

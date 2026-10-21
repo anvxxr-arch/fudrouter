@@ -1,11 +1,3 @@
-export type ShellData = {
-  workspaces: { id: string; name: string }[];
-  workspaceId: string | null;
-  projects: { id: string; name: string }[];
-  projectId: string | null;
-  environments: { id: string; name: string; slug: string }[];
-  environmentId: string | null;
-};
 export type SessionResp = { user: { id: string; name: string; email: string; role?: string | null } | null };
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, { credentials: "include", ...init });

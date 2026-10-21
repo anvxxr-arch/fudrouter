@@ -8,9 +8,8 @@ package proxy_test
 //     migration defaults (threshold 0, balance 0, status 'active'); nothing set
 //     a NON-default threshold, so the reject branch had no coverage.
 //   - a suspended account, which must be refused independently of its balance.
-//   - the environment's flat monthly_budget_micro column (spec §2), which
-//     checkBudgets folds into the chain as a monthly budget with default
-//     thresholds.
+//   - the account's flat `budget` row (spec §2, §7), which checkBudgets folds
+//     into the chain as a monthly budget with default thresholds.
 //
 // checkBudgets is the gate, not the counter: it READS (BudgetGateState,
 // BudgetsFor, SpendMicro) and must never write, so a regression that moved
@@ -19,13 +18,16 @@ package proxy_test
 // call rather than only in production.
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/anvxxr-arch/fudrouter/backend/go/internal/ids"
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/proxy"
 	"github.com/anvxxr-arch/fudrouter/backend/go/tests"
+	"github.com/jackc/pgx/v5"
 )
 
 // callOnce drives one /v1/embeddings request through the full lifecycle and
@@ -58,7 +60,7 @@ func TestBillingHardStopRefusesAtAdmission(t *testing.T) {
 	env := tests.SeedEnv(t, dsn, counting.URL)
 	// Balance exactly AT the hard stop is the boundary the spec calls out
 	// ("at or under"): 500 / 500 must refuse, not admit.
-	tests.SetBillingAccountHardStop(t, dsn, env.WorkspaceID, 500, 500)
+	tests.SetBillingAccountHardStop(t, dsn, env.UserID, 500, 500)
 	p := tests.NewProxy(t, dsn, counting.URL)
 
 	if code := callOnce(t, p, env); code != http.StatusPaymentRequired {
@@ -70,7 +72,7 @@ func TestBillingHardStopRefusesAtAdmission(t *testing.T) {
 
 	// One micro above the stop admits. This is the other half of the bound: a
 	// gate that refused everything would also satisfy the assertion above.
-	tests.SetBillingAccountHardStop(t, dsn, env.WorkspaceID, 500, 501)
+	tests.SetBillingAccountHardStop(t, dsn, env.UserID, 500, 501)
 	if code := callOnce(t, p, env); code != http.StatusOK {
 		t.Fatalf("status %d, want 200 (balance above the hard stop was refused)", code)
 	}
@@ -87,8 +89,8 @@ func TestSuspendedBillingAccountRefused(t *testing.T) {
 	defer up.Close()
 
 	env := tests.SeedEnv(t, dsn, up.URL)
-	tests.SetBillingAccountStatus(t, dsn, env.WorkspaceID, "suspended")
-	tests.SetBillingAccountHardStop(t, dsn, env.WorkspaceID, 0, 1_000_000)
+	tests.SetBillingAccountStatus(t, dsn, env.UserID, "suspended")
+	tests.SetBillingAccountHardStop(t, dsn, env.UserID, 0, 1_000_000)
 	p := tests.NewProxy(t, dsn, up.URL)
 
 	if code := callOnce(t, p, env); code != http.StatusPaymentRequired {
@@ -96,22 +98,33 @@ func TestSuspendedBillingAccountRefused(t *testing.T) {
 	}
 }
 
-// The environment's flat monthly_budget_micro is a budget with default
-// thresholds, and reaching it refuses the request (spec §2, §7).
-func TestEnvironmentMonthlyBudgetRefuses(t *testing.T) {
+// The account's flat `budget` row is a budget with default thresholds, and
+// reaching it refuses the request (spec §2, §7).
+func TestAccountMonthlyBudgetRefuses(t *testing.T) {
 	dsn := tests.RequireDB(t)
 	up := jsonUpstream(t, `{"ok":true}`, nil, 200)
 	defer up.Close()
 
 	env := tests.SeedEnv(t, dsn, up.URL)
-	// The environment budget is measured by SpendMicro('environment'), which
-	// sums THIS month's request_log cost for the environment — a row inserted
-	// now is inside the window.
-	tests.SetEnvironmentMonthlyBudgetMicro(t, dsn, env.EnvironmentID, 1)
+	// The account budget is measured by SpendMicro('account'), which sums THIS
+	// month's request_log cost for the user — a row inserted now is inside the
+	// window.
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(ctx)
+	if _, err := conn.Exec(ctx,
+		`insert into budget (id, scope, scope_id, period, amount_micro, action_at_100)
+		 values ($1, 'account', $2, 'monthly', 1, 'block')`,
+		ids.New("bdg"), env.UserID); err != nil {
+		t.Fatal(err)
+	}
 	tests.InsertRequestLogRow(t, dsn, env, 2)
 	p := tests.NewProxy(t, dsn, up.URL)
 
 	if code := callOnce(t, p, env); code != http.StatusPaymentRequired {
-		t.Fatalf("status %d, want 402 (environment monthly budget not enforced)", code)
+		t.Fatalf("status %d, want 402 (account monthly budget not enforced)", code)
 	}
 }

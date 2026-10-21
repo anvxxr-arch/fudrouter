@@ -193,14 +193,15 @@ var virtualModels = map[string]struct {
 
 // ResolveModel maps a request's `model` string onto a model set.
 //
-// Alias resolution order (spec §5): project alias → workspace alias → global
-// virtual → literal `model.slug`. First match wins.
+// Alias resolution order (spec §5): account alias → global virtual → literal
+// `model.slug`. First match wins. The project and workspace levels this used to
+// walk were collapsed into the account by migration 0019.
 func (s *Store) ResolveModel(ctx context.Context, k *APIKeyRow, name string) (*ModelResolution, error) {
 	name = strings.TrimSpace(name)
 	res := &ModelResolution{Requested: name}
 
-	// 1–4: alias (project → workspace → global) or, failing that, the literal
-	// canonical slug — all in ONE round trip.
+	// 1–3: alias (account → global) or, failing that, the literal canonical
+	// slug — all in ONE round trip.
 	//
 	// Two things drove this shape. The alias branch was originally two queries
 	// (pick the winner, then read its targets) where the second existed only to
@@ -216,14 +217,12 @@ func (s *Store) ResolveModel(ctx context.Context, k *APIKeyRow, name string) (*M
 	rows, err := s.pool.Query(ctx, `
 		with picked as (
 			select a.id,
-			       case when a.project_id is not null then 'project'
-			            when a.workspace_id is not null then 'workspace'
+			       case when a.account_id is not null then 'account'
 			            else 'global' end as kind
 			from model_alias a
 			where a.enabled and a.name = $1
-			  and (a.project_id = $2 or (a.project_id is null and a.workspace_id = $3)
-			       or (a.project_id is null and a.workspace_id is null))
-			order by (a.project_id is not null) desc, (a.workspace_id is not null) desc
+			  and (a.account_id = $2 or a.account_id is null)
+			order by (a.account_id is not null) desc
 			limit 1
 		)
 		select b, kind, model_id, slug from (
@@ -242,11 +241,10 @@ func (s *Store) ResolveModel(ctx context.Context, k *APIKeyRow, name string) (*M
 			  and not exists (
 				select 1 from model_alias a2
 				where a2.enabled and a2.name = $1
-				  and (a2.project_id = $2 or (a2.project_id is null and a2.workspace_id = $3)
-				       or (a2.project_id is null and a2.workspace_id is null))
+				  and (a2.account_id = $2 or a2.account_id is null)
 			  )
 		) x
-		order by b, pos`, name, k.ProjectID, k.WorkspaceID)
+		order by b, pos`, name, k.UserID)
 	if err != nil {
 		return nil, err
 	}

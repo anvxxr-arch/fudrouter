@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { apiGet, apiPost } from "../lib/server";
 import { ConsoleLayout } from "../components/ConsoleLayout";
 import { Badge } from "../components/ui/badge";
@@ -54,8 +54,8 @@ function fmtMicro(v: string | null | undefined) {
 }
 
 type SeriesPoint = { day: string; requests: number; tokens: number; cost: string; errors: number; tokensIn: number; tokensOut: number };
-type FiringAlert = { id: string; alertId: string; alertName: string; projectId: string | null; conditionType: string; value: string; message: string; triggeredAt: string | null };
-type DashboardData = { totals: { requests: number; tokensIn: number; tokensOut: number; cost: string }; activeKeys: number; recent: { id: string; createdAt: string; model_slug: string | null; providerName: string | null; tokens_in: number; tokens_out: number; cost: string; latency_ms: number; status: string }[]; series: SeriesPoint[]; byModel: { slug: string; requests: number; cost: string }[]; range: number; workspaceId: string; workspaceCreatedAt: string | null; balanceMicro: string; firingAlerts: FiringAlert[] };
+type FiringAlert = { id: string; alertId: string; alertName: string; conditionType: string; value: string; message: string; triggeredAt: string | null };
+type DashboardData = { userId: string; totals: { requests: number; tokensIn: number; tokensOut: number; cost: string }; activeKeys: number; recent: { id: string; createdAt: string; model_slug: string | null; providerName: string | null; tokens_in: number; tokens_out: number; cost: string; latency_ms: number; status: string }[]; series: SeriesPoint[]; byModel: { slug: string; requests: number; cost: string }[]; range: number; accountCreatedAt: string | null; balanceMicro: string; firingAlerts: FiringAlert[] };
 
 // The series always ends today (pages.mjs materialises one entry per day from
 // `since`), whatever range was requested, so the last entry is today and the
@@ -85,22 +85,20 @@ function TokenChart({ series }: { series: SeriesPoint[] }) {
   </svg>);
 }
 
-// Onboarding checklist (spec §19 item 7). Shown only while the workspace is
-// under a week old AND has no key yet — once a key exists the member has
+// Onboarding checklist (spec §19 item 7). Shown only while the account is
+// under a week old AND has no key yet — once a key exists the user has
 // already done the work the banner asks for, so it stops nagging. Two steps
-// only: sign-up auto-provisions a project, so a project step would be green on
+// only: sign-up provisions the account, so an account step would be green on
 // the first render and could never change state before the banner hides.
-// Dismissal is per-workspace in localStorage: switching workspaces must not
-// carry a dismissal across, and a member with two workspaces sees each one's
-// own checklist.
+// Dismissal is per-account in localStorage keyed by the user id.
 const ONBOARDING_KEY = "fudrouter.onboarding.dismissed";
 const ONBOARDING_MAX_AGE_MS = 7 * 86_400_000;
 function OnboardingBanner({ d }: { d: DashboardData }) {
   const [dismissed, setDismissed] = useState(false);
   useEffect(() => {
-    try { setDismissed(localStorage.getItem(`${ONBOARDING_KEY}:${d.workspaceId}`) === "1"); } catch { setDismissed(false); }
-  }, [d.workspaceId]);
-  const createdAt = d.workspaceCreatedAt ? new Date(d.workspaceCreatedAt).getTime() : NaN;
+    try { setDismissed(localStorage.getItem(`${ONBOARDING_KEY}:${d.userId}`) === "1"); } catch { setDismissed(false); }
+  }, [d.userId]);
+  const createdAt = d.accountCreatedAt ? new Date(d.accountCreatedAt).getTime() : NaN;
   const young = Number.isFinite(createdAt) && Date.now() - createdAt < ONBOARDING_MAX_AGE_MS;
   const steps = [
     { label: "Create your first API key", to: "/dashboard/keys", done: d.activeKeys > 0 },
@@ -113,7 +111,7 @@ function OnboardingBanner({ d }: { d: DashboardData }) {
       <h2 className="card-title">Get started</h2>
       <Button variant="ghost" size="sm" className="onboarding-dismiss" aria-label="Dismiss the getting-started checklist" onClick={() => {
         setDismissed(true);
-        try { localStorage.setItem(`${ONBOARDING_KEY}:${d.workspaceId}`, "1"); } catch { /* private mode: the banner returns next visit */ }
+        try { localStorage.setItem(`${ONBOARDING_KEY}:${d.userId}`, "1"); } catch { /* private mode: the banner returns next visit */ }
       }}>✕</Button>
     </div>
     <div className="onboarding-track" role="progressbar" aria-valuenow={done} aria-valuemin={0} aria-valuemax={2} aria-label={`${done} of 2 setup steps complete`}>
@@ -158,8 +156,8 @@ export function DashboardHome() {
           <Link to="/dashboard/billing/credits">Manage credits</Link>
         </StatCard>
       </div>
-      {/* Live conditions, not a checklist: no dismiss. Workspace-level alerts
-          carry no project, so only project alerts get a link to their page. */}
+      {/* Live conditions, not a checklist: no dismiss. Alerts are
+          account-scoped, so each one links to the account alerts page. */}
       {d.firingAlerts.length > 0 ? (
         <Card titleAs="h2" title="Alerts">
           <ul className="alert-list">
@@ -168,7 +166,7 @@ export function DashboardHome() {
               <span className="alert-name">{a.alertName}</span>
               <span className="num">{a.value}</span>
               <span className="muted">{fmtDate(a.triggeredAt)}</span>
-              {a.projectId ? <Link to={`/dashboard/projects/${a.projectId}/alerts`}>View</Link> : null}
+              <Link to="/dashboard/alerts">View</Link>
             </li>))}
           </ul>
         </Card>
@@ -212,7 +210,6 @@ export function DashboardHome() {
         </>) : <p className="muted">No requests logged yet.</p>}
       </>)}
     </>) : null}
-    <div className="row"><Link to="/dashboard/projects/new"><Button>New project</Button></Link></div>
   </Page></ConsoleLayout>);
 }
 
@@ -220,8 +217,6 @@ type KeyUsage = { requests: number; tokens: number; costMicro: string };
 type KeyRow = {
   id: string; name: string; prefix: string; status: string;
   lastUsedAt: string | null; revokedAt: string | null; createdAt: string | null; expiresAt: string | null;
-  projectId: string | null; projectName: string | null;
-  environmentId: string | null; environmentName: string | null;
   usage30d: KeyUsage;
 };
 type KeysData = { keys: KeyRow[] };
@@ -247,8 +242,8 @@ function relTime(v: string | null): string {
 }
 
 // Expired is derived, not stored: revoked wins, then a past expiresAt, then
-// the stored status. A project-disabled key surfaces as Disabled so it never
-// reads as Active.
+// the stored status. A disabled key surfaces as Disabled so it never reads as
+// Active.
 function keyStatus(k: KeyRow): { label: string; tone: "ok" | "warn" | "danger" } {
   if (k.revokedAt || k.status === "revoked") return { label: "Revoked", tone: "danger" };
   if (k.expiresAt && new Date(k.expiresAt).getTime() <= Date.now()) return { label: "Expired", tone: "warn" };
@@ -282,16 +277,7 @@ function NewKeyModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
   const [secret, setSecret] = useState<{ key: string; name: string } | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [scope, setScope] = useState("");
-  const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
   const [copied, setCopied] = useState(false);
-  // The project list is best-effort: without it the modal still offers the
-  // workspace scope, so a failed load must not block key creation.
-  useEffect(() => {
-    apiGet<{ projects: { id: string; name: string }[] }>("/api/pages/dashboard/projects")
-      .then((d) => setProjects(d.projects ?? []))
-      .catch(() => setProjects([]));
-  }, []);
   if (secret) {
     return (<KeysDialog title="Key created" onClose={onClose}>
       <p className="keys-warn">This is the only time you&apos;ll see this secret</p>
@@ -306,19 +292,13 @@ function NewKeyModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
     <form className="keys-form" onSubmit={(e) => {
       e.preventDefault(); setErr(null); setBusy(true);
       const f = new FormData(e.currentTarget);
-      apiPost<{ created: string; name: string }>("/api/pages/dashboard/keys/create", { name: String(f.get("name") ?? ""), projectId: scope || undefined, expiresIn: String(f.get("expiresIn") ?? "never") })
+      apiPost<{ created: string; name: string }>("/api/pages/dashboard/keys/create", { name: String(f.get("name") ?? ""), expiresIn: String(f.get("expiresIn") ?? "never") })
         .then((r) => { setSecret({ key: r.created, name: r.name }); onCreated(); })
         .catch((ex) => setErr(ex instanceof Error ? ex.message : "Create failed"))
         .finally(() => setBusy(false));
     }}>
       <label className="keys-field"><span>Name</span>
         <Input name="name" placeholder="e.g. production-backend" required />
-      </label>
-      <label className="keys-field"><span>Scope</span>
-        <select className="select" value={scope} onChange={(e) => setScope(e.target.value)}>
-          <option value="">Workspace</option>
-          {projects.map((p) => <option key={p.id} value={p.id}>Project: {p.name}</option>)}
-        </select>
       </label>
       <label className="keys-field"><span>Expiry</span>
         <select className="select" name="expiresIn" defaultValue="never">
@@ -374,7 +354,7 @@ export function KeysPage() {
         <h1>API keys</h1>
         <Button variant="primary" onClick={() => setCreating(true)}>New key</Button>
       </div>
-      <p className="lede muted">Create, scope and revoke the keys your apps authenticate with.</p>
+      <p className="lede muted">Create and revoke the keys your apps authenticate with.</p>
       <div className="keys-info" role="note">
         <p>Keys are stored as SHA-256 hashes — the secret itself is never saved. A lost secret cannot be recovered, so create a new key instead.</p>
       </div>
@@ -389,7 +369,7 @@ export function KeysPage() {
         <Table head={["Name", "Key", "Created", "Last used", "Requests (30d)", "Status", ""]} rows={keys.map((k) => {
           const st = keyStatus(k);
           return [
-            <div key="name" className="keys-name">{k.name}<Badge tone={k.projectName ? "info" : "default"}>{k.projectName ? `project:${k.projectName}` : "workspace"}</Badge></div>,
+            <div key="name" className="keys-name">{k.name}</div>,
             <div key="key" className="keys-key"><code>sk-ar-{k.prefix}_<span className="keys-mask">••••••••••••</span></code><Button size="sm" variant="ghost" onClick={() => copyPrefix(k)}>{copied === k.id ? "Copied" : "Copy prefix"}</Button></div>,
             <span key="created" title={fmtDate(k.createdAt)}>{relTime(k.createdAt)}</span>,
             <span key="used" title={fmtDate(k.lastUsedAt)}>{relTime(k.lastUsedAt)}</span>,
@@ -418,7 +398,7 @@ type UsageBreakdownRow = { key: string; label: string; requests: number; totalTo
 type UsageData = {
 	totals: { requests: number; tokensIn: number; tokensOut: number; costMicro: string };
 	latency: { p50: number; p95: number; p99: number };
-	breakdowns: { byDay: { day: string; requests: number; totalTokens: number; costMicro: string }[]; byProject: UsageBreakdownRow[]; byEnvironment: UsageBreakdownRow[]; byApiKey: UsageBreakdownRow[]; byModel: UsageBreakdownRow[]; byProvider: UsageBreakdownRow[] };
+	breakdowns: { byDay: { day: string; requests: number; totalTokens: number; costMicro: string }[]; byApiKey: UsageBreakdownRow[]; byModel: UsageBreakdownRow[]; byProvider: UsageBreakdownRow[] };
 	errorsByDay: { day: string; errors: number }[];
 	latencyByDay: { day: string; p50: number; p95: number; p99: number }[];
 	facets: { models: { key: string; label: string }[]; providers: { key: string; label: string }[] };
@@ -602,7 +582,7 @@ export function UsagePage() {
 export function BillingPage() {
   const [tick, setTick] = useState(0);
   const [err, setErr] = useState<string | null>(null);
-  const { data: d, error, loading } = useLoad<{ currency: string; status: string; workspaceName: string; canWrite: boolean; balanceMicro: string; warningThresholdMicro: string; hardStopThresholdMicro: string; period: { start: string; end: string; spentMicro: string; requests: number } }>("/api/pages/dashboard/billing", tick);
+  const { data: d, error, loading } = useLoad<{ currency: string; status: string; canWrite: boolean; balanceMicro: string; warningThresholdMicro: string; hardStopThresholdMicro: string; period: { start: string; end: string; spentMicro: string; requests: number } }>("/api/pages/dashboard/billing", tick);
   return (<ConsoleLayout><Page title="Billing" lede="Thresholds, credits, invoices, payment methods.">
     <div className="row" style={{ flexWrap: "wrap" }}>
       <Link to="/dashboard/billing/credits"><Button variant="secondary">Credits</Button></Link>
@@ -643,7 +623,7 @@ type CreditsData = {
 	total: number;
 	thresholds: { warningMicro: string; hardStopMicro: string };
 	series: { day: string; series: { label: string; costMicro: string }[] }[];
-	breakdowns: { byModel: UsageBreakdownRow[]; byProject: UsageBreakdownRow[] };
+	breakdowns: { byModel: UsageBreakdownRow[] };
 };
 
 // Ledger types map to the shared badge tones: money in is ok, metered spend
@@ -739,10 +719,6 @@ export function CreditsPage() {
 				<h2 className="card-title">By model · last 30 days</h2>
 				<UsageBars rows={d?.breakdowns.byModel ?? []} unit="models" />
 			</div>
-			<div className="card">
-				<h2 className="card-title">By project · last 30 days</h2>
-				<UsageBars rows={d?.breakdowns.byProject ?? []} unit="projects" />
-			</div>
 		</div>
 		<h2>Ledger</h2>
 		{rows.length === 0 ? (
@@ -821,588 +797,331 @@ export function AccountPage() {
   </Page></ConsoleLayout>);
 }
 
-export function WorkspacePage() {
-  const [tick, setTick] = useState(0);
-  const [err, setErr] = useState<string | null>(null);
-  const { data: d, error, loading } = useLoad<{ workspace: { id: string; name: string; slug: string; status: string }; owner: { name: string; email: string } | null; projectCount: number; memberCount: number }>("/api/pages/dashboard/workspace", tick);
-  const refresh = useCallback(() => setTick((t) => t + 1), []);
-  return (<ConsoleLayout><Page title="Workspace" lede={d?.workspace?.name ?? "Workspace settings."}>
-    <LoadState loading={loading} error={error} />
-    {d ? <Card title={d.workspace.slug} desc={`${d.projectCount} projects · ${d.memberCount} members · owner ${d.owner?.email ?? "—"}`} /> : null}
-    <form onSubmit={(e) => {
-      e.preventDefault(); setErr(null);
-      const f = new FormData(e.currentTarget);
-      apiPost("/api/pages/dashboard/workspace/rename", { name: String(f.get("name") ?? "") }).then(refresh).catch((ex) => setErr(ex instanceof Error ? ex.message : "Rename failed"));
-    }}>
-      <div className="row"><Input aria-label="Workspace name" name="name" placeholder="Workspace name" /><Button type="submit">Rename</Button></div>
-    </form>
-    <div className="row" style={{ flexWrap: "wrap" }}>
-      <Button variant="secondary" onClick={() => apiPost("/api/pages/dashboard/workspace/archive", {}).then(refresh).catch((ex) => setErr(ex instanceof Error ? ex.message : "Archive failed"))}>Archive</Button>
-      <Button variant="secondary" onClick={() => apiPost("/api/pages/dashboard/workspace/restore", {}).then(refresh).catch((ex) => setErr(ex instanceof Error ? ex.message : "Restore failed"))}>Restore</Button>
-    </div>
-    {err ? <p className="error">{err}</p> : null}
-  </Page></ConsoleLayout>);
-}
+// ---- account capability surfaces (limits, budgets, aliases, routing, alerts) ----
+//
+// Migration 0019 made the user account the tenant, so these five were project
+// sub-pages and are now their own console routes pointed at the
+// account-scoped /api/pages/* endpoints. The tables and form grids are the
+// same .ps-* idioms the project pages used: only the scope vocabulary moved
+// from {workspace,project,environment} to {account,api_key}.
 
-export function TeamMembersPage() {
-  const [tick, setTick] = useState(0);
-  const [err, setErr] = useState<string | null>(null);
-  const [inviteLink, setInviteLink] = useState<string | null>(null);
-  const { data: d, error, loading } = useLoad<{ members: { id: string; name: string; email: string; role: string; roleId: string; status: string }[]; roles: { id: string; name: string }[] }>("/api/pages/dashboard/team/members", tick);
-  const refresh = useCallback(() => setTick((t) => t + 1), []);
-  return (<ConsoleLayout><Page title="Team members" lede="Invite and manage roles.">
-    <LoadState loading={loading} error={error} />
-    <form onSubmit={(e) => {
-      e.preventDefault(); setErr(null); setInviteLink(null);
-      const f = new FormData(e.currentTarget);
-      apiPost<{ invited: string; invitedLink?: string }>("/api/pages/dashboard/team/members/invite", { email: String(f.get("email") ?? ""), roleId: String(f.get("roleId") ?? "") })
-        .then((r) => { if (r.invitedLink) setInviteLink(r.invitedLink); (e.target as HTMLFormElement).reset(); refresh(); })
-        .catch((ex) => setErr(ex instanceof Error ? ex.message : "Invite failed"));
-    }}>
-      <div className="row">
-        <Input aria-label="Email" name="email" placeholder="Email" required />
-        <select aria-label="Role for new member" name="roleId">{(d?.roles ?? []).map((r) => (<option key={r.id} value={r.id}>{r.name}</option>))}</select>
-        <Button type="submit">Invite</Button>
-      </div>
-    </form>
-    {inviteLink ? <Card title="Invite link — copy it now" desc={inviteLink} /> : null}
-    {err ? <p className="error">{err}</p> : null}
-    <Table head={["Name", "Email", "Role", "Status", "Actions"]} rows={(d?.members ?? []).map((m) => [m.name, m.email, m.role, m.status, <span key={m.id} className="row">
-      <select aria-label={`Role for ${m.name}`} defaultValue={m.roleId} onChange={(e) => apiPost("/api/pages/dashboard/team/members/changeRole", { memberId: m.id, roleId: e.target.value }).then(refresh).catch((ex) => setErr(ex instanceof Error ? ex.message : "Role change failed"))}>
-        {(d?.roles ?? []).map((r) => (<option key={r.id} value={r.id}>{r.name}</option>))}
-      </select>
-      <Button size="sm" variant="ghost" onClick={() => {
-        const confirm = window.prompt(`Type the member's name "${m.name}" exactly to confirm removal`);
-        if (confirm === null) return;
-        apiPost("/api/pages/dashboard/team/members/remove", { memberId: m.id, confirm }).then(refresh).catch((ex) => setErr(ex instanceof Error ? ex.message : "Remove failed"));
-      }}>Remove</Button>
-    </span>])} />
-  </Page></ConsoleLayout>);
-}
+type LimitValues = { rpm: string; tpm: string; rpd: string; tpd: string; concurrency: string; dailySpendMicro: string; monthlySpendMicro: string };
+const LIMIT_FIELDS = [
+  { key: "rpm", label: "Requests / min" },
+  { key: "tpm", label: "Tokens / min" },
+  { key: "rpd", label: "Requests / day" },
+  { key: "tpd", label: "Tokens / day" },
+  { key: "concurrency", label: "Concurrency" },
+  { key: "dailySpendMicro", label: "Daily spend ($)" },
+  { key: "monthlySpendMicro", label: "Monthly spend ($)" },
+] as const;
+type LimitChainRow = { metric: string; label: string; effective: string | null; boundAtLabel: string | null; byLevel: Record<string, string | null> };
+type LimitEditor = { scope: string; scopeId: string; label: string; row: { id: string; values: LimitValues } | null };
+type LimitsData = {
+  queryError: string | null; labels: Record<string, string>; levelLabels: Record<string, string>;
+  chain: LimitChainRow[]; editors: LimitEditor[];
+  keyRows: { id: string; name: string; values: LimitValues }[];
+};
 
-export function TeamInvitesPage() {
-  const [tick, setTick] = useState(0);
-  const [err, setErr] = useState<string | null>(null);
-  const { data: d, error, loading } = useLoad<{ invitations: { id: string; identifier: string; email: string; name: string; expiresAt: string }[] }>("/api/pages/dashboard/team/invitations", tick);
-  return (<ConsoleLayout><Page title="Invitations" lede="Pending invites.">
-    <LoadState loading={loading} error={error} />
-    {err ? <p className="error">{err}</p> : null}
-    <Table head={["Email", "Name", "Expires", ""]} rows={(d?.invitations ?? []).map((i) => [i.email, i.name, fmtDate(i.expiresAt), <Button key={i.id} size="sm" variant="ghost" onClick={() => apiPost("/api/pages/dashboard/team/invitations/revoke", { identifier: i.identifier }).then(() => setTick((t) => t + 1)).catch((ex) => setErr(ex instanceof Error ? ex.message : "Revoke failed"))}>Revoke</Button>])} />
-  </Page></ConsoleLayout>);
-}
+// The server already renders spend metrics in dollars (microsToInput), so a
+// spend column is only labelled differently — no second conversion here.
 
-export function TeamRolesPage() {
-  const [tick, setTick] = useState(0);
-  const [err, setErr] = useState<string | null>(null);
-  const { data: d, error, loading } = useLoad<{ roles: { id: string; name: string; custom: boolean; permissions: string[]; memberCount: number }[] }>("/api/pages/dashboard/team/roles", tick);
-  return (<ConsoleLayout><Page title="Roles" lede="Builtin and custom roles.">
-    <LoadState loading={loading} error={error} />
-    <form onSubmit={(e) => {
-      e.preventDefault(); setErr(null);
-      const f = new FormData(e.currentTarget);
-      apiPost("/api/pages/dashboard/team/roles/create", { name: String(f.get("name") ?? "") })
-        .then(() => { (e.target as HTMLFormElement).reset(); setTick((t) => t + 1); })
-        .catch((ex) => setErr(ex instanceof Error ? ex.message : "Create failed"));
-    }}>
-      <div className="row"><Input aria-label="Role name" name="name" placeholder="Role name" required /><Button type="submit">Create</Button></div>
-    </form>
-    {err ? <p className="error">{err}</p> : null}
-    <Table head={["Name", "Custom", "Permissions", "Members"]} rows={(d?.roles ?? []).map((r) => [r.name, r.custom ? "yes" : "builtin", String(r.permissions.length), String(r.memberCount)])} />
-  </Page></ConsoleLayout>);
-}
-
-export function ProjectNewPage() {
-  const [err, setErr] = useState<string | null>(null);
-  const [createdId, setCreatedId] = useState<string | null>(null);
-  return (<ConsoleLayout><Page title="New project" lede="Create a project.">
-    <form onSubmit={(e) => {
-      e.preventDefault(); setErr(null);
-      const f = new FormData(e.currentTarget);
-      apiPost<{ id: string }>("/api/pages/dashboard/projects/create", { name: String(f.get("name") ?? ""), description: String(f.get("description") ?? "") })
-        .then((r) => setCreatedId(r.id))
-        .catch((ex) => setErr(ex instanceof Error ? ex.message : "Create failed"));
-    }}>
-      <div className="row"><Input aria-label="Project name" name="name" placeholder="Project name" required /><Input aria-label="Description" name="description" placeholder="Description" /><Button type="submit">Create</Button></div>
-    </form>
-    {err ? <p className="error">{err}</p> : null}
-    {createdId ? <p><Link to={"/dashboard/projects/" + createdId}>Open project</Link></p> : null}
-  </Page></ConsoleLayout>);
-}
-
-function Proj({ children }: { children: ReactNode }) {
-  return (<ConsoleLayout>{children}</ConsoleLayout>);
-}
-
-export function ProjectPage() {
-  const { projectId } = useParams();
-  const [tick, setTick] = useState(0);
-  const [err, setErr] = useState<string | null>(null);
-  const { data: d, error, loading } = useLoad<{ project: { id: string; name: string; slug: string; description: string | null; status: string } }>("/api/pages/projects/" + projectId, tick);
-  return (<Proj><Page title={d?.project?.name ?? "Project"} lede={projectId ?? ""}>
-    <LoadState loading={loading} error={error} />
-    {d?.project ? <Card title={d.project.slug} desc={`${d.project.status} · ${d.project.description ?? "—"}`} /> : null}
-    <form onSubmit={(e) => {
-      e.preventDefault(); setErr(null);
-      const f = new FormData(e.currentTarget);
-      apiPost("/api/pages/projects/" + projectId + "/update", { name: String(f.get("name") ?? ""), slug: String(f.get("slug") ?? ""), description: String(f.get("description") ?? ""), status: String(f.get("status") ?? "active") })
-        .then(() => setTick((t) => t + 1))
-        .catch((ex) => setErr(ex instanceof Error ? ex.message : "Update failed"));
-    }}>
-      <div className="row"><Input aria-label="New name" name="name" placeholder="New name" /><Input aria-label="Slug" name="slug" placeholder="Slug" /><Input aria-label="Description" name="description" placeholder="Description" /><Input aria-label="Status" name="status" placeholder="Status" /><Button type="submit">Save</Button></div>
-    </form>
-    <Button variant="secondary" onClick={() => apiPost("/api/pages/projects/" + projectId + "/archive", {}).then(() => setTick((t) => t + 1)).catch((ex) => setErr(ex instanceof Error ? ex.message : "Archive failed"))}>Archive</Button>
-    {err ? <p className="error">{err}</p> : null}
-  </Page></Proj>);
-}
-
-function ProjectKeys({ projectId }: { projectId: string }) {
-  const [tick, setTick] = useState(0);
-  const [err, setErr] = useState<string | null>(null);
-  const [created, setCreated] = useState<string | null>(null);
-  const [rotating, setRotating] = useState<{ id: string; name: string } | null>(null);
-  const [rotated, setRotated] = useState<string | null>(null);
+function LimitEditorCard({ ed, onSaved }: { ed: LimitEditor; onSaved: () => void }) {
+  const [status, setStatus] = useState<{ ok: boolean; msg: string } | null>(null);
   const [busy, setBusy] = useState(false);
-  const { data: d, error, loading } = useLoad<{ environments: { id: string; name: string }[]; keys: { id: string; name: string; prefix: string; status: string; environmentName: string | null; createdAt: string }[] }>(`/api/pages/projects/${projectId}/keys`, tick);
-  const refresh = useCallback(() => setTick((t) => t + 1), []);
-  const flip = (k: { id: string; status: string }) => {
-    setErr(null); setCreated(null);
-    const enable = k.status !== "active";
-    apiPost(`/api/pages/projects/${projectId}/keys/${k.id}/${enable ? "enable" : "disable"}`)
-      .then(refresh)
-      .catch((ex) => setErr(ex instanceof Error ? ex.message : `${enable ? "Enable" : "Disable"} failed`));
-  };
-  return (<>
-    <LoadState loading={loading} error={error} />
-    <form onSubmit={(e) => {
-      e.preventDefault(); setErr(null); setCreated(null);
+  return (<Card title={ed.label} className="ps-card">
+    <form className="ps-form" onSubmit={(e) => {
+      e.preventDefault(); setStatus(null); setBusy(true);
       const f = new FormData(e.currentTarget);
-      apiPost<{ created: string }>(`/api/pages/projects/${projectId}/keys/create`, { name: String(f.get("name") ?? ""), environmentId: String(f.get("environmentId") ?? "") })
-        .then((r) => { setCreated(r.created); refresh(); })
-        .catch((ex) => setErr(ex instanceof Error ? ex.message : "Create failed"));
+      const body: Record<string, string> = { scope: ed.scope, scopeId: ed.scopeId };
+      for (const field of LIMIT_FIELDS) body[field.key] = String(f.get(field.key) ?? "").trim();
+      apiPost(`/api/pages/limits/save`, body)
+        .then(() => { setStatus({ ok: true, msg: "Saved." }); onSaved(); })
+        .catch((ex) => setStatus({ ok: false, msg: ex instanceof Error ? ex.message : "Save failed" }))
+        .finally(() => setBusy(false));
     }}>
-      <div className="row">
-        <Input aria-label="Key name" name="name" placeholder="Key name" required />
-        <select aria-label="Environment for new key" name="environmentId">{(d?.environments ?? []).map((env) => (<option key={env.id} value={env.id}>{env.name}</option>))}</select>
-        <Button type="submit">Create</Button>
+      <div className="ps-fields">
+        {LIMIT_FIELDS.map((field) => (<label key={field.key} className="ps-field"><span>{field.label}</span><Input name={field.key} inputMode="decimal" defaultValue={ed.row?.values[field.key] ?? ""} /></label>))}
+      </div>
+      <div className="ps-card-actions">
+        <Button type="submit" variant="primary" disabled={busy}>{busy ? "Saving…" : "Save"}</Button>
+        {ed.row ? (
+          <Button type="button" variant="ghost" disabled={busy} onClick={() => {
+            setStatus(null); setBusy(true);
+            apiPost(`/api/pages/limits/remove`, { scope: ed.scope, scopeId: ed.scopeId })
+              .then(() => { setStatus({ ok: true, msg: "Override cleared." }); onSaved(); })
+              .catch((ex) => setStatus({ ok: false, msg: ex instanceof Error ? ex.message : "Clear failed" }))
+              .finally(() => setBusy(false));
+          }}>Clear override</Button>
+        ) : null}
+        {status ? <p className={status.ok ? "ps-ok" : "error"}>{status.msg}</p> : null}
       </div>
     </form>
-    {created ? <Card title="New key — copy it now" desc={created} /> : null}
-    {err ? <p className="error">{err}</p> : null}
-    <Table head={["Name", "Prefix", "Status", "Env", "Created", ""]} rows={(d?.keys ?? []).map((k) => [k.name, k.prefix, k.status, k.environmentName ?? "—", fmtDate(k.createdAt), <span key={k.id} className="row">
-      <Button size="sm" variant="secondary" onClick={() => flip(k)}>{k.status === "active" ? "Disable" : "Enable"}</Button>
-      <Button size="sm" variant="ghost" onClick={() => { setErr(null); setRotated(null); setRotating({ id: k.id, name: k.name }); }}>Rotate</Button>
-      <Button size="sm" variant="destructive" onClick={() => {
-        setErr(null); setCreated(null);
-        if (!window.confirm(`Revoke ${k.name}? Requests using it will immediately fail with 401, and this cannot be undone.`)) return;
-        apiPost(`/api/pages/projects/${projectId}/keys/${k.id}/revoke`, { confirm: k.name })
-          .then(refresh)
-          .catch((ex) => setErr(ex instanceof Error ? ex.message : "Revoke failed"));
-      }}>Revoke</Button>
-    </span>])} />
-    {rotating ? (<KeysDialog title={`Rotate ${rotating.name}`} onClose={() => setRotating(null)}>
-      <p>The current secret stops working immediately and a new one is issued. Copy the new secret before closing — it is shown once.</p>
-      {err ? <p className="error">{err}</p> : null}
-      <div className="row">
-        <Button variant="secondary" onClick={() => setRotating(null)}>Cancel</Button>
-        <Button variant="primary" disabled={busy} onClick={() => {
-          setErr(null); setBusy(true);
-          apiPost<{ created: string }>(`/api/pages/projects/${projectId}/keys/${rotating.id}/rotate`, { confirm: rotating.name })
-            .then((r) => { setRotated(r.created); refresh(); })
-            .catch((ex) => setErr(ex instanceof Error ? ex.message : "Rotate failed"))
-            .finally(() => setBusy(false));
-        }}>{busy ? "Rotating…" : "Rotate"}</Button>
-      </div>
-    </KeysDialog>) : null}
-    {rotated ? (<KeysDialog title="Key rotated" onClose={() => { setRotated(null); setRotating(null); }}>
-      <p className="keys-warn">This is the only time you&apos;ll see this secret</p>
-      <div className="keys-secret"><code>{rotated}</code></div>
-      <div className="row">
-        <Button variant="secondary" onClick={() => { navigator.clipboard?.writeText(rotated).catch(() => {}); }}>Copy</Button>
-        <Button variant="primary" onClick={() => { setRotated(null); setRotating(null); }}>I&apos;ve saved it</Button>
-      </div>
-    </KeysDialog>) : null}
-  </>);
+  </Card>);
 }
 
-type AliasTarget = { modelId: string; slug: string; status: string; developer: string | null; position: number };
-type AliasRow = { id: string; name: string; description: string | null; enabled: boolean; scope: string; targets: AliasTarget[] };
-type AliasModel = { id: string; slug: string; name: string; status: string; developer: string | null };
-type AliasesData = { project: { id: string; name: string; slug: string }; aliases: AliasRow[]; models: AliasModel[] };
+export function LimitsPage() {
+  const [tick, setTick] = useState(0);
+  const { data: d, error, loading } = useLoad<LimitsData>("/api/pages/limits", tick);
+  const refresh = useCallback(() => setTick((t) => t + 1), []);
+  const chain = d?.chain ?? [];
+  const editors = d?.editors ?? [];
+  const keyRows = d?.keyRows ?? [];
+  const levelKeys = Object.keys(d?.levelLabels ?? {});
+  return (<ConsoleLayout><Page title="Limits" lede="Rate and spend limits for your account and keys.">
+    <LoadState loading={loading} error={error} />
+    <div className="ps-note" role="note">
+      <p>The router enforces the tightest value across the chain — platform, then account, then key. An override only ever lowers a limit.</p>
+    </div>
+    {d?.queryError ? <p className="error">{d.queryError}</p> : null}
+    {chain.length > 0 ? (
+      <Table head={["Metric", "Effective", "Bound at", ...levelKeys.map((l) => d?.levelLabels[l] ?? l)]} rows={chain.map((c) => {
+        const spend = c.metric === "dailySpendMicro" || c.metric === "monthlySpendMicro";
+        return [
+          c.label,
+          <span key="e" className="ps-effective">{c.effective === null ? "no limit" : spend ? `$${c.effective}` : c.effective}</span>,
+          <span key="b" className="ps-bound">{c.boundAtLabel ?? "—"}</span>,
+          ...levelKeys.map((l) => <span key={l}>{c.byLevel[l] == null ? "—" : spend ? `$${c.byLevel[l]}` : c.byLevel[l]}</span>),
+        ];
+      })} />
+    ) : null}
+    <div className="ps-cards">
+      {editors.map((ed) => (<LimitEditorCard key={ed.scope + ed.scopeId} ed={ed} onSaved={refresh} />))}
+    </div>
+    {keyRows.length > 0 ? (<>
+      <h2>Per-key limits</h2>
+      <Table head={["Key", ...LIMIT_FIELDS.map((f) => f.label)]} rows={keyRows.map((k) => [
+        k.name,
+        ...LIMIT_FIELDS.map((f) => <span key={f.key}>{k.values[f.key] === "" ? "—" : f.key === "dailySpendMicro" || f.key === "monthlySpendMicro" ? `$${k.values[f.key]}` : k.values[f.key]}</span>),
+      ])} />
+      <p className="muted">Per-key overrides are read-only on this page; the account card above is what it writes.</p>
+    </>) : null}
+  </Page></ConsoleLayout>);
+}
 
-function ProjectAliases({ projectId }: { projectId: string }) {
+type BudgetRow = { id: string; scope: string; scopeLabel: string; period: string; amountMicro: string; warnPercent: number; criticalPercent: number; actionAt100: string; consumedMicro: string; percent: number; state: string };
+type BudgetsData = { denied: boolean; queryError: string | null; periods: string[]; actions: string[]; budgets: BudgetRow[] };
+type KeyOption = { id: string; name: string };
+const BUDGET_TONE: Record<string, "ok" | "warn" | "danger"> = { ok: "ok", warn: "warn", critical: "danger", exceeded: "danger" };
+
+export function BudgetsPage() {
   const [tick, setTick] = useState(0);
   const [err, setErr] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState<AliasRow | null>(null);
-  const [busy, setBusy] = useState(false);
-  const { data: d, error, loading } = useLoad<AliasesData>(`/api/pages/projects/${projectId}/aliases`, tick);
+  const [editing, setEditing] = useState<BudgetRow | null>(null);
+  const [scope, setScope] = useState("account");
+  const { data: d, error, loading } = useLoad<BudgetsData>("/api/pages/budgets", tick);
+  const { data: keyData } = useLoad<{ keys: KeyOption[] }>("/api/pages/keys");
   const refresh = useCallback(() => setTick((t) => t + 1), []);
-  const aliases = d?.aliases ?? [];
-  const models = d?.models ?? [];
-  return (<>
+  const budgets = d?.budgets ?? [];
+  const periods = d?.periods ?? [];
+  const actions = d?.actions ?? [];
+  const keys = keyData?.keys ?? [];
+  const startEdit = (b: BudgetRow | null) => { setErr(null); setOk(null); setEditing(b); setScope("account"); };
+  return (<ConsoleLayout><Page title="Budgets" lede="Spend caps per period for the account and its keys.">
     <LoadState loading={loading} error={error} />
-    <div className="ps-note" role="note">
-      <p>An alias is a stable name clients call instead of a model slug. Point it at a different model later and no client code changes.</p>
-    </div>
+    {err ? <p className="error">{err}</p> : null}
+    {ok ? <p className="ps-ok">{ok}</p> : null}
     <form className="ps-form" onSubmit={(e) => {
       e.preventDefault(); setErr(null); setOk(null);
       const f = new FormData(e.currentTarget);
-      const name = String(f.get("name") ?? "").trim();
-      apiPost<{ created: string }>(`/api/pages/projects/${projectId}/aliases/create`, {
-        name,
-        scope: String(f.get("scope") ?? "project"),
-        targets: f.getAll("targets").map((v) => String(v)),
-        description: String(f.get("description") ?? "").trim() || undefined,
+      apiPost<{ saved: string }>("/api/pages/budgets/save", {
+        scope,
+        scopeId: scope === "api_key" ? String(f.get("scopeId") ?? "") : undefined,
+        period: String(f.get("period") ?? ""),
+        amount: String(f.get("amount") ?? "").trim(),
+        warnPercent: String(f.get("warnPercent") ?? "").trim(),
+        criticalPercent: String(f.get("criticalPercent") ?? "").trim(),
+        actionAt100: String(f.get("actionAt100") ?? ""),
       })
-        .then(() => { (e.target as HTMLFormElement).reset(); setOk(`Alias "${name}" created.`); refresh(); })
-        .catch((ex) => setErr(ex instanceof Error ? ex.message : "Create failed"));
+        .then(() => { setOk(editing ? "Budget updated." : "Budget saved."); setEditing(null); (e.target as HTMLFormElement).reset(); refresh(); })
+        .catch((ex) => setErr(ex instanceof Error ? ex.message : "Save failed"));
     }}>
-      <label className="ps-field"><span>Alias name</span>
-        <Input name="name" placeholder="e.g. fast" required />
-      </label>
-      <label className="ps-field"><span>Target models</span>
-        <select className="select" name="targets" multiple size={6} required>
-          {models.map((m) => (<option key={m.id} value={m.id}>{m.slug}{m.name && m.name !== m.slug ? ` — ${m.name}` : ""}</option>))}
-        </select>
-      </label>
       <label className="ps-field"><span>Scope</span>
-        <select className="select" name="scope" defaultValue="project">
-          <option value="project">This project</option>
-          <option value="workspace">Whole workspace</option>
+        <select className="select" name="scope" value={scope} disabled={editing !== null} onChange={(e) => setScope(e.target.value)}>
+          <option value="account">Account (all keys)</option>
+          <option value="api_key">One API key</option>
         </select>
       </label>
-      <label className="ps-field"><span>Description</span>
-        <Input name="description" placeholder="Optional" />
+      {scope === "api_key" ? (
+        <label className="ps-field"><span>API key</span>
+          <select className="select" name="scopeId" defaultValue="" required>
+            <option value="">Pick a key</option>
+            {keys.map((k) => <option key={k.id} value={k.id}>{k.name}</option>)}
+          </select>
+        </label>
+      ) : null}
+      <label className="ps-field"><span>Period</span>
+        <select className="select" name="period" defaultValue={editing?.period ?? periods[0] ?? "monthly"}>
+          {periods.map((p) => <option key={p} value={p}>{p}</option>)}
+        </select>
       </label>
-      <div className="ps-form-actions">
-        <Button type="submit" variant="primary">Create alias</Button>
+      <label className="ps-field"><span>Amount ($)</span><Input name="amount" inputMode="decimal" required defaultValue={editing ? (Number(BigInt(editing.amountMicro)) / 1_000_000).toFixed(2) : ""} /></label>
+      <label className="ps-field"><span>Warn at (%)</span><Input name="warnPercent" inputMode="numeric" defaultValue={editing ? String(editing.warnPercent) : "70"} /></label>
+      <label className="ps-field"><span>Critical at (%)</span><Input name="criticalPercent" inputMode="numeric" defaultValue={editing ? String(editing.criticalPercent) : "90"} /></label>
+      <label className="ps-field"><span>At 100%</span>
+        <select className="select" name="actionAt100" defaultValue={editing?.actionAt100 ?? "block"}>
+          {actions.map((a) => <option key={a} value={a}>{a}</option>)}
+        </select>
+      </label>
+      <div className="ps-form-actions pr-actions">
+        <Button type="submit" variant="primary">{editing ? "Save budget" : "Add budget"}</Button>
+        {editing ? <Button type="button" variant="ghost" onClick={() => startEdit(null)}>Cancel</Button> : null}
       </div>
     </form>
+    {!loading && !error && budgets.length === 0 ? (
+      <div className="ps-empty"><p className="muted">No budgets yet. Create one above so this account&apos;s spend is capped and you are told before it is.</p></div>
+    ) : null}
+    {budgets.length > 0 ? (
+      <Table head={["Scope", "Period", "Amount", "Consumed", "State", "Actions"]} rows={budgets.map((b) => [
+        b.scopeLabel,
+        b.period,
+        <span key="a" className="num">{fmtMicro(b.amountMicro)}</span>,
+        <span key="c" className="row">
+          <span className="usage-bar-track" style={{ width: "6rem" }}><span className="usage-bar-fill" style={{ width: `${Math.min(Math.max(b.percent, 0), 100)}%` }} /></span>
+          <span className="num">{b.percent}%</span>
+        </span>,
+        <Badge key="s" tone={BUDGET_TONE[b.state] ?? "default"}>{b.state}</Badge>,
+        <span key="x" className="row">
+          {b.scope === "account" ? <Button size="sm" variant="secondary" onClick={() => startEdit(b)}>Edit</Button> : null}
+          <Button size="sm" variant="ghost" onClick={() => {
+            setErr(null); setOk(null);
+            if (!window.confirm(`Delete the ${b.period} budget for ${b.scopeLabel}? Spend stops being capped and this cannot be undone.`)) return;
+            apiPost("/api/pages/budgets/remove", { id: b.id })
+              .then(() => { setOk(`Budget for ${b.scopeLabel} deleted.`); refresh(); })
+              .catch((ex) => setErr(ex instanceof Error ? ex.message : "Delete failed"));
+          }}>Delete</Button>
+        </span>,
+      ])} />
+    ) : null}
+  </Page></ConsoleLayout>);
+}
+
+type AliasTarget = { modelId: string; slug: string };
+type AliasRow = { id: string; name: string; description: string | null; enabled: boolean; scope: string; targets: AliasTarget[] };
+type AliasModel = { id: string; slug: string; name: string; status: string; developer: string | null };
+type AliasesData = { aliases: AliasRow[]; models: AliasModel[] };
+
+export function AliasesPage() {
+  const [tick, setTick] = useState(0);
+  const [err, setErr] = useState<string | null>(null);
+  const [ok, setOk] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [deleting, setDeleting] = useState<AliasRow | null>(null);
+  const { data: d, error, loading } = useLoad<AliasesData>("/api/pages/aliases", tick);
+  const refresh = useCallback(() => setTick((t) => t + 1), []);
+  const aliases = d?.aliases ?? [];
+  const models = d?.models ?? [];
+  return (<ConsoleLayout><Page title="Aliases" lede="Stable names your apps can ask for instead of a model id.">
+    <LoadState loading={loading} error={error} />
+    <div className="ps-note" role="note">
+      <p>An alias resolves to its targets in order. Account aliases are yours to edit; global aliases are platform-owned and read-only.</p>
+    </div>
     {err ? <p className="error">{err}</p> : null}
-    {ok ? <p className="ps-ok" role="status">{ok}</p> : null}
-    {!loading && !error && aliases.length === 0 ? (
-      <div className="ps-empty">
-        <p className="muted">No aliases yet. Rename <code>fast</code> → a real slug so clients don&apos;t break when you switch models.</p>
+    {ok ? <p className="ps-ok">{ok}</p> : null}
+    <form className="ps-form" onSubmit={(e) => {
+      e.preventDefault(); setErr(null); setOk(null); setBusy(true);
+      const f = new FormData(e.currentTarget);
+      const name = String(f.get("name") ?? "").trim();
+      apiPost<{ created: string }>("/api/pages/aliases/create", {
+        name,
+        scope: String(f.get("scope") ?? "account"),
+        modelIds: f.getAll("modelIds").map((v) => String(v)),
+        description: String(f.get("description") ?? "").trim() || undefined,
+      })
+        .then(() => { setOk(`Alias "${name}" created.`); (e.target as HTMLFormElement).reset(); refresh(); })
+        .catch((ex) => setErr(ex instanceof Error ? ex.message : "Create failed"))
+        .finally(() => setBusy(false));
+    }}>
+      <label className="ps-field"><span>Name</span><Input name="name" placeholder="e.g. fast" required /></label>
+      <label className="ps-field"><span>Scope</span>
+        <select className="select" name="scope" defaultValue="account">
+          <option value="account">This account</option>
+          <option value="global">Global (read-only once created)</option>
+        </select>
+      </label>
+      <label className="ps-field"><span>Targets (in fallback order)</span>
+        <select className="select" name="modelIds" multiple size={4} required>
+          {models.map((m) => <option key={m.id} value={m.id}>{m.slug}</option>)}
+        </select>
+      </label>
+      <label className="ps-field"><span>Description</span><Input name="description" placeholder="What this alias is for" /></label>
+      <div className="ps-form-actions pr-actions">
+        <Button type="submit" variant="primary" disabled={busy}>{busy ? "Creating…" : "Create alias"}</Button>
       </div>
+    </form>
+    {!loading && !error && aliases.length === 0 ? (
+      <div className="ps-empty"><p className="muted">No aliases yet.</p></div>
     ) : null}
     {aliases.length > 0 ? (
-      <Table head={["Alias", "Targets", "Scope", "Status", ""]} rows={aliases.map((a) => [
-        <div key="n" className="ps-alias-name"><code>{a.name}</code>{a.description ? <span className="muted">— {a.description}</span> : null}</div>,
+      <Table head={["Name", "Targets", "Scope", "State", ""]} rows={aliases.map((a) => [
+        <span key="n" className="ps-alias-name">{a.name}{a.description ? <span className="muted">{a.description}</span> : null}</span>,
         <span key="t" className="ps-targets">{a.targets.length > 0 ? a.targets.map((t) => (<code key={t.modelId} className="ps-target">{t.slug}</code>)) : <span className="muted">no targets</span>}</span>,
-        <Badge key="s" tone={a.scope === "project" ? "info" : a.scope === "workspace" ? "default" : "warn"}>{a.scope}</Badge>,
+        <Badge key="s" tone={a.scope === "account" ? "info" : "default"}>{a.scope}</Badge>,
         <Badge key="e" tone={a.enabled ? "ok" : "warn"}>{a.enabled ? "enabled" : "disabled"}</Badge>,
         <Button key="d" size="sm" variant="secondary" disabled={a.scope === "global"} title={a.scope === "global" ? "Global aliases are read-only" : undefined} onClick={() => { setErr(null); setDeleting(a); }}>Delete</Button>,
       ])} />
     ) : null}
     {deleting ? (<KeysDialog title="Delete alias" onClose={() => setDeleting(null)}>
-      <p>Delete <code className="keys-prefix">{deleting.name}</code>? Clients calling this alias will immediately fail with an unknown-model error, and this cannot be undone.</p>
-      {err ? <p className="error">{err}</p> : null}
+      <p>Delete <code className="keys-prefix">{deleting.name}</code>? Requests naming it fall back to normal model resolution. This cannot be undone.</p>
       <div className="row">
         <Button variant="secondary" onClick={() => setDeleting(null)}>Cancel</Button>
-        <Button variant="destructive" disabled={busy} onClick={() => {
-          setErr(null); setBusy(true);
-          apiPost(`/api/pages/projects/${projectId}/aliases/delete`, { id: deleting.id })
+        <Button variant="destructive" onClick={() => {
+          apiPost(`/api/pages/aliases/delete`, { id: deleting.id })
             .then(() => { const gone = deleting.name; setDeleting(null); setOk(`Alias "${gone}" deleted.`); refresh(); })
-            .catch((ex) => setErr(ex instanceof Error ? ex.message : "Delete failed"))
-            .finally(() => setBusy(false));
-        }}>{busy ? "Deleting…" : "Delete"}</Button>
+            .catch((ex) => setErr(ex instanceof Error ? ex.message : "Delete failed"));
+        }}>Delete</Button>
       </div>
     </KeysDialog>) : null}
-  </>);
+  </Page></ConsoleLayout>);
 }
 
-type LimitValues = Record<string, string>;
-type LimitEditor = { scope: string; scopeId: string; label: string; row: { id: string; values: LimitValues } | null };
-type LimitChainRow = { metric: string; label: string; spend: boolean; effective: string | null; boundAt: string | null; boundAtLabel: string | null; byLevel: Record<string, string | null> };
-type LimitsData = {
-  queryError: string | null; projectId: string; projectName: string;
-  labels: Record<string, string>; levelLabels: Record<string, string>;
-  chain: LimitChainRow[]; editors: LimitEditor[];
-  keyRows: { id: string; name: string; values: LimitValues }[];
-};
-const LIMIT_FIELDS = ["rpm", "tpm", "rpd", "tpd", "concurrency", "dailySpendMicro", "monthlySpendMicro"] as const;
-const LIMIT_LEVELS = ["platform", "workspace", "project", "environment", "api_key"] as const;
-
-// The limits endpoints speak decimal dollars ("12.50") while fmtMicro takes
-// micros; convert at the edge so one formatter serves both spellings.
-function fmtLimitMoney(v: string | null | undefined) {
-  if (v === null || v === undefined || v === "") return "—";
-  const micro = Math.round(Number(v) * 1_000_000);
-  return Number.isFinite(micro) ? fmtMicro(String(micro)) : String(v);
-}
-
-function LimitEditorCard({ projectId, ed, labels, onSaved }: { projectId: string; ed: LimitEditor; labels: Record<string, string>; onSaved: () => void }) {
-  const [status, setStatus] = useState<{ ok: boolean; msg: string } | null>(null);
-  const [busy, setBusy] = useState(false);
-  const hasRow = ed.row !== null;
-  return (
-    <Card titleAs="h3" title={ed.label} className="ps-card" desc={hasRow ? "Override set — wins over the levels above it" : "No override — the effective value comes from the chain"}>
-      <form className="ps-fields" onSubmit={(e) => {
-        e.preventDefault(); setStatus(null); setBusy(true);
-        const f = new FormData(e.currentTarget);
-        const body: Record<string, string> = { scope: ed.scope, scopeId: ed.scopeId };
-        for (const k of LIMIT_FIELDS) body[k] = String(f.get(k) ?? "").trim();
-        apiPost(`/api/pages/projects/${projectId}/limits/save`, body)
-          .then(() => { setStatus({ ok: true, msg: "Saved." }); onSaved(); })
-          .catch((ex) => setStatus({ ok: false, msg: ex instanceof Error ? ex.message : "Save failed" }))
-          .finally(() => setBusy(false));
-      }}>
-        {LIMIT_FIELDS.map((k) => (
-          <label key={k} className="ps-field"><span>{labels[k] ?? k}</span>
-            <Input name={k} inputMode="decimal" placeholder="inherit" defaultValue={ed.row?.values[k] ?? ""} />
-          </label>
-        ))}
-        <div className="ps-card-actions">
-          <Button type="submit" variant="primary" disabled={busy}>{busy ? "Saving…" : "Save"}</Button>
-          {hasRow ? <Button type="button" variant="ghost" disabled={busy} onClick={() => {
-            setStatus(null); setBusy(true);
-            apiPost(`/api/pages/projects/${projectId}/limits/remove`, { scope: ed.scope, scopeId: ed.scopeId })
-              .then(() => { setStatus({ ok: true, msg: "Override cleared." }); onSaved(); })
-              .catch((ex) => setStatus({ ok: false, msg: ex instanceof Error ? ex.message : "Clear failed" }))
-              .finally(() => setBusy(false));
-          }}>Clear override</Button> : null}
-        </div>
-        {status ? <p className={status.ok ? "ps-ok" : "error"} role="status">{status.msg}</p> : null}
-      </form>
-    </Card>
-  );
-}
-
-function ProjectLimits({ projectId }: { projectId: string }) {
-  const [tick, setTick] = useState(0);
-  const { data: d, error, loading } = useLoad<LimitsData>(`/api/pages/projects/${projectId}/limits`, tick);
-  const refresh = useCallback(() => setTick((t) => t + 1), []);
-  const labels = d?.labels ?? {};
-  const levelLabels = d?.levelLabels ?? {};
-  const chain = d?.chain ?? [];
-  const editors = d?.editors ?? [];
-  const keyRows = d?.keyRows ?? [];
-  return (<>
-    <LoadState loading={loading} error={error} />
-    {d?.queryError ? <p className="error">{d.queryError}</p> : null}
-    <div className="ps-note" role="note">
-      <p>The router enforces the tightest value across the chain — platform, workspace, project, environment, then key. An override only ever lowers a limit.</p>
-    </div>
-    {chain.length > 0 ? (
-      <Table head={["Metric", "Effective", "Bound at", ...LIMIT_LEVELS.map((l) => levelLabels[l] ?? l)]} rows={chain.map((c) => [
-        c.label,
-        <span key="e" className="num ps-effective">{c.spend ? fmtLimitMoney(c.effective) : c.effective ?? "—"}</span>,
-        c.boundAtLabel ?? "—",
-        ...LIMIT_LEVELS.map((l) => {
-          const v = c.byLevel[l] ?? null;
-          return <span key={l} className={l === c.boundAt ? "num ps-bound" : "num muted"}>{v == null || v === "" ? "—" : c.spend ? fmtLimitMoney(v) : v}</span>;
-        }),
-      ])} />
-    ) : null}
-    <h2>Overrides</h2>
-    <div className="ps-cards">
-      {editors.map((ed) => (<LimitEditorCard key={ed.scope + ed.scopeId + (ed.row?.id ?? "none")} projectId={projectId} ed={ed} labels={labels} onSaved={refresh} />))}
-    </div>
-    {keyRows.length > 0 ? (<>
-      <h2>Per-key limits</h2>
-      <Table head={["Key", ...LIMIT_FIELDS.map((k) => labels[k] ?? k)]} rows={keyRows.map((k) => [
-        k.name,
-        ...LIMIT_FIELDS.map((f) => {
-          const v = k.values[f] ?? "";
-          return <span key={f} className="num">{v === "" ? "—" : f === "dailySpendMicro" || f === "monthlySpendMicro" ? fmtLimitMoney(v) : v}</span>;
-        }),
-      ])} />
-      <p className="muted">Per-key overrides are read-only here — the save endpoint accepts workspace, project and environment scopes only.</p>
-    </>) : null}
-  </>);
-}
-
-type BudgetRow = {
-  id: string; scope: string; scopeLabel: string; period: string;
-  amountMicro: string; warnPercent: number; criticalPercent: number; actionAt100: string;
-  windowFrom: string; windowTo: string; consumedMicro: string; percent: number; state: string;
-};
-type BudgetsData = {
-  denied: boolean; queryError: string | null; projectId: string; projectName: string;
-  periods: string[]; actions: string[]; environments: { id: string; name: string }[]; budgets: BudgetRow[];
-};
-const BUDGET_TONE: Record<string, "ok" | "warn" | "danger"> = { ok: "ok", warn: "warn", critical: "danger", exceeded: "danger" };
-
-// The save endpoint upserts on (scope, scope_id, period) and reads no id, so an
-// edit is the same POST as a create with the row prefilled. It also means the
-// payload must carry the scope_id, and the GET response only names the
-// environment in scopeLabel — so environment budgets are create-only here rather
-// than risk writing a same-named environment's row.
-function ProjectBudgets({ projectId }: { projectId: string }) {
-  const [tick, setTick] = useState(0);
-  const [err, setErr] = useState<string | null>(null);
-  const [ok, setOk] = useState<string | null>(null);
-  const [editing, setEditing] = useState<BudgetRow | null>(null);
-  const [envScope, setEnvScope] = useState(false);
-  const { data: d, error, loading } = useLoad<BudgetsData>(`/api/pages/projects/${projectId}/budgets`, tick);
-  const refresh = useCallback(() => setTick((t) => t + 1), []);
-  const budgets = d?.budgets ?? [];
-  const periods = d?.periods ?? [];
-  const actions = d?.actions ?? [];
-  const environments = d?.environments ?? [];
-  const startEdit = (b: BudgetRow | null) => { setErr(null); setOk(null); setEditing(b); setEnvScope(false); };
-  return (<>
-    <LoadState loading={loading} error={error} />
-    {d?.queryError ? <p className="error">{d.queryError}</p> : null}
-    <div className="ps-note" role="note">
-      <p>A budget caps spend over a window. Crossing the warning or critical percentage raises an alert; only <code>block</code> refuses the request once 100% is reached.</p>
-    </div>
-    <form key={editing?.id ?? "new"} className="ps-form" onSubmit={(e) => {
-      e.preventDefault(); setErr(null); setOk(null);
-      const f = new FormData(e.currentTarget);
-      apiPost<{ saved: string }>(`/api/pages/projects/${projectId}/budgets/save`, {
-        scope: envScope ? "environment" : "project",
-        environmentId: envScope ? String(f.get("environmentId") ?? "") : undefined,
-        period: String(f.get("period") ?? ""),
-        amount: String(f.get("amount") ?? "").trim(),
-        warnPercent: String(f.get("warnPercent") ?? "").trim(),
-        criticalPercent: String(f.get("criticalPercent") ?? "").trim(),
-        actionAt100: String(f.get("actionAt100") ?? "block"),
-      })
-        .then(() => { setOk(editing ? "Budget updated." : "Budget created."); startEdit(null); refresh(); })
-        .catch((ex) => setErr(ex instanceof Error ? ex.message : "Save failed"));
-    }}>
-      <label className="ps-field"><span>Period</span>
-        <select className="select" name="period" defaultValue={editing?.period ?? periods[0] ?? "monthly"}>
-          {periods.map((p) => (<option key={p} value={p}>{p}</option>))}
-        </select>
-      </label>
-      <label className="ps-field"><span>Amount ($)</span>
-        <Input name="amount" inputMode="decimal" placeholder="25.00" defaultValue={editing ? microToInput(Number(editing.amountMicro)) : ""} required />
-      </label>
-      <label className="ps-field"><span>Warn at (%)</span>
-        <Input name="warnPercent" inputMode="numeric" placeholder="70" defaultValue={editing ? String(editing.warnPercent) : ""} />
-      </label>
-      <label className="ps-field"><span>Critical at (%)</span>
-        <Input name="criticalPercent" inputMode="numeric" placeholder="90" defaultValue={editing ? String(editing.criticalPercent) : ""} />
-      </label>
-      <label className="ps-field"><span>At 100%</span>
-        <select className="select" name="actionAt100" defaultValue={editing?.actionAt100 ?? "block"}>
-          {actions.map((a) => (<option key={a} value={a}>{a}</option>))}
-        </select>
-      </label>
-      <label className="ps-field"><span>Scope</span>
-        <select className="select" name="scope" value={envScope ? "environment" : "project"} onChange={(e) => setEnvScope(e.target.value === "environment")}>
-          <option value="project">This project</option>
-          <option value="environment">One environment</option>
-        </select>
-      </label>
-      {envScope ? (
-        <label className="ps-field"><span>Environment</span>
-          <select className="select" name="environmentId" defaultValue="" required>
-            {environments.map((en) => (<option key={en.id} value={en.id}>{en.name}</option>))}
-          </select>
-        </label>
-      ) : null}
-      <div className="ps-form-actions">
-        <Button type="submit" variant="primary">{editing ? "Save budget" : "Create budget"}</Button>
-        {editing ? <Button type="button" variant="ghost" onClick={() => startEdit(null)}>Cancel</Button> : null}
-      </div>
-    </form>
-    {err ? <p className="error">{err}</p> : null}
-    {ok ? <p className="ps-ok" role="status">{ok}</p> : null}
-    {!loading && !error && budgets.length === 0 ? (
-      <div className="ps-empty">
-        <p className="muted">No budgets yet. Create one above so this project&apos;s spend is capped and you are told before it is.</p>
-      </div>
-    ) : null}
-    {budgets.length > 0 ? (
-      <Table head={["Scope", "Period", "Amount", "Used", "Used %", "State", "At 100%", "Warn / critical", ""]} rows={budgets.map((b) => [
-        b.scopeLabel,
-        b.period,
-        fmtMicro(b.amountMicro),
-        fmtMicro(b.consumedMicro),
-        <span key="p" className="num">{b.percent}%</span>,
-        <Badge key="s" tone={BUDGET_TONE[b.state] ?? "default"}>{b.state}</Badge>,
-        b.actionAt100,
-        `${b.warnPercent}% / ${b.criticalPercent}%`,
-        <span key="a" className="row">
-          {b.scope === "project" ? <Button size="sm" variant="secondary" onClick={() => startEdit(b)}>Edit</Button> : null}
-          {b.scope === "workspace" ? <span className="muted">workspace</span> : (
-            <Button size="sm" variant="ghost" onClick={() => {
-              setErr(null); setOk(null);
-              if (!window.confirm(`Delete the ${b.period} budget for ${b.scopeLabel}? Spend stops being capped and this cannot be undone.`)) return;
-              apiPost(`/api/pages/projects/${projectId}/budgets/remove`, { id: b.id })
-                .then(() => { setOk(`Budget for ${b.scopeLabel} deleted.`); refresh(); })
-                .catch((ex) => setErr(ex instanceof Error ? ex.message : "Delete failed"));
-            }}>Delete</Button>
-          )}
-        </span>,
-      ])} />
-    ) : null}
-    {budgets.some((b) => b.scope !== "project") ? (
-      <p className="muted">Environment and workspace budgets are read-only here — the save response does not name the scope they were written to, so an edit could land on the wrong row.</p>
-    ) : null}
-  </>);
-}
-
-type PolicyConstraints = {
-  max_input_price_micro?: number; max_output_price_micro?: number; max_p95_latency_ms?: number;
-  min_availability?: number; allowed_providers?: string[]; blocked_providers?: string[]; region_preference?: string;
-};
-type PolicyWeights = { price?: number; latency?: number; reliability?: number; capacity?: number };
+type PolicyConstraints = Record<string, unknown>;
+type PolicyWeights = Record<string, number | undefined>;
 type RoutingPolicy = {
-  id: string; name: string; strategy: string; enabled: boolean;
-  maxAttempts: number; requestTimeoutMs: number; fallbackEnabled: boolean;
-  scope: string; providerPreferences: { order: string[] }; modelPreferences: { order: string[] };
-  constraints: PolicyConstraints; weights: PolicyWeights; boundEnvironments: string[];
+  id: string; name: string; strategy: string; enabled: boolean; maxAttempts: number; requestTimeoutMs: number; fallbackEnabled: boolean;
+  scope: string; providerPreferences: { order: string[] }; modelPreferences: { order: string[] }; constraints: PolicyConstraints; weights: PolicyWeights;
 };
-type RoutingData = {
-  project: { id: string; name: string; slug: string };
-  policies: RoutingPolicy[];
-  bindings: { environmentId: string; environmentName: string; policyId: string | null; policyName: string | null }[];
-  strategies: string[]; providers: { slug: string; name: string }[]; models: { slug: string; name: string }[];
-};
+type RoutingData = { policies: RoutingPolicy[]; strategies: string[]; providers: { slug: string; name: string }[]; models: { slug: string; name: string }[] };
 
-function microToInput(v: number) {
-  const n = BigInt(Math.trunc(v));
-  const whole = n / 1_000_000n;
-  const frac = (n % 1_000_000n).toString().padStart(6, "0").replace(/0+$/, "");
-  return frac ? `${whole}.${frac}` : whole.toString();
-}
-
-// parsePolicyFormBody treats an absent field as "reset to default", so an
-// update must round-trip every field the policy already carries or the save
-// silently drops it.
-function policyBody(p: RoutingPolicy, over: { name?: string; strategy?: string; enabled?: boolean; maxAttempts?: number; requestTimeoutMs?: number; fallbackEnabled?: boolean }): Record<string, unknown> {
-  const c = p.constraints;
+// The update endpoint replaces the whole policy, so the dialog must resend the
+// fields the form does not show (constraints, weights, orders) or editing a
+// name would silently clear them. The parser accepts the snake_case keys.
+function policyBody(p: RoutingPolicy, over: Record<string, unknown>) {
   return {
     id: p.id,
-    name: over.name ?? p.name,
-    strategy: over.strategy ?? p.strategy,
-    enabled: over.enabled ?? p.enabled,
-    scope: p.scope,
-    maxAttempts: over.maxAttempts ?? p.maxAttempts,
-    requestTimeoutMs: over.requestTimeoutMs ?? p.requestTimeoutMs,
-    fallbackEnabled: over.fallbackEnabled ?? p.fallbackEnabled,
-    providerOrder: p.providerPreferences.order,
-    modelOrder: p.modelPreferences.order,
-    maxInputPriceMicro: c.max_input_price_micro == null ? "" : microToInput(c.max_input_price_micro),
-    maxOutputPriceMicro: c.max_output_price_micro == null ? "" : microToInput(c.max_output_price_micro),
-    maxP95LatencyMs: c.max_p95_latency_ms == null ? "" : String(c.max_p95_latency_ms),
-    minAvailability: c.min_availability == null ? "" : String(c.min_availability),
-    allowedProviders: c.allowed_providers ?? [],
-    blockedProviders: c.blocked_providers ?? [],
-    regionPreference: c.region_preference ?? "",
-    weightPrice: p.weights.price ?? "", weightLatency: p.weights.latency ?? "",
-    weightReliability: p.weights.reliability ?? "", weightCapacity: p.weights.capacity ?? "",
+    name: p.name,
+    strategy: p.strategy,
+    enabled: p.enabled,
+    maxAttempts: p.maxAttempts,
+    requestTimeoutMs: p.requestTimeoutMs,
+    fallbackEnabled: p.fallbackEnabled,
+    providerOrder: p.providerPreferences?.order ?? [],
+    modelOrder: p.modelPreferences?.order ?? [],
+    max_input_price_micro: p.constraints?.max_input_price_micro,
+    max_output_price_micro: p.constraints?.max_output_price_micro,
+    max_p95_latency_ms: p.constraints?.max_p95_latency_ms,
+    min_availability: p.constraints?.min_availability,
+    allowed_providers: p.constraints?.allowed_providers,
+    blocked_providers: p.constraints?.blocked_providers,
+    region_preference: p.constraints?.region_preference,
+    weights: p.weights ?? {},
+    ...over,
   };
 }
 
-function PolicyDialog({ projectId, policy, strategies, onClose, onSaved }: { projectId: string; policy: RoutingPolicy; strategies: string[]; onClose: () => void; onSaved: () => void }) {
+function PolicyDialog({ policy, strategies, onClose, onSaved }: { policy: RoutingPolicy; strategies: string[]; onClose: () => void; onSaved: () => void }) {
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   return (<KeysDialog title={`Edit ${policy.name}`} onClose={onClose}>
     <form className="ps-dialog-form" onSubmit={(e) => {
       e.preventDefault(); setErr(null); setBusy(true);
       const f = new FormData(e.currentTarget);
-      apiPost(`/api/pages/projects/${projectId}/routing/update`, policyBody(policy, {
+      apiPost(`/api/pages/routing/update`, policyBody(policy, {
         name: String(f.get("name") ?? "").trim(),
         strategy: String(f.get("strategy") ?? policy.strategy),
         enabled: f.get("enabled") === "on",
         maxAttempts: Number(f.get("maxAttempts") ?? policy.maxAttempts),
-        requestTimeoutMs: Number(f.get("requestTimeoutMs") ?? policy.requestTimeoutMs),
-        fallbackEnabled: f.get("fallbackEnabled") === "on",
       }))
         .then(() => { onSaved(); onClose(); })
         .catch((ex) => setErr(ex instanceof Error ? ex.message : "Update failed"))
@@ -1411,14 +1130,11 @@ function PolicyDialog({ projectId, policy, strategies, onClose, onSaved }: { pro
       <label className="ps-field"><span>Name</span><Input name="name" defaultValue={policy.name} required /></label>
       <label className="ps-field"><span>Strategy</span>
         <select className="select" name="strategy" defaultValue={policy.strategy}>
-          {strategies.map((s) => <option key={s} value={s}>{s}</option>)}
+          {strategies.map((s) => <option key={s} value={s}>{s.replace(/_/g, " ")}</option>)}
         </select>
       </label>
       <label className="ps-field"><span>Max attempts (1–8)</span><Input name="maxAttempts" inputMode="numeric" defaultValue={String(policy.maxAttempts)} /></label>
-      <label className="ps-field"><span>Request timeout (ms)</span><Input name="requestTimeoutMs" inputMode="numeric" defaultValue={String(policy.requestTimeoutMs)} /></label>
-      <label className="ps-check"><input type="checkbox" name="enabled" defaultChecked={policy.enabled} /> Enabled</label>
-      <label className="ps-check"><input type="checkbox" name="fallbackEnabled" defaultChecked={policy.fallbackEnabled} /> Fall back to the next candidate</label>
-      <p className="muted">Scope: {policy.scope}. Provider and model order, constraints and weights are preserved as saved.</p>
+      <label className="ps-check"><input type="checkbox" name="enabled" defaultChecked={policy.enabled} /> enabled</label>
       {err ? <p className="error">{err}</p> : null}
       <div className="row">
         <Button type="submit" variant="primary" disabled={busy}>{busy ? "Saving…" : "Save"}</Button>
@@ -1428,575 +1144,211 @@ function PolicyDialog({ projectId, policy, strategies, onClose, onSaved }: { pro
   </KeysDialog>);
 }
 
-function ProjectRouting({ projectId }: { projectId: string }) {
+export function RoutingPage() {
   const [tick, setTick] = useState(0);
   const [err, setErr] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
   const [editing, setEditing] = useState<RoutingPolicy | null>(null);
   const [deleting, setDeleting] = useState<RoutingPolicy | null>(null);
   const [busy, setBusy] = useState(false);
-  const { data: d, error, loading } = useLoad<RoutingData>(`/api/pages/projects/${projectId}/routing`, tick);
+  const { data: d, error, loading } = useLoad<RoutingData>("/api/pages/routing", tick);
   const refresh = useCallback(() => setTick((t) => t + 1), []);
   const policies = d?.policies ?? [];
   const strategies = d?.strategies ?? [];
-  return (<>
+  const accountPolicies = policies.filter((p) => p.scope !== "platform");
+  const platformDefault = policies.find((p) => p.scope === "platform") ?? null;
+  return (<ConsoleLayout><Page title="Routing" lede="How a request picks its provider and model.">
     <LoadState loading={loading} error={error} />
+    <div className="ps-note" role="note">
+      <p>Your account policy applies to every key unless a tighter one exists. The platform default applies when your account defines none.</p>
+    </div>
+    <Card titleAs="h2" title="Platform default" desc={platformDefault ? `${platformDefault.name} · ${platformDefault.strategy.replace(/_/g, " ")}` : "none"} />
+    {err ? <p className="error">{err}</p> : null}
+    {ok ? <p className="ps-ok">{ok}</p> : null}
     <form className="ps-form" onSubmit={(e) => {
-      e.preventDefault(); setErr(null); setOk(null);
+      e.preventDefault(); setErr(null); setOk(null); setBusy(true);
       const f = new FormData(e.currentTarget);
-      apiPost<{ created: string }>(`/api/pages/projects/${projectId}/routing/create`, {
-        name: String(f.get("name") ?? "").trim(),
-        strategy: String(f.get("strategy") ?? "balanced"),
-        scope: String(f.get("scope") ?? "project"),
+      const name = String(f.get("name") ?? "").trim();
+      apiPost<{ created: string }>("/api/pages/routing/create", {
+        name,
+        strategy: String(f.get("strategy") ?? strategies[0] ?? "balanced"),
         maxAttempts: Number(f.get("maxAttempts") ?? 2),
         requestTimeoutMs: Number(f.get("requestTimeoutMs") ?? 30000),
         fallbackEnabled: f.get("fallbackEnabled") === "on",
-        enabled: f.get("enabled") === "on",
       })
-        .then(() => { (e.target as HTMLFormElement).reset(); setOk("Policy created."); refresh(); })
-        .catch((ex) => setErr(ex instanceof Error ? ex.message : "Create failed"));
+        .then(() => { setOk(`Policy "${name}" created.`); (e.target as HTMLFormElement).reset(); refresh(); })
+        .catch((ex) => setErr(ex instanceof Error ? ex.message : "Create failed"))
+        .finally(() => setBusy(false));
     }}>
-      <label className="ps-field"><span>Policy name</span>
-        <Input name="name" placeholder="e.g. cost-first" required />
-      </label>
+      <label className="ps-field"><span>Name</span><Input name="name" placeholder="e.g. production" required /></label>
       <label className="ps-field"><span>Strategy</span>
-        <select className="select" name="strategy" defaultValue="balanced">
-          {strategies.map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
-      </label>
-      <label className="ps-field"><span>Scope</span>
-        <select className="select" name="scope" defaultValue="project">
-          <option value="project">This project</option>
-          <option value="workspace">Whole workspace</option>
+        <select className="select" name="strategy" defaultValue={strategies[0] ?? "balanced"}>
+          {strategies.map((s) => <option key={s} value={s}>{s.replace(/_/g, " ")}</option>)}
         </select>
       </label>
       <label className="ps-field"><span>Max attempts (1–8)</span><Input name="maxAttempts" inputMode="numeric" defaultValue="2" /></label>
-      <label className="ps-field"><span>Request timeout (ms)</span><Input name="requestTimeoutMs" inputMode="numeric" defaultValue="30000" /></label>
-      <label className="ps-check"><input type="checkbox" name="enabled" defaultChecked /> Enabled</label>
-      <label className="ps-check"><input type="checkbox" name="fallbackEnabled" defaultChecked /> Fall back to the next candidate</label>
-      <div className="ps-form-actions">
-        <Button type="submit" variant="primary">Create policy</Button>
+      <label className="ps-field"><span>Timeout (ms)</span><Input name="requestTimeoutMs" inputMode="numeric" defaultValue="30000" /></label>
+      <label className="ps-check"><input type="checkbox" name="fallbackEnabled" defaultChecked /> fallback on failure</label>
+      <div className="ps-form-actions pr-actions">
+        <Button type="submit" variant="primary" disabled={busy}>{busy ? "Creating…" : "Create policy"}</Button>
       </div>
     </form>
-    {err ? <p className="error">{err}</p> : null}
-    {ok ? <p className="ps-ok" role="status">{ok}</p> : null}
-    {!loading && !error && policies.length === 0 ? (
-      <div className="ps-empty">
-        <p className="muted">No routing policies yet. Create one to choose how the router picks between candidates.</p>
-      </div>
+    {!loading && !error && accountPolicies.length === 0 ? (
+      <div className="ps-empty"><p className="muted">No account policies yet — the platform default applies.</p></div>
     ) : null}
-    {policies.length > 0 ? (
-      <Table head={["Name", "Strategy", "Enabled", "Scope", "Bound envs", ""]} rows={policies.map((p) => [
-        <span key="n"><code>{p.name}</code></span>,
-        p.strategy,
-        <Badge key="e" tone={p.enabled ? "ok" : "warn"}>{p.enabled ? "enabled" : "disabled"}</Badge>,
-        p.scope,
-        p.boundEnvironments.join(", ") || "—",
-        <span key="a" className="row">
+    {accountPolicies.length > 0 ? (
+      <Table head={["Name", "Strategy", "Attempts", "Fallback", "State", "Actions"]} rows={accountPolicies.map((p) => [
+        p.name,
+        p.strategy.replace(/_/g, " "),
+        <span key="a" className="num">{p.maxAttempts}</span>,
+        p.fallbackEnabled ? "yes" : "no",
+        <Badge key="s" tone={p.enabled ? "ok" : "warn"}>{p.enabled ? "enabled" : "disabled"}</Badge>,
+        <span key="x" className="row">
           <Button size="sm" variant="secondary" onClick={() => { setErr(null); setEditing(p); }}>Edit</Button>
           <Button size="sm" variant="ghost" onClick={() => {
             setErr(null); setOk(null);
-            apiPost(`/api/pages/projects/${projectId}/routing/update`, policyBody(p, { enabled: !p.enabled }))
+            apiPost(`/api/pages/routing/update`, policyBody(p, { enabled: !p.enabled }))
               .then(() => { setOk(`${p.name} ${p.enabled ? "disabled" : "enabled"}.`); refresh(); })
               .catch((ex) => setErr(ex instanceof Error ? ex.message : "Update failed"));
           }}>{p.enabled ? "Disable" : "Enable"}</Button>
-          <Button size="sm" variant="secondary" onClick={() => { setErr(null); setDeleting(p); }}>Delete</Button>
+          <Button size="sm" variant="ghost" onClick={() => { setErr(null); setOk(null); setDeleting(p); }}>Delete</Button>
         </span>,
       ])} />
     ) : null}
-    <h3>Environment bindings</h3>
-    <Table head={["Environment", "Policy"]} rows={(d?.bindings ?? []).map((b) => [b.environmentName, b.policyName ?? "—"])} />
-    {editing ? <PolicyDialog projectId={projectId} policy={editing} strategies={strategies} onClose={() => setEditing(null)} onSaved={refresh} /> : null}
+    {editing ? <PolicyDialog policy={editing} strategies={strategies} onClose={() => setEditing(null)} onSaved={refresh} /> : null}
     {deleting ? (<KeysDialog title="Delete policy" onClose={() => setDeleting(null)}>
-      <p>Delete <code className="keys-prefix">{deleting.name}</code>? Environments bound to it fall back to the default routing behaviour. This cannot be undone.</p>
-      {err ? <p className="error">{err}</p> : null}
+      <p>Delete <code className="keys-prefix">{deleting.name}</code>? Requests fall back to the platform default. This cannot be undone.</p>
       <div className="row">
         <Button variant="secondary" onClick={() => setDeleting(null)}>Cancel</Button>
-        <Button variant="destructive" disabled={busy} onClick={() => {
-          setErr(null); setBusy(true);
-          apiPost(`/api/pages/projects/${projectId}/routing/delete`, { id: deleting.id })
+        <Button variant="destructive" onClick={() => {
+          apiPost(`/api/pages/routing/delete`, { id: deleting.id })
             .then(() => { const gone = deleting.name; setDeleting(null); setOk(`Policy "${gone}" deleted.`); refresh(); })
-            .catch((ex) => setErr(ex instanceof Error ? ex.message : "Delete failed"))
-            .finally(() => setBusy(false));
-        }}>{busy ? "Deleting…" : "Delete"}</Button>
+            .catch((ex) => setErr(ex instanceof Error ? ex.message : "Delete failed"));
+        }}>Delete</Button>
       </div>
     </KeysDialog>) : null}
-  </>);
+  </Page></ConsoleLayout>);
 }
 
-type ReqRow = {
-	id: string; createdAt: string; status: string; storedStatus: string; tone: "success" | "warning" | "neutral" | "danger";
-	requestedModel: string | null; modelSlug: string | null; providerName: string | null;
-	latencyMs: number; ttftMs: number | null; tokensIn: number; tokensOut: number; totalTokens: number;
-	costMicro: string; currency: string; keyName: string | null; keyPrefix: string | null;
-	clientIp: string | null; httpStatus: number | null; attempts: number; fallbackUsed: boolean;
-};
-type ReqOptions = { models: string[]; providers: { id: string; name: string | null }[]; keys: { id: string; name: string | null; prefix: string | null }[]; environments: { id: string; name: string | null }[]; endpoints: string[] };
-type ReqData = { denied: boolean; queryError: string | null; projectId: string; projectName: string; filters: Record<string, string>; statuses: string[]; options: ReqOptions; rows: ReqRow[]; nextCursor: string | null; nextHref: string | null };
-type ReqFilters = { from: string; to: string; status: string; model: string; provider: string; key: string; env: string; endpoint: string; requestId: string; minLatency: string; maxLatency: string; minCost: string; maxCost: string };
-const EMPTY_REQ_FILTERS: ReqFilters = { from: "", to: "", status: "", model: "", provider: "", key: "", env: "", endpoint: "", requestId: "", minLatency: "", maxLatency: "", minCost: "", maxCost: "" };
-
-// The endpoint reads minCost/maxCost as micro-dollar integers (BigInt), so the
-// dollar inputs must be converted here — sending "0.05" would parse as null.
-function dollarsToMicro(v: string): string | null {
-	const s = v.trim();
-	if (!/^\d+(\.\d{1,6})?$/.test(s)) return null;
-	const [whole, frac = ""] = s.split(".");
-	return (BigInt(whole) * 1_000_000n + BigInt(frac.padEnd(6, "0"))).toString();
-}
-
-function reqQuery(f: ReqFilters, cursor: string | null): string {
-	const q = new URLSearchParams();
-	const put = (k: string, v: string) => { if (v.trim()) q.set(k, v.trim()); };
-	put("from", f.from); put("to", f.to); put("status", f.status); put("model", f.model); put("provider", f.provider);
-	put("key", f.key); put("env", f.env); put("endpoint", f.endpoint); put("requestId", f.requestId);
-	put("minLatency", f.minLatency); put("maxLatency", f.maxLatency);
-	const minMicro = dollarsToMicro(f.minCost); if (minMicro) q.set("minCost", minMicro);
-	const maxMicro = dollarsToMicro(f.maxCost); if (maxMicro) q.set("maxCost", maxMicro);
-	if (cursor) q.set("cursor", cursor);
-	return q.toString();
-}
-
-const REQ_TONE_BADGE = { success: "ok", warning: "warn", neutral: "default", danger: "danger" } as const;
-
-type ReqDetailAttempt = { id: string; attempt: number; providerName: string | null; providerId: string | null; connectionId: string | null; httpStatus: number | null; errorCode: string | null; retryable: boolean | null; latencyMs: number | null; ttftMs: number | null; providerCostMicro: string | null; reason: string | null; startedAt: string | null; finishedAt: string | null };
-type ReqDetailRow = {
-  id: string; createdAt: string | null; status: string; storedStatus: string; endpoint: string | null;
-  projectName: string | null; environmentName: string | null; keyName: string | null; keyPrefix: string | null;
-  requestedModel: string | null; resolvedSlug: string | null; providerName: string | null; providerId: string | null;
-  strategy: string | null; tokensIn: number; tokensOut: number; totalTokens: number; costMicro: string;
-  currency: string | null; providerCostMicro: string | null; ttftMs: number | null; latencyMs: number | null;
-  attemptsCount: number | null; fallbackUsed: boolean | null; stream: boolean | null;
-  error: string | null; errorCode: string | null; httpStatus: number | null;
-};
-type ReqDetailData = { denied: boolean; projectId: string; project: { id: string; name: string }; row: ReqDetailRow | null; attempts: ReqDetailAttempt[]; timing: { stage: string; ms: number }[]; content: { state: string; requestBody: string | null; responseBody: string | null } | null };
-
-// The detail endpoint is a separate GET from the list, so the drawer owns its
-// own load: a 404 or a 403 must surface inside the drawer rather than blank the
-// table behind it.
-function ProjectRequestDetail({ projectId, requestId, onClose }: { projectId: string; requestId: string; onClose: () => void }) {
-  const box = useRef<HTMLDivElement>(null);
-  const [copied, setCopied] = useState(false);
-  const { data, error, loading } = useLoad<ReqDetailData>(`/api/pages/projects/${projectId}/requests/${requestId}`);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    document.addEventListener("keydown", onKey);
-    box.current?.querySelector<HTMLElement>("button")?.focus();
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
-  const row = data?.row ?? null;
-  const attempts = data?.attempts ?? [];
-  const timing = data?.timing ?? [];
-  const content = data?.content ?? null;
-  return (<div className="usage-drawer-backdrop" onClick={onClose}>
-    <div ref={box} className="usage-drawer usage-drawer--wide" role="dialog" aria-modal="true" aria-label="Request details" onClick={(e) => e.stopPropagation()}>
-      <div className="row usage-drawer-head">
-        <h3>Request</h3>
-        <Button size="sm" variant="ghost" onClick={onClose}>Close</Button>
-      </div>
-      <p className="usage-drawer-id"><code>{requestId}</code>
-        <Button size="sm" variant="secondary" onClick={() => { navigator.clipboard?.writeText(requestId).then(() => setCopied(true)).catch(() => {}); }}>{copied ? "Copied" : "Copy id"}</Button>
-      </p>
-      {loading ? <p className="muted" role="status" aria-live="polite">Loading…</p> : null}
-      {error ? <p className="error" role="alert">{error}</p> : null}
-      {!loading && !error && !row ? <p className="muted">This request is no longer in this project&apos;s log.</p> : null}
-      {row ? (<>
-        <dl className="usage-drawer-grid">
-          <dt>Created</dt><dd>{fmtDate(row.createdAt)}</dd>
-          <dt>Status</dt><dd>{row.status}{row.httpStatus == null ? "" : ` · HTTP ${row.httpStatus}`}</dd>
-          <dt>Endpoint</dt><dd>{row.endpoint ?? "—"}</dd>
-          <dt>Requested model</dt><dd>{row.requestedModel ?? "—"}</dd>
-          <dt>Resolved model</dt><dd>{row.resolvedSlug ?? "—"}</dd>
-          <dt>Provider</dt><dd>{row.providerName ?? "—"}</dd>
-          <dt>Strategy</dt><dd>{row.strategy ?? "—"}</dd>
-          <dt>Environment</dt><dd>{row.environmentName ?? "—"}</dd>
-          <dt>API key</dt><dd>{row.keyName ? `${row.keyName}${row.keyPrefix ? ` (${row.keyPrefix})` : ""}` : "—"}</dd>
-          <dt>Tokens in</dt><dd>{row.tokensIn}</dd>
-          <dt>Tokens out</dt><dd>{row.tokensOut}</dd>
-          <dt>Tokens total</dt><dd>{row.totalTokens}</dd>
-          <dt>Cost</dt><dd>{fmtMicro(row.costMicro)} {row.currency ?? ""}</dd>
-          <dt>Provider cost</dt><dd>{row.providerCostMicro == null ? "—" : fmtMicro(row.providerCostMicro)}</dd>
-          <dt>Latency</dt><dd>{row.latencyMs == null ? "—" : `${row.latencyMs} ms`}</dd>
-          <dt>TTFT</dt><dd>{row.ttftMs == null ? "—" : `${row.ttftMs} ms`}</dd>
-          <dt>Attempts</dt><dd>{row.attemptsCount ?? attempts.length}{row.fallbackUsed ? " (fallback used)" : ""}</dd>
-          <dt>Streamed</dt><dd>{row.stream == null ? "—" : row.stream ? "yes" : "no"}</dd>
-          <dt>Error</dt><dd>{row.error ? `${row.errorCode ? `${row.errorCode}: ` : ""}${row.error}` : "—"}</dd>
-        </dl>
-        {timing.length > 0 ? (<>
-          <h4>Timing</h4>
-          <dl className="usage-drawer-grid">
-            {timing.map((t) => (<div key={t.stage} style={{ display: "contents" }}>
-              <dt>{t.stage}</dt><dd>{t.ms} ms</dd>
-            </div>))}
-          </dl>
-        </>) : null}
-        {attempts.length > 0 ? (<>
-          <h4>Attempts</h4>
-          <Table head={["#", "Provider", "HTTP", "Latency", "TTFT", "Reason"]} rows={attempts.map((a) => [
-            String(a.attempt),
-            a.providerName ?? "—",
-            a.httpStatus == null ? "—" : String(a.httpStatus),
-            a.latencyMs == null ? "—" : `${a.latencyMs} ms`,
-            a.ttftMs == null ? "—" : `${a.ttftMs} ms`,
-            a.reason ?? a.errorCode ?? "—",
-          ])} />
-        </>) : null}
-        <h4>Bodies</h4>
-        {content && content.state !== "hidden" && (content.requestBody || content.responseBody) ? (
-          <dl className="usage-drawer-grid">
-            <dt>Request</dt><dd><code>{content.requestBody}</code></dd>
-            <dt>Response</dt><dd><code>{content.responseBody}</code></dd>
-          </dl>
-        ) : <p className="muted">Not retained</p>}
-      </>) : null}
-    </div>
-  </div>);
-}
-
-function RequestDrawer({ row, onClose }: { row: ReqRow; onClose: () => void }) {
-	const box = useRef<HTMLDivElement>(null);
-	const [copied, setCopied] = useState(false);
-	useEffect(() => {
-		const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-		document.addEventListener("keydown", onKey);
-		box.current?.querySelector<HTMLElement>("button")?.focus();
-		return () => document.removeEventListener("keydown", onKey);
-	}, [onClose]);
-	const fallback = row.requestedModel != null && row.modelSlug != null && row.requestedModel !== row.modelSlug;
-	return (<div className="usage-drawer-backdrop" onClick={onClose}>
-		<div ref={box} className="usage-drawer" role="dialog" aria-modal="true" aria-label="Request details" onClick={(e) => e.stopPropagation()}>
-			<div className="row usage-drawer-head">
-				<h3>Request</h3>
-				<Button size="sm" variant="ghost" onClick={onClose}>Close</Button>
-			</div>
-			<p className="usage-drawer-id"><code>{row.id}</code>
-				<Button size="sm" variant="secondary" onClick={() => { navigator.clipboard?.writeText(row.id).then(() => setCopied(true)).catch(() => {}); }}>{copied ? "Copied" : "Copy id"}</Button>
-			</p>
-			<dl className="usage-drawer-grid">
-				<dt>Created</dt><dd>{fmtDate(row.createdAt)}</dd>
-				<dt>Status</dt><dd>{row.status}{row.httpStatus == null ? "" : ` · HTTP ${row.httpStatus}`}</dd>
-				<dt>Requested model</dt><dd>{row.requestedModel ?? "—"}</dd>
-				<dt>Served model</dt><dd className={fallback ? "pr-fallback" : undefined}>{row.modelSlug ?? "—"}{fallback ? " (fallback)" : ""}</dd>
-				<dt>Provider</dt><dd>{row.providerName ?? "—"}</dd>
-				<dt>API key</dt><dd>{row.keyName ? `${row.keyName}${row.keyPrefix ? ` (${row.keyPrefix})` : ""}` : "—"}</dd>
-				<dt>Client IP</dt><dd>{row.clientIp ?? "—"}</dd>
-				<dt>Tokens in</dt><dd>{row.tokensIn}</dd>
-				<dt>Tokens out</dt><dd>{row.tokensOut}</dd>
-				<dt>Tokens total</dt><dd>{row.totalTokens}</dd>
-				<dt>Cost</dt><dd>{fmtMicro(row.costMicro)} {row.currency}</dd>
-				<dt>Latency</dt><dd>{row.latencyMs} ms</dd>
-				<dt>TTFT</dt><dd>{row.ttftMs == null ? "—" : `${row.ttftMs} ms`}</dd>
-				<dt>Attempts</dt><dd>{row.attempts}{row.fallbackUsed ? " (fallback used)" : ""}</dd>
-			</dl>
-		</div>
-	</div>);
-}
-
-function ProjectRequests({ projectId }: { projectId: string }) {
-	const [draft, setDraft] = useState<ReqFilters>(EMPTY_REQ_FILTERS);
-	const [applied, setApplied] = useState<ReqFilters>(EMPTY_REQ_FILTERS);
-	// The cursor is forward-only, so Previous is a stack of cursors already
-	// visited rather than an offset.
-	const [stack, setStack] = useState<string[]>([]);
-	const [open, setOpen] = useState<ReqRow | null>(null);
-	const [detailId, setDetailId] = useState<string | null>(null);
-	const query = reqQuery(applied, stack.length ? stack[stack.length - 1] : null);
-	const { data: d, error, loading } = useLoad<ReqData>(`/api/pages/projects/${projectId}/requests?${query}`);
-	const rows = d?.rows ?? [];
-	const active = Object.values(applied).filter((v) => v.trim()).length;
-	const set = (k: keyof ReqFilters, v: string) => setDraft((f) => ({ ...f, [k]: v }));
-	const apply = () => { setApplied(draft); setStack([]); };
-	const reset = () => { setDraft(EMPTY_REQ_FILTERS); setApplied(EMPTY_REQ_FILTERS); setStack([]); };
-	const next = () => { if (d?.nextCursor) setStack((s) => [...s, d.nextCursor as string]); };
-	const prev = () => setStack((s) => s.slice(0, -1));
-	return (<>
-		<LoadState loading={loading} error={error} />
-		{d?.queryError ? <p className="error" role="alert">{d.queryError}</p> : null}
-		<form className="ps-form pr-filters" onSubmit={(e) => { e.preventDefault(); apply(); }}>
-			<label className="ps-field"><span>From</span><Input type="date" value={draft.from} onChange={(e) => set("from", e.target.value)} /></label>
-			<label className="ps-field"><span>To</span><Input type="date" value={draft.to} onChange={(e) => set("to", e.target.value)} /></label>
-			<label className="ps-field"><span>Status</span>
-				<select className="select" value={draft.status} onChange={(e) => set("status", e.target.value)}>
-					<option value="">All statuses</option>
-					{(d?.statuses ?? []).map((s) => <option key={s} value={s}>{s.replace(/_/g, " ")}</option>)}
-				</select>
-			</label>
-			<label className="ps-field"><span>Model</span>
-				<select className="select" value={draft.model} onChange={(e) => set("model", e.target.value)}>
-					<option value="">All models</option>
-					{(d?.options.models ?? []).map((m) => <option key={m} value={m}>{m}</option>)}
-				</select>
-			</label>
-			<label className="ps-field"><span>Provider</span>
-				<select className="select" value={draft.provider} onChange={(e) => set("provider", e.target.value)}>
-					<option value="">All providers</option>
-					{(d?.options.providers ?? []).map((p) => <option key={p.id} value={p.id}>{p.name ?? p.id}</option>)}
-				</select>
-			</label>
-			<label className="ps-field"><span>API key</span>
-				<select className="select" value={draft.key} onChange={(e) => set("key", e.target.value)}>
-					<option value="">All keys</option>
-					{(d?.options.keys ?? []).map((k) => <option key={k.id} value={k.id}>{k.name ?? k.id}{k.prefix ? ` (${k.prefix})` : ""}</option>)}
-				</select>
-			</label>
-			<label className="ps-field"><span>Environment</span>
-				<select className="select" value={draft.env} onChange={(e) => set("env", e.target.value)}>
-					<option value="">All environments</option>
-					{(d?.options.environments ?? []).map((e) => <option key={e.id} value={e.id}>{e.name ?? e.id}</option>)}
-				</select>
-			</label>
-			<label className="ps-field"><span>Endpoint</span>
-				<select className="select" value={draft.endpoint} onChange={(e) => set("endpoint", e.target.value)}>
-					<option value="">All endpoints</option>
-					{(d?.options.endpoints ?? []).map((e) => <option key={e} value={e}>{e}</option>)}
-				</select>
-			</label>
-			<label className="ps-field"><span>Request ID</span><Input value={draft.requestId} placeholder="req_…" onChange={(e) => set("requestId", e.target.value)} /></label>
-			<label className="ps-field"><span>Min latency (ms)</span><Input type="number" min="0" value={draft.minLatency} onChange={(e) => set("minLatency", e.target.value)} /></label>
-			<label className="ps-field"><span>Max latency (ms)</span><Input type="number" min="0" value={draft.maxLatency} onChange={(e) => set("maxLatency", e.target.value)} /></label>
-			<label className="ps-field"><span>Min cost ($)</span><Input value={draft.minCost} placeholder="0.00" onChange={(e) => set("minCost", e.target.value)} /></label>
-			<label className="ps-field"><span>Max cost ($)</span><Input value={draft.maxCost} placeholder="0.00" onChange={(e) => set("maxCost", e.target.value)} /></label>
-			<div className="ps-form-actions pr-actions">
-				<Button type="submit" variant="primary">Apply</Button>
-				<Button type="button" variant="ghost" onClick={reset}>Reset</Button>
-				<span className="pr-count">{active === 0 ? "No filters" : `${active} filter${active === 1 ? "" : "s"} active`}</span>
-			</div>
-		</form>
-		{!loading && !error && rows.length === 0 ? (
-			active === 0 ? (
-				<p className="muted">No requests yet — send one with an API key.</p>
-			) : (
-				<div className="ps-empty">
-					<p className="muted">No requests match these filters</p>
-					<Button size="sm" variant="secondary" onClick={reset}>Reset</Button>
-				</div>
-			)
-		) : (
-			<>
-				<Table head={["Time", "Status", "Model", "Provider", "Tokens", "Cost", "Latency", "Attempts", ""]} rows={rows.map((r) => [
-					<button key={r.id} type="button" className="usage-row-btn" onClick={() => setOpen(r)} aria-label={`Open details for request ${r.id}`}>{fmtDate(r.createdAt)}</button>,
-					<Badge key="s" tone={REQ_TONE_BADGE[r.tone]}>{r.status.replace(/_/g, " ")}</Badge>,
-					r.modelSlug ?? r.requestedModel ?? "—",
-					r.providerName ?? "—",
-					`${r.tokensIn} / ${r.tokensOut}`,
-					fmtMicro(r.costMicro),
-					<span key="l" className="pr-latency">{r.latencyMs} ms{r.fallbackUsed ? <Badge tone="warn">fallback</Badge> : null}</span>,
-					String(r.attempts),
-					<Button key="d" size="sm" variant="secondary" onClick={() => setDetailId(r.id)}>Details</Button>,
-				])} />
-				<div className="row pr-pager">
-					<Button size="sm" variant="secondary" disabled={stack.length === 0} onClick={prev}>Previous</Button>
-					<span className="muted">Page {stack.length + 1}</span>
-					<Button size="sm" variant="secondary" disabled={!d?.nextCursor} onClick={next}>Next</Button>
-				</div>
-			</>
-		)}
-		{open ? <RequestDrawer row={open} onClose={() => setOpen(null)} /> : null}
-		{detailId ? <ProjectRequestDetail projectId={projectId} requestId={detailId} onClose={() => setDetailId(null)} /> : null}
-	</>);
-}
-
-function ProjectSettings({ projectId }: { projectId: string }) {
-  const [err, setErr] = useState<string | null>(null);
-  const [ok, setOk] = useState(false);
-  const { data: d, error, loading } = useLoad<{ project: { name: string; slug: string; description: string | null; status: string } }>(`/api/pages/projects/${projectId}/settings`);
-  return (<>
-    <LoadState loading={loading} error={error} />
-    <form onSubmit={(e) => {
-      e.preventDefault(); setErr(null); setOk(false);
-      const f = new FormData(e.currentTarget);
-      apiPost(`/api/pages/projects/${projectId}/update`, { name: String(f.get("name") ?? ""), slug: String(f.get("slug") ?? ""), description: String(f.get("description") ?? ""), status: String(f.get("status") ?? "active") })
-        .then(() => setOk(true))
-        .catch((ex) => setErr(ex instanceof Error ? ex.message : "Update failed"));
-    }}>
-      <div className="row"><Input aria-label="Name" name="name" placeholder="Name" defaultValue={d?.project?.name ?? ""} /><Input aria-label="Slug" name="slug" placeholder="Slug" defaultValue={d?.project?.slug ?? ""} /><Input aria-label="Description" name="description" placeholder="Description" defaultValue={d?.project?.description ?? ""} /><Input aria-label="Status" name="status" placeholder="Status" defaultValue={d?.project?.status ?? ""} /><Button type="submit">Save</Button></div>
-    </form>
-    {err ? <p className="error">{err}</p> : null}
-    {ok ? <p className="muted">Saved.</p> : null}
-  </>);
-}
-
-type AlertConditionView = { type: string; threshold: number; windowSeconds: number; baselineRate: number | null };
-type AlertView = { id: string; name: string; enabled: boolean; channel: string; condition: AlertConditionView; createdAt: string; updatedAt: string };
+type AlertCondition = { type: string; threshold: number; windowSeconds: number | null; baselineRate: number | null };
+type AlertView = { id: string; name: string; enabled: boolean; channel: string; condition: AlertCondition };
 type AlertEventRow = { id: string; alertId: string; alertName: string; triggeredAt: string; value: string; message: string; state: string; resolvedAt: string | null; deliveredAt: string | null };
-type AlertsData = { denied: boolean; queryError: string | null; projectId: string; projectName: string; conditionTypes: string[]; channels: string[]; alerts: AlertView[]; workspaceAlerts: AlertView[]; events: AlertEventRow[] };
+type AlertsData = { denied: boolean; queryError: string | null; conditionTypes: string[]; channels: string[]; alerts: AlertView[]; events: AlertEventRow[] };
 
-// Threshold units per condition, mirroring the server's CONDITION_UNITS: the
-// form's placeholder is the only place the user learns what number to type.
+// Threshold units per condition, mirroring the server's vocabulary: the
+// placeholder is the only place the form says what number to type.
 const ALERT_UNITS: Record<string, string> = {
-  error_rate: "ratio 0–1 (0.05 = 5%)",
+  error_rate: "fraction, e.g. 0.05",
   latency: "milliseconds",
-  budget_threshold: "micro-units",
-  credit_threshold: "micro-units",
-  fallback_rate: "ratio 0–1",
-  provider_availability: "ratio 0–1",
-  unusual_key_traffic: "ratio 0–1",
+  budget_threshold: "percent of budget",
+  credit_threshold: "dollars",
+  fallback_rate: "fraction, e.g. 0.2",
+  provider_availability: "fraction, e.g. 0.9",
+  unusual_key_traffic: "requests per window",
 };
 
-function ProjectAlerts({ projectId }: { projectId: string }) {
+export function AlertsPage() {
   const [tick, setTick] = useState(0);
   const [err, setErr] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState<AlertView | null>(null);
   const [busy, setBusy] = useState(false);
-  const { data: d, error, loading } = useLoad<AlertsData>(`/api/pages/projects/${projectId}/alerts`, tick);
+  const [deleting, setDeleting] = useState<AlertView | null>(null);
+  const [alertType, setAlertType] = useState("error_rate");
+  const { data: d, error, loading } = useLoad<AlertsData>("/api/pages/alerts", tick);
   const refresh = useCallback(() => setTick((t) => t + 1), []);
   const alerts = d?.alerts ?? [];
-  const workspaceAlerts = d?.workspaceAlerts ?? [];
   const events = d?.events ?? [];
   const conditionTypes = d?.conditionTypes ?? [];
   const channels = d?.channels ?? [];
   const toggle = (a: AlertView) => {
     setErr(null); setOk(null);
-    apiPost(`/api/pages/projects/${projectId}/alerts/update`, {
+    apiPost(`/api/pages/alerts/update`, {
       id: a.id, name: a.name, type: a.condition.type, threshold: String(a.condition.threshold),
       windowSeconds: a.condition.windowSeconds ? String(a.condition.windowSeconds) : "",
       baselineRate: a.condition.baselineRate === null ? "" : String(a.condition.baselineRate),
       channel: a.channel, enabled: !a.enabled,
     })
-      .then(() => { setOk(`Alert "${a.name}" ${a.enabled ? "disabled" : "enabled"}.`); refresh(); })
+      .then(() => { setOk(`${a.name} ${a.enabled ? "disabled" : "enabled"}.`); refresh(); })
       .catch((ex) => setErr(ex instanceof Error ? ex.message : "Update failed"));
   };
-  return (<>
+  return (<ConsoleLayout><Page title="Alerts" lede="Conditions that notify you before a problem becomes an outage.">
     <LoadState loading={loading} error={error} />
-    {d?.queryError ? <p className="error" role="alert">{d.queryError}</p> : null}
     <div className="ps-note" role="note">
-      <p>An alert watches one condition over a window and fires when the value crosses the threshold. <code>inapp</code> always fires (the events below are the surface); <code>email</code> and <code>webhook</code> fan out on top.</p>
+      <p>Alerts are account-wide. Each one watches every key's traffic, so a single rule covers the whole account.</p>
     </div>
+    {err ? <p className="error">{err}</p> : null}
+    {ok ? <p className="ps-ok">{ok}</p> : null}
     <form className="ps-form" onSubmit={(e) => {
-      e.preventDefault(); setErr(null); setOk(null);
+      e.preventDefault(); setErr(null); setOk(null); setBusy(true);
       const f = new FormData(e.currentTarget);
-      apiPost<{ saved: string }>(`/api/pages/projects/${projectId}/alerts/create`, {
-        name: String(f.get("name") ?? "").trim(),
+      const name = String(f.get("name") ?? "").trim();
+      apiPost<{ saved: string }>("/api/pages/alerts/create", {
+        name,
         type: String(f.get("type") ?? ""),
         threshold: String(f.get("threshold") ?? "").trim(),
         windowSeconds: String(f.get("windowSeconds") ?? "").trim(),
         baselineRate: String(f.get("baselineRate") ?? "").trim(),
         channel: String(f.get("channel") ?? "inapp"),
-        enabled: f.get("enabled") !== null,
+        enabled: true,
       })
-        .then(() => { (e.target as HTMLFormElement).reset(); setOk("Alert created."); refresh(); })
-        .catch((ex) => setErr(ex instanceof Error ? ex.message : "Create failed"));
+        .then(() => { setOk(`Alert "${name}" created.`); (e.target as HTMLFormElement).reset(); refresh(); })
+        .catch((ex) => setErr(ex instanceof Error ? ex.message : "Create failed"))
+        .finally(() => setBusy(false));
     }}>
-      <label className="ps-field"><span>Alert name</span>
-        <Input name="name" placeholder="e.g. error spike" required />
-      </label>
+      <label className="ps-field"><span>Name</span><Input name="name" placeholder="e.g. error spike" required /></label>
       <label className="ps-field"><span>Condition</span>
-        <select className="select" name="type" defaultValue={conditionTypes[0] ?? "error_rate"}>
+        <select className="select" name="type" value={alertType} onChange={(e) => setAlertType(e.target.value)}>
           {conditionTypes.map((t) => <option key={t} value={t}>{t.replace(/_/g, " ")}</option>)}
         </select>
       </label>
-      <label className="ps-field"><span>Threshold</span>
-        <Input name="threshold" inputMode="decimal" placeholder={ALERT_UNITS[conditionTypes[0] ?? "error_rate"] ?? "value"} required />
-      </label>
-      <label className="ps-field"><span>Window (seconds)</span>
-        <Input name="windowSeconds" inputMode="numeric" placeholder="300" />
-      </label>
-      <label className="ps-field"><span>Baseline rate</span>
-        <Input name="baselineRate" inputMode="decimal" placeholder="optional" />
-      </label>
+      <label className="ps-field"><span>Threshold</span><Input name="threshold" inputMode="decimal" placeholder={ALERT_UNITS[alertType] ?? "threshold"} required /></label>
+      <label className="ps-field"><span>Window (seconds)</span><Input name="windowSeconds" inputMode="numeric" placeholder="300" /></label>
+      <label className="ps-field"><span>Baseline rate</span><Input name="baselineRate" inputMode="decimal" placeholder="optional" /></label>
       <label className="ps-field"><span>Channel</span>
-        <select className="select" name="channel" defaultValue="inapp">
+        <select className="select" name="channel" defaultValue={channels[0] ?? "inapp"}>
           {channels.map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
       </label>
-      <label className="ps-check"><input type="checkbox" name="enabled" defaultChecked /> Enabled</label>
-      <div className="ps-form-actions">
-        <Button type="submit" variant="primary">Create alert</Button>
+      <div className="ps-form-actions pr-actions">
+        <Button type="submit" variant="primary" disabled={busy}>{busy ? "Creating…" : "Create alert"}</Button>
       </div>
     </form>
-    {err ? <p className="error">{err}</p> : null}
-    {ok ? <p className="ps-ok" role="status">{ok}</p> : null}
     {!loading && !error && alerts.length === 0 ? (
-      <div className="ps-empty">
-        <p className="muted">No alerts yet. Create one above to be told when this project&apos;s error rate, latency or spend crosses a line.</p>
-      </div>
+      <div className="ps-empty"><p className="muted">No alerts yet. Create one above to be told when this account&apos;s error rate, latency or spend crosses a line.</p></div>
     ) : null}
     {alerts.length > 0 ? (
-      <Table head={["Name", "Condition", "Threshold", "Channel", "Status", "Last triggered", ""]} rows={alerts.map((a) => {
-        const last = events.find((e) => e.alertId === a.id);
-        return [
-          a.name,
-          a.condition.type.replace(/_/g, " "),
-          `${a.condition.threshold}${a.condition.windowSeconds ? ` / ${a.condition.windowSeconds}s` : ""}`,
-          a.channel,
-          <Badge key="e" tone={a.enabled ? "ok" : "warn"}>{a.enabled ? "enabled" : "disabled"}</Badge>,
-          last ? fmtDate(last.triggeredAt) : "—",
-          <span key="a" className="row">
-            <Button size="sm" variant="secondary" onClick={() => toggle(a)}>{a.enabled ? "Disable" : "Enable"}</Button>
-            <Button size="sm" variant="ghost" onClick={() => { setErr(null); setDeleting(a); }}>Delete</Button>
-          </span>,
-        ];
-      })} />
-    ) : null}
-    {workspaceAlerts.length > 0 ? (
-      <>
-        <h2>Workspace alerts</h2>
-        <p className="muted">These watch the whole workspace, not just this project — edit them from the workspace page.</p>
-        <Table head={["Name", "Condition", "Threshold", "Channel", "Status"]} rows={workspaceAlerts.map((a) => [
-          a.name,
-          a.condition.type.replace(/_/g, " "),
-          `${a.condition.threshold}${a.condition.windowSeconds ? ` / ${a.condition.windowSeconds}s` : ""}`,
-          a.channel,
-          <Badge key="e" tone={a.enabled ? "ok" : "warn"}>{a.enabled ? "enabled" : "disabled"}</Badge>,
-        ])} />
-      </>
-    ) : null}
-    <h2>Recent events</h2>
-    {!loading && !error && events.length === 0 ? (
-      <div className="ps-empty">
-        <p className="muted">No events yet — an alert that has never fired has nothing to show here.</p>
-      </div>
-    ) : (
-      <Table head={["Triggered", "Alert", "State", "Value", "Message", "Delivered"]} rows={events.map((e) => [
-        fmtDate(e.triggeredAt),
-        e.alertName,
-        <Badge key="s" tone={e.state === "firing" ? "danger" : "ok"}>{e.state}</Badge>,
-        e.value,
-        e.message || "—",
-        fmtDate(e.deliveredAt),
+      <Table head={["Name", "Condition", "Threshold", "Channel", "State", "Actions"]} rows={alerts.map((a) => [
+        a.name,
+        a.condition.type.replace(/_/g, " "),
+        <span key="t" className="num">{`${a.condition.threshold}${a.condition.windowSeconds ? ` / ${a.condition.windowSeconds}s` : ""}`}</span>,
+        a.channel,
+        <Badge key="s" tone={a.enabled ? "ok" : "warn"}>{a.enabled ? "enabled" : "disabled"}</Badge>,
+        <span key="x" className="row">
+          <Button size="sm" variant="secondary" onClick={() => toggle(a)}>{a.enabled ? "Disable" : "Enable"}</Button>
+          <Button size="sm" variant="ghost" onClick={() => { setErr(null); setOk(null); setDeleting(a); }}>Delete</Button>
+        </span>,
       ])} />
-    )}
+    ) : null}
+    {events.length > 0 ? (<>
+      <h2>Recent firings</h2>
+      <Table head={["Alert", "Triggered", "Value", "State", "Resolved"]} rows={events.map((e) => [
+        e.alertName,
+        fmtDate(e.triggeredAt),
+        e.value,
+        e.state,
+        e.resolvedAt ? fmtDate(e.resolvedAt) : "—",
+      ])} />
+    </>) : null}
     {deleting ? (<KeysDialog title="Delete alert" onClose={() => setDeleting(null)}>
-      <p>Delete <code className="keys-prefix">{deleting.name}</code>? Its event history goes with it, and this cannot be undone.</p>
-      {err ? <p className="error">{err}</p> : null}
+      <p>Delete <code className="keys-prefix">{deleting.name}</code>? You stop being told when this condition fires.</p>
       <div className="row">
         <Button variant="secondary" onClick={() => setDeleting(null)}>Cancel</Button>
-        <Button variant="destructive" disabled={busy} onClick={() => {
-          setErr(null); setBusy(true);
-          apiPost(`/api/pages/projects/${projectId}/alerts/remove`, { id: deleting.id })
+        <Button variant="destructive" onClick={() => {
+          apiPost(`/api/pages/alerts/remove`, { id: deleting.id })
             .then(() => { const gone = deleting.name; setDeleting(null); setOk(`Alert "${gone}" deleted.`); refresh(); })
-            .catch((ex) => setErr(ex instanceof Error ? ex.message : "Delete failed"))
-            .finally(() => setBusy(false));
-        }}>{busy ? "Deleting…" : "Delete"}</Button>
+            .catch((ex) => setErr(ex instanceof Error ? ex.message : "Delete failed"));
+        }}>Delete</Button>
       </div>
     </KeysDialog>) : null}
-  </>);
-}
-
-export function ProjectSubPage({ name }: { name: string }) {
-  const { projectId } = useParams();
-  const pid = projectId ?? "";
-  return (<Proj><Page title={name} lede={"Project " + pid + " / " + name}>
-    {name === "keys" ? <ProjectKeys projectId={pid} />
-      : name === "aliases" ? <ProjectAliases projectId={pid} />
-      : name === "limits" ? <ProjectLimits projectId={pid} />
-      : name === "budgets" ? <ProjectBudgets projectId={pid} />
-      : name === "routing" ? <ProjectRouting projectId={pid} />
-      : name === "requests" ? <ProjectRequests projectId={pid} />
-      : name === "alerts" ? <ProjectAlerts projectId={pid} />
-      : name === "settings" ? <ProjectSettings projectId={pid} />
-      : <p className="muted">Unknown section.</p>}
-  </Page></Proj>);
-}
-export function InvitePage() {
-  const { token } = useParams();
-  const [inviteErr, setInviteErr] = useState<string | null>(null);
-  return (<Page title="Invitation" lede="Accept or decline.">
-    {inviteErr ? <p className="error" role="alert">{inviteErr}</p> : null}
-    <div className="row">
-      <Button onClick={() => apiPost("/api/invite/" + token + "/accept", {}).then(() => (location.href = "/dashboard")).catch((ex) => setInviteErr(ex instanceof Error ? ex.message : "Accept failed"))}>Accept</Button>
-      <Button variant="secondary" onClick={() => apiPost("/api/invite/" + token + "/decline", {}).then(() => (location.href = "/")).catch((ex) => setInviteErr(ex instanceof Error ? ex.message : "Decline failed"))}>Decline</Button>
-    </div>
-  </Page>);
+  </Page></ConsoleLayout>);
 }

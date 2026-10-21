@@ -36,20 +36,17 @@ func TestAdmissionGateStateServesRepeatReadsFromCache(t *testing.T) {
 	ctx := context.Background()
 
 	// The first read fills the cache and is expected to query.
-	if _, _, err := s.AdmissionGateState(ctx, env.WorkspaceID, env.EnvironmentID); err != nil {
+	if _, err := s.AdmissionGateState(ctx, env.UserID); err != nil {
 		t.Fatalf("first AdmissionGateState: %v", err)
 	}
 	tr.Reset()
 	for range 50 {
-		acct, envBudget, err := s.AdmissionGateState(ctx, env.WorkspaceID, env.EnvironmentID)
+		acct, err := s.AdmissionGateState(ctx, env.UserID)
 		if err != nil {
 			t.Fatalf("cached AdmissionGateState: %v", err)
 		}
 		if acct == nil {
 			t.Fatal("cached read lost the account")
-		}
-		if envBudget != nil {
-			t.Fatalf("cached read invented a monthly budget: %d", *envBudget)
 		}
 	}
 	if got := tr.Count(); got != 0 {
@@ -91,12 +88,12 @@ func TestAdmissionCacheExpiresTheAccountEntry(t *testing.T) {
 	ctx := context.Background()
 	s.SetAdmissionTTLForTest(time.Millisecond, time.Minute)
 
-	if _, _, err := s.AdmissionGateState(ctx, env.WorkspaceID, env.EnvironmentID); err != nil {
+	if _, err := s.AdmissionGateState(ctx, env.UserID); err != nil {
 		t.Fatalf("first read: %v", err)
 	}
 	tr.Reset()
 	time.Sleep(5 * time.Millisecond)
-	if _, _, err := s.AdmissionGateState(ctx, env.WorkspaceID, env.EnvironmentID); err != nil {
+	if _, err := s.AdmissionGateState(ctx, env.UserID); err != nil {
 		t.Fatalf("read after expiry: %v", err)
 	}
 	if got := tr.Count(); got == 0 {
@@ -114,13 +111,13 @@ func TestAdmissionRefusesSuspendedAccountAfterTTL(t *testing.T) {
 	ctx := context.Background()
 	s.SetAdmissionTTLForTest(time.Millisecond, time.Minute)
 
-	if _, _, err := s.AdmissionGateState(ctx, env.WorkspaceID, env.EnvironmentID); err != nil {
+	if _, err := s.AdmissionGateState(ctx, env.UserID); err != nil {
 		t.Fatalf("first read: %v", err)
 	}
-	tests.SetBillingAccountStatus(t, dsn, env.WorkspaceID, "suspended")
+	tests.SetBillingAccountStatus(t, dsn, env.UserID, "suspended")
 	time.Sleep(5 * time.Millisecond)
 
-	acct, _, err := s.AdmissionGateState(ctx, env.WorkspaceID, env.EnvironmentID)
+	acct, err := s.AdmissionGateState(ctx, env.UserID)
 	if err != nil {
 		t.Fatalf("read after suspension: %v", err)
 	}
@@ -137,12 +134,12 @@ func TestInvalidateAdmissionDropsTheAccountEntry(t *testing.T) {
 	s, tr := startCounting(t, dsn)
 	ctx := context.Background()
 
-	if _, _, err := s.AdmissionGateState(ctx, env.WorkspaceID, env.EnvironmentID); err != nil {
+	if _, err := s.AdmissionGateState(ctx, env.UserID); err != nil {
 		t.Fatalf("first read: %v", err)
 	}
 	tr.Reset()
-	s.InvalidateAdmission(env.WorkspaceID)
-	if _, _, err := s.AdmissionGateState(ctx, env.WorkspaceID, env.EnvironmentID); err != nil {
+	s.InvalidateAdmission(env.UserID)
+	if _, err := s.AdmissionGateState(ctx, env.UserID); err != nil {
 		t.Fatalf("read after invalidation: %v", err)
 	}
 	if got := tr.Count(); got == 0 {
@@ -150,7 +147,7 @@ func TestInvalidateAdmissionDropsTheAccountEntry(t *testing.T) {
 	}
 }
 
-// The end-to-end version: charge the workspace past its hard stop and assert the
+// The end-to-end version: charge the account past its hard stop and assert the
 // very next gate read sees the new balance, without waiting out the TTL. This is
 // the money path — the failure it prevents is admitting traffic on a balance
 // that no longer exists.
@@ -167,9 +164,9 @@ func TestHardStopCrossingIsVisibleToTheNextGateRead(t *testing.T) {
 	// Balance 1000, hard stop 0: the cached account admits. Then charge enough to
 	// put the balance AT the hard stop, which is the refusal condition
 	// (balance <= hard_stop).
-	tests.SetBillingAccountHardStop(t, dsn, env.WorkspaceID, 0, 1000)
-	s.InvalidateAdmission(env.WorkspaceID)
-	acct, _, err := s.AdmissionGateState(ctx, env.WorkspaceID, env.EnvironmentID)
+	tests.SetBillingAccountHardStop(t, dsn, env.UserID, 0, 1000)
+	s.InvalidateAdmission(env.UserID)
+	acct, err := s.AdmissionGateState(ctx, env.UserID)
 	if err != nil {
 		t.Fatalf("warm read: %v", err)
 	}
@@ -178,8 +175,7 @@ func TestHardStopCrossingIsVisibleToTheNextGateRead(t *testing.T) {
 	}
 
 	row := &store.RequestLog{
-		ID: "rql_hardstop_visible", WorkspaceID: env.WorkspaceID, ProjectID: key.ProjectID,
-		EnvironmentID: key.EnvironmentID, APIKeyID: key.ID, ModelID: env.ModelID,
+		ID: "rql_hardstop_visible", UserID: env.UserID, APIKeyID: key.ID, ModelID: env.ModelID,
 		TokensIn: 1, TokensOut: 1, Cost: 1000, Currency: "USD", Status: "success",
 	}
 	res, err := s.ChargeRequest(ctx, row)
@@ -196,7 +192,7 @@ func TestHardStopCrossingIsVisibleToTheNextGateRead(t *testing.T) {
 	}()
 
 	tr.Reset()
-	acct, _, err = s.AdmissionGateState(ctx, env.WorkspaceID, env.EnvironmentID)
+	acct, err = s.AdmissionGateState(ctx, env.UserID)
 	if err != nil {
 		t.Fatalf("read after hard stop: %v", err)
 	}

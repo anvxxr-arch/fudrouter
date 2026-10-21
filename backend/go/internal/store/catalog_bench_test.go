@@ -41,10 +41,10 @@ func BenchmarkResolveModel(b *testing.B) {
 	env := tests.SeedEnv(b, dsn, "http://127.0.0.1:1")
 	ctx := context.Background()
 	s := benchStore(b, dsn)
-	key := &store.APIKeyRow{WorkspaceID: env.WorkspaceID, ProjectID: env.ProjectID}
+	key := &store.APIKeyRow{UserID: env.UserID}
 
-	// Seed one project-scoped alias with two targets so the alias branch (the
-	// two-query path) is what the benchmark measures, not the fall-through.
+	// Seed one account-scoped alias with two targets so the alias branch is
+	// what the benchmark measures, not the fall-through.
 	tests.SeedAlias(b, dsn, env, "bench-alias", []string{env.ModelID})
 
 	cases := []struct {

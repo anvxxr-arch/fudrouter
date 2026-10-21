@@ -29,7 +29,7 @@ func TestVirtualModelsResolve(t *testing.T) {
 	}
 	defer s.Close()
 
-	key := &store.APIKeyRow{WorkspaceID: env.WorkspaceID, ProjectID: env.ProjectID}
+	key := &store.APIKeyRow{UserID: env.UserID}
 
 	res, err := s.ResolveModel(ctx, key, "fudrouter/auto")
 	if err != nil {
@@ -87,7 +87,7 @@ func TestVirtualModelsResolve(t *testing.T) {
 // order, and an inlined planner would happily return them by physical order.
 // The order is load-bearing: proxy/lifecycle.go copies it onto
 // `Plan.ModelPref.Order` when the policy declares no model preference, so it IS
-// the routing preference. Scope precedence (project beats workspace) rides the
+// the routing preference. Scope precedence (account beats global) rides the
 // same query for the same reason.
 func TestAliasResolutionKeepsScopeAndTargetOrder(t *testing.T) {
 	dsn := tests.RequireDB(t)
@@ -100,7 +100,7 @@ func TestAliasResolutionKeepsScopeAndTargetOrder(t *testing.T) {
 	}
 	defer s.Close()
 
-	key := &store.APIKeyRow{WorkspaceID: env.WorkspaceID, ProjectID: env.ProjectID}
+	key := &store.APIKeyRow{UserID: env.UserID}
 
 	// A second model, so an alias has two distinct targets to order. It hangs
 	// off the seeded provider (model.provider_id is the only NOT NULL FK), but
@@ -137,25 +137,15 @@ func TestAliasResolutionKeepsScopeAndTargetOrder(t *testing.T) {
 		}
 	}
 
-	// Scope precedence: the SAME name at workspace scope must lose to the
-	// project-scoped row above.
-	tests.SeedAliasAtScope(t, dsn, env, "customer-chat", []string{env.ModelID}, "workspace")
+	// Scope precedence: the SAME name at global scope must lose to the
+	// account-scoped row above.
+	tests.SeedAliasAtScope(t, dsn, env, "customer-chat", []string{env.ModelID}, "global")
 	scoped, err := s.ResolveModel(ctx, key, "customer-chat")
 	if err != nil {
-		t.Fatalf("customer-chat after workspace row: %v", err)
+		t.Fatalf("customer-chat after global row: %v", err)
 	}
 	if len(scoped.ModelIDs) != 2 || scoped.ModelIDs[0] != secondID {
-		t.Errorf("project alias must beat the workspace one; got %v", scoped.ModelIDs)
-	}
-
-	// And a key with no project sees the workspace row instead of ErrNotFound.
-	noProject := &store.APIKeyRow{WorkspaceID: env.WorkspaceID}
-	ws, err := s.ResolveModel(ctx, noProject, "customer-chat")
-	if err != nil {
-		t.Fatalf("workspace-scoped lookup: %v", err)
-	}
-	if len(ws.ModelIDs) != 1 || ws.ModelIDs[0] != env.ModelID {
-		t.Errorf("workspace alias targets = %v, want [%s]", ws.ModelIDs, env.ModelID)
+		t.Errorf("account alias must beat the global one; got %v", scoped.ModelIDs)
 	}
 
 	// A disabled alias is invisible.

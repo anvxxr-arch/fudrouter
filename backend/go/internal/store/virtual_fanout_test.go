@@ -46,7 +46,7 @@ func TestVirtualFanOutIsConstant(t *testing.T) {
 	dsn := tests.RequireDB(t)
 	env := tests.SeedEnv(t, dsn, "http://127.0.0.1:1")
 	s, tr := startCounting(t, dsn)
-	key := &store.APIKeyRow{WorkspaceID: env.WorkspaceID, ProjectID: env.ProjectID}
+	key := &store.APIKeyRow{UserID: env.UserID}
 
 	// Grow the catalogue 10x and require the same cost. Each seeded model is
 	// routable (SeedModels inserts the provider_model mapping), so the virtual
@@ -95,7 +95,7 @@ func TestVirtualFanOutStillCoversEveryModel(t *testing.T) {
 	dsn := tests.RequireDB(t)
 	env := tests.SeedEnv(t, dsn, "http://127.0.0.1:1")
 	s, tr := startCounting(t, dsn)
-	key := &store.APIKeyRow{WorkspaceID: env.WorkspaceID, ProjectID: env.ProjectID}
+	key := &store.APIKeyRow{UserID: env.UserID}
 	ctx := context.Background()
 
 	tests.SeedModels(t, dsn, env, 40)

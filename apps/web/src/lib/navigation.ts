@@ -60,30 +60,28 @@ export const PUBLIC_NAV: readonly NavItem[] = [
   // lib/seo.ts), so it keeps answering 200 + noindex instead of a soft 404.
 ];
 
-// Member console. Primary bar mirrors DashShell.tsx verbatim (Overview, Keys,
-// Usage, Billing, Team, Workspace, Playground-conditional); every other
-// /dashboard/* route the router serves is registry-only (nav: false) so the
-// guard table and the listing cannot drift.
+// Member console. Primary bar is Overview, Keys, Usage, Logs, Playground and
+// the account capability surfaces (limits, budgets, aliases, routing, alerts)
+// plus Billing and Settings; every other /dashboard/* route the router serves
+// is registry-only (nav: false) so the guard table and the listing cannot
+// drift.
 export const CONSOLE_NAV: readonly NavItem[] = [
   { to: "/dashboard", label: "Overview", scope: "console", cap: "member", nav: true },
   { to: "/dashboard/keys", label: "Keys", scope: "console", cap: "member", nav: true },
   { to: "/dashboard/usage", label: "Usage", scope: "console", cap: "member", nav: true },
   { to: "/dashboard/logs", label: "Logs", scope: "console", cap: "member", nav: true },
+  { to: "/dashboard/playground", label: "Playground", scope: "console", cap: "member", nav: true },
+  { to: "/dashboard/limits", label: "Limits", scope: "console", cap: "member", nav: true },
+  { to: "/dashboard/budgets", label: "Budgets", scope: "console", cap: "member", nav: true },
+  { to: "/dashboard/aliases", label: "Aliases", scope: "console", cap: "member", nav: true },
+  { to: "/dashboard/routing", label: "Routing", scope: "console", cap: "member", nav: true },
+  { to: "/dashboard/alerts", label: "Alerts", scope: "console", cap: "member", nav: true },
   { to: "/dashboard/billing", label: "Billing", scope: "console", cap: "member", nav: true },
   { to: "/dashboard/billing/credits", label: "Credits", scope: "console", cap: "member", nav: false },
   { to: "/dashboard/billing/invoices", label: "Invoices", scope: "console", cap: "member", nav: false },
   { to: "/dashboard/billing/payment-methods", label: "Payment methods", scope: "console", cap: "member", nav: false },
   { to: "/dashboard/account", label: "Account", scope: "console", cap: "member", nav: false },
-  { to: "/dashboard/workspace", label: "Workspace", scope: "console", cap: "member", nav: true },
-  { to: "/dashboard/team/members", label: "Team", scope: "console", cap: "member", nav: true },
-  { to: "/dashboard/team/invitations", label: "Invitations", scope: "console", cap: "member", nav: false },
-  { to: "/dashboard/team/roles", label: "Roles", scope: "console", cap: "member", nav: false },
   { to: "/dashboard/settings", label: "Settings", scope: "console", cap: "member", nav: true },
-  { to: "/dashboard/projects/new", label: "New project", scope: "console", cap: "member", nav: false },
-  { to: "/dashboard/projects/:projectId", label: "Project", scope: "console", cap: "member", nav: false },
-  { to: "/dashboard/projects/:projectId/playground", label: "Playground", scope: "console", cap: "member", nav: false },
-  { to: "/dashboard/projects/:projectId/:name", label: "Project section", scope: "console", cap: "member", nav: false },
-  { to: "/invite/:token", label: "Invitation", scope: "console", cap: "member", nav: false },
 ];
 
 // Admin console. Caps mirror server/lib/rbac.mjs SECTION_CAPS exactly (plus
@@ -98,7 +96,6 @@ export const ADMIN_NAV: readonly NavItem[] = [
   { to: "/admin/incidents", label: "incidents", scope: "admin", cap: "admin.ops", nav: true },
   { to: "/admin/keys", label: "keys", scope: "admin", cap: "admin.keys", nav: true },
   { to: "/admin/models", label: "models", scope: "admin", cap: "admin.models", nav: true },
-  { to: "/admin/projects", label: "projects", scope: "admin", cap: "admin.users", nav: true },
   { to: "/admin/providers", label: "providers", scope: "admin", cap: "admin.providers", nav: true },
   { to: "/admin/requests", label: "requests", scope: "admin", cap: "admin.requests", nav: true },
   { to: "/admin/routing", label: "routing", scope: "admin", cap: "admin.ops", nav: true },
@@ -107,7 +104,6 @@ export const ADMIN_NAV: readonly NavItem[] = [
   { to: "/admin/system", label: "system", scope: "admin", cap: "admin.ops", nav: true },
   { to: "/admin/traffic", label: "traffic", scope: "admin", cap: "admin.ops", nav: true },
   { to: "/admin/users", label: "users", scope: "admin", cap: "admin.users", nav: true },
-  { to: "/admin/workspaces", label: "workspaces", scope: "admin", cap: "admin.users", nav: true },
   { to: "/admin/:section/:id", label: "Detail", scope: "admin", cap: "admin.view", nav: false },
 ];
 

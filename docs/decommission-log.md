@@ -79,3 +79,29 @@ Nothing under `legacy/` is built or deployed: CI is scoped to `apps/react-web` a
 `packages/*`. The tarball backup above is untouched and remains the rollback
 source.
 
+
+## Retired the legacy hosts (2026-10-21)
+
+`ai.karepmuwes.my.id` and `ai.dwirijal.my.id` are no longer published. The
+product answers on **`fudrouter.my.id`** (and `www.`) only.
+
+What changed:
+
+- `~/.cloudflared/config.yml` — both ingress rules deleted; the tunnel keeps
+  `zura`, `ssh.*`, `fc.dwirijal`, `th.karepmuwes` and `fudcourt.my.id`. The old
+  hostnames now fall through to the catch-all `http_status:404`.
+- `/etc/caddy/Caddyfile` — the `@ai host` matcher is now `fudrouter.my.id
+  www.fudrouter.my.id`; `caddy validate` passed and Caddy was reloaded.
+- `apps/web/server/index.mjs` / `pages.mjs` — canonical URLs and the
+  trusted-origin list point at `fudrouter.my.id` only (commit `61fbe15`).
+
+Note on why `fudrouter.my.id` is served by the **fudcourt** tunnel
+(`5603c635`, `~/.cloudflared/fudcourt.yml`) and not the default one: the zone
+lives in the `anvxxr` Cloudflare account, and a `cfargotunnel` CNAME only routes
+within the account that owns it — a cross-account hostname answers 530 / 1033.
+
+Verified after the swap: `https://fudrouter.my.id/{health,v1/models,/}` → 200,
+`https://www.fudrouter.my.id/health` → 200, and both legacy hosts fail to
+connect (no ingress left). The Cloudflare DNS records for the two legacy names
+were **not** deleted — the API token exists only encrypted in the `cf-manager`
+database — but they no longer resolve to a live origin.

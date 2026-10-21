@@ -80,8 +80,8 @@ npm run check -w @fudrouter/contracts
 npm test  -w @fudrouter/contracts
 
 # Go (needs a throwaway DB). GOTOOLCHAIN=auto matters: go.mod declares
-# toolchain go1.26.9 and the local box may run an older Go, which would
-# otherwise refuse to build. CI pins 1.26.9 to match deliberately.
+# toolchain go1.26.10 and the local box may run an older Go, which would
+# otherwise refuse to build. CI pins 1.26.10 to match deliberately.
 cd backend/go && GOTOOLCHAIN=auto go vet ./... && GOTOOLCHAIN=auto go build ./...
 GOTOOLCHAIN=auto go test ./... -race
 env -u DATABASE_URL -u CI GOTOOLCHAIN=auto go test ./... -count=1   # unit-only, DB tests skip
@@ -120,8 +120,8 @@ export DATABASE_URL=postgres://fudrouter:fudrouter@127.0.0.1:5432/fudrouter_test
 - **Node ≥ 22.18** functionally (`engines` says `>=22.5`, but the workers,
   scheduler and Express bridge load `packages/platform/**/*.ts` under plain
   `node`, which needs native type stripping).
-- **Go toolchain must match CI**: `toolchain go1.26.9` in `go.mod` ↔
-  `go-version: "1.26.9"` in `.github/workflows/ci.yml`. CI once pinned 1.23 and
+- **Go toolchain must match CI**: `toolchain go1.26.10` in `go.mod` ↔
+  `go-version: "1.26.10"` in `.github/workflows/ci.yml`. CI once pinned 1.23 and
   "built a different compiler than the one the binary ships".
 - **`NODE_ENV=production` is exported in the homeserver shell** and npm reads it as
   `omit=dev`. Every `apps/web` dependency is a devDependency, so a bare

@@ -117,7 +117,7 @@ jobs:
           # different compiler than the one the binary ships — a green CI run
           # then said nothing about the artifact. setup-go installs the
           # toolchain; the directive in go.mod selects it for the build.
-          go-version: "1.26.9"
+          go-version: "1.26.10"
           cache-dependency-path: backend/go/go.sum
       # The data-plane tests are DB-backed on purpose, and they seed users, models
       # and providers. Without the schema every one of them dies on

@@ -811,7 +811,7 @@ export function registerPages(app, ctx) {
 		const m = rowsOf(await database.execute(sql`select id from workspace_member where workspace_id = ${targetId} and user_id = ${userRow.id} and status = 'active' limit 1`))[0];
 		if (!m) return fail(res, 403, 'Not a member of that workspace');
 		// httpOnly + secure: deployment is behind a cloudflared tunnel at
-		// https://ai.karepmuwes.my.id, so these only ever travel over HTTPS.
+		// https://fudrouter.my.id, so these only ever travel over HTTPS.
 		res.cookie('fwid', targetId, { path: '/', maxAge: 31536000000, sameSite: 'lax', httpOnly: true, secure: true });
 		res.clearCookie('fpid', { path: '/', httpOnly: true, secure: true });
 		res.clearCookie('feid', { path: '/', httpOnly: true, secure: true });
@@ -1991,7 +1991,7 @@ export function registerPages(app, ctx) {
 		await database.execute(sql`delete from verification where id = ${invite.id}`);
 		await audit(database, { actorUserId: userRow.id, action: 'member.accept', resource: 'workspace_member', workspaceId: invite.payload.workspaceId, metadata: { email: invite.payload.email } });
 		// httpOnly + secure: deployment is behind a cloudflared tunnel at
-		// https://ai.karepmuwes.my.id, so this only ever travels over HTTPS.
+		// https://fudrouter.my.id, so this only ever travels over HTTPS.
 		res.cookie('fwid', invite.payload.workspaceId, { path: '/', maxAge: 31536000000, sameSite: 'lax', httpOnly: true, secure: true });
 		res.json({ accepted: invite.payload.workspaceId });
 	}));

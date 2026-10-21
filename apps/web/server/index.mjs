@@ -509,13 +509,15 @@ export const auth = betterAuth({
 	},
 	// Origin allow-list. An EMPTY array in production meant only baseURL
 	// (ORIGIN) was accepted, so the moment the product answers on more than one
-	// hostname -- fudrouter.my.id alongside the legacy ai.karepmuwes.my.id --
-	// every mutating auth request arriving on the other host is refused with 403
-	// "invalid origin" before Discord is ever reached. Both hostnames are ours
-	// and both terminate on this same app, so both are trusted; ORIGIN is listed
-	// explicitly so a later rotation of ORIGIN cannot leave baseURL untrusted.
+	// hostname every mutating auth request arriving on the other host is
+	// refused with 403 "invalid origin" before Discord is ever reached. The
+	// legacy ai.karepmuwes.my.id name was trusted for that reason, but it was
+	// retired on 2026-10-21: fudrouter.my.id is the single product host, and a
+	// second trusted origin would keep accepting auth for a name that no longer
+	// resolves to this app. ORIGIN stays listed explicitly so a later rotation
+	// of ORIGIN cannot leave baseURL untrusted.
 	trustedOrigins: process.env.NODE_ENV === 'production'
-		? [ORIGIN, 'https://fudrouter.my.id', 'https://www.fudrouter.my.id', 'https://ai.karepmuwes.my.id']
+		? [ORIGIN, 'https://fudrouter.my.id', 'https://www.fudrouter.my.id']
 		: ['http://localhost:3000', 'http://127.0.0.1:3000'],
 	// Discord is the only way in. `emailAuthEnabled` decides the one exception
 	// (the integration harness); lib/auth-config.mjs records why it is keyed
@@ -1080,7 +1082,7 @@ app.get('/api/pages/shell', async (req, res) => {
 		const workspaceId = await currentWorkspaceId(database, userRow.id, cookies);
 		if (workspaceId && workspaceId !== cookies.fwid) {
 			// httpOnly + secure: deployment is behind a cloudflared tunnel at
-			// https://ai.karepmuwes.my.id, so this only ever travels over HTTPS.
+			// https://fudrouter.my.id, so this only ever travels over HTTPS.
 			res.cookie('fwid', workspaceId, { path: '/', maxAge: 31536000000, sameSite: 'lax', httpOnly: true, secure: true });
 		}
 		const projects = workspaceId

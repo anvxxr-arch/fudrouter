@@ -803,6 +803,7 @@ type LastLog struct {
 	TokensIn, TokensOut, Cost         int64
 	CreditCharged                     int64
 	Status                            string
+	HTTPStatus                        *int
 	Attempts                          int
 	FallbackUsed, Stream              bool
 	TTFTMs                            *int
@@ -844,14 +845,14 @@ func InsertRequestLogRow(t *testing.T, dsn string, env *Env, costMicro int64) {
 // as typed nil pointers (PRD §122: NULL ≠ 0), except credit_charged_micro where
 // pre-ledger rows carry NULL and the tests want the number.
 const lastLogColumns = `id, tokens_in, tokens_out, cost, coalesce(credit_charged_micro, 0),
-	status, attempts, fallback_used, stream, ttft_ms, pricing_rule_id,
+	status, http_status, attempts, fallback_used, stream, ttft_ms, pricing_rule_id,
 	input_price_micro, output_price_micro`
 
 func scanLastLog(t *testing.T, row pgx.Row) LastLog {
 	t.Helper()
 	var l LastLog
 	err := row.Scan(&l.ID, &l.TokensIn, &l.TokensOut, &l.Cost, &l.CreditCharged, &l.Status,
-		&l.Attempts, &l.FallbackUsed, &l.Stream, &l.TTFTMs, &l.PricingRuleID,
+		&l.HTTPStatus, &l.Attempts, &l.FallbackUsed, &l.Stream, &l.TTFTMs, &l.PricingRuleID,
 		&l.InputPriceMicro, &l.OutputPriceMicro)
 	if err != nil {
 		t.Fatalf("request_log lookup: %v", err)

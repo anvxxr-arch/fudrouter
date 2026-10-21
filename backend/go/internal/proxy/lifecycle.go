@@ -709,6 +709,12 @@ func (lc *lifecycle) upstreamContext(r *http.Request, stream bool) context.Conte
 	return ctx
 }
 
+// ledgerWriteBudget bounds the primary charge and the recovery writes that
+// follow it (the fallback ledger insert, the attempts insert). Each recovery
+// write builds a fresh context (an expired one never revives), so it cannot
+// inherit the primary's leftovers.
+const ledgerWriteBudget = 5 * time.Second
+
 // finish writes the ledger: request_log (with the usage_charge ledger row when
 // there is a billing account, PRD §128) plus one request_attempt row per
 // routing attempt (spec §8). It is the single funnel every outcome passes
@@ -727,7 +733,7 @@ func (lc *lifecycle) finish() {
 		defer lc.cancelUpstream()
 	}
 
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(lc.r.Context()), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(lc.r.Context()), ledgerWriteBudget)
 	defer cancel()
 
 	// Clamp at the funnel: the token counts come from the upstream's `usage`
@@ -738,10 +744,25 @@ func (lc *lifecycle) finish() {
 		clampTokens(u.TokensIn), clampTokens(u.CachedInputTokens),
 		clampTokens(u.TokensOut), clampTokens(u.ReasoningTokens), clampTokens(u.TotalTokens)
 
+	// request_log.http_status was NULL on every success row. Only reject() and
+	// fail() ever set lc.httpStat; the success paths (serveBuffered, stream,
+	// anthropic) write 200 straight to the client and left it at zero. Measured
+	// on the live ledger: 724/724 status='success' rows had http_status NULL, so
+	// every per-status metric undercounted the only outcome that matters. The
+	// router answers success with 200 and nothing else, and a cancelled stream
+	// had already sent its 200 headers, so derive it at this single funnel
+	// rather than at four separate WriteHeader call sites.
+	if lc.httpStat == 0 && lc.errCode == "" {
+		lc.httpStat = http.StatusOK
+	}
+
 	row := lc.buildRow(u)
 	if row.Cost > 0 && lc.key != nil {
 		// The spend counters move with the charge so the next request's fast
-		// path sees it (spec §7).
+		// path sees it (spec §7). They stay on the primary context: both are
+		// best-effort counters with the durable DB aggregate behind them
+		// (Limiter.SpendAdd, budgetSpent), so an expired context can
+		// under-count a window but never leave usage unbilled.
 		defer lc.h.limiter.SpendAdd(ctx,
 			&limits.APIKeyIdentity{KeyID: lc.key.ID, WorkspaceID: lc.key.WorkspaceID, Store: lc.h.store},
 			row.Cost)
@@ -755,7 +776,20 @@ func (lc *lifecycle) finish() {
 		// carries the credit_ledger entry, so a failed charge can never leave
 		// balance_micro desynced from SUM(credit_ledger.amount_micro). Only if
 		// THAT fails too is the request invisible.
-		if err2 := lc.h.store.InsertRequestLogWithLedger(ctx, row); err2 != nil {
+		//
+		// The fallback needs a context of its own. The only realistic reason
+		// ChargeRequest fails is that ctx expired, and an expired context never
+		// revives — reusing it made this branch unreachable for the one failure
+		// it exists to repair (Begin(ctx) fails instantly, after the client
+		// already has its 200). Not Background(): the write stays bounded. The
+		// budget matches the primary's because this is one statement against a
+		// lock the primary's aborted transaction already released — a longer
+		// budget only pins the goroutine, a shorter one would give the fallback
+		// less chance than the primary had.
+		ledgerCtx, ledgerCancel := context.WithTimeout(
+			context.WithoutCancel(lc.r.Context()), ledgerWriteBudget)
+		defer ledgerCancel()
+		if err2 := lc.h.store.InsertRequestLogWithLedger(ledgerCtx, row); err2 != nil {
 			log.Printf("[proxy] request_log insert failed: %v", err2)
 		}
 	}
@@ -774,7 +808,31 @@ func (lc *lifecycle) finish() {
 		for _, a := range lc.attempts {
 			rows = append(rows, attemptRow(row.ID, a))
 		}
-		if err := lc.h.store.InsertRequestAttempts(ctx, rows); err != nil {
+		// The attempts get a context of their own, same shape as the
+		// fallback's. BUG they fix: the attempts reused ledgerCtx, so when the
+		// primary burned its budget the attempts inherited the fallback's
+		// context — already part-spent waiting behind the same saturated pool —
+		// and the pool-saturation probe measured 18/144 attempt rows lost vs
+		// 3/144 ledger rows (6x): the forensic trail a re-bill would follow
+		// died exactly when it was most needed.
+		//
+		// The budget matches the fallback's: a retry chain fits in one
+		// multi-row insert (maxAttemptsPerInsert=32 per round trip), so this is
+		// one statement against a lock the earlier writes already released —
+		// longer only pins the request goroutine, shorter would give the
+		// attempts less chance than the rows they point at. Not Background():
+		// an unbounded write after the client has its bytes could still pin
+		// the goroutine forever. Rejected: a retry loop, an outbox, a queue, a
+		// config knob — the fresh context is the whole fix.
+		//
+		// Ordering is unchanged: request_attempt.request_id is an FK to
+		// request_log (migration 0006), and the parent row is written above —
+		// on ctx or, when the charge failed, on the fallback's ledgerCtx —
+		// before this runs, so a fresh context here cannot violate it.
+		attemptsCtx, attemptsCancel := context.WithTimeout(
+			context.WithoutCancel(lc.r.Context()), ledgerWriteBudget)
+		defer attemptsCancel()
+		if err := lc.h.store.InsertRequestAttempts(attemptsCtx, rows); err != nil {
 			log.Printf("[proxy] request_attempt insert failed: %v", err)
 		}
 	}

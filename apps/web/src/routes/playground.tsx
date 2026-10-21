@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { api, formatMs } from "../lib/api";
 import type { RunMetrics } from "../lib/api";
 import { compareChunk, type CompareFrame } from "../lib/compare-frame";
@@ -303,15 +303,6 @@ export function PlaygroundPage2() {
   const allFailed = allDone && (runs ?? []).every((r) => r.error);
 
   return (<ConsoleLayout>
-    <nav className="row" style={{ flexWrap: "wrap" }} aria-label="Project">
-      <Link to={"/dashboard/projects/" + pid}><Button variant="ghost" size="sm">Overview</Button></Link>
-      <Link to={"/dashboard/projects/" + pid + "/keys"}><Button variant="ghost" size="sm">Keys</Button></Link>
-      <Link to={"/dashboard/projects/" + pid + "/limits"}><Button variant="ghost" size="sm">Limits</Button></Link>
-      <Link to={"/dashboard/projects/" + pid + "/routing"}><Button variant="ghost" size="sm">Routing</Button></Link>
-      <Link to={"/dashboard/projects/" + pid + "/requests"}><Button variant="ghost" size="sm">Requests</Button></Link>
-      <Link to={"/dashboard/projects/" + pid + "/playground"}><Button variant="ghost" size="sm">Playground</Button></Link>
-      <Link to={"/dashboard/projects/" + pid + "/settings"}><Button variant="ghost" size="sm">Settings</Button></Link>
-    </nav>
     <div className="stack">
       <div>
         <h1>Playground</h1>

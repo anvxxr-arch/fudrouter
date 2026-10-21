@@ -930,22 +930,7 @@ export function ProjectNewPage() {
 }
 
 function Proj({ children }: { children: ReactNode }) {
-  const { projectId } = useParams();
-  return (<ConsoleLayout>
-    <nav className="row" style={{ flexWrap: "wrap" }}>
-      <Link to={"/dashboard/projects/" + projectId}><Button variant="ghost" size="sm">Overview</Button></Link>
-      <Link to={"/dashboard/projects/" + projectId + "/keys"}><Button variant="ghost" size="sm">Keys</Button></Link>
-      <Link to={"/dashboard/projects/" + projectId + "/aliases"}><Button variant="ghost" size="sm">Aliases</Button></Link>
-      <Link to={"/dashboard/projects/" + projectId + "/limits"}><Button variant="ghost" size="sm">Limits</Button></Link>
-      <Link to={"/dashboard/projects/" + projectId + "/budgets"}><Button variant="ghost" size="sm">Budgets</Button></Link>
-      <Link to={"/dashboard/projects/" + projectId + "/routing"}><Button variant="ghost" size="sm">Routing</Button></Link>
-      <Link to={"/dashboard/projects/" + projectId + "/requests"}><Button variant="ghost" size="sm">Requests</Button></Link>
-      <Link to={"/dashboard/projects/" + projectId + "/alerts"}><Button variant="ghost" size="sm">Alerts</Button></Link>
-      <Link to={"/dashboard/projects/" + projectId + "/playground"}><Button variant="ghost" size="sm">Playground</Button></Link>
-      <Link to={"/dashboard/projects/" + projectId + "/settings"}><Button variant="ghost" size="sm">Settings</Button></Link>
-    </nav>
-    {children}
-  </ConsoleLayout>);
+  return (<ConsoleLayout>{children}</ConsoleLayout>);
 }
 
 export function ProjectPage() {

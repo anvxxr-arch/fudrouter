@@ -1115,33 +1115,12 @@ app.get('/api/pages/shell', async (req, res) => {
 	}
 });
 
-// Key page load (dashboard/keys).
-app.get(['/api/pages/keys', '/api/pages/dashboard/keys'], async (req, res) => {
-	try {
-		const database = needDb(res);
-		if (!database) return;
-		const userRow = await authedUser(req);
-		requireCap(userRow, 'member');
-		const keys = await database
-			.select({
-				id: apiKey.id,
-				name: apiKey.name,
-				prefix: apiKey.prefix,
-				status: apiKey.status,
-				lastUsedAt: apiKey.lastUsedAt,
-				revokedAt: apiKey.revokedAt,
-				createdAt: apiKey.createdAt
-			})
-			.from(apiKey)
-			.where(eq(apiKey.userId, userRow.id))
-			.orderBy(desc(apiKey.createdAt));
-		return res.json({ keys });
-	} catch (err) {
-		if (err instanceof HttpError) return res.status(err.status).json({ error: err.message });
-		console.error('[pages/keys]', err);
-		return res.status(500).json({ error: 'Keys load failed' });
-	}
-});
+// Key page load lives in pages.mjs. There used to be a second, inline
+// GET /api/pages/{dashboard/,}keys here returning only the raw columns.
+// Express serves the FIRST registered match, and this one was registered
+// before registerPages, so it shadowed the complete handler: the response
+// carried no usage30d/projectName/expiresAt, and KeysPage dereferences
+// k.usage30d.requests, so /dashboard/keys threw on every load.
 
 registerPlayground(app, {
 	needDb,

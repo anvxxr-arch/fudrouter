@@ -79,8 +79,15 @@ other, and both are testable independently."
 - **Self-serve checkout is planned.** Customers will buy credits themselves
   rather than relying on the operator to post ledger rows from `/admin`. Until it
   ships, billing stays operator-settled: the customer-facing billing page reports
-  balance and spend but takes no card details, and every credit lands through an
-  audited `credit_ledger` posting.
+  balance and spend and takes no card details. What it does take is a *payment
+  intent* — a chosen method plus a contact, stored as a `system_setting` row so
+  the operator can follow up offline. That row is a preference, not a stored
+  payment method, and the checkout build replaces it.
+- **The payment gateway is undecided** — to be chosen when the checkout surface
+  is built, not before. Nothing in the billing code commits to a provider.
+- **The product is English-only.** Console copy, docs and marketing are English;
+  Indonesian is not a product locale. No i18n layer, no switcher, no translated
+  strings until someone decides otherwise.
 - **Undecided:** multi-region deployment, and any team or sharing feature.
 
 ## Accessibility & Inclusion

@@ -81,3 +81,9 @@ control the operator had set.
   `limit.create`, `routing.create`, `alert.create` all audited with no
   `workspace_id`), and the dashboard, limits, billing, aliases, routing, alerts
   and admin pages render with zero workspace/project wording.
+
+The scratch databases (`flat_go`, `flat_go2`, `flat_prodshape`, `flat_final`)
+were dropped after the run; the rehearsal is reproducible from the recipe above
+— `pg_dump --schema-only` of the live database plus its `schema_migration` rows
+plus the fixture shapes listed here — and the reconciliation queries are
+recorded in this file rather than in a surviving database.

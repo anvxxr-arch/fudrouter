@@ -11,7 +11,7 @@
 // Why mechanical: the Go plane already pins its route table with a test
 // (`internal/proxy/surface_test.go`) precisely because "adding a route, renaming
 // one, or letting an exact pattern drift into the catch-all changed the API
-// surface silently". The Express plane has 180+ registrations and no equivalent.
+// surface silently". The Express plane has no equivalent pin.
 // This extractor is that equivalent, and it covers both planes with one artefact.
 //
 // It FAILS LOUDLY rather than guessing:

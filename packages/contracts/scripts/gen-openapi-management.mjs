@@ -11,9 +11,9 @@
 // What is modelled: paths, methods, path parameters, security, tags, and the
 // owning source location.
 //
-// What is NOT modelled, deliberately: request/response BODIES. There are 180+
-// management routes whose handlers speak Drizzle result objects; inventing
-// schemas for them would produce a document that looks authoritative and is
+// What is NOT modelled, deliberately: request/response BODIES. The management
+// handlers speak Drizzle result objects; inventing schemas for them would
+// produce a document that looks authoritative and is
 // wrong. Every operation instead points at the source line that implements it.
 // A body gets a schema only when someone reads the handler and writes it down —
 // same rule as the inference document.
@@ -95,7 +95,7 @@ L.push('    by packages/contracts/scripts/extract-routes.mjs.');
 L.push('    Regenerate: npm run extract -w @fudrouter/contracts && npm run gen -w @fudrouter/contracts');
 L.push('    ');
 L.push('    Paths, methods, path parameters and security are mechanically derived and therefore');
-L.push('    exact. Request/response BODIES are intentionally NOT modelled — 180+ handlers return');
+L.push(`    exact. Request/response BODIES are intentionally NOT modelled — all ${routes.management.length} handlers return`);
 L.push('    Drizzle result objects, and a fabricated schema would be worse than none. Each');
 L.push('    operation carries `x-source` pointing at the line that implements it.');
 L.push('    ');

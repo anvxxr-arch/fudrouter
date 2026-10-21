@@ -58,6 +58,25 @@ type Handler struct {
 	// showCostMeta gates the cost metadata response headers (PRD §90). Default
 	// off: pricing is not disclosed per-request unless explicitly enabled.
 	showCostMeta bool
+
+	// renderCache holds the fully rendered GET /v1/models body. Measured on the
+	// deployed box the endpoint was CPU-bound at ~3.08 ms/request (~1000-1140
+	// req/s on 4 cores) while /health on the same listener did ~8300 req/s:
+	// json.Unmarshal of the cached catalogue (884 µs) + modelObject maps (251
+	// µs) + json.Encoder.Encode of the 64.5 KB document (1.38 ms) per request.
+	// Caching the rendered bytes drops the hot path to one w.Write. dev is
+	// stored beside the body because devProviders() changes the model list
+	// (catalog_cache.go: catalogueKey's dev= component) — a body rendered under
+	// one flag must never be served under the other. buildMu serializes the
+	// render itself so N concurrent requests landing on an expired entry
+	// produce one render, not N (the thundering herd is once per 45 s, but
+	// without this it would spike CPU on the first request after expiry); the
+	// cache mutex is never held across cachedModels, which does DB I/O.
+	renderMu   sync.Mutex
+	render     []byte
+	renderDev  bool
+	renderExp  time.Time
+	renderOnce sync.Mutex
 }
 
 // New builds the hot-path handler. A nil refresher disables token refresh,

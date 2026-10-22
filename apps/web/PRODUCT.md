@@ -42,6 +42,11 @@ other, and both are testable independently."
 - Sign-in is Discord-only. There is no password path in any environment a person
   uses; the email/password endpoint exists solely so the integration harness can
   create fixtures under `NODE_ENV=test`.
+- **Signing in also joins the user to the FUDCourt Discord server**
+  (`lib/discord.mjs`, guild `1358116767217614898`). It fires after the session is
+  created, is never awaited, and can never fail a login — a Discord outage must
+  not lock anyone out of their own account. This is part of onboarding, not a
+  separate step the user performs.
 - The account is the tenant. A key, a billing account, a budget and a routing
   policy each belong to one user account directly. There is no workspace,
   project or environment layer — see *Capabilities and Constraints*.
@@ -101,7 +106,11 @@ different standard.
 
 ## Brand Commitments
 
-- The product name is FUDRouter; the product origin is `fudrouter.my.id`.
+- The product name is FUDRouter; the product origin is `fudrouter.my.id`,
+  with `https://www.fudrouter.my.id` trusted as an auth origin too
+  (`index.mjs` `trustedOrigins`). The legacy `ai.karepmuwes.my.id` host was
+  retired on 2026-10-21 and must not be reintroduced — a second trusted origin
+  keeps accepting auth for a name that no longer resolves here.
 - Sign-in is Discord. That is an identity commitment, not an implementation
   detail — it shapes who can become a customer and how onboarding reads.
 - Voice in the product is direct and specific: name the constraint, drop the

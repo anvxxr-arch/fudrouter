@@ -82,6 +82,15 @@ other, and both are testable independently."
   stored. The TypeScript and Go sides must stay byte-compatible.
 - **Money never touches a float.** Token counts are `int64`, prices are
   `numeric(18,6)`, cost is computed through `math/big`.
+- **The wire format is compatible with the dominant client SDK convention at
+  `/v1`.** That is a product commitment, not an implementation detail: an existing
+  SDK talks to this router after changing only the base URL and the key. Two
+  endpoints are **native** (`POST /v1/chat/completions`, `GET /v1/models`) — their
+  routing, metering, streaming and errors are platform behaviour. Two are
+  **forwarded pass-through** (`POST /v1/responses`, `POST /v1/embeddings`):
+  authenticated, metered and logged here, then relayed unchanged, so their
+  behaviour is the upstream's. Anything outside that list is untested and must not
+  be documented as supported.
 - **The public API surface is frozen.** `packages/contracts` holds `routes.json`
   and the OpenAPI documents behind an 8-test gate; a new inference route fails
   the build until it is declared.

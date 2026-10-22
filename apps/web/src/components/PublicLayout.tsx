@@ -1,5 +1,5 @@
-import { Suspense, useEffect, useState } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
+import { Suspense, useEffect, useId, useRef, useState, type CSSProperties } from 'react';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { PUBLIC_NAV, filterNav } from '../lib/navigation';
 import { api, type StatusPayload } from '../lib/api';
 
@@ -30,16 +30,85 @@ function StatusDot() {
 // guards.tsx remain the enforcement.
 export function PublicLayout() {
   const links = filterNav(PUBLIC_NAV, null);
+  // Mobile navigation is a sheet, not a scrolling rail. Six links never fit
+  // beside the brand and the login button on a phone, and a horizontally
+  // scrolling row hides half of them behind a gesture nobody is told about
+  // (measured: a 34px fade still read as the word “Integratic” cut in half).
+  // A sheet shows every destination at once, at a size a thumb can hit, and it
+  // costs one 44px button in the header instead of a second nav row.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuId = useId();
+  const burgerRef = useRef<HTMLButtonElement>(null);
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const { pathname } = useLocation();
+
+  // Navigating closes the sheet. Without this the new page renders underneath
+  // an overlay that is still covering it.
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenuOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    // The sheet is fixed and the page behind it must not scroll under a thumb.
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const first = sheetRef.current?.querySelector<HTMLElement>('.pub-sheet-link');
+    first?.focus();
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+      // Focus goes back to the button that opened the sheet, so a keyboard
+      // user does not land at the top of the document.
+      burgerRef.current?.focus();
+    };
+  }, [menuOpen]);
+  // The header is sticky, so it needs to know two things the CSS cannot: how far
+  // the page has been read (the progress rail) and whether the page has moved at
+  // all (the solid background). Both are written as a CSS variable / data
+  // attribute from one rAF-throttled scroll listener — no state, so scrolling
+  // never re-renders the tree.
+  const headerRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    let raf = 0;
+    const update = () => {
+      raf = 0;
+      const doc = document.documentElement;
+      const max = doc.scrollHeight - window.innerHeight;
+      const y = window.scrollY;
+      const p = max > 0 ? Math.min(1, Math.max(0, y / max)) : 0;
+      el.style.setProperty('--scroll-progress', p.toFixed(4));
+      el.dataset.scrolled = y > 8 ? 'true' : 'false';
+    };
+    const onScroll = () => {
+      if (!raf) raf = requestAnimationFrame(update);
+    };
+    update();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll);
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onScroll);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, []);
   return (
     <>
       <a className="skip-link" href="#content">
         Skip to content
       </a>
-      <header className="pub">
+      <header className="pub" ref={headerRef}>
         <NavLink className="brand" to="/">
           fudrouter
         </NavLink>
-        <nav aria-label="Primary">
+        {/* Desktop nav. Hidden at <=720px, where the sheet takes over. */}
+        <nav className="pub-nav" aria-label="Primary">
           {links.map((l) => (
             <NavLink
               key={l.to}
@@ -53,10 +122,69 @@ export function PublicLayout() {
         <span className="spacer" />
         {/* One door. Two buttons (“Log in” + “Get started”) both led to the
             same Discord round trip once signup stopped being a separate page. */}
-        <NavLink className="cta" to="/login">
+        <NavLink className="cta pub-cta" to="/login">
           Log in
         </NavLink>
+        <button
+          ref={burgerRef}
+          type="button"
+          className="menu-btn"
+          aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+          aria-expanded={menuOpen}
+          aria-controls={menuId}
+          onClick={() => setMenuOpen((v) => !v)}
+        >
+          <span className="menu-bars" data-open={menuOpen} aria-hidden="true" />
+        </button>
+        <span className="pub-progress" aria-hidden="true" />
       </header>
+
+      {/* Mobile sheet. Kept mounted and hidden with `visibility` so the panel
+          can animate both ways and so closed links leave the tab order. The
+          backdrop is a button, not a div, so it is reachable by assistive tech
+          as the close action it is. */}
+      <div className="pub-sheet" id={menuId} data-open={menuOpen} aria-hidden={!menuOpen}>
+        <button
+          type="button"
+          className="pub-sheet-backdrop"
+          aria-label="Close menu"
+          tabIndex={-1}
+          onClick={() => setMenuOpen(false)}
+        />
+        <div
+          ref={sheetRef}
+          className="pub-sheet-panel"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Menu"
+        >
+          {/* No header row inside the sheet and no second close button: the
+              burger above the scrim has already crossed into an X and every
+              tap outside the panel closes it (the scrim's whole surface is the
+              close button), so a row reading “MENU ×” would say the same thing
+              twice. The grabber is the only furniture — it explains where the
+              surface came from without promising a drag that is not wired. */}
+          <div className="pub-sheet-grip" aria-hidden="true" />
+          <nav className="pub-sheet-nav" aria-label="Primary">
+            {links.map((l, i) => (
+              <NavLink
+                key={l.to}
+                to={l.to}
+                style={{ '--i': i } as CSSProperties}
+                className={({ isActive }) =>
+                  isActive ? 'pub-sheet-link active' : 'pub-sheet-link'
+                }
+              >
+                {l.label}
+                <span className="pub-sheet-chevron" aria-hidden="true">→</span>
+              </NavLink>
+            ))}
+          </nav>
+          <NavLink className="cta pub-sheet-cta" to="/login">
+            Log in
+          </NavLink>
+        </div>
+      </div>
       <main className="shell">
         <div id="content">
           <Suspense fallback={<p className="muted" role="status" aria-live="polite">Loading…</p>}>

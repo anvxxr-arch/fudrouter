@@ -33,6 +33,9 @@
   --radius-md: 8px;
   --radius-lg: 12px;
   --radius-pill: 999px;
+  /* Public chrome height. One token, because the sticky header, the anchor
+     offset and the mobile budget all have to agree on it. */
+  --header-h: 68px;
   --control-h-sm: 32px;
   --control-h-md: 40px;
   --control-h-lg: 48px;
@@ -121,6 +124,12 @@ p a, li a, dd a, dt a, td a, .lede a {
 }
 .skip-link:focus { top: var(--space-md); }
 code, pre { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+/* Inline code often quotes long unbreakable tokens (URLs, key names). Left
+   alone one of them widens its whole paragraph to 1134px on a 390px phone —
+   the widest overflow on the site. `anywhere` breaks tokens without collapsing
+   (unlike break-word) and never touches code inside a pre, where samples must
+   keep their own line structure and scroll instead. */
+:not(pre) > code { overflow-wrap: anywhere; }
 pre {
   margin: 0; padding: var(--space-md);
   background: var(--color-surface); border: 1px solid var(--color-border);
@@ -133,7 +142,13 @@ table.fr td { padding: var(--space-sm); border-bottom: 1px solid var(--color-bor
 table.fr tbody tr:hover { background: var(--color-surface); }
 .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .muted { color: var(--color-text-muted); }
-.row { display: flex; align-items: center; gap: var(--space-sm); }
+/* A row is an action/among-items grouping, not a fixed line: filter chips,
+   card title + badge, button pairs. Without `wrap` a single extra chip pushed
+   the last button to x=366..462 on a 375px viewport — off screen, and invisible
+   once `overflow-x: clip` stopped it widening the document (the clip hid the
+   symptom, not the bug). Rows wrap now, with a row-gap so stacked items keep
+   the same rhythm they have side by side. */
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm); }
 .stack { display: grid; gap: var(--space-md); }
 .stack > * { min-width: 0; }
 .table-wrap { position: relative; overflow-x: auto; -webkit-overflow-scrolling: touch; }
@@ -141,6 +156,10 @@ table.fr tbody tr:hover { background: var(--color-surface); }
    `.table-scroll` inside, so that is the element that gets the height cap; the
    outer wrap keeps owning horizontal scroll for the short tables. */
 .table-wrap:has(.table-scroll) { max-height: 70vh; }
+
+@media (max-width: 720px) {
+  :root { --header-h: 56px; }
+}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
@@ -325,6 +344,36 @@ textarea { resize: vertical; }
 .card-title { margin: 0 0 var(--space-sm); }
 .card-desc { margin: 0; color: var(--color-text-muted); }
 
+/* Scroll entrance shared by every route (see components/Reveal.tsx). The
+   hidden state is set from JS before paint and cleared by an observer; without
+   JS or with reduced motion no attribute is ever set and the block is simply
+   visible. Only opacity/transform animate — no layout shift, no CLS. */
+.reveal[data-reveal='hidden'] { opacity: 0; transform: translate3d(0, 16px, 0); }
+.reveal[data-reveal='shown'] {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity 0.55s var(--ease) var(--reveal-delay, 0ms),
+    transform 0.65s var(--ease) var(--reveal-delay, 0ms);
+}
+
+/* A landing card is a link-sized promise, so it answers the pointer: it lifts,
+   its border warms, and the shadow deepens. Pointer-fine only — on touch the
+   hover state sticks after a tap and reads as a bug. */
+@media (hover: hover) and (pointer: fine) {
+  .grid3 .card {
+    transition:
+      transform var(--duration-med) var(--ease),
+      border-color var(--duration-med) var(--ease),
+      box-shadow var(--duration-med) var(--ease);
+  }
+  .grid3 .card:hover {
+    transform: translateY(-4px);
+    border-color: color-mix(in srgb, var(--primary) 45%, var(--color-border));
+    box-shadow: var(--shadow-md);
+  }
+}
+
 .input {
   display: block; width: 100%; height: var(--control-h-md);
   padding: 0 var(--space-md);
@@ -395,18 +444,277 @@ textarea { resize: vertical; }
 .fr-tr:last-child { border-bottom-width: 0; }
 
 /* ---- Layout chrome (moved from Layout.tsx inline <style>) ---- */
-.pub { display: flex; flex-wrap: wrap; gap: var(--space-md); align-items: center; padding: var(--space-md) var(--space-lg); border-bottom: 1px solid var(--color-border); }
+/* The header is the one piece of chrome on every public page, so its height is
+   a budget, not a taste: on a phone it may not exceed 12% of the viewport
+   (measured 257px / 27-40% before this rule — six nav links wrapped onto three
+   rows). One row, no wrap, and the nav scrolls horizontally inside it instead
+   of growing taller. Desktop keeps the same markup at a taller row. */
+.pub {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: var(--space-md);
+  align-items: center;
+  height: var(--header-h, 68px);
+  padding: 0 var(--space-lg);
+  border-bottom: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-bg) 78%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  backdrop-filter: blur(16px) saturate(150%);
+  transition: background var(--duration-med) var(--ease), border-color var(--duration-med) var(--ease), box-shadow var(--duration-med) var(--ease);
+}
+.pub[data-scrolled='true'] {
+  background: color-mix(in srgb, var(--color-bg) 92%, transparent);
+  border-bottom-color: var(--color-border-strong);
+  box-shadow: 0 8px 24px -18px #000;
+}
+/* Scroll progress: a 2px rail that fills as the page is read. transform-only,
+   so it never triggers layout on scroll. */
+.pub-progress {
+  position: absolute;
+  left: 0;
+  bottom: -1px;
+  width: 100%;
+  height: 2px;
+  transform: scaleX(var(--scroll-progress, 0));
+  transform-origin: 0 50%;
+  background: linear-gradient(90deg, var(--color-orange), var(--color-amber));
+  pointer-events: none;
+}
 .pub a { display: inline-flex; align-items: center; min-height: 44px; }
-.brand { color: var(--color-text); font-weight: 700; }
+/* Brand and CTA are fixed furniture: they never shrink, and the CTA never
+   wraps. Before this, “Log in” broke onto two lines at 390px, which both
+   looked broken and pushed the header's height around. The nav is the only
+   element allowed to give ground, which is what its scroll rail is for. */
+.brand { color: var(--color-text); font-weight: 700; letter-spacing: -0.01em; gap: var(--space-sm); flex: none; }
 .brand:hover { text-decoration: none; }
-.pub nav { display: flex; flex-wrap: wrap; gap: var(--space-md); }
-.pub nav a { padding: var(--space-xs) 0; border-bottom: 2px solid transparent; color: var(--color-text-muted); font-size: var(--text-sm); }
+/* The mark is a live dot, not a logo file: it inherits the theme and costs one
+   element. Its pulse is the page's only always-on motion and is disabled under
+   prefers-reduced-motion with every other animation. */
+.brand::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--primary);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 55%, transparent);
+  animation: brand-pulse 2.8s var(--ease) infinite;
+}
+@keyframes brand-pulse {
+  0%, 70%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 45%, transparent); }
+  35% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--primary) 0%, transparent); }
+}
+.pub nav { display: flex; flex-wrap: nowrap; gap: var(--space-md); min-width: 0; padding-right: 2px; }
+.pub nav a {
+  position: relative;
+  padding: var(--space-xs) 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  transition: color var(--duration-fast) var(--ease);
+}
+/* The active rail is a pseudo-element that scales, so switching routes animates
+   the indicator instead of teleporting a border. */
+.pub nav a::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 10px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--primary);
+  transform: scaleX(0);
+  transform-origin: 50%;
+  transition: transform var(--duration-med) var(--ease);
+}
 .pub nav a:hover { color: var(--color-text); text-decoration: none; }
-.pub nav a.active { border-bottom-color: var(--primary); color: var(--color-text); }
+.pub nav a.active { color: var(--color-text); }
+.pub nav a.active::after { transform: scaleX(1); }
 .spacer { margin-left: auto; }
-.cta { padding: var(--space-sm) var(--space-md); background: var(--primary); color: var(--on-primary); border-radius: var(--radius-md); font-size: var(--text-sm); font-weight: 600; }
-.cta:hover { background: var(--primary-hover); text-decoration: none; }
+.cta {
+  flex: none;
+  white-space: nowrap;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--primary);
+  color: var(--on-primary);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 40%, transparent);
+  transition: background var(--duration-fast) var(--ease), box-shadow var(--duration-med) var(--ease), transform var(--duration-fast) var(--ease);
+}
+.cta:hover {
+  background: var(--primary-hover);
+  text-decoration: none;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px -8px color-mix(in srgb, var(--primary) 75%, transparent);
+}
+.cta:active { transform: translateY(0); }
+
+/* Mobile chrome. 56px at 390x844 is 6.6% of the viewport and 8.8% at the
+   smallest phone we support (320x640), well inside the 12% budget. The nav
+   does not live here: six links cannot fit beside the brand and the login
+   button, so below 720px they move into a sheet (see .pub-sheet) and the
+   header keeps one 44px menu button. */
+@media (max-width: 720px) {
+  .pub {
+    --header-h: 56px;
+    gap: var(--space-sm);
+    padding: 0 var(--space-md);
+  }
+  .pub a { min-height: 40px; }
+  /* `.pub nav` (0,1,1) wins over `.pub-nav` (0,1,0) regardless of source
+     order, so the desktop nav has to be switched off at the same specificity.
+     It was left rendered-but-clipped for a while: six links overflowed the
+     header to 524px on a 390px phone, which widened the whole layout viewport
+     and made every downstream measurement (including the header budget) read
+     against the wrong width. */
+  .pub nav.pub-nav { display: none; }
+  /* Specificity beats the base `display: none` further down, which is what
+     keeps the burger desktop-hidden without a second media query. */
+  .pub .menu-btn { display: inline-grid; flex: none; margin-left: var(--space-xs); }
+  .brand { font-size: var(--text-sm); }
+  .pub-cta { padding: 6px var(--space-sm); font-size: var(--text-caption); }
+  .pub-progress { height: 2px; }
+}
+@media (max-width: 360px) {
+  .pub { padding: 0 var(--space-sm); }
+}
+
+/* ---- mobile menu sheet ------------------------------------------------- */
+.menu-btn {
+  display: none;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text);
+  cursor: pointer;
+  transition: border-color var(--duration-fast) var(--ease), background var(--duration-fast) var(--ease);
+}
+.menu-btn:hover { border-color: var(--color-border-strong); background: var(--color-surface-raised); }
+/* Two rules that cross into an X — the button states its own state instead of
+   relying on the sheet being visible. */
+.menu-bars { position: relative; width: 16px; height: 10px; }
+.menu-bars::before,
+.menu-bars::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  width: 16px;
+  height: 1.5px;
+  border-radius: 2px;
+  background: currentColor;
+  transition: transform var(--duration-med) var(--ease), top var(--duration-med) var(--ease);
+}
+.menu-bars::before { top: 0; }
+.menu-bars::after { top: 8px; }
+.menu-bars[data-open='true']::before { top: 4px; transform: rotate(45deg); }
+.menu-bars[data-open='true']::after { top: 4px; transform: rotate(-45deg); }
+
+/* Hidden on desktop, where the inline nav is the navigation. The mobile
+   `display: block` lives at the end of this block so source order keeps it. */
+.pub-sheet { display: none; }
+.pub-sheet-backdrop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: #000;
+  opacity: 0;
+  cursor: default;
+  transition: opacity 0.25s var(--ease);
+}
+.pub-sheet[data-open='true'] .pub-sheet-backdrop { opacity: 0.55; }
+.pub-sheet-panel {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: grid;
+  gap: var(--space-sm);
+  max-height: 86vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-sm) var(--space-md) calc(var(--space-lg) + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--color-border-strong);
+  border-radius: 20px 20px 0 0;
+  background: var(--color-surface);
+  box-shadow: 0 -24px 60px -30px #000;
+  transform: translateY(102%);
+  transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.pub-sheet[data-open='true'] .pub-sheet-panel { transform: none; }
+/* A grabber says “this came from the bottom” without promising a drag gesture
+   that is not implemented. */
+.pub-sheet-grip {
+  width: 36px;
+  height: 4px;
+  margin: 2px auto var(--space-xs);
+  border-radius: 999px;
+  background: var(--color-border-strong);
+}
+.pub-sheet-nav { display: grid; gap: 2px; margin-top: var(--space-xs); }
+/* Every row is a 52px target, and the active route is marked by text weight,
+   a warm background and the leading rail — not by colour alone. */
+.pub-sheet-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 52px;
+  padding: 0 var(--space-sm);
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  font-size: var(--text-lg);
+  font-weight: 500;
+}
+.pub-sheet-link:hover { background: var(--color-surface-raised); color: var(--color-text); text-decoration: none; }
+.pub-sheet-link.active {
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  color: var(--color-text);
+  box-shadow: inset 2px 0 0 var(--primary);
+}
+.pub-sheet-chevron { color: var(--color-text-muted); font-size: var(--text-sm); }
+.pub-sheet-cta { display: flex; align-items: center; justify-content: center; margin-top: var(--space-xs); min-height: 48px; font-size: var(--text-base); }
+/* Rows rise in sequence when the sheet opens; the delay is the row index. The
+   global reduced-motion block turns this off with everything else. */
+.pub-sheet[data-open='true'] .pub-sheet-link,
+.pub-sheet[data-open='true'] .pub-sheet-cta {
+  animation: sheet-row-in 0.34s var(--ease) both;
+  animation-delay: calc(60ms + var(--i, 0) * 32ms);
+}
+@keyframes sheet-row-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+@media (max-width: 720px) {
+  .pub-sheet { display: block; position: fixed; inset: 0; z-index: 100; visibility: hidden; }
+  .pub-sheet[data-open='true'] { visibility: visible; }
+}
 .shell { max-width: 1100px; margin: 0 auto; padding: var(--space-lg); }
+/* The header is sticky, so an anchor or a skip-link target would otherwise sit
+   hidden under it. Offset by the header height plus a breath. */
+[id] { scroll-margin-top: calc(var(--header-h, 68px) + var(--space-md)); }
+/* Decorative full-bleeds (the hero glow is sized in 100vw, and 100vw includes
+   the scrollbar) must not open a horizontal scrollbar. On a 390px phone the
+   viewport was 524px wide because of this and everything downstream —
+   including the header budget — measured against the wrong width. `clip`, not
+   `hidden`: `hidden` turns the root into a scroll container and breaks the
+   sticky header. */
+html { overflow-x: clip; }
+/* And again at body level: the root's `clip` is propagated to the viewport as
+   `hidden`, which a trackpad pan can still nudge (measured: 8px of travel from
+   the hero glow's 100vw vs the 15px scrollbar). Clipping the body box itself
+   takes the overflowing descendants out of the document's scrollable overflow,
+   so there is no travel left to nudge. */
+body { overflow-x: clip; }
 .foot { display: flex; flex-wrap: wrap; gap: var(--space-md); align-items: center; justify-content: space-between; max-width: 1100px; margin: 0 auto; padding: var(--space-lg); color: var(--color-text-muted); font-size: var(--text-sm); }
 .foot .legal { display: flex; gap: var(--space-md); }
 
@@ -441,6 +749,12 @@ textarea { resize: vertical; }
   left: 0;
   margin: 0 auto;
   width: min(calc(1100px - 2 * var(--space-lg)), calc(100% - 2 * var(--space-lg)));
+  /* Pointer parallax (AuroraBackground.tsx writes --px/--py, -1..1). The glow
+     leans towards the cursor by at most 14px; the transition is long and the
+     travel tiny, so it reads as depth rather than as a moving background. */
+  transform: translate3d(calc(var(--px, 0) * 14px), calc(var(--py, 0) * 10px), 0);
+  transition: transform 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
 }
 .aurora-blob { position: absolute; width: 42vmax; height: 42vmax; border-radius: 50%; filter: blur(90px); opacity: 0.5; }
 .aurora-blob.a { left: -10vmax; top: -14vmax; background: color-mix(in srgb, var(--color-orange) 26%, transparent); }
@@ -525,6 +839,26 @@ textarea { resize: vertical; }
 .code-block-copy:hover { color: var(--color-text); border-color: var(--color-border-strong); }
 .code-block-copy[data-copied='true'] { color: var(--color-success); border-color: var(--color-success); }
 .code-block pre { border: 0; border-radius: 0; background: transparent; }
+/* The “there is more to the right” cue for samples wider than the card. Keyed
+   off data-more so the fade disappears once the sample is scrolled to its end
+   (a permanent fade would never say whether anything was still hidden). */
+.code-block-frame { position: relative; }
+/* A painted fade (text fading via mask is too subtle on the dark surface). It
+   disappears once the sample is scrolled to its end, so “faded” always means
+   “there is more to the right”, never “the code looks like this”. */
+.code-block-frame::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 44px;
+  background: linear-gradient(90deg, transparent, var(--color-surface) 70%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--duration-fast) var(--ease);
+}
+.code-block[data-more='true'] .code-block-frame::after { opacity: 1; }
 
 /* ---- console sidebar (ConsoleLayout) ---- */
 .console-shell { display: grid; grid-template-columns: 14rem minmax(0, 1fr); gap: var(--space-xl); align-items: start; }

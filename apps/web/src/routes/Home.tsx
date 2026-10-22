@@ -31,7 +31,7 @@ import './Home.css';
 // .shiny-text-disabled is what a reduced-motion caller would reach for.
 
 const CURL_SAMPLE = `curl https://fudrouter.my.id/v1/chat/completions \\
-  -H "Authorization: Bearer $FUDRouter_API_KEY" \\
+  -H "Authorization: Bearer $FUDROUTER_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
     "model": "gpt-4o-mini",
@@ -70,7 +70,7 @@ resp = client.chat.completions.create(
 
 const client = new OpenAI({
   baseURL: "${API_BASE_DISPLAY}/v1",
-  apiKey: process.env.FUDRouter_API_KEY,
+  apiKey: process.env.FUDROUTER_API_KEY,
 });
 const stream = await client.chat.completions.create({
   model: "gpt-4o-mini",
@@ -83,7 +83,7 @@ const stream = await client.chat.completions.create({
     label: 'Go',
     code: `client := openai.NewClient(
     option.WithBaseURL("${API_BASE_DISPLAY}/v1"),
-    option.WithAPIKey(os.Getenv("FUDRouter_API_KEY")),
+    option.WithAPIKey(os.Getenv("FUDROUTER_API_KEY")),
 )
 resp, err := client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
     Model:    "gpt-4o-mini",

@@ -60,15 +60,31 @@
   --text-base: 1rem;
   --text-lg: 1.125rem;
   --text-h5: 1.25rem;
-  --text-h4: clamp(1.5rem, 1.48rem + 0.1vw, 1.5625rem);
+  /* This was clamp(1.5rem, 1.48rem + 0.1vw, 1.5625rem): a 24px floor and a
+     25px ceiling, i.e. a step that never moved. As the h3 size it has to hold
+     up on a 320px phone, so it now actually ranges 22 -> 25. */
+  --text-h4: clamp(1.375rem, 1.29rem + 0.42vw, 1.5625rem);
   --text-h3: clamp(1.75rem, 1.66rem + 0.4vw, 2rem);
   --text-h2: clamp(2.25rem, 2.07rem + 0.8vw, 2.75rem);
   --text-h1: clamp(2.75rem, 2.48rem + 1.2vw, 3.5rem);
-  --text-display: clamp(3.5rem, 3.05rem + 2vw, 4.75rem);
+  /* The floor was 56px, which is what a 390px phone actually got: "Pay for
+     what" measured 340px inside a 342px column, so the headline's longest line
+     had two pixels of room and grew or shrank with the fallback font's metrics.
+     The slope now starts at 44px so the display line breathes on small screens
+     and still reaches 76px on a wide one: 44 @320, 46 @390, 60 @768, 76 @1280. */
+  --text-display: clamp(2.75rem, 2.05rem + 3.5vw, 4.75rem);
   --lh-display: 1.1;
   --lh-body: 1.47;
   --tracking-display: -0.02em;
   --tracking-body: -0.00374em;
+  /* Line length. `ch` is the advance width of the glyph "0", not of an average
+     character: in Plus Jakarta Sans that digit is 0.73em while lowercase
+     averages 0.50em, so "70ch" fits ~100 characters instead of 70. Every
+     long-form block on the site was therefore ~45% wider than it claimed --
+     docs prose measured 99 characters per line, the pricing FAQ 90, the legal
+     pages 101. `em` resolves against the element's own font size and 0.5em is
+     the measured average advance, so 33em is ~66 characters at any size. */
+  --measure: 33em;
   /* ---- 1. primitives: motion ---- */
   --duration-fast: 120ms;
   --duration-med: 320ms;
@@ -111,9 +127,8 @@ body {
   letter-spacing: var(--tracking-body);
   -webkit-font-smoothing: antialiased;
 }
-h1 { margin: 0 0 var(--space-md); font-size: var(--text-h4); font-weight: 700; letter-spacing: -0.01em; line-height: 1.2; }
-h2 { margin: var(--space-lg) 0 var(--space-sm); font-size: var(--text-h5); font-weight: 600; line-height: 1.3; }
-h3 { margin: var(--space-lg) 0 var(--space-sm); font-size: var(--text-lg); font-weight: 600; line-height: 1.3; }
+/* Heading type lives below the normalize reset, not here. See "heading scale"
+   further down for why the position is load-bearing. */
 a { color: var(--color-info); text-decoration: none; }
 a:hover { text-decoration: underline; }
 p a, li a, dd a, dt a, td a, .lede a {
@@ -135,7 +150,19 @@ code, pre { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
    the widest overflow on the site. `anywhere` breaks tokens without collapsing
    (unlike break-word) and never touches code inside a pre, where samples must
    keep their own line structure and scroll instead. */
-:not(pre) > code { overflow-wrap: anywhere; }
+:not(pre) > code {
+  overflow-wrap: anywhere;
+  /* Monospace at the same size and colour reads as body text with wider
+     letters, so identifiers like `credit_ledger` or `HTTP 402` disappeared into
+     the sentence they were explaining. A raised chip plus a small size step
+     marks them as code without shouting. */
+  padding: 0.08em 0.34em;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font-size: 0.92em;
+}
 pre {
   margin: 0; padding: var(--space-md);
   background: var(--color-surface); border: 1px solid var(--color-border);
@@ -146,6 +173,8 @@ table.fr { width: 100%; border-collapse: collapse; }
 table.fr th { padding: var(--space-sm); border-bottom: 1px solid var(--color-border-strong); text-align: left; }
 table.fr td { padding: var(--space-sm); border-bottom: 1px solid var(--color-border); text-align: left; vertical-align: middle; }
 table.fr tbody tr:hover { background: var(--color-surface); }
+/* Figures sit in columns, so they must not jitter between values: every digit
+   gets the same advance. `.num` is the marker for a standalone figure. */
 .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .muted { color: var(--color-text-muted); }
 /* A row is an action/among-items grouping, not a fixed line: filter chips,
@@ -196,6 +225,35 @@ html {
   overflow-x: clip;
 }
 h1, h2, h3, h4, h5, h6 { font-size: inherit; font-weight: inherit; }
+
+/* ---- heading scale -------------------------------------------------------
+   This block MUST stay after the reset above. The reset sets
+   `font-size: inherit; font-weight: inherit` on h1..h6 with the same element
+   specificity as the scale, so any heading rule written earlier in the file
+   loses on source order -- silently, with no error and nothing in the devtools
+   "overridden" list that looks wrong. That is exactly what had happened: every
+   heading on the site rendered at 16px/400, identical to a paragraph. Measured
+   before: h2 "How it works" = 16px/400, h2 "The difference a router makes" =
+   16px/400, and the 74px hero headline carried weight 400 because only its
+   size came from a class. The whole document read flat.
+
+   The scale is one step per token, ~1.25 between steps, so the tokens are all
+   used and the hierarchy is legible without a heading being a guess:
+     76 display > 44 h1 > 32 h2 > 25 h3 > 20 h4 > 18 h5 > 16 h6.
+   Tracking tightens as size grows (optical compensation), and leading loosens
+   as it shrinks. */
+h1 { margin: 0 0 var(--space-md); font-size: var(--text-h2); font-weight: 700; letter-spacing: -0.015em; line-height: 1.15; }
+h2 { margin: var(--space-lg) 0 var(--space-sm); font-size: var(--text-h3); font-weight: 600; letter-spacing: -0.012em; line-height: 1.2; }
+h3 { margin: var(--space-lg) 0 var(--space-sm); font-size: var(--text-h4); font-weight: 600; letter-spacing: -0.008em; line-height: 1.3; }
+h4 { margin: var(--space-md) 0 var(--space-sm); font-size: var(--text-h5); font-weight: 600; line-height: 1.35; }
+h5 { margin: var(--space-md) 0 var(--space-xs); font-size: var(--text-lg); font-weight: 600; line-height: 1.4; }
+h6 { margin: var(--space-md) 0 var(--space-xs); font-size: var(--text-base); font-weight: 600; line-height: 1.4; }
+/* A heading is read as one phrase, so it may not leave one word alone on its
+   last line. `balance` is ignored where unsupported and costs no layout.
+   Body copy gets `pretty` instead: it only prevents an orphan, and it does not
+   rebalance every line of a long paragraph. */
+h1, h2, h3, h4, h5, h6 { text-wrap: balance; }
+p, li, dd { text-wrap: pretty; }
 b, strong { font-weight: bolder; }
 small { font-size: 80%; }
 sub, sup { font-size: 75%; line-height: 0; position: relative; vertical-align: baseline; }
@@ -437,7 +495,9 @@ textarea { resize: vertical; }
   color: var(--color-text);
   white-space: nowrap;
 }
-.fr { width: 100%; border-collapse: collapse; caption-side: bottom; font-size: var(--text-sm); }
+/* Tables are mostly numbers; proportional digits make a column of figures look
+   ragged and shift horizontally as values change. */
+.fr { width: 100%; border-collapse: collapse; caption-side: bottom; font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
 .fr th, .fr td { padding: var(--space-sm); text-align: left; vertical-align: middle; }
 .fr th { border-bottom: 1px solid var(--color-border-strong); font-weight: 500; color: var(--color-text-muted); }
 .fr td { border-bottom: 1px solid var(--color-border); }
@@ -869,14 +929,25 @@ body { overflow-x: clip; }
 .metrics-strip .num { font-size: var(--text-h4); font-weight: 600; letter-spacing: -0.01em; }
 .metrics-strip .muted { margin-top: var(--space-xs); font-size: var(--text-sm); }
 .metrics-error { grid-column: 1 / -1; }
-.grid3 { display: grid; gap: var(--space-md); grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); }
+/* 14rem made this a four-up grid at 1280 (251px cards), which set card copy at
+   19 characters per line -- a measure that reads as a column of nouns. 17rem
+   lands on three columns of 340px (44 cpl) and matches what the class name
+   always promised. */
+.grid3 { display: grid; gap: var(--space-md); grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr)); }
 /* The pillar cards are a band of their own, so they get a real gap from the
    metrics strip. Before this the two boxes were flush and the only separation
    was the strip's own bottom padding -- a gap that changed if that padding ever
    changed, and that collapsed entirely when the strip was restyled. */
 .hero > .grid3 { margin-top: var(--space-xl); }
-.display-xl { font-size: var(--text-display); letter-spacing: var(--tracking-display); line-height: var(--lh-display); }
-.fr-label { color: var(--color-text-muted); font-size: var(--text-caption); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+/* Weight is stated here rather than inherited from h1: the display line is the
+   one place on the page where weight carries the composition, and it must not
+   silently drop to 400 again if the h1 rule moves. */
+.display-xl { font-size: var(--text-display); font-weight: 700; letter-spacing: var(--tracking-display); line-height: var(--lh-display); }
+/* Uppercase at 12px needs visible tracking to stay readable; 0.04em read as
+   letters crowded together. 0.08em is the usual floor for caps this small. */
+/* One step above --text-caption: uppercase at 12px is legible but sits at the
+   floor of comfortable reading, and this is the label that opens every page. */
+.fr-label { color: var(--color-text-muted); font-size: 0.8125rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
 
 /* ---- code block: file bar + copy ---- */
 .code-block { margin: 0; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); overflow: hidden; }
@@ -924,13 +995,19 @@ body { overflow-x: clip; }
 .doc-sidebar { position: sticky; top: var(--space-lg); align-self: start; display: grid; gap: var(--space-md); }
 .doc-sidebar ul { list-style: none; margin: var(--space-xs) 0 0; padding: 0; display: grid; gap: var(--space-xs); }
 .doc-sidebar a.current { color: var(--color-text); font-weight: 600; }
-.cat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: var(--space-md); }
+/* Same measure problem as .grid3: 15rem put four cards on a 1052px row, so
+   card copy was set at 23 characters per line. 17rem gives three columns. */
+.cat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr)); gap: var(--space-md); }
 .cat-card { display: grid; gap: var(--space-xs); padding: var(--space-md); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); }
 .doc-pager { display: flex; justify-content: space-between; margin-top: var(--space-xl); border-top: 1px solid var(--color-border); padding-top: var(--space-md); }
 @media (max-width: 720px) { .doc-layout { grid-template-columns: 1fr; } }
 
 /* ---- shared page semantics used by the routes ---- */
-.lede { color: var(--color-text-muted); font-size: var(--text-lg); line-height: 1.5; max-width: 60ch; }
+.lede { color: var(--color-text-muted); font-size: var(--text-lg); line-height: 1.5; max-width: var(--measure); }
+/* A footnote is prose too. Left alone these ran the full 1052px shell at 14px,
+   which measured 159 characters on one line -- a sentence you have to sweep
+   your eyes across twice. `:not(.lede)` keeps the lede's own, larger measure. */
+p.muted:not(.lede) { max-width: 34rem; }
 .error { color: var(--color-danger); font-size: var(--text-sm); }
 .meta { color: var(--color-text-muted); font-size: var(--text-caption); }
 .fr-divider { display: flex; align-items: center; gap: var(--space-md); color: var(--color-text-muted); font-size: var(--text-caption); }
@@ -966,7 +1043,7 @@ body { overflow-x: clip; }
 .pricing-calc-results > div { display: grid; gap: 2px; padding: var(--space-md); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
 .pricing-calc-results .num { font-size: var(--text-h4); font-weight: 600; }
 .pricing-calc > p { grid-column: 1 / -1; margin: 0; }
-.pricing-faq { display: grid; gap: var(--space-sm); max-width: 70ch; }
+.pricing-faq { display: grid; gap: var(--space-sm); max-width: 34rem; }
 .pricing-faq details { border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
 .pricing-faq summary { padding: var(--space-sm) var(--space-md); cursor: pointer; font-weight: 600; }
 .pricing-faq details[open] summary { border-bottom: 1px solid var(--color-border); }

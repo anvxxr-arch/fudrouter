@@ -17,7 +17,7 @@
 /* Prose spacing for the injected HTML. The base reset strips list markers and
    heading sizes, so both are restated here — the same reason .doc-prose in
    Docs.css does. No display:grid: grid items lose their ::marker. */
-.changelog-body { display: grid; gap: var(--space-md); max-width: 70ch; align-content: start; }
+.changelog-body { display: grid; gap: var(--space-md); max-width: 34rem; align-content: start; }
 .changelog-body > * { min-width: 0; }
 .changelog-body p { margin: 0; }
 .changelog-body ul { margin: 0; padding-left: var(--space-lg); list-style: disc; }

@@ -1,7 +1,9 @@
 /* Docs-only rules. styles.css owns the tokens and the doc/cat layout;
    this file adds what the markdown renderer and the index search need. */
 
-.doc-prose { display: grid; gap: var(--space-md); max-width: 70ch; align-content: start; }
+/* 34rem, not 70ch: ch measured the zero glyph, so this block ran to 99
+   characters per line. See the --measure note in styles.css. */
+.doc-prose { display: grid; gap: var(--space-md); max-width: 34rem; align-content: start; }
 .doc-prose > * { min-width: 0; }
 .doc-prose p { margin: 0; }
 /* The base reset strips list markers, so prose lists restate them. No

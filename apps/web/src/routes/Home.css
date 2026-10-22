@@ -54,7 +54,11 @@
 .hero-code > .home-tabs { margin-bottom: var(--space-sm); }
 .hero-code > .home-base-url { margin-top: var(--space-sm); }
 
-.home-faq { display: grid; gap: var(--space-sm); max-width: 70ch; }
+/* The cap has to be stated in a unit that does not change with the text size.
+   70ch resolved against this box's 16px, but the answers inside are 14px, so
+   the real measure measured 98 characters per line -- well past the 75 where a
+   line stops being comfortable to track. 34rem at 14px is ~65 cpl. */
+.home-faq { display: grid; gap: var(--space-sm); max-width: 30rem; }
 .home-faq details { border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
 .home-faq summary { padding: var(--space-sm) var(--space-md); cursor: pointer; font-weight: 600; }
 .home-faq details[open] summary { border-bottom: 1px solid var(--color-border); }

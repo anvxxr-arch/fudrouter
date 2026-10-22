@@ -14,7 +14,7 @@
 .doc-prose li + li { margin-top: var(--space-xs); }
 .doc-prose li::marker { color: var(--color-text-muted); }
 /* The base reset also strips heading sizes; prose restates the scale. */
-.doc-prose h2 { font-size: var(--text-h5); font-weight: 600; }
+.doc-prose h2 { font-size: var(--text-h3); font-weight: 600; }
 .doc-prose h3 { font-size: var(--text-lg); font-weight: 600; }
 .doc-prose pre { margin: 0; }
 .doc-prose p code, .doc-prose li code {

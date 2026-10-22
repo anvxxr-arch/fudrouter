@@ -7,7 +7,7 @@
 /* Stat cards. The four cards sit in a .row with flex-wrap, so each one takes a
    quarter of the width until the row runs out of room. */
 .stat-card { flex: 1 1 12rem; display: grid; gap: var(--space-xs); align-content: start; }
-.stat-value { margin: 0; font-size: var(--text-h4); font-weight: 600; letter-spacing: -0.01em; }
+.stat-value { margin: 0; font-size: var(--text-stat); font-weight: 600; letter-spacing: -0.01em; }
 .stat-foot { justify-content: space-between; }
 .stat-sub { margin: 0; font-size: var(--text-sm); color: var(--color-text-muted); }
 .stat-rate--ok { color: var(--color-success); }
@@ -130,7 +130,7 @@
 /* Balance: figure, threshold sentence, and a bar scaled to the larger of
    balance and warning so both markers stay on-screen. */
 .credits-balance { display: grid; gap: var(--space-sm); }
-.credits-balance-figure { margin: 0; font-size: var(--text-h3); font-weight: 600; letter-spacing: -0.01em; }
+.credits-balance-figure { margin: 0; font-size: var(--text-stat); font-weight: 600; letter-spacing: -0.01em; }
 .credits-balance-state { margin: 0; font-size: var(--text-sm); color: var(--color-text-muted); }
 .credits-balance-state--ok { color: var(--color-success); }
 .credits-balance-state--warn { color: var(--warning); }

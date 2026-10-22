@@ -23,7 +23,7 @@
 .changelog-body ul { margin: 0; padding-left: var(--space-lg); list-style: disc; }
 .changelog-body li + li { margin-top: var(--space-xs); }
 .changelog-body li::marker { color: var(--color-text-muted); }
-.changelog-body h2 { font-size: var(--text-h5); font-weight: 600; }
+.changelog-body h2 { font-size: var(--text-h3); font-weight: 600; }
 .changelog-body h3 { font-size: var(--text-lg); font-weight: 600; }
 .changelog-body pre { margin: 0; }
 .changelog-body p code, .changelog-body li code {

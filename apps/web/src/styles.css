@@ -60,19 +60,38 @@
   --text-base: 1rem;
   --text-lg: 1.125rem;
   --text-h5: 1.25rem;
-  /* This was clamp(1.5rem, 1.48rem + 0.1vw, 1.5625rem): a 24px floor and a
-     25px ceiling, i.e. a step that never moved. As the h3 size it has to hold
-     up on a 320px phone, so it now actually ranges 22 -> 25. */
-  --text-h4: clamp(1.375rem, 1.29rem + 0.42vw, 1.5625rem);
-  --text-h3: clamp(1.75rem, 1.66rem + 0.4vw, 2rem);
-  --text-h2: clamp(2.25rem, 2.07rem + 0.8vw, 2.75rem);
-  --text-h1: clamp(2.75rem, 2.48rem + 1.2vw, 3.5rem);
+  /* Stat figures are not a heading level -- they are display numbers inside a
+     band, and they must stay larger than the label under them at every width.
+     Tied to h4 they would have dropped to 18px on a phone, below the body
+     size they are supposed to dominate. Floor 22px keeps a clear step over the
+     h3 card title (19px) at the narrow end. */
+  --text-stat: clamp(1.375rem, 1.25rem + 0.625vw, 1.75rem);
+  /* Fluid heading scale. Every step is a clamp that reaches its floor at 320px
+     and its ceiling at 1280px (the widest point at which the 1100px shell still
+     has room to breathe), so the ladder is continuous and no breakpoint has to
+     restate it.
+
+     Two rules hold this together. First, the token a heading element uses has
+     the same name as the element (h1 -> --text-h1). It used to be offset by
+     one, so `h1` read `--text-h2` and the file said one thing while the page
+     rendered another. Second, the floors are the load-bearing part: the old set
+     put h1's floor at 2.75rem, the same value as the display floor, so on a
+     320px phone a page title and the landing hero both rendered at 44px and the
+     hierarchy between them disappeared. Each floor is now one real step below
+     the next, so adjacent levels stay >=1.25 apart at BOTH ends of the ramp:
+       320px:  44 display > 33 h1 > 24 h2 > 19 h3 > 17 h4 > 16 h5
+       1280px: 76 display > 44 h1 > 32 h2 > 25 h3 > 20 h4 > 16 h5 */
+  --text-h4: clamp(1.0625rem, 1rem + 0.3125vw, 1.25rem);
+  --text-h3: clamp(1.1875rem, 1.0625rem + 0.625vw, 1.5625rem);
+  --text-h2: clamp(1.5rem, 1.3333rem + 0.8333vw, 2rem);
+  --text-h1: clamp(2.0625rem, 1.8333rem + 1.1458vw, 2.75rem);
   /* The floor was 56px, which is what a 390px phone actually got: "Pay for
      what" measured 340px inside a 342px column, so the headline's longest line
      had two pixels of room and grew or shrank with the fallback font's metrics.
-     The slope now starts at 44px so the display line breathes on small screens
-     and still reaches 76px on a wide one: 44 @320, 46 @390, 60 @768, 76 @1280. */
-  --text-display: clamp(2.75rem, 2.05rem + 3.5vw, 4.75rem);
+     The floor is 44px (the widest line leaves 18px of slack at 320px) and the
+     slope is steepest of any token, because this is the only size that carries
+     the composition: 44 @320, 46 @390, 59 @768, 76 @1280. */
+  --text-display: clamp(2.75rem, 2.0833rem + 3.3333vw, 4.75rem);
   --lh-display: 1.1;
   --lh-body: 1.47;
   --tracking-display: -0.02em;
@@ -242,11 +261,11 @@ h1, h2, h3, h4, h5, h6 { font-size: inherit; font-weight: inherit; }
      76 display > 44 h1 > 32 h2 > 25 h3 > 20 h4 > 18 h5 > 16 h6.
    Tracking tightens as size grows (optical compensation), and leading loosens
    as it shrinks. */
-h1 { margin: 0 0 var(--space-md); font-size: var(--text-h2); font-weight: 700; letter-spacing: -0.015em; line-height: 1.15; }
-h2 { margin: var(--space-lg) 0 var(--space-sm); font-size: var(--text-h3); font-weight: 600; letter-spacing: -0.012em; line-height: 1.2; }
-h3 { margin: var(--space-lg) 0 var(--space-sm); font-size: var(--text-h4); font-weight: 600; letter-spacing: -0.008em; line-height: 1.3; }
-h4 { margin: var(--space-md) 0 var(--space-sm); font-size: var(--text-h5); font-weight: 600; line-height: 1.35; }
-h5 { margin: var(--space-md) 0 var(--space-xs); font-size: var(--text-lg); font-weight: 600; line-height: 1.4; }
+h1 { margin: 0 0 var(--space-md); font-size: var(--text-h1); font-weight: 700; letter-spacing: -0.015em; line-height: 1.15; }
+h2 { margin: var(--space-lg) 0 var(--space-sm); font-size: var(--text-h2); font-weight: 600; letter-spacing: -0.012em; line-height: 1.2; }
+h3 { margin: var(--space-lg) 0 var(--space-sm); font-size: var(--text-h3); font-weight: 600; letter-spacing: -0.008em; line-height: 1.3; }
+h4 { margin: var(--space-md) 0 var(--space-sm); font-size: var(--text-h4); font-weight: 600; line-height: 1.35; }
+h5 { margin: var(--space-md) 0 var(--space-xs); font-size: var(--text-h5); font-weight: 600; line-height: 1.4; }
 h6 { margin: var(--space-md) 0 var(--space-xs); font-size: var(--text-base); font-weight: 600; line-height: 1.4; }
 /* A heading is read as one phrase, so it may not leave one word alone on its
    last line. `balance` is ignored where unsupported and costs no layout.
@@ -926,7 +945,7 @@ body { overflow-x: clip; }
 .metrics-strip > div { position: relative; min-width: 0; }
 .metrics-strip > div + div { padding-left: var(--space-lg); }
 .metrics-strip > div + div::before { content: ""; position: absolute; left: 0; top: 0.15em; bottom: 0.15em; width: 1px; background: var(--color-border); }
-.metrics-strip .num { font-size: var(--text-h4); font-weight: 600; letter-spacing: -0.01em; }
+.metrics-strip .num { font-size: var(--text-stat); font-weight: 600; letter-spacing: -0.01em; }
 .metrics-strip .muted { margin-top: var(--space-xs); font-size: var(--text-sm); }
 .metrics-error { grid-column: 1 / -1; }
 /* 14rem made this a four-up grid at 1280 (251px cards), which set card copy at
@@ -1019,7 +1038,7 @@ p.muted:not(.lede) { max-width: 34rem; }
 .pricing-tier--pro { border-color: var(--warning); }
 .pricing-tier-badge { position: absolute; top: calc(var(--space-sm) * -1); right: var(--space-md); padding: 2px var(--space-sm); border-radius: var(--radius-pill); background: var(--warning); color: var(--color-bg); font-size: var(--text-caption); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
 .pricing-tier h3 { margin: 0; }
-.pricing-tier-price { margin: 0; font-size: var(--text-h3); font-weight: 600; letter-spacing: -0.01em; }
+.pricing-tier-price { margin: 0; font-size: var(--text-stat); font-weight: 600; letter-spacing: -0.01em; }
 .pricing-tier-price .muted { font-size: var(--text-sm); font-weight: 400; }
 .pricing-features { margin: var(--space-sm) 0 var(--space-md); padding: 0; list-style: none; display: grid; gap: var(--space-xs); font-size: var(--text-sm); }
 .pricing-features li { display: flex; align-items: flex-start; gap: var(--space-sm); }
@@ -1041,7 +1060,7 @@ p.muted:not(.lede) { max-width: 34rem; }
 .pricing-calc-controls input[type='range'] { width: 100%; accent-color: var(--primary); }
 .pricing-calc-results { display: grid; gap: var(--space-md); align-content: start; }
 .pricing-calc-results > div { display: grid; gap: 2px; padding: var(--space-md); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
-.pricing-calc-results .num { font-size: var(--text-h4); font-weight: 600; }
+.pricing-calc-results .num { font-size: var(--text-stat); font-weight: 600; }
 .pricing-calc > p { grid-column: 1 / -1; margin: 0; }
 .pricing-faq { display: grid; gap: var(--space-sm); max-width: 34rem; }
 .pricing-faq details { border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }

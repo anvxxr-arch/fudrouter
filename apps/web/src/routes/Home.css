@@ -29,7 +29,7 @@
 .home-flow-panel { position: relative; display: grid; gap: var(--space-sm); align-content: start; padding: var(--space-card); border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); }
 .home-flow-panel + .home-flow-panel::before { content: '→'; position: absolute; left: calc(var(--space-xl) / -2); top: 50%; transform: translate(-50%, -50%); color: var(--color-text-muted); font-size: var(--text-lg); }
 .home-flow-num { width: 2rem; height: 2rem; display: grid; place-items: center; border: 1px solid var(--color-border-strong); border-radius: var(--radius-pill); color: var(--warning); font-family: var(--font-mono); font-size: var(--text-sm); }
-.home-flow-panel h3 { margin: 0; }
+.home-flow-panel h3 { margin: 0; font-size: var(--text-h5); }
 .home-flow-panel p { margin: 0; color: var(--color-text-muted); }
 /* Below the docs breakpoint the panels stack and the connector turns into a
    down arrow centred in the (now vertical) gap, so the flow still reads

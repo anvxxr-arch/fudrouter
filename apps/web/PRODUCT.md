@@ -82,6 +82,12 @@ other, and both are testable independently."
 - **Deliberate non-goals:** no Rust backend until a measured bottleneck exists;
   no Go management API (the Express `/api/admin/*` surface stays); no e2e or load
   harness.
+- **Pricing is pay-per-token, per model.** No subscription, no seat fee, no plan
+  tier — nothing in the schema or the billing code models one. Each model carries
+  an input, cached-input and output rate normalized to per-1M tokens, and a
+  request is charged at the rate of the route that actually served it. Any margin
+  lives inside the operator-recorded per-model price; there is no markup knob in
+  the code path. A planned checkout therefore sells credit top-ups, not plans.
 - **Self-serve checkout is planned.** Customers will buy credits themselves
   rather than relying on the operator to post ledger rows from `/admin`. Until it
   ships, billing stays operator-settled: the customer-facing billing page reports

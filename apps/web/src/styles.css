@@ -707,7 +707,17 @@ textarea { resize: vertical; }
   .pub-sheet { display: block; position: fixed; inset: 0; z-index: 100; visibility: hidden; }
   .pub-sheet[data-open='true'] { visibility: visible; }
 }
-.shell { max-width: var(--shell-max); margin: 0 auto; padding: var(--gutter); }
+/* Page top is one step, shared by every public route. Home used to add its own
+   32px on top of this 24, so the home headline sat 32px lower than the headline
+   on Features, Integrations, Models, Pricing, Docs, Security and Terms -- the
+   heading visibly jumped when you navigated between routes. The vertical
+   padding is deliberately asymmetric: a page starts with air, and the last band
+   before the footer keeps the tighter gutter. */
+.shell {
+  max-width: var(--shell-max);
+  margin: 0 auto;
+  padding: var(--space-xl) var(--gutter) var(--gutter);
+}
 /* The header is sticky, so an anchor or a skip-link target would otherwise sit
    hidden under it. Offset by the header height plus a breath. */
 [id] { scroll-margin-top: calc(var(--header-h, 68px) + var(--space-md)); }
@@ -793,13 +803,10 @@ body { overflow-x: clip; }
 @keyframes rb-shine { to { background-position: -200% 0; } }
 
 /* ---- home (moved from Home.tsx inline <style>) ---- */
-.hero {
-  position: relative;
-  /* The shell's 24px is a side gutter. Reusing it vertically put the eyebrow
-     24px under a 68px sticky bar, so the opening read as part of the chrome
-     instead of as the start of the page. One extra step gives it a floor. */
-  padding-top: var(--space-xl);
-}
+/* The page's top padding lives on .shell, not here: it is the same step on
+   every route, and a hero-local value made the home headline sit lower than
+   every other page's headline. */
+.hero { position: relative; }
 /* The hero is one editorial lockup: eyebrow -> display headline -> tagline ->
    action. Every step is a named step of the scale, because the reset leaves
    these elements with no margins of their own and the measured result was
@@ -818,21 +825,20 @@ body { overflow-x: clip; }
 /* 24px between a display headline and its tagline: the headline already carries
    generous leading, so the optical gap is smaller than the box gap. */
 .hero .lede { margin: var(--space-lg) 0 0; }
-@media (max-width: 720px) {
-  /* Same reason, one step down: the mobile header is shorter and the phone less
-     tall, so 32px of air above the eyebrow eats a whole line of content. Lives
-     here, after the .hero rule, because an earlier media query would have lost
-     on source order at equal specificity. */
-  .hero { padding-top: var(--space-lg); }
-}
-
 .hero h1.display-xl { --shiny-base: var(--color-text); }
 .hero p.display-xl { --shiny-base: var(--color-text-muted); }
 .hero-split { display: flex; flex-wrap: wrap; gap: var(--space-xl); align-items: flex-start; margin-top: var(--space-xl); }
 .hero-copy { flex: 1 1 20rem; display: grid; gap: var(--space-md); min-width: 0; }
 .hero-copy .row { flex-wrap: wrap; }
 .hero-code { flex: 1 1 24rem; margin: 0; max-width: 34rem; min-width: 0; }
-@media (max-width: 480px) { .hero-copy .row { flex-direction: column; align-items: stretch; } .hero-copy .row > * { width: 100%; } }
+/* Stacked, the two CTAs are two separate actions rather than a segmented
+   control, so they need more than the row's 8px: at 8 the pair reads as one
+   widget and the secondary button looks attached to the primary. 12px is the
+   half-step between the 8 and 16 tokens and keeps them in one cluster. */
+@media (max-width: 480px) {
+  .hero-copy .row { flex-direction: column; align-items: stretch; gap: calc(var(--space-sm) + var(--space-xs)); }
+  .hero-copy .row > * { width: 100%; }
+}
 /* Stat bar. Horizontal padding was var(--space-lg), which pushed the first
    figure 24px inside the shell and off the headline's left rail -- it is 0 now
    and the numbers are separated by rules instead of naked air. Four figures

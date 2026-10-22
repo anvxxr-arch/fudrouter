@@ -16,6 +16,14 @@ import { ROLE_CAPS, capsFor } from './platform-ts.mjs';
 export { ROLE_CAPS, capsFor };
 
 // Section -> extra cap beyond admin.view (mirrors ROUTE_CAPS in roles.ts).
+//
+// Every key must name a section that still has an `/admin/<section>` route.
+// `projects` and `workspaces` outlived their routes by one migration: 0019
+// deleted both admin surfaces, and these two entries stayed behind. They were
+// unreachable (no caller passes those section names any more), which is exactly
+// why they were dangerous — a later section reusing either name would have
+// silently inherited `admin.users` gating. The test below now asserts the
+// mirror instead of trusting it.
 export const SECTION_CAPS = {
 	analytics: 'admin.view',
 	billing: 'admin.billing',
@@ -24,7 +32,6 @@ export const SECTION_CAPS = {
 	incidents: 'admin.ops',
 	keys: 'admin.keys',
 	models: 'admin.models',
-	projects: 'admin.users',
 	providers: 'admin.providers',
 	requests: 'admin.requests',
 	routing: 'admin.ops',
@@ -32,8 +39,7 @@ export const SECTION_CAPS = {
 	settings: 'admin.settings',
 	system: 'admin.ops',
 	traffic: 'admin.ops',
-	users: 'admin.users',
-	workspaces: 'admin.users'
+	users: 'admin.users'
 };
 
 // The admin dominance helpers use the SAME `capsFor` table as routing. They

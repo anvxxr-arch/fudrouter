@@ -53,6 +53,25 @@ test('SECTION_CAPS and the SPA ROUTE_CAPS only name real capabilities', () => {
 	}
 });
 
+test('SECTION_CAPS names only sections that still have an admin route', () => {
+	// The mirror this table's comment claims, asserted instead of trusted.
+	// `projects` and `workspaces` survived migration 0019 here for a whole
+	// release: their routes were deleted, so nothing passed those section names,
+	// so nothing failed — and a future section reusing either name would have
+	// silently inherited its cap. Checking only that the CAP is real cannot see
+	// that; checking the SECTION against the route map can.
+	const routed = new Set(
+		ROUTE_CAPS.filter(([pattern]) => pattern.startsWith('/admin/'))
+			.map(([pattern]) => pattern.slice('/admin/'.length).split('/')[0])
+	);
+	for (const section of Object.keys(SECTION_CAPS)) {
+		assert.ok(
+			routed.has(section),
+			`SECTION_CAPS gates "${section}" but no /admin/${section} route exists — remove the entry or add the route`
+		);
+	}
+});
+
 test('the SPA guard answers from the table the server enforces', () => {
 	// Same table, so this pins the SPA side of the seam: for every role, hasCap
 	// must agree with capsFor for every capability in the vocabulary. A cap the

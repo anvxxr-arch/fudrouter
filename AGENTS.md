@@ -265,10 +265,26 @@ per page.
   and the ledger — dropping tables first would delete every key and every money row.
   It also re-keys in place rather than recreating: `billing_account` keeps its id (the
   ledger cascades off it), and workspace-scoped budgets/rate limits/aliases/routing
-  policies/alerts/webhooks are REMAPPED to `user.id`, not deleted. Rehearse it on a
-  prod-shaped database (`pg_dump --schema-only` + the real `schema_migration` rows)
-  before applying: the failure mode is a FK violation on a `wrk_…` id that never got
-  remapped, and it only shows up with real rows.
+  policies/alerts/webhooks are REMAPPED to the owner's `user.id` when an owner is
+  resolvable — rows whose workspace has no owner are deleted (project/environment-
+  scoped rows always are, since that slice no longer exists). An ownerless
+  `billing_account` is deleted only when it has no **ledger** rows; an attached
+  generated invoice goes with it and the migration reports the count.
+- **A data-carrying migration must be rehearsed against real data, not a schema.**
+  Four defects in 0019 were invisible on a fresh empty database and each would have
+  aborted the production run: an unremapped `wrk_…` value failing the new FK;
+  `ON CONFLICT DO UPDATE cannot affect row a second time` when one owner held two
+  workspaces; an ownerless account whose invoice blocked the delete guard and then
+  tripped `SET NOT NULL`; and two project buckets collapsing onto one aggregate
+  dimension tuple, which the rebuilt UNIQUE index rejects. The recipe that finds
+  this class: `pg_dump --schema-only` + the real `schema_migration` rows, then
+  fixtures with the *colliding* shapes (one owner, many workspaces; one workspace,
+  many projects), then `pg_dump --data-only` of production and migrate that copy,
+  reconciling `sum(credit_ledger.amount_micro)` against
+  `sum(billing_account.balance_micro)` on both sides. Run the Go/Node suites on a
+  **freshly migrated** database instead — they seed their own fixtures and assert
+  growth ratios, so a production-sized copy fails their assumptions rather than the
+  migration.
 
 **Secrets & environment**
 - **Never hardcode the Valkey endpoint.** `VALKEY_URL` is configuration; the shared

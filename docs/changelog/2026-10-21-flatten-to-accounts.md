@@ -24,22 +24,48 @@ objects are re-keyed in place rather than recreated:
 
 - `billing_account` keeps its id — `credit_ledger` and `invoice` cascade off it —
   and only its owner column changes from workspace to user. An account with no
-  resolvable owner is deleted **only** when it has no ledger and no invoice rows;
-  otherwise the `SET NOT NULL` aborts loudly instead of orphaning money.
-- Workspace-scoped budgets and rate limits become the account's, taking the
-  tighter of two caps if an owner had several workspaces. Project- and
+  resolvable owner is deleted **only** when it has no ledger rows; the ledger is
+  the money record, while an invoice is a generated document, so an ownerless
+  account's zero-value `open` invoice goes with it and the migration reports the
+  counts. Any account holding ledger rows still aborts at `SET NOT NULL` rather
+  than being deleted.
+- Workspace-scoped budgets and rate limits become the account's, collapsed to one
+  row per owner with the tightest value of each column. Project- and
   environment-scoped caps bounded a slice that no longer exists and are dropped.
 - Workspace-scoped aliases, routing policies, alerts and webhooks are remapped
-  to the workspace owner's user id. `usage_hourly` / `usage_daily` are re-keyed
-  the same way, and their dimension indexes rebuilt over the shorter tuple.
+  to the workspace owner's user id. `usage_hourly` / `usage_daily` are summed
+  into the account dimension and swapped in, with the dimension indexes rebuilt
+  over the shorter tuple.
 
-**Rehearsing found the bug this file exists to warn about.** The first draft
-renamed `workspace_id` to `account_id` without remapping the *value*: the column
-still held `wrk_…` ids, so adding the new FK to `user(id)` failed on the first
-real row. A fresh empty database never shows this — the failure needs data. The
-same rehearsal is why the budget/rate-limit re-key exists at all: the first
-draft deleted workspace-scoped caps, which would have silently removed a spend
-control the operator had set.
+## What the rehearsal caught
+
+Three defects, each invisible on a fresh empty database, each of which would
+have aborted or corrupted the production run. They are the reason this migration
+was rehearsed against data rather than schema alone.
+
+1. **The value was never remapped.** The first draft renamed `workspace_id` to
+   `account_id` but left the `wrk_…` values in place, so adding the FK to
+   `user(id)` failed on the first real row.
+2. **`ON CONFLICT DO UPDATE cannot affect row a second time`.** Re-keying budgets
+   used an upsert, which Postgres refuses when one statement proposes two rows
+   for the same conflict target — exactly what happens when one owner holds two
+   workspaces. The collapse now happens in the `SELECT` (`GROUP BY` owner,
+   `min()` per column), so the statement proposes each target once.
+3. **An ownerless account with an invoice.** The delete guard required "no ledger
+   **and** no invoice rows", so a probe workspace's zero-value `open` invoice
+   blocked the delete and `SET NOT NULL` then aborted the whole migration. The
+   guard is now the ledger alone.
+
+A fourth, structural one: dropping `project_id` makes two project buckets
+collapse to the same dimension tuple, which the rebuilt UNIQUE index rejects. The
+aggregates are therefore summed into a temp table and swapped in — the first
+draft's comment said "summing" while the SQL only renamed.
+
+The final rehearsal ran against a **full copy of production data** (schema,
+data and `schema_migration` rows), not a synthetic fixture: 678 ledger rows and
+3022 request rows in, the same out, `sum(credit_ledger.amount_micro)` equal to
+`sum(billing_account.balance_micro)` on both sides, every new FK validated, and
+one ownerless account plus its invoice removed and reported.
 
 ## Code
 
@@ -72,11 +98,20 @@ control the operator had set.
   against a freshly migrated database (proxy 85.5 s, store 10.2 s).
 - `npm test` → **128 pass / 0 fail / 6 skipped** (Valkey and two
   credential-verdict tests), against the same database.
-- **Migration rehearsal**: `pg_dump --schema-only` of the live database plus its
-  real `schema_migration` rows, a synthetic pre-0019 fixture (owned, member-only
-  and owner-less workspaces; workspace- and project-scoped aliases; ledger rows;
-  aggregate buckets), then `ops/migrate.sh`. Result: every FK validated, zero
-  dangling owner ids, ledger rows intact, both cap scopes present.
+- **Migration rehearsal, three fixtures**: (a) synthetic pre-0019 hierarchy —
+  owned, member-only and owner-less workspaces, both alias scopes, ledger rows,
+  aggregate buckets; (b) one owner with two workspaces, which is what fires the
+  cap-collapse collision; (c) two projects under one workspace, which fires the
+  aggregate tuple collision. Then (d) a **full production data copy** — schema,
+  data and `schema_migration` — migrated end to end: 678 ledger rows and 3022
+  request rows in and out, `sum(amount_micro)` = `sum(balance_micro)` =
+  102,804,937,518 on both sides, every new FK validated, zero dangling owner ids,
+  one ownerless account plus its zero-value invoice removed and reported.
+- Go and Node suites run against a **freshly migrated** database, not the
+  production copy: the Go tests seed their own catalogue and assert growth
+  ratios (`virtual_fanout_test.go` needs 20 → 200 models), so a copy already
+  holding 363 models fails the fixture assumption rather than the migration.
+  AGENTS.md's "Go needs a throwaway DB" is exactly this rule.
 - Console smoke on the migrated database: every `/api/pages/*` and
   `/api/admin/*` route answers 200, writes land (`key.create`, `budget.create`,
   `limit.create`, `routing.create`, `alert.create` all audited with no
@@ -86,15 +121,25 @@ control the operator had set.
 ## Deploy
 
 `0019` is one-way. As of 2026-10-21 it was **not applied to the production
-database** — pushing code does not migrate. Run it as the app role, never the
-superuser, or the tables end up `postgres`-owned and the app gets "permission
-denied" on its first write:
+database** — pushing code does not migrate. Check before you start; an empty
+result means it has not run:
 
 ```sh
-# as the fudrouter role, not postgres
-DATABASE_URL=postgres://fudrouter:<pw>@127.0.0.1:5432/fudrouter ops/migrate.sh
-pm2 restart fudrouter-router fudrouter-workers fudrouter-scheduler fudrouter-console
-bash ops/verify/pm2-env-hygiene.sh
+docker exec postgre psql -U postgres -d fudrouter -At \
+  -c "select name from schema_migration where name like '0019%'"
+```
+
+Then run it as the app role, never the superuser, or the tables end up
+`postgres`-owned and the app gets "permission denied" on its first write. The
+migrate and the restart must be ONE chain: the running processes execute
+pre-0019 SQL against tables this migration drops, so any gap between the two
+lines is a window of 500s.
+
+```sh
+# as the fudrouter role, not postgres — from a HUMAN shell, not an agent one
+DATABASE_URL=postgres://fudrouter:<pw>@127.0.0.1:5432/fudrouter ops/migrate.sh \
+  && pm2 restart fudrouter-router fudrouter-workers fudrouter-scheduler fudrouter-console \
+  && bash ops/verify/pm2-env-hygiene.sh
 ```
 
 `pm2 restart` must not be run from an agent shell: PM2 captures the creating
@@ -103,8 +148,35 @@ hygiene check runs **after** the restart, and `filter_env` must stay an array �
 `true` is a no-op because PM2 tests `.length`, which is how provider keys leaked
 into the router env once already.
 
-The scratch databases (`flat_go`, `flat_go2`, `flat_prodshape`, `flat_final`)
-were dropped after the run; the rehearsal is reproducible from the recipe above
-— `pg_dump --schema-only` of the live database plus its `schema_migration` rows
-plus the fixture shapes listed here — and the reconciliation queries are
-recorded in this file rather than in a surviving database.
+Before running it, count the shapes the migration decides for you. A non-zero
+`owner_user_id IS NULL` count means those workspaces' caps, alerts, webhooks and
+routing policies are dropped rather than re-homed, and their usage buckets become
+the unattributed (`account_id IS NULL`) bucket:
+
+```sql
+select count(*) from workspace where owner_user_id is null;
+```
+
+Measured on production on 2026-10-21: 79 workspaces, 78 distinct owners, one
+owner-less (`probe-test-s-workspace`, carrying one zero-value `open` invoice and
+no ledger rows), and no owner holding two workspaces. The collision paths are
+therefore not live today — but they are data-dependent, and a migration runs
+once, so they are fixed rather than assumed away.
+
+The scratch databases from the rehearsals were dropped after the run. The recipe
+that found every data-dependent defect is, in order:
+
+1. `pg_dump --schema-only` of the live database, plus its real `schema_migration`
+   rows, so the runner applies exactly `0019` and not the whole history.
+2. A synthetic pre-0019 hierarchy. **Two shapes are required.** The obvious one
+   gives each workspace its own owner, and the re-key's collision path never
+   executes — that fixture passes while production breaks. The second gives ONE
+   owner TWO workspaces with their own budgets and rate limits, which is what
+   exposed `ON CONFLICT DO UPDATE cannot affect row a second time`.
+3. A workspace with two projects, which is what exposes the aggregate tuple
+   collision, and a workspace with no owner at all.
+4. Last, `pg_dump --data-only` of the real database and run the migration against
+   that copy. This is the only rehearsal that is evidence: it caught the
+   owner-less account whose invoice blocked the delete guard.
+
+Reconciliation queries are recorded here rather than in a surviving database.

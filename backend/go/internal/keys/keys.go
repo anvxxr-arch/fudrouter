@@ -28,22 +28,47 @@ func Parse(k string) (Key, bool) {
 	if len(secret) < 16 || len(secret) > 128 {
 		return Key{}, false
 	}
-	// M-b: both halves must be plain [A-Za-z0-9]. Anything else reached the
-	// sha256 and the prefix lookup with attacker-chosen bytes — unbounded
+	// M-b: both halves must be bounded, printable ASCII. Anything else reached
+	// the sha256 and the prefix lookup with attacker-chosen bytes — unbounded
 	// length hashed per request (a cheap DoS), and control/whitespace
-	// characters in the prefix flowed into logs and SQL lookups. The wire
-	// format is ids.New output, so this rejects nothing legitimate.
-	if !isKeyChars(prefix) || !isKeyChars(secret) {
+	// characters in the prefix flowed into logs and SQL lookups.
+	//
+	// The charset is base64url, not [A-Za-z0-9]: `generateApiKey` in
+	// apps/web/server/pages.mjs:22 (and playground.mjs:258) mints BOTH halves
+	// with `randomBytes(N).toString('base64url')`, whose alphabet is
+	// [A-Za-z0-9_-]. The alphanumeric-only check that shipped here rejected
+	// every key whose 8-char prefix happened to contain `-` or `_`, and roughly
+	// half of all minted prefixes do — measured on the live table, 5 of 69
+	// active keys had a `-`. Those customers got "malformed api key", a 401
+	// with no way to recover, because their key was minted by us and is valid.
+	//
+	// The two halves differ on `_` only because the FIRST `_` is the delimiter:
+	// the minter loops until the prefix excludes it (`while (prefix.includes('_'))`),
+	// while the secret may contain it. `-` is legal in both.
+	if !isPrefixChars(prefix) || !isSecretChars(secret) {
 		return Key{}, false
 	}
 	return Key{Prefix: prefix, Secret: secret}, true
 }
 
-// isKeyChars reports whether s is entirely [A-Za-z0-9] (M-b).
-func isKeyChars(s string) bool {
+// isPrefixChars reports whether s is entirely [A-Za-z0-9-] (base64url minus the
+// `_` delimiter).
+func isPrefixChars(s string) bool {
 	for i := range len(s) {
 		c := s[i]
-		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9') {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-') {
+			return false
+		}
+	}
+	return true
+}
+
+// isSecretChars reports whether s is entirely [A-Za-z0-9_-] (the full base64url
+// alphabet).
+func isSecretChars(s string) bool {
+	for i := range len(s) {
+		c := s[i]
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_') {
 			return false
 		}
 	}

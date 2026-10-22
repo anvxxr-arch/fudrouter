@@ -108,10 +108,10 @@ different standard.
 ## Brand Commitments
 
 - The product name is FUDRouter; the product origin is `fudrouter.my.id`,
-  with `https://www.fudrouter.my.id` trusted as an auth origin too
-  (`index.mjs` `trustedOrigins`). The legacy `ai.karepmuwes.my.id` host was
-  retired on 2026-10-21 and must not be reintroduced — a second trusted origin
-  keeps accepting auth for a name that no longer resolves here.
+  with `https://www.fudrouter.my.id` trusted as an auth origin too. The
+  legacy `ai.karepmuwes.my.id` host was retired on 2026-10-21 and must not be
+  reintroduced — a second trusted origin keeps accepting auth for a name that no
+  longer resolves here.
 - Sign-in is Discord. That is an identity commitment, not an implementation
   detail — it shapes who can become a customer and how onboarding reads.
 - Voice in the product is direct and specific: name the constraint, drop the

@@ -141,6 +141,14 @@ func secretHash(s string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// RandChars and SecretHash are exported for tests that must mint a SECOND key
+// on an existing account (the per-key budget cache case): SeedEnv builds one
+// key, and a second key has to be written with the same hash rule the data
+// plane verifies, not a copy of it.
+func RandChars(n int) string { return randChars(n) }
+
+func SecretHash(s string) string { return secretHash(s) }
+
 // SeedEnv inserts a throwaway user + key + provider + model pointing at upstreamBaseURL.
 //
 // t is testing.TB, not *testing.T, so a benchmark can seed the same way a test

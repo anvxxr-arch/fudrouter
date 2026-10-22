@@ -70,8 +70,17 @@ type accountEntry struct {
 	exp  time.Time
 }
 
+// budgetCacheKey identifies ONE key's budget chain. It carries apiKeyID as well
+// as the account because BudgetsFor's result depends on both: it selects
+// `scope = 'account' and scope_id = $1` OR `scope = 'api_key' and scope_id = $2`.
+//
+// Keying on the account alone was a real defect: two keys of one account shared
+// whatever list the first one cached, so a per-key cap on K1 refused K2 as well,
+// and K2's own cap went unread until the entry expired. The scope column made
+// that especially quiet — one key's budget became an account-wide outage.
 type budgetCacheKey struct {
 	accountID string
+	apiKeyID  string
 }
 
 type budgetEntry struct {
@@ -206,7 +215,7 @@ func (s *Store) AdmissionBudgets(ctx context.Context, k *APIKeyRow) ([]Budget, e
 	if k == nil {
 		return s.BudgetsFor(ctx, k)
 	}
-	key := budgetCacheKey{k.UserID}
+	key := budgetCacheKey{accountID: k.UserID, apiKeyID: k.ID}
 	now := time.Now()
 	c := &s.admission
 	c.mu.RLock()

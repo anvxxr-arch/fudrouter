@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Reveal } from '../components/Reveal';
 import { Badge } from '../components/ui/badge';
+import { API_BASE_DISPLAY } from '../lib/api';
 
 type Category = 'CLI coding tools' | 'SDKs' | 'Frameworks' | 'Self-hosted';
 
@@ -18,7 +19,11 @@ interface Integration {
   code: string;
 }
 
-const BASE_URL = 'https://api.your-domain.com/v1';
+// The sample value has to be the host the reader is actually on, not a
+// template placeholder: every card on this page tells someone to paste a base
+// URL into a client, and `api.your-domain.com` resolves to nothing. Home.tsx
+// already interpolates API_BASE_DISPLAY, so both pages now name one origin.
+const BASE_URL = `${API_BASE_DISPLAY}/v1`;
 
 // One guide per tool: the base URL is the same everywhere, the config knob is
 // what differs. Every card is Community — no integration here has been
@@ -253,11 +258,22 @@ export function IntegrationsPage() {
     <Reveal>
       <div className="stack">
         <h1>Integrations</h1>
-        <p className="lede muted">fudrouter speaks [OI]. Anything that can change its base URL works.</p>
+        <p className="lede muted">
+          fudrouter speaks [OI], so anything that can point at a custom base URL works — the tool keeps its own
+          interface, fudrouter answers behind it.
+        </p>
 
         <section className="card" aria-labelledby="integrations-universal">
           <h2 id="integrations-universal" className="card-title">Universal setup</h2>
-          <p>If your tool supports a custom [OI] base URL, it works.</p>
+          {/* The three values below are the whole integration surface, so they
+              are stated rather than described: the endpoint, what a key looks
+              like, and where the model names come from. A reader who has those
+              three can configure any client without reading a per-tool guide. */}
+          <p>
+            Three values configure any client: the base URL replaces the provider's own, the key goes where that
+            provider's key went, and the model name is any slug from the catalogue. Nothing else changes — no SDK, no
+            second account.
+          </p>
           <dl className="stack">
             <div>
               <dt className="fr-label">Base URL</dt>
@@ -265,11 +281,16 @@ export function IntegrationsPage() {
             </div>
             <div>
               <dt className="fr-label">Key format</dt>
-              <dd><code>sk-ar-...</code></dd>
+              <dd>
+                <code>sk-ar-&lt;prefix&gt;_&lt;secret&gt;</code> — minted in the console, shown once, stored only as a
+                hash.
+              </dd>
             </div>
             <div>
               <dt className="fr-label">Model</dt>
-              <dd>anything from <code>/v1/models</code></dd>
+              <dd>
+                any slug from <code>/v1/models</code> on that base URL
+              </dd>
             </div>
           </dl>
         </section>

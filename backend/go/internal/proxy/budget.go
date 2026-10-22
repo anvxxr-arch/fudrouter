@@ -266,7 +266,7 @@ func (h *Handler) budgetEvaluate(ctx context.Context, lc *lifecycle, b *store.Bu
 		"firing", float64(used)); err != nil {
 		log.Printf("[proxy] alert_event insert failed: %v", err)
 	}
-	if err := h.store.InsertSystemEvent(ctx, kind, b.Scope, b.ScopeID, lc.key.UserID, map[string]any{
+	if err := h.store.InsertSystemEvent(ctx, kind, b.Scope, b.ScopeID, map[string]any{
 		"percent": percent, "used_micro": used, "amount_micro": b.AmountMicro,
 		"budget_id": b.ID, "period": b.Period,
 	}); err != nil {
@@ -319,7 +319,7 @@ func (h *Handler) raiseLowBalance(ctx context.Context, res *store.ChargeResult, 
 	if res.HardStop {
 		kind = "budget.hard_stop"
 	}
-	_ = h.store.InsertSystemEvent(ctx, kind, "account", accountID, accountID, map[string]any{
+	_ = h.store.InsertSystemEvent(ctx, kind, "account", accountID, map[string]any{
 		"balance_micro":             res.BalanceMicro,
 		"warning_threshold_micro":   b.WarningThresholdMicro,
 		"hard_stop_threshold_micro": b.HardStopThresholdMicro,

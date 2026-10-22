@@ -252,10 +252,13 @@ func (s *Store) FindOrCreateAlert(ctx context.Context, accountID, name, alertTyp
 // threshold crossings write one so the status page and the alert history see
 // the same story.
 //
-// The final argument is the user account. `system_event.workspace_id` keeps its
-// historical name and value (it is opaque text with no FK); new writes pass the
-// account id into it.
-func (s *Store) InsertSystemEvent(ctx context.Context, eventType, resource, resourceID, accountID string, metadata map[string]any) error {
+// No `workspace_id`: migration 0019 records that historical rows keep their
+// value and "only new code stops writing it". This function used to pass the
+// account id into that column, which contradicted the migration's own decision
+// and put a `usr_…` id in a column named for a `wrk_…` one — and the TS writer
+// (alerts.ts) had already stopped. Ownership is not lost: `resource` +
+// `resourceID` already carry the scope the event belongs to.
+func (s *Store) InsertSystemEvent(ctx context.Context, eventType, resource, resourceID string, metadata map[string]any) error {
 	meta := []byte("{}")
 	if len(metadata) > 0 {
 		if b, err := json.Marshal(metadata); err == nil {
@@ -263,9 +266,9 @@ func (s *Store) InsertSystemEvent(ctx context.Context, eventType, resource, reso
 		}
 	}
 	_, err := s.pool.Exec(ctx, `
-		insert into system_event (id, type, resource, resource_id, workspace_id, metadata)
-		values ($1,$2,$3,$4,$5,$6)`,
-		ids.New("evt"), eventType, nullStr(resource), nullStr(resourceID), nullStr(accountID), meta)
+		insert into system_event (id, type, resource, resource_id, metadata)
+		values ($1,$2,$3,$4,$5)`,
+		ids.New("evt"), eventType, nullStr(resource), nullStr(resourceID), meta)
 	return err
 }
 

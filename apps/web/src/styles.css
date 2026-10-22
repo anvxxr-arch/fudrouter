@@ -36,6 +36,12 @@
   /* Public chrome height. One token, because the sticky header, the anchor
      offset and the mobile budget all have to agree on it. */
   --header-h: 68px;
+  /* One content measure and one gutter, shared by the header, the page shell
+     and the footer. They were three independent literals, which is how the
+     brand ended up 82px left of the headline on a 1280 screen and 8px left of
+     it on a phone. */
+  --shell-max: 1100px;
+  --gutter: var(--space-lg);
   --control-h-sm: 32px;
   --control-h-md: 40px;
   --control-h-lg: 48px;
@@ -458,7 +464,11 @@ textarea { resize: vertical; }
   gap: var(--space-md);
   align-items: center;
   height: var(--header-h, 68px);
-  padding: 0 var(--space-lg);
+  /* Full-bleed background, but the content inside starts where the page content
+     starts: the same measure, centred, plus the same gutter. Below the measure
+     the calc goes negative and `max()` keeps the plain gutter, so this is one
+     rule for every width instead of a breakpoint that drifts. */
+  padding-inline: max(var(--gutter), calc((100% - var(--shell-max)) / 2 + var(--gutter)));
   border-bottom: 1px solid var(--color-border);
   background: color-mix(in srgb, var(--color-bg) 78%, transparent);
   -webkit-backdrop-filter: blur(16px) saturate(150%);
@@ -563,7 +573,6 @@ textarea { resize: vertical; }
   .pub {
     --header-h: 56px;
     gap: var(--space-sm);
-    padding: 0 var(--space-md);
   }
   .pub a { min-height: 40px; }
   /* `.pub nav` (0,1,1) wins over `.pub-nav` (0,1,0) regardless of source
@@ -580,9 +589,9 @@ textarea { resize: vertical; }
   .pub-cta { padding: 6px var(--space-sm); font-size: var(--text-caption); }
   .pub-progress { height: 2px; }
 }
-@media (max-width: 360px) {
-  .pub { padding: 0 var(--space-sm); }
-}
+/* No narrower gutter on 320px screens: the header used to drop to 8px here
+   while the page content stayed at 24, so the brand sat 16px left of the
+   headline on exactly the smallest phones. */
 
 /* ---- mobile menu sheet ------------------------------------------------- */
 .menu-btn {
@@ -698,7 +707,7 @@ textarea { resize: vertical; }
   .pub-sheet { display: block; position: fixed; inset: 0; z-index: 100; visibility: hidden; }
   .pub-sheet[data-open='true'] { visibility: visible; }
 }
-.shell { max-width: 1100px; margin: 0 auto; padding: var(--space-lg); }
+.shell { max-width: var(--shell-max); margin: 0 auto; padding: var(--gutter); }
 /* The header is sticky, so an anchor or a skip-link target would otherwise sit
    hidden under it. Offset by the header height plus a breath. */
 [id] { scroll-margin-top: calc(var(--header-h, 68px) + var(--space-md)); }
@@ -715,7 +724,7 @@ html { overflow-x: clip; }
    takes the overflowing descendants out of the document's scrollable overflow,
    so there is no travel left to nudge. */
 body { overflow-x: clip; }
-.foot { display: flex; flex-wrap: wrap; gap: var(--space-md); align-items: center; justify-content: space-between; max-width: 1100px; margin: 0 auto; padding: var(--space-lg); color: var(--color-text-muted); font-size: var(--text-sm); }
+.foot { display: flex; flex-wrap: wrap; gap: var(--space-md); align-items: center; justify-content: space-between; max-width: var(--shell-max); margin: 0 auto; padding: var(--gutter); color: var(--color-text-muted); font-size: var(--text-sm); }
 .foot .legal { display: flex; gap: var(--space-md); }
 
 /* ---- aurora background (moved from AuroraBackground.tsx inline <style>) ---- */
@@ -784,14 +793,39 @@ body { overflow-x: clip; }
 @keyframes rb-shine { to { background-position: -200% 0; } }
 
 /* ---- home (moved from Home.tsx inline <style>) ---- */
-.hero { position: relative; }
-/* Eyebrow -> headline -> tagline is one editorial lockup, so those three get a
-   fixed rhythm instead of the inherited .stack gap. `display: block` overrides
-   .shiny-text's inline-block: two inline-blocks would otherwise sit side by
-   side on one line whenever they happen to fit, and the display lines must
-   always stack. */
-.hero > .fr-label { margin: 0 0 var(--space-md); }
+.hero {
+  position: relative;
+  /* The shell's 24px is a side gutter. Reusing it vertically put the eyebrow
+     24px under a 68px sticky bar, so the opening read as part of the chrome
+     instead of as the start of the page. One extra step gives it a floor. */
+  padding-top: var(--space-xl);
+}
+/* The hero is one editorial lockup: eyebrow -> display headline -> tagline ->
+   action. Every step is a named step of the scale, because the reset leaves
+   these elements with no margins of their own and the measured result was
+   eyebrow->headline 0px and headline->tagline 0px: three elements of very
+   different sizes sitting flush against each other. That is what made the top
+   of the page read cramped while the 32px gap to the buttons read oversized.
+
+   The eyebrow is matched as a descendant, not a direct child: the lockup lives
+   inside the scroll-reveal wrapper, so `.hero > .fr-label` stopped matching the
+   moment the wrapper was introduced and the 16px step silently went to zero. */
+.hero .fr-label { margin: 0 0 var(--space-md); }
+/* `display: block` overrides .shiny-text's inline-block: two inline-blocks would
+   otherwise sit side by side on one line whenever they happen to fit, and the
+   display lines must always stack. */
 .hero h1.display-xl, .hero p.display-xl { display: block; margin: 0; }
+/* 24px between a display headline and its tagline: the headline already carries
+   generous leading, so the optical gap is smaller than the box gap. */
+.hero .lede { margin: var(--space-lg) 0 0; }
+@media (max-width: 720px) {
+  /* Same reason, one step down: the mobile header is shorter and the phone less
+     tall, so 32px of air above the eyebrow eats a whole line of content. Lives
+     here, after the .hero rule, because an earlier media query would have lost
+     on source order at equal specificity. */
+  .hero { padding-top: var(--space-lg); }
+}
+
 .hero h1.display-xl { --shiny-base: var(--color-text); }
 .hero p.display-xl { --shiny-base: var(--color-text-muted); }
 .hero-split { display: flex; flex-wrap: wrap; gap: var(--space-xl); align-items: flex-start; margin-top: var(--space-xl); }
@@ -809,7 +843,9 @@ body { overflow-x: clip; }
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: var(--space-md) var(--space-lg);
-  margin-top: var(--space-md);
+  /* 32px, not 16: the strip is a separate band from the hero copy above it,
+     and at 16 the stats read as another line of the tagline block. */
+  margin-top: var(--space-xl);
   padding: var(--space-lg) 0;
   border-top: 1px solid var(--color-border);
   border-bottom: 1px solid var(--color-border);
@@ -828,6 +864,11 @@ body { overflow-x: clip; }
 .metrics-strip .muted { margin-top: var(--space-xs); font-size: var(--text-sm); }
 .metrics-error { grid-column: 1 / -1; }
 .grid3 { display: grid; gap: var(--space-md); grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); }
+/* The pillar cards are a band of their own, so they get a real gap from the
+   metrics strip. Before this the two boxes were flush and the only separation
+   was the strip's own bottom padding -- a gap that changed if that padding ever
+   changed, and that collapsed entirely when the strip was restyled. */
+.hero > .grid3 { margin-top: var(--space-xl); }
 .display-xl { font-size: var(--text-display); letter-spacing: var(--tracking-display); line-height: var(--lh-display); }
 .fr-label { color: var(--color-text-muted); font-size: var(--text-caption); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
 

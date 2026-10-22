@@ -60,7 +60,11 @@
 .home-faq details[open] summary { border-bottom: 1px solid var(--color-border); }
 .home-faq details p { margin: 0; padding: var(--space-sm) var(--space-md); color: var(--color-text-muted); font-size: var(--text-sm); }
 
-.home-cta { padding-top: var(--space-lg); border-top: 1px solid var(--color-border); }
+/* The closing CTA is a section like every other one, so it gets the same
+   heading->body step. It was the only block on the page with `display: normal`
+   and no gap, which left "Start routing in five minutes." touching the button
+   row underneath it. */
+.home-cta { display: grid; gap: var(--space-md); padding-top: var(--space-lg); border-top: 1px solid var(--color-border); }
 .home-cta h2 { margin: 0; }
 
 /* ---- public footer ---- */

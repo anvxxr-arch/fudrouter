@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AuroraBackground } from '../components/AuroraBackground';
+import { CountUp } from '../components/CountUp';
 import { Reveal } from '../components/Reveal';
 import { Button } from '../components/ui/button';
 import { CodeBlock } from '../components/ui/code-block';
@@ -186,146 +187,6 @@ function Check() {
   );
 }
 
-// Two-plane architecture diagram. The asymmetry is the point: the client→data
-// plane edge is the heavy hot path (/v1/* on :8100) while the client→control
-// plane edge is a thin dashed management path (the console on :3000) — the
-// control plane is not in the request path. Coordinates are hand-placed for
-// the 720×300 viewBox. The svg used to scale down intact on narrow screens,
-// which rendered the 13px labels at ~7px on a 375px phone; below 640px the
-// narrow group swaps in a portrait chain with larger type instead.
-function ArchDiagram() {
-  return (
-    <>
-      <svg className="arch arch-wide" viewBox="0 0 720 300" role="img" aria-labelledby="arch-title arch-desc">
-      <title id="arch-title">Two-plane architecture</title>
-      <desc id="arch-desc">A client sends inference requests directly to the data plane on port 8100, which authenticates, applies limits and dials the upstream provider. The control plane on port 3000 serves the console — auth, billing, admin — and is not in the request path. Both planes read Postgres and Valkey.</desc>
-      <defs>
-        <marker id="arch-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-          <path d="M0 0 8 4 0 8z" className="arch-arrowhead" />
-        </marker>
-        <marker id="arch-arrow-hot" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-          <path d="M0 0 8 4 0 8z" className="arch-arrowhead arch-arrowhead--hot" />
-        </marker>
-      </defs>
-      <g className="arch-edge arch-edge--hot">
-        <line x1={130} y1={128} x2={250} y2={82} markerEnd="url(#arch-arrow-hot)" />
-      </g>
-      <g className="arch-edge arch-edge--mgmt">
-        <line x1={130} y1={156} x2={250} y2={208} markerEnd="url(#arch-arrow)" />
-      </g>
-      <g className="arch-edge arch-edge--hot">
-        <line x1={420} y1={82} x2={600} y2={82} markerEnd="url(#arch-arrow-hot)" />
-      </g>
-      <g className="arch-edge">
-        <line x1={420} y1={100} x2={480} y2={126} markerEnd="url(#arch-arrow)" />
-      </g>
-      <g className="arch-edge">
-        <line x1={420} y1={108} x2={480} y2={196} markerEnd="url(#arch-arrow)" />
-      </g>
-      <g className="arch-edge">
-        <line x1={400} y1={190} x2={515} y2={154} markerEnd="url(#arch-arrow)" />
-      </g>
-      <g className="arch-edge">
-        <line x1={420} y1={212} x2={480} y2={204} markerEnd="url(#arch-arrow)" />
-      </g>
-      <text className="arch-label" x={190} y={74} textAnchor="middle">hot path · /v1/*</text>
-      <text className="arch-label" x={190} y={197} textAnchor="middle">console</text>
-      <g className="arch-node">
-        <rect x={20} y={120} width={110} height={44} rx={8} />
-        <text x={75} y={147} textAnchor="middle">Client</text>
-      </g>
-      <g className="arch-node">
-        <rect x={250} y={60} width={170} height={60} rx={8} />
-        <text x={335} y={80} textAnchor="middle">Data plane</text>
-        <text className="arch-sub" x={335} y={96} textAnchor="middle">:8100 · auth, limits</text>
-        <text className="arch-sub" x={335} y={109} textAnchor="middle">upstream dial</text>
-      </g>
-      <g className="arch-node">
-        <rect x={250} y={190} width={170} height={60} rx={8} />
-        <text x={335} y={210} textAnchor="middle">Control plane</text>
-        <text className="arch-sub" x={335} y={226} textAnchor="middle">:3000 · console, auth</text>
-        <text className="arch-sub" x={335} y={239} textAnchor="middle">billing, admin</text>
-      </g>
-      <g className="arch-node">
-        <rect x={480} y={110} width={130} height={44} rx={8} />
-        <text x={545} y={137} textAnchor="middle">Postgres</text>
-      </g>
-      <g className="arch-node">
-        <rect x={480} y={180} width={130} height={44} rx={8} />
-        <text x={545} y={207} textAnchor="middle">Valkey</text>
-      </g>
-      <g className="arch-node">
-        <rect x={600} y={60} width={100} height={44} rx={8} />
-        <text x={650} y={87} textAnchor="middle">Provider</text>
-      </g>
-    </svg>
-    <svg className="arch arch-narrow" viewBox="0 0 360 270" role="img" aria-labelledby="arch-title-n arch-desc-n">
-      <title id="arch-title-n">Two-plane architecture</title>
-      <desc id="arch-desc-n">A client sends inference requests directly to the data plane on port 8100, which authenticates, applies limits and dials the upstream provider. The control plane on port 3000 serves the console — auth, billing, admin — and is not in the request path. Both planes read Postgres and Valkey.</desc>
-      <defs>
-        <marker id="arch-arrow-n" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-          <path d="M0 0 8 4 0 8z" className="arch-arrowhead" />
-        </marker>
-        <marker id="arch-arrow-hot-n" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-          <path d="M0 0 8 4 0 8z" className="arch-arrowhead arch-arrowhead--hot" />
-        </marker>
-      </defs>
-      <g className="arch-edge arch-edge--hot">
-        <line x1={180} y1={38} x2={180} y2={62} markerEnd="url(#arch-arrow-hot-n)" />
-      </g>
-      <g className="arch-edge arch-edge--mgmt">
-        <polyline points="110,21 4,21 4,217 10,217" markerEnd="url(#arch-arrow-n)" />
-      </g>
-      <g className="arch-edge arch-edge--hot">
-        <line x1={250} y1={107} x2={258} y2={107} markerEnd="url(#arch-arrow-hot-n)" />
-      </g>
-      <g className="arch-edge">
-        <line x1={250} y1={140} x2={258} y2={192} markerEnd="url(#arch-arrow-n)" />
-      </g>
-      <g className="arch-edge">
-        <line x1={250} y1={148} x2={258} y2={242} markerEnd="url(#arch-arrow-n)" />
-      </g>
-      <g className="arch-edge">
-        <line x1={250} y1={192} x2={258} y2={192} markerEnd="url(#arch-arrow-n)" />
-      </g>
-      <g className="arch-edge">
-        <line x1={250} y1={242} x2={258} y2={242} markerEnd="url(#arch-arrow-n)" />
-      </g>
-      <text className="arch-label" x={190} y={54} textAnchor="start">hot path · /v1/*</text>
-      <text className="arch-label" x={10} y={166} textAnchor="start">console</text>
-      <g className="arch-node">
-        <rect x={110} y={4} width={140} height={34} rx={8} />
-        <text x={180} y={27} textAnchor="middle">Client</text>
-      </g>
-      <g className="arch-node">
-        <rect x={4} y={62} width={246} height={90} rx={8} />
-        <text x={127} y={88} textAnchor="middle">Data plane</text>
-        <text className="arch-sub" x={127} y={112} textAnchor="middle">:8100 · auth, limits</text>
-        <text className="arch-sub" x={127} y={134} textAnchor="middle">upstream dial</text>
-      </g>
-      <g className="arch-node">
-        <rect x={4} y={172} width={246} height={90} rx={8} />
-        <text x={127} y={198} textAnchor="middle">Control plane</text>
-        <text className="arch-sub" x={127} y={222} textAnchor="middle">:3000 · console, auth</text>
-        <text className="arch-sub" x={127} y={244} textAnchor="middle">billing, admin</text>
-      </g>
-      <g className="arch-node">
-        <rect x={258} y={62} width={94} height={90} rx={8} />
-        <text x={305} y={112} textAnchor="middle">Provider</text>
-      </g>
-      <g className="arch-node">
-        <rect x={258} y={172} width={94} height={40} rx={8} />
-        <text x={305} y={197} textAnchor="middle">Postgres</text>
-      </g>
-      <g className="arch-node">
-        <rect x={258} y={222} width={94} height={40} rx={8} />
-        <text x={305} y={247} textAnchor="middle">Valkey</text>
-      </g>
-    </svg>
-    </>
-  );
-}
-
 export function HomePage() {
   // The strip reads the same public metrics endpoint the docs page links to.
   // It is the only dynamic element on the page and it degrades to nothing:
@@ -411,28 +272,32 @@ export function HomePage() {
             </p>
           </div>
         </div>
+      </Reveal>
+      <Reveal delay={60}>
         {shown.length > 0 ? (
           <div className="metrics-strip">
             {shown.map((f) => (
               <div key={f.label}>
-                <div className="num">{f.format(f.value as number)}</div>
+                <div className="num">
+                  <CountUp value={f.value as number} format={f.format} />
+                </div>
                 <div className="muted">{f.label}</div>
               </div>
             ))}
           </div>
         ) : null}
-        <div className="grid3">
-          {PILLARS.map((p) => (
-            <div key={p.title} className="card">
+      </Reveal>
+      <div className="grid3">
+          {PILLARS.map((p, i) => (
+            <Reveal key={p.title} className="card" delay={i * 90}>
               <h3 className="card-title">{p.title}</h3>
               <p className="card-desc">{p.body}</p>
-            </div>
+            </Reveal>
           ))}
-        </div>
-      </Reveal>
+      </div>
 
       <div className="home-body">
-        <section className="home-section" aria-labelledby="home-compare">
+        <Reveal as="section" className="home-section" aria-labelledby="home-compare">
           <h2 id="home-compare">The difference a router makes</h2>
           <div className="home-compare">
             <div className="home-col">
@@ -456,9 +321,9 @@ export function HomePage() {
               </ul>
             </div>
           </div>
-        </section>
+        </Reveal>
 
-        <section className="home-section" aria-labelledby="home-how">
+        <Reveal as="section" className="home-section" aria-labelledby="home-how">
           <h2 id="home-how">How it works</h2>
           {/* Panels, not a numbered list: the spec asks for a flow diagram, and
               the sequence is carried by the <ol> itself plus the rendered
@@ -477,33 +342,9 @@ export function HomePage() {
               </li>
             ))}
           </ol>
-        </section>
+        </Reveal>
 
-        <section className="home-section" aria-labelledby="home-planes">
-          <h2 id="home-planes">Two planes, not one</h2>
-          <ArchDiagram />
-          <div className="home-prose">
-            <p>
-              The console is not a security boundary. It manages keys, limits and billing, but it cannot mint traffic the router
-              accepts: the data plane re-authenticates every key, re-resolves its limits and re-guards SSRF independently, so a
-              compromised console buys an attacker nothing on the hot path.
-            </p>
-            <p>
-              Both planes carry their own SSRF guard, and neither trusts the other's answer about where a request may go. The
-              details are in the <Link to="/docs">docs</Link>.
-            </p>
-          </div>
-        </section>
-
-        <section className="home-banner" aria-labelledby="home-migrate">
-          <h2 id="home-migrate">Coming from 9Router?</h2>
-          <p>
-            Provider keys and model aliases can be brought across. The <Link to="/docs">docs</Link> cover what maps and what does
-            not.
-          </p>
-        </section>
-
-        <section className="home-section" aria-labelledby="home-faq">
+        <Reveal as="section" className="home-section" aria-labelledby="home-faq">
           <h2 id="home-faq">Questions</h2>
           <div className="home-faq">
             {FAQ.map((f) => (
@@ -513,9 +354,9 @@ export function HomePage() {
               </details>
             ))}
           </div>
-        </section>
+        </Reveal>
 
-        <section className="home-cta" aria-labelledby="home-cta">
+        <Reveal as="section" className="home-cta" aria-labelledby="home-cta">
           <h2 id="home-cta">Start routing in five minutes.</h2>
           <div className="row">
             <Link to="/login">
@@ -523,7 +364,7 @@ export function HomePage() {
             </Link>
             <span className="muted">Then mint a key and point a client at the API.</span>
           </div>
-        </section>
+        </Reveal>
       </div>
     </div>
   );

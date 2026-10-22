@@ -10,7 +10,27 @@ import { useCallback, useEffect, useRef, useState } from 'react';
  */
 export function CodeBlock({ code, name }: { code: string; name: string }) {
   const [copied, setCopied] = useState(false);
-  const timer = useRef<number | undefined>(undefined);
+  const timer = useRef<number>(undefined);
+  // Monospace samples never reflow, so on a phone they are wider than the card.
+  // `pre` scrolls them, but a touchscreen shows no scrollbar, so the cropped
+  // right edge historically read as a truncation bug. When there is more to the
+  // right, the figure reports it and CSS fades that edge.
+  const preRef = useRef<HTMLPreElement>(null);
+  const [more, setMore] = useState(false);
+
+  useEffect(() => {
+    const el = preRef.current;
+    if (!el) return;
+    const update = () => setMore(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
+    update();
+    el.addEventListener('scroll', update, { passive: true });
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener('scroll', update);
+      ro.disconnect();
+    };
+  }, [code]);
 
   useEffect(() => () => window.clearTimeout(timer.current), []);
 
@@ -38,7 +58,7 @@ export function CodeBlock({ code, name }: { code: string; name: string }) {
   }, [code]);
 
   return (
-    <figure className="code-block">
+    <figure className="code-block" data-more={more ? 'true' : 'false'}>
       <figcaption className="code-block-bar">
         <span className="code-block-name">{name}</span>
         <button
@@ -51,7 +71,9 @@ export function CodeBlock({ code, name }: { code: string; name: string }) {
           {copied ? 'Copied' : 'Copy'}
         </button>
       </figcaption>
-      <pre><code>{code}</code></pre>
+      <div className="code-block-frame">
+        <pre ref={preRef}><code>{code}</code></pre>
+      </div>
     </figure>
   );
 }

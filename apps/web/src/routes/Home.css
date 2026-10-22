@@ -39,14 +39,11 @@
   .home-flow-panel + .home-flow-panel::before { content: '↓'; left: 50%; top: 0; transform: translate(-50%, -50%); }
 }
 
-.home-prose { display: grid; gap: var(--space-md); max-width: 70ch; }
-.home-prose p { margin: 0; color: var(--color-text-muted); }
-
 /* Hero code tabs. Plain buttons with role=tab (same shape as logs.tsx) — a
    tab library would be a dependency for four static buttons. Selected state
    is border + surface + text weight, not colour alone. */
 .home-tabs { display: flex; flex-wrap: wrap; gap: var(--space-xs); }
-.home-tab { padding: var(--space-xs) var(--space-sm); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: transparent; color: var(--color-text-muted); font: inherit; font-size: var(--text-caption); font-weight: 600; cursor: pointer; }
+.home-tab { padding: var(--space-xs) var(--space-sm); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: transparent; color: var(--color-text-muted); font: inherit; font-size: var(--text-caption); font-weight: 600; cursor: pointer; transition: color var(--duration-fast) var(--ease), border-color var(--duration-fast) var(--ease), background var(--duration-fast) var(--ease); }
 .home-tab:hover { color: var(--color-text); border-color: var(--color-border-strong); }
 .home-tab[aria-selected='true'] { color: var(--color-text); border-color: var(--color-border-strong); background: var(--color-surface-raised); }
 .home-base-url { margin: 0; font-size: var(--text-sm); color: var(--color-text-muted); }
@@ -56,11 +53,6 @@
    inheriting the code block's margins. */
 .hero-code > .home-tabs { margin-bottom: var(--space-sm); }
 .hero-code > .home-base-url { margin-top: var(--space-sm); }
-
-/* Migration notice: the Alert shape — coloured left border, surface fill. */
-.home-banner { display: grid; gap: var(--space-sm); padding: var(--space-card); border: 1px solid var(--color-border); border-left: 2px solid var(--primary); border-radius: var(--radius-lg); background: var(--color-surface); }
-.home-banner h2 { margin: 0; }
-.home-banner p { margin: 0; color: var(--color-text-muted); }
 
 .home-faq { display: grid; gap: var(--space-sm); max-width: 70ch; }
 .home-faq details { border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
@@ -92,29 +84,52 @@ footer.foot { align-items: flex-start; }
 .foot-col a { color: var(--color-text-muted); }
 .foot-col a:hover { color: var(--color-text); text-decoration: underline; }
 
-/* Two-plane diagram. Colors come from the shared tokens so the diagram follows
-   the theme; the hot path is heavier than the management path because that
-   asymmetry is the point the section makes. */
-.arch { width: 100%; height: auto; max-width: 46rem; }
-.arch-node rect { fill: var(--color-surface-raised); stroke: var(--color-border-strong); stroke-width: 1; }
-.arch-node text { fill: var(--color-text); font-family: var(--font-ui); font-size: 13px; }
-.arch-node .arch-sub { fill: var(--color-text-muted); font-size: 11px; font-family: var(--font-mono); }
-.arch-edge line, .arch-edge path { stroke: var(--color-border-strong); stroke-width: 1.5; fill: none; }
-.arch-edge--hot line, .arch-edge--hot path { stroke: var(--primary); stroke-width: 2.5; }
-.arch-edge--mgmt line, .arch-edge--mgmt path { stroke-dasharray: 4 3; }
-.arch-arrowhead { fill: var(--color-border-strong); }
-.arch-arrowhead--hot { fill: var(--primary); }
-.arch-label { fill: var(--color-text-muted); font-family: var(--font-ui); font-size: 11px; }
-/* Two layouts, one SVG each. The wide composition is 720x300; below 640px it
-   rendered 13px labels at ~7px, and squeezing a stack into that aspect ratio
-   only gave 157px of height. The narrow svg is 360x270 with a right-hand
-   storage column, so at 375px wide (scale 1.042) its 14px/12px type lands at
-   ~14.6px/~12.5px. */
-.arch-narrow { display: none; }
-@media (max-width: 640px) {
-  .arch-wide { display: none; }
-  .arch-narrow { display: block; }
-  .arch-narrow .arch-node text { font-size: 14px; }
-  .arch-narrow .arch-node .arch-sub { font-size: 12px; }
-  .arch-narrow .arch-label { font-size: 11px; }
+/* ---- motion & feedback ------------------------------------------------ */
+/* Everything here is decoration on a page that already reads without it: no
+   rule hides content, moves it out of the way, or changes a value the reader
+   needs. The global reduced-motion block in styles.css disables all of it. */
+
+/* Figures are telemetry, so they hold their column while counting: tabular
+   digits stop the strip from twitching as 1,284 becomes 2,256. */
+.metrics-strip .num { font-variant-numeric: tabular-nums; }
+
+@media (hover: hover) and (pointer: fine) {
+  /* Panels lift like the hero cards do, and the arrow leading into a panel
+     brightens with it, so the flow reads as one gesture, not three boxes. */
+  .home-flow-panel {
+    transition:
+      transform var(--duration-med) var(--ease),
+      border-color var(--duration-med) var(--ease),
+      box-shadow var(--duration-med) var(--ease);
+  }
+  .home-flow-panel:hover {
+    transform: translateY(-3px);
+    border-color: color-mix(in srgb, var(--primary) 45%, var(--color-border));
+    box-shadow: var(--shadow-md);
+  }
+  .home-flow-panel:hover + .home-flow-panel::before { color: var(--primary); }
+
+  /* The step counter fills once its panel is hovered — the same affordance in
+     the element the eye lands on first. */
+  .home-flow-num {
+    transition:
+      color var(--duration-med) var(--ease),
+      border-color var(--duration-med) var(--ease),
+      background var(--duration-med) var(--ease);
+  }
+  .home-flow-panel:hover .home-flow-num {
+    color: var(--on-primary);
+    border-color: var(--primary);
+    background: var(--primary);
+  }
 }
+
+/* FAQ answers settle in instead of snapping open. `both` keeps the first frame
+   applied while the panel is still expanding. */
+.home-faq details[open] > p { animation: faq-in 0.28s var(--ease) both; }
+@keyframes faq-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+.home-faq summary { transition: color var(--duration-fast) var(--ease); }
+.home-faq details[open] > summary { color: var(--color-text); }

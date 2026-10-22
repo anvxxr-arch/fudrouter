@@ -42,16 +42,17 @@ other, and both are testable independently."
 - Sign-in is Discord-only. There is no password path in any environment a person
   uses; the email/password endpoint exists solely so the integration harness can
   create fixtures under `NODE_ENV=test`.
-- **Signing in also joins the user to the FUDCourt Discord server**
-  (`lib/discord.mjs`, guild `1358116767217614898`). It fires after the session is
-  created, is never awaited, and can never fail a login — a Discord outage must
-  not lock anyone out of their own account. This is part of onboarding, not a
-  separate step the user performs.
+- **Signing in also places the customer in the product's Discord server.** It
+  happens after the session is created and can never fail a login — a Discord
+  outage must not lock anyone out of their own account. This is part of
+  onboarding, not a separate step the user performs.
 - The account is the tenant. A key, a billing account, a budget and a routing
   policy each belong to one user account directly. There is no workspace,
   project or environment layer — see *Capabilities and Constraints*.
-- The public site (marketing, pricing, docs, status) and the console live on one
-  origin; `/dashboard` and `/admin` are the two authenticated surfaces.
+- The public site (marketing, pricing, docs, status) and the console are served
+  from one product host rather than split across subdomains; `/dashboard` and
+  `/admin` are the two authenticated surfaces. The `www` alias of that host is
+  also accepted for auth (see *Brand Commitments*).
 - The playground is the only path that crosses planes: the console mints a
   short-lived key, streams from the router, and always reclaims it.
 - Operations run under PM2 on one host, with Postgres and Valkey as the only

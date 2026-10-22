@@ -65,6 +65,14 @@ other, and both are testable independently."
   Keys, billing accounts, budgets, rate limits, routing policies, alerts, webhooks
   and model aliases are keyed by user account. Budget and rate-limit scopes are
   `account` and `api_key` only.
+- **Retention is explicit and deletion is opt-in.** The `retention` system setting
+  ships as request metadata 90 days, captured content 0, system events 90, audit
+  logs 365, job queue 30. A zero on a *deletion* window means keep forever —
+  never wipe — so a misconfigured setting cannot destroy the ledger; a zero on
+  `request_content_days` means prompt and response bodies are scrubbed, which is
+  why content capture is off unless someone opts in. `request_log` rows survive
+  their subject (nullable `user_id`/`api_key_id`, `ON DELETE SET NULL`) because
+  the cost record is the financial evidence.
 - **Metering is the product.** Every request writes `request_log` plus one
   `credit_ledger` row of type `usage_charge`, keyed `usage:<request id>` so a
   retry can never double-charge. `balance_micro` is a cache; the ledger is truth.

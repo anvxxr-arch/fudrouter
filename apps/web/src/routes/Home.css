@@ -12,7 +12,7 @@
 
 /* Before/after. Two columns of four, one column below the docs breakpoint. */
 .home-compare { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-xl); align-items: start; }
-@media (max-width: 720px) { .home-compare { grid-template-columns: 1fr; } }
+@media (max-width: 720px) { .home-compare { grid-template-columns: minmax(0, 1fr); } }
 .home-col { display: grid; gap: var(--space-sm); align-content: start; }
 .home-col > .fr-label { margin: 0; }
 .home-list { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--space-sm); }
@@ -35,7 +35,7 @@
    down arrow centred in the (now vertical) gap, so the flow still reads
    top-to-bottom without a horizontal scrollbar. */
 @media (max-width: 720px) {
-  .home-flow { grid-template-columns: 1fr; gap: var(--space-lg); }
+  .home-flow { grid-template-columns: minmax(0, 1fr); gap: var(--space-lg); }
   .home-flow-panel + .home-flow-panel::before { content: '↓'; left: 50%; top: 0; transform: translate(-50%, -50%); }
 }
 
@@ -58,7 +58,7 @@
    70ch resolved against this box's 16px, but the answers inside are 14px, so
    the real measure measured 98 characters per line -- well past the 75 where a
    line stops being comfortable to track. 34rem at 14px is ~65 cpl. */
-.home-faq { display: grid; gap: var(--space-sm); max-width: 30rem; }
+.home-faq { display: grid; gap: var(--space-sm); max-width: var(--measure-box); }
 .home-faq details { border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
 .home-faq summary { padding: var(--space-sm) var(--space-md); cursor: pointer; font-weight: 600; }
 .home-faq details[open] summary { border-bottom: 1px solid var(--color-border); }
@@ -78,7 +78,7 @@
 footer.foot { align-items: flex-start; }
 .foot-cols { display: grid; grid-template-columns: minmax(0, 1.4fr) repeat(4, minmax(0, 1fr)); gap: var(--space-xl); width: 100%; }
 @media (max-width: 900px) { .foot-cols { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
-@media (max-width: 480px) { .foot-cols { grid-template-columns: 1fr; } }
+@media (max-width: 480px) { .foot-cols { grid-template-columns: minmax(0, 1fr); } }
 /* Footer status dot: only rendered when /api/status says every component is
    operational and the incident history loaded. Absent otherwise — the link
    alone must never imply an all-clear. */

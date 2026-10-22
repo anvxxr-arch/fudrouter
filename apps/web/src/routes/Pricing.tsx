@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { Reveal } from '../components/Reveal';
 import { Button } from '../components/ui/button';
 import { Table } from '../components/ui/table';
-import { api, formatContext, formatPricePer1M } from '../lib/api';
+import { api, formatContext, formatPricePer1M, priceMicro } from '../lib/api';
 
 interface Tier {
   name: string;
@@ -161,10 +161,12 @@ interface CalcModel {
 
 /** Same micro-unit parse as formatPricePer1M, kept local: api.ts is the
  *  display-formatting module and this page needs the raw integer. */
+// The catalog value is already micro-dollars per 1M tokens -- the unit the
+// ledger bills in. Parsing it as dollars and multiplying by 1e6 inflated every
+// estimate by a factor of a million.
 function microPer1M(value: string | null): bigint | null {
   if (value === null) return null;
-  const [whole = '0', frac = ''] = value.trim().split('.');
-  return BigInt(whole) * 1_000_000n + BigInt((frac + '000000').slice(0, 6));
+  return priceMicro(value);
 }
 
 function money(micro: bigint): string {

@@ -9,7 +9,7 @@
   align-items: start;
 }
 @media (max-width: 900px) {
-  .pg-panels { grid-template-columns: 1fr; }
+  .pg-panels { grid-template-columns: minmax(0, 1fr); }
 }
 
 .pg-panel {
@@ -120,7 +120,7 @@
   align-items: start;
 }
 @media (max-width: 900px) {
-  .pg-compare-grid { grid-template-columns: 1fr; }
+  .pg-compare-grid { grid-template-columns: minmax(0, 1fr); }
 }
 .pg-compare-col { display: grid; gap: var(--space-sm); min-width: 0; padding: var(--space-sm); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
 /* Winners are marked with the semantic status colours, not new tokens. */

@@ -177,12 +177,36 @@ export const api = {
   changelogEntry: (slug: string) => getWithStatus<{ entry: ChangelogEntry | null }>(`/changelog/${encodeURIComponent(slug)}`),
 };
 
+/**
+ * The catalog stores prices in micro-dollars per 1M tokens -- the same unit the
+ * ledger bills in. `150000` is $0.15/1M, `120000000` is $120/1M.
+ *
+ * This used to multiply by 1e6 on the way in, treating the value as dollars.
+ * That is right for a dollar-denominated source and wrong for every row the
+ * catalog actually holds, so 238 of 690 price cells on /pricing quoted numbers
+ * like $120,000,000.00 per 1M tokens and the calculator projected billions.
+ */
+export function priceMicro(value: string): bigint {
+  const [whole = '0', frac = ''] = value.trim().split('.');
+  const base = BigInt(whole);
+  // numeric(18,6) gives six decimals of a micro -- that is sub-micro money and
+  // the only thing worth doing with it is rounding the whole micro up.
+  const firstFrac = frac.slice(0, 1);
+  return firstFrac && Number(firstFrac) >= 5 ? base + 1n : base;
+}
+
 export function formatPricePer1M(value: string | null): string {
   if (value === null) return '—';
-  const [whole = '0', frac = ''] = value.trim().split('.');
-  const micro = BigInt(whole) * 1_000_000n + BigInt((frac + '000000').slice(0, 6));
-  const dollars = Number(micro) / 1_000_000;
-  return `$${dollars.toFixed(2)}`;
+  const micro = priceMicro(value);
+  const whole = micro / 1_000_000n;
+  const frac = micro % 1_000_000n;
+  // Two decimals down to a cent; four below it, so a $0.002/1M model does not
+  // print as $0.00. A free model is exactly zero and reads as $0.00 -- four
+  // decimals there is just noise.
+  const digits = micro === 0n || micro >= 10_000n ? 2 : 4;
+  const scale = 10n ** BigInt(digits);
+  const fracStr = ((frac * scale) / 1_000_000n).toString().padStart(digits, '0');
+  return `$${whole}.${fracStr}`;
 }
 
 export function formatContext(tokens: number | null): string {

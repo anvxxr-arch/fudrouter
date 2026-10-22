@@ -141,8 +141,12 @@ async function fetchUpstreamModels(key) {
       name: String(m?.display_name ?? m?.name ?? m?.label ?? m?.id ?? '').trim(),
       context: Number(m?.context_window ?? 0) || null,
       maxOut: Number(m?.max_output_tokens ?? 0) || null,
-      priceIn: Number(m?.pricing?.input ?? 0) || 0,
-      priceOut: Number(m?.pricing?.output ?? 0) || 0,
+      // Excelnt quotes dollars per 1M tokens; the catalog stores micro-dollars
+      // per 1M (the unit the ledger bills in). Writing the quote straight into
+      // input_price billed these nine models a million times too cheap and made
+      // the public price table read $16.00 for a $16/1M model's neighbours.
+      priceIn: Math.round((Number(m?.pricing?.input ?? 0) || 0) * 1_000_000),
+      priceOut: Math.round((Number(m?.pricing?.output ?? 0) || 0) * 1_000_000),
       owner: String(m?.owned_by ?? '').trim()
     }))
     .filter((m) => m.slug !== '');

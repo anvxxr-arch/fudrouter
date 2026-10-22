@@ -111,6 +111,10 @@
      pages 101. `em` resolves against the element's own font size and 0.5em is
      the measured average advance, so 33em is ~66 characters at any size. */
   --measure: 33em;
+  /* For bordered prose boxes (FAQ lists): the cap belongs on the box, so it is
+     absolute rather than size-relative. 32rem at the 14px answer size is ~64
+     characters per line. */
+  --measure-box: 32rem;
   /* ---- 1. primitives: motion ---- */
   --duration-fast: 120ms;
   --duration-med: 320ms;
@@ -209,7 +213,12 @@ table.fr tbody tr:hover { background: var(--color-surface); }
    once `overflow-x: clip` stopped it widening the document (the clip hid the
    symptom, not the bug). Rows wrap now, with a row-gap so stacked items keep
    the same rhythm they have side by side. */
+/* `.stack` has always zeroed its children's min-width; `.row` never did, and
+   .row is the one that holds buttons, badges and inline labels side by side.
+   A flex item's default min-width is min-content, so a long label pins the item
+   and shoves its siblings out of the row instead of letting them share. */
 .row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm); }
+.row > * { min-width: 0; }
 .stack { display: grid; gap: var(--space-md); }
 .stack > * { min-width: 0; }
 .table-wrap { position: relative; overflow-x: auto; -webkit-overflow-scrolling: touch; }
@@ -937,7 +946,7 @@ body { overflow-x: clip; }
    squeezing. */
 .metrics-strip {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--space-md) var(--space-lg);
   /* 32px, not 16: the strip is a separate band from the hero copy above it,
      and at 16 the stats read as another line of the tagline block. */
@@ -947,7 +956,7 @@ body { overflow-x: clip; }
   border-bottom: 1px solid var(--color-border);
 }
 @media (max-width: 40rem) {
-  .metrics-strip { grid-template-columns: repeat(2, 1fr); }
+  .metrics-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   /* Row 2 starts at the left edge, so the divider that separates figures
      within a row must not render before an odd-numbered figure. */
   .metrics-strip > div:nth-child(odd) { padding-left: 0; }
@@ -1018,7 +1027,7 @@ body { overflow-x: clip; }
 .console-side-toggle { justify-self: start; padding: 2px var(--space-sm); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: transparent; color: var(--color-text-muted); font: inherit; cursor: pointer; }
 .console-side-toggle:hover { color: var(--color-text); border-color: var(--color-border-strong); }
 .console-shell.collapsed { grid-template-columns: auto minmax(0, 1fr); }
-@media (max-width: 720px) { .console-shell { grid-template-columns: 1fr; } .console-side { position: static; } }
+@media (max-width: 720px) { .console-shell { grid-template-columns: minmax(0, 1fr); } .console-side { position: static; } }
 
 /* ---- docs (moved from Docs.tsx inline <style>) ---- */
 .doc-layout { display: grid; grid-template-columns: 14rem minmax(0, 1fr); gap: var(--space-xl); }
@@ -1030,7 +1039,7 @@ body { overflow-x: clip; }
 .cat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr)); gap: var(--space-md); }
 .cat-card { display: grid; gap: var(--space-xs); padding: var(--space-md); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); }
 .doc-pager { display: flex; justify-content: space-between; margin-top: var(--space-xl); border-top: 1px solid var(--color-border); padding-top: var(--space-md); }
-@media (max-width: 720px) { .doc-layout { grid-template-columns: 1fr; } }
+@media (max-width: 720px) { .doc-layout { grid-template-columns: minmax(0, 1fr); } }
 
 /* ---- shared page semantics used by the routes ---- */
 .lede { color: var(--color-text-muted); font-size: var(--text-lg); line-height: 1.5; max-width: var(--measure); }
@@ -1044,7 +1053,7 @@ p.muted:not(.lede) { max-width: 30rem; }
 /* ---- pricing page ---- */
 .pricing-tiers { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-md); align-items: stretch; }
 @media (max-width: 900px) { .pricing-tiers { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 560px) { .pricing-tiers { grid-template-columns: 1fr; } }
+@media (max-width: 560px) { .pricing-tiers { grid-template-columns: minmax(0, 1fr); } }
 .pricing-tier { position: relative; display: flex; flex-direction: column; gap: var(--space-sm); padding: var(--space-card); border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); }
 .pricing-tier--pro { border-color: var(--warning); }
 .pricing-tier-badge { position: absolute; top: calc(var(--space-sm) * -1); right: var(--space-md); padding: 2px var(--space-sm); border-radius: var(--radius-pill); background: var(--warning); color: var(--color-bg); font-size: var(--text-caption); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
@@ -1056,7 +1065,7 @@ p.muted:not(.lede) { max-width: 30rem; }
 .pricing-check { flex: none; margin-top: 3px; color: var(--color-success); }
 .pricing-tier > a { margin-top: auto; }
 .pricing-credits { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-xl); align-items: start; }
-@media (max-width: 800px) { .pricing-credits { grid-template-columns: 1fr; } }
+@media (max-width: 800px) { .pricing-credits { grid-template-columns: minmax(0, 1fr); } }
 .pricing-steps { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--space-md); counter-reset: step; }
 .pricing-steps li { position: relative; padding-left: var(--space-2xl); counter-increment: step; }
 .pricing-steps li::before { content: counter(step); position: absolute; left: 0; top: 0; width: 2rem; height: 2rem; display: grid; place-items: center; border: 1px solid var(--color-border-strong); border-radius: var(--radius-pill); color: var(--warning); font-family: var(--font-mono); font-size: var(--text-sm); }
@@ -1065,7 +1074,7 @@ p.muted:not(.lede) { max-width: 30rem; }
 .pricing-flow-node text { fill: var(--color-text); font-family: var(--font-ui); font-size: 13px; }
 .pricing-flow-edge line { stroke: var(--color-border-strong); stroke-width: 1.5; }
 .pricing-calc { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-lg) var(--space-xl); }
-@media (max-width: 800px) { .pricing-calc { grid-template-columns: 1fr; } }
+@media (max-width: 800px) { .pricing-calc { grid-template-columns: minmax(0, 1fr); } }
 .pricing-calc-controls { display: grid; gap: var(--space-md); align-content: start; }
 .pricing-calc-controls label { display: grid; gap: var(--space-xs); }
 .pricing-calc-controls input[type='range'] { width: 100%; accent-color: var(--primary); }
@@ -1073,7 +1082,11 @@ p.muted:not(.lede) { max-width: 30rem; }
 .pricing-calc-results > div { display: grid; gap: 2px; padding: var(--space-md); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
 .pricing-calc-results .num { font-size: var(--text-stat); font-weight: 600; }
 .pricing-calc > p { grid-column: 1 / -1; margin: 0; }
-.pricing-faq { display: grid; gap: var(--space-sm); max-width: 34rem; }
+/* Bordered prose blocks are capped in rem, not em: the box carries the border,
+   so the cap has to sit on the box rather than on the text inside it. The value
+   is chosen for the 14px answer text (~64 cpl). Home and pricing had drifted to
+   30rem and 34rem for the identical component. */
+.pricing-faq { display: grid; gap: var(--space-sm); max-width: var(--measure-box); }
 .pricing-faq details { border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
 .pricing-faq summary { padding: var(--space-sm) var(--space-md); cursor: pointer; font-weight: 600; }
 .pricing-faq details[open] summary { border-bottom: 1px solid var(--color-border); }

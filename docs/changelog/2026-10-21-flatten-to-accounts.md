@@ -180,3 +180,23 @@ that found every data-dependent defect is, in order:
    owner-less account whose invoice blocked the delete guard.
 
 Reconciliation queries are recorded here rather than in a surviving database.
+
+## Follow-up: the second `workspace_id` writer
+
+The code section above says `audit_log.workspace_id` stays as historical
+evidence with nothing writing it, which was true. It did **not** cover
+`system_event.workspace_id`, and that column still had a live writer: the Go
+router's `store.InsertSystemEvent` took a fifth `accountID` argument and
+inserted it there, so every budget-threshold and low-balance event carried a
+`usr_…` id in a column named for a `wrk_…` one. `packages/platform/server/alerts.ts`
+had already stopped, so the two planes disagreed about the same column —
+exactly what the migration's own note ("only new code stops writing it")
+forbids.
+
+Fixed in `0588e91`: the parameter and both call sites (`budgetEvaluate`,
+`raiseLowBalance`) are gone. Nothing reads the column — the admin list and
+health-snapshot queries select `id, type, resource, resource_id, metadata,
+created_at` only — and scope is not lost, because `resource` + `resourceID`
+already name what each event belongs to. The drizzle `workspaceId` field stays
+in `packages/platform/db/schema.ts`: it mirrors a column that still exists and
+holds historical values.

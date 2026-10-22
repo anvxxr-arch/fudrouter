@@ -42,6 +42,10 @@ type RequestLog struct {
 	TokensOut         int64
 	ReasoningTokens   int64
 	TotalTokens       *int64
+	// TokensSaved is the ESTIMATE compression removed before dispatch
+	// (migration 0020). Never billed from: tokens_in/out are the provider's
+	// reported usage and the only numbers a charge may come from.
+	TokensSaved int64
 
 	InputPriceMicro       *string // numeric(18,6) as stored
 	CachedInputPriceMicro *string
@@ -70,7 +74,7 @@ const requestLogColumns = `
 	endpoint, requested_model, model_id, provider_model_id, provider_id,
 	connection_id, credential_id, routing_policy_id, strategy,
 	status, error_code, error, http_status,
-	tokens_in, cached_input_tokens, tokens_out, reasoning_tokens, total_tokens,
+	tokens_in, cached_input_tokens, tokens_out, reasoning_tokens, total_tokens, tokens_saved,
 	input_price_micro, cached_input_price_micro, output_price_micro, reasoning_price_micro,
 	pricing_rule_id, provider_cost_micro, cost, credit_charged_micro, currency,
 	ttft_ms, latency_ms, timing, attempts, fallback_used, stream, client_disconnected,
@@ -105,7 +109,7 @@ func (r *RequestLog) args() []any {
 		nullStr(r.ProviderModelID), nullStr(r.ProviderID), nullStr(r.ConnectionID),
 		nullStr(r.CredentialID), nullStr(r.RoutingPolicyID), nullStr(r.Strategy),
 		r.Status, nullStr(r.ErrorCode), nullStr(r.Error), r.HTTPStatus,
-		r.TokensIn, r.CachedInputTokens, r.TokensOut, r.ReasoningTokens, total,
+		r.TokensIn, r.CachedInputTokens, r.TokensOut, r.ReasoningTokens, total, r.TokensSaved,
 		r.InputPriceMicro, r.CachedInputPriceMicro, r.OutputPriceMicro, r.ReasoningPriceMicro,
 		pricingRuleID, r.ProviderCostMicro, r.Cost, r.CreditChargedMicro, r.Currency,
 		ttft, r.LatencyMs, timingJSON, r.Attempts, r.FallbackUsed, r.Stream, r.ClientDisconnected,
@@ -127,7 +131,7 @@ func nullStr(s string) any {
 func (s *Store) InsertRequestLog(ctx context.Context, r *RequestLog) error {
 	_, err := s.pool.Exec(ctx, `
 		insert into request_log (`+requestLogColumns+`)
-		values (`+placeholders(40)+`)
+		values (`+placeholders(41)+`)
 		on conflict (id) do nothing`, r.args()...)
 	return err
 }
@@ -162,7 +166,7 @@ func (s *Store) InsertRequestLogWithLedger(ctx context.Context, r *RequestLog) e
 	}
 	if _, err := tx.Exec(ctx, `
 		insert into request_log (`+requestLogColumns+`)
-		values (`+placeholders(40)+`)
+		values (`+placeholders(41)+`)
 		on conflict (id) do nothing`, r.args()...); err != nil {
 		return err
 	}

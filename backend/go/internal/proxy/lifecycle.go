@@ -61,6 +61,9 @@ type lifecycle struct {
 	pricing   *store.Pricing
 	usage     usageCounts
 	usageSeen bool
+	// tokensSaved is the estimated input tokens compression removed before
+	// dispatch (compress.go). Recorded for reporting only — never billed.
+	tokensSaved int64
 
 	status   string // spec §8 vocabulary
 	errCode  string
@@ -883,6 +886,7 @@ func (lc *lifecycle) buildRow(u usageCounts) *store.RequestLog {
 	}
 
 	row.TokensIn, row.CachedInputTokens, row.TokensOut, row.ReasoningTokens = u.TokensIn, u.CachedInputTokens, u.TokensOut, u.ReasoningTokens
+	row.TokensSaved = lc.tokensSaved
 	if lc.usageSeen {
 		total := u.TotalTokens
 		if total == 0 {

@@ -421,8 +421,8 @@ export function registerPages(app, ctx) {
 		const pages = Math.max(1, Math.ceil(total / 50));
 		const page = Math.min(pages, Math.max(1, Number.isFinite(Number(req.query.page)) ? Math.floor(Number(req.query.page)) : 1));
 		const rows = rowsOf(
-			await database.execute(sql`select r.id, r.created_at, r.requested_model, m.slug as model_slug, p.name as provider_name, r.attempts, r.fallback_used, r.tokens_in, r.tokens_out, r.cost, r.latency_ms, r.ttft_ms, r.status, r.error_code from request_log r left join model m on m.id = r.model_id left join provider p on p.id = r.provider_id where ${where} order by r.created_at desc, r.id desc limit 50 offset ${(page - 1) * 50}`)
-		).map((r) => ({ id: r.id, createdAt: iso(r.created_at), requestedModel: r.requested_model, modelSlug: r.model_slug, providerName: r.provider_name, attempts: num(r.attempts), fallbackUsed: !!r.fallback_used, tokensIn: num(r.tokens_in), tokensOut: num(r.tokens_out), costMicro: String(r.cost ?? '0'), latencyMs: num(r.latency_ms), ttftMs: r.ttft_ms == null ? null : num(r.ttft_ms), status: normalizeStatus(r.status), errorCode: r.error_code }));
+			await database.execute(sql`select r.id, r.created_at, r.requested_model, m.slug as model_slug, p.name as provider_name, r.attempts, r.fallback_used, r.tokens_in, r.tokens_out, r.tokens_saved, r.cost, r.latency_ms, r.ttft_ms, r.status, r.error_code from request_log r left join model m on m.id = r.model_id left join provider p on p.id = r.provider_id where ${where} order by r.created_at desc, r.id desc limit 50 offset ${(page - 1) * 50}`)
+		).map((r) => ({ id: r.id, createdAt: iso(r.created_at), requestedModel: r.requested_model, modelSlug: r.model_slug, providerName: r.provider_name, attempts: num(r.attempts), fallbackUsed: !!r.fallback_used, tokensIn: num(r.tokens_in), tokensOut: num(r.tokens_out), tokensSaved: num(r.tokens_saved), costMicro: String(r.cost ?? '0'), latencyMs: num(r.latency_ms), ttftMs: r.ttft_ms == null ? null : num(r.ttft_ms), status: normalizeStatus(r.status), errorCode: r.error_code }));
 		res.json({ rows, total, page, pages });
 	}));
 

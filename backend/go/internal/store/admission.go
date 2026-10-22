@@ -78,6 +78,14 @@ type accountEntry struct {
 // whatever list the first one cached, so a per-key cap on K1 refused K2 as well,
 // and K2's own cap went unread until the entry expired. The scope column made
 // that especially quiet — one key's budget became an account-wide outage.
+//
+// Invalidation: there is none. Unlike the account entry — which ChargeRequest
+// drops the moment a charge crosses the hard stop (InvalidateAdmission) — a
+// budget created, raised or revoked from the console stays dormant here for up
+// to policyTTL (60s). That is deliberate: a budget is an operator-set row, and a
+// one-minute delay on a spend cap is far cheaper than an invalidation channel
+// from Express into this process. If a cap ever needs to bind instantly, that
+// channel is the thing to build, not a shorter TTL.
 type budgetCacheKey struct {
 	accountID string
 	apiKeyID  string

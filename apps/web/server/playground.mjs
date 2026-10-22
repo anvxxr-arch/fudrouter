@@ -199,6 +199,7 @@ export function registerPlayground(app, deps) {
   		tokensIn: pick('tokensIn'),
   		tokensOut: pick('tokensOut'),
   		tokensTotal: pick('tokensTotal'),
+		tokensSaved: pick('tokensSaved'),
   		ttftMs: pick('ttftMs'),
   		latencyMs: pick('latencyMs'),
   		costMicro: pick('costMicro'),
@@ -210,7 +211,7 @@ export function registerPlayground(app, deps) {
   async function pgFetchRunMetrics(requestId) {
   	if (!requestId || !client) return {};
   	for (let i = 0; i < 5; i++) {
-  		const rows = await client`select id, provider_id, requested_model, tokens_in, tokens_out, total_tokens, ttft_ms, latency_ms, cost, status, fallback_used, attempts from request_log where id = ${requestId} limit 1`;
+  		const rows = await client`select id, provider_id, requested_model, tokens_in, tokens_out, total_tokens, tokens_saved, ttft_ms, latency_ms, cost, status, fallback_used, attempts from request_log where id = ${requestId} limit 1`;
   		if (rows.length) {
   			const row = rows[0];
   			let providerName = null;
@@ -226,6 +227,9 @@ export function registerPlayground(app, deps) {
   				tokensIn: pgNum(row.tokens_in),
   				tokensOut: pgNum(row.tokens_out),
   				tokensTotal: pgNum(row.total_tokens),
+				// The token-saver's saving (migration 0020). An ESTIMATE, kept
+				// separate from tokensIn/Out, which are the provider's report.
+				tokensSaved: pgNum(row.tokens_saved),
   				ttftMs: pgNum(row.ttft_ms),
   				latencyMs: pgNum(row.latency_ms),
   				costMicro: row.cost !== null && row.cost !== undefined ? String(row.cost) : null,

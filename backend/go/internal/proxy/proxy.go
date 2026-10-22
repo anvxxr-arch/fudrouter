@@ -328,6 +328,16 @@ func (h *Handler) ServeCompletions(w http.ResponseWriter, r *http.Request) {
 	upBody, _ := json.Marshal(req)
 
 	lc.stream = stream
+	// Compress oversized tool results before dispatch (compress.go). The
+	// saving is estimated and recorded on the row; the bill still comes from
+	// the provider's usage block. A caller can opt out for one request with
+	// X-Fudrouter-Token-Saver: off, and any failure leaves the body untouched.
+	if !tokenSaverDisabled(r.Header.Get(tokenSaverHeader)) {
+		if compressed, saved := compressToolResults(upBody); saved > 0 {
+			upBody = compressed
+			lc.tokensSaved = saved
+		}
+	}
 	upCtx := lc.upstreamContext(r, stream)
 	resp, err := lc.dispatch(upCtx, upBody, r.Method, "", "/chat/completions")
 	if err != nil || resp == nil {

@@ -123,11 +123,26 @@ prove it**.
 - **Acceptance:** a two-model combo whose first upstream returns 500 produces two
   `request_attempt` rows, one `usage_charge`, and the client sees one response.
 
-### Step 3 — Per-key hard spend cap
+### Step 3 — Per-key hard spend cap  ✅ shipped
 
-- Extend the existing budget gate to `scope = 'api_key'` with `action_at_100 = 'block'`.
-- **Acceptance:** a key at its cap returns 402 `INSUFFICIENT_CREDITS` with **zero**
-  upstream dials (assert the fake upstream was never hit).
+The cap itself already existed: `BudgetsFor` selects both `scope = 'account'`
+and `scope = 'api_key'`, and `checkBudgets` blocks at 100% when
+`action_at_100 = 'block'`. What this step actually delivered was **proving it and
+fixing the reason it did not work**.
+
+- **Fixed:** `AdmissionBudgets` cached its result under the account id alone
+  (`budgetCacheKey{k.UserID}`) while the query depends on the key id too. Two
+  keys on one account therefore shared whichever chain was cached first, so a
+  per-key cap could refuse the wrong key and a key's own cap went unread for the
+  whole TTL. Keyed by `{accountID, apiKeyID}` now.
+- **Tests:** the per-key cap had no coverage at all — only the account half of
+  the chain was exercised. Added admission-order tests that assert 402 *and*
+  zero upstream dials, plus a two-key case that runs the uncapped key first to
+  populate the cache.
+- **Acceptance (met):** a key at its cap returns 402 with the upstream never
+  dialled; with the coarse cache key the two-key test returns 200 instead of 402.
+- **Known limit:** the budget cache has no manual invalidator, so a cap created
+  or raised from the console is dormant for up to `policyTTL` (60s).
 
 ### Step 4 — Third native protocol
 
@@ -136,12 +151,16 @@ prove it**.
 - **Acceptance:** a Gemini-shaped client gets a valid response, and the request
   appears in `request_log` with the same cost fields as a chat completion.
 
-### Step 5 — Provable security posture
+### Step 5 — Provable security posture  ✅ shipped
 
 - Assert the properties we already have, as tests rather than prose: a database dump
   contains no usable key material, and a forged key fails authentication.
-- **Acceptance:** a test that dumps the `api_key` table asserts no row's stored
-  value equals or contains the plaintext key.
+- **Acceptance (met):** `TestNoPlaintextSecretAtRest` pins that the stored value
+  is a sha256 digest which neither contains the secret nor authenticates as it.
+  Mutation-verified: returning the secret from `Hash` turns it red.
+- **Also fixed under this step:** the key charset accepted only `[A-Za-z0-9]`
+  while the minter emits base64url, so 5 of 69 live keys were unauthenticatable
+  (`docs/changelog/2026-10-22-key-charset-outage.md`).
 
 Steps 1 and 2 close the two gaps that decide adoption. Steps 3 and 5 are cheap and
 make the commercial claim defensible. Step 4 is parity, not differentiation.

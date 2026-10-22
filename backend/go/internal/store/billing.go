@@ -161,7 +161,7 @@ func (s *Store) ChargeRequest(ctx context.Context, r *RequestLog) (*ChargeResult
 		// nothing to charge, so this is one insert and nothing else.
 		if _, err := s.pool.Exec(ctx, `
 			insert into request_log (`+requestLogColumns+`)
-			values (`+placeholders(40)+`)
+			values (`+placeholders(41)+`)
 			on conflict (id) do nothing`, r.args()...); err != nil {
 			return nil, err
 		}
@@ -199,21 +199,21 @@ func (s *Store) ChargeRequest(ctx context.Context, r *RequestLog) (*ChargeResult
 	err := s.pool.QueryRow(ctx, `
 		with rl as (
 			insert into request_log (`+requestLogColumns+`)
-			values (`+placeholders(40)+`)
+			values (`+placeholders(41)+`)
 			on conflict (id) do nothing
 			returning 1
 		), ledger as (
 			insert into credit_ledger
 			  (id, billing_account_id, type, amount_micro, currency, request_id,
 			   idempotency_key, description, metadata)
-			select $41, ba.id, 'usage_charge', $42, $43, $44, $45, $46, '{}'::jsonb
+			select $42, ba.id, 'usage_charge', $43, $44, $45, $46, $47, '{}'::jsonb
 			from billing_account ba
-			where ba.user_id = $47
+			where ba.user_id = $48
 			on conflict (idempotency_key) do nothing
 			returning id, billing_account_id
 		), bal as (
 			update billing_account ba
-			set balance_micro = ba.balance_micro + $42, updated_at = now()
+			set balance_micro = ba.balance_micro + $43, updated_at = now()
 			from ledger l
 			where ba.id = l.billing_account_id
 			returning ba.id, ba.warning_threshold_micro, ba.hard_stop_threshold_micro, ba.balance_micro
@@ -228,7 +228,7 @@ func (s *Store) ChargeRequest(ctx context.Context, r *RequestLog) (*ChargeResult
 		-- is what the first version of this statement returned.
 		select ba.id, ba.warning_threshold_micro, ba.hard_stop_threshold_micro, ba.balance_micro, false
 		from billing_account ba
-		where ba.user_id = $47 and not exists (select 1 from bal)`,
+		where ba.user_id = $48 and not exists (select 1 from bal)`,
 		append(append([]any{}, r.args()...),
 			ids.New("txn"), -r.Cost, r.Currency, nullStr(r.ID),
 			"usage:"+r.ID, "usage charge for "+r.ID, nullStr(r.UserID))...,

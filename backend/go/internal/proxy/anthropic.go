@@ -837,7 +837,7 @@ func estimateInputTokens(oiBody []byte) int64 {
 	for _, m := range req.Messages {
 		chars += len([]rune(contentString(m.Content)))
 	}
-	return int64(chars/4 + 4*len(req.Messages))
+	return int64(chars/charsPerToken + 4*len(req.Messages))
 }
 
 // invalidRequest is the shorthand for a 400 INVALID_REQUEST rejection.

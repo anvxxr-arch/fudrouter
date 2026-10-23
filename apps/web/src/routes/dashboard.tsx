@@ -8,6 +8,7 @@ import { Card } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { Table } from "../components/ui/table";
 import { StatCard, pctDelta } from "../components/stat-card";
+import { fmtMicro } from "../lib/money";
 import "./dashboard.css";
 
 // `actions` is the page-level toolbar (the range selector). It used to be a
@@ -51,27 +52,8 @@ function fmtDate(v: string | null) {
     return v;
   }
 }
-// Micro-dollars are integers, so the whole part must never pass through
-// Number(): 2^53 micro is only $9,007,199 and a balance can legitimately be
-// larger. Split with BigInt, then group the digits — `$100504.94` read as a
-// wall of digits in the KPI card, and it is the largest figure on the page.
-const GROUP = new Intl.NumberFormat("en-US");
-function fmtMicro(v: string | null | undefined) {
-  if (v === null || v === undefined) return "—";
-  try {
-    const micro = BigInt(v);
-    const sign = micro < 0n ? "-" : "";
-    const abs = micro < 0n ? -micro : micro;
-    // Round half-up at the cent, not truncate: 100504937518 micro is
-    // $100,504.937518 and reads as .94 everywhere else in the product.
-    const cents = (abs + 5_000n) / 10_000n;
-    const whole = cents / 100n;
-    const frac = (cents % 100n).toString().padStart(2, "0");
-    return `${sign}$${GROUP.format(whole)}.${frac}`;
-  } catch {
-    return String(v);
-  }
-}
+// Micro-dollars are formatted by lib/money.ts: the console and the dashboard
+// used to disagree about the same ledger ("$102055.00" vs "$102,054.94").
 
 type SeriesPoint = { day: string; requests: number; tokens: number; cost: string; errors: number; tokensIn: number; tokensOut: number };
 type FiringAlert = { id: string; alertId: string; alertName: string; conditionType: string; value: string; message: string; triggeredAt: string | null };
@@ -169,7 +151,7 @@ export function DashboardHome() {
     <LoadState loading={loading} error={error} />
     {d ? (<>
       <OnboardingBanner d={d} />
-      <div className="row" style={{ flexWrap: "wrap" }}>
+      <div className="row row--cards" style={{ flexWrap: "wrap" }}>
         <StatCard title="Requests today" value={String(today?.requests ?? 0)} delta={today && yesterday ? pctDelta(today.requests, yesterday.requests) : undefined} spark={series.map((s) => s.requests)} />
         <StatCard title="Tokens today" value={fmtCompact(today ? today.tokensIn + today.tokensOut : 0)} delta={today && yesterday ? pctDelta(today.tokensIn + today.tokensOut, yesterday.tokensIn + yesterday.tokensOut) : undefined} spark={series.map((s) => s.tokensIn + s.tokensOut)} />
         <StatCard title="Errors today" value={String(today?.errors ?? 0)}>

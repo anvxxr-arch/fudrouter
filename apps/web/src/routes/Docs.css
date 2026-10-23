@@ -38,7 +38,7 @@
   border: 1px solid var(--color-border); border-radius: var(--radius-md);
   background: var(--color-surface); color: var(--color-text);
 }
-.doc-result:hover { border-color: var(--color-border-strong); text-decoration: none; }
+.doc-result:hover { border-color: var(--color-border-control-hover); text-decoration: none; }
 .doc-result .meta { margin-left: auto; }
 
 /* Read-time line pins to the card bottom so uneven blurbs still align. */

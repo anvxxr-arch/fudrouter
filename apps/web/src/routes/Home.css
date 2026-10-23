@@ -43,9 +43,9 @@
    tab library would be a dependency for four static buttons. Selected state
    is border + surface + text weight, not colour alone. */
 .home-tabs { display: flex; flex-wrap: wrap; gap: var(--space-xs); }
-.home-tab { padding: var(--space-xs) var(--space-sm); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: transparent; color: var(--color-text-muted); font: inherit; font-size: var(--text-caption); font-weight: 600; cursor: pointer; transition: color var(--duration-fast) var(--ease), border-color var(--duration-fast) var(--ease), background var(--duration-fast) var(--ease); }
-.home-tab:hover { color: var(--color-text); border-color: var(--color-border-strong); }
-.home-tab[aria-selected='true'] { color: var(--color-text); border-color: var(--color-border-strong); background: var(--color-surface-raised); }
+.home-tab { padding: var(--space-xs) var(--space-sm); border: 1px solid var(--color-border-control); border-radius: var(--radius-sm); background: transparent; color: var(--color-text-muted); font: inherit; font-size: var(--text-caption); font-weight: 600; cursor: pointer; transition: color var(--duration-fast) var(--ease), border-color var(--duration-fast) var(--ease), background var(--duration-fast) var(--ease); }
+.home-tab:hover { color: var(--color-text); border-color: var(--color-border-control-hover); }
+.home-tab[aria-selected='true'] { color: var(--color-text); border-color: var(--color-border-control-hover); background: var(--color-surface-raised); }
 .home-base-url { margin: 0; font-size: var(--text-sm); color: var(--color-text-muted); }
 .home-base-url code { font-size: var(--text-caption); }
 /* .hero-code is a flex child of .hero-split (styles.css); the tab row and the

@@ -18,6 +18,15 @@
   --color-surface-raised: #1e2430;
   --color-border: #2a3040;
   --color-border-strong: #3d4660;
+  /* A divider may be as dim as taste allows: nothing depends on seeing it. A
+     control's edge is different -- it is the only thing telling you an input
+     exists, so WCAG 1.4.11 holds it to 3:1 against what sits behind it. These
+     two are that pair, solved against the *lightest* surface a control can sit
+     on (--color-surface-raised), which is the worst case:
+       #6b7593 -> 3.40 raised, 3.84 surface, 4.31 bg
+       #8a96b8 -> 5.28 raised, 5.98 surface, 6.69 bg  */
+  --color-border-control: #6b7593;
+  --color-border-control-hover: #8a96b8;
   /* ---- 1. primitives: text ---- */
   --color-text: #f5f6f8;
   --color-text-muted: #8b94a3;
@@ -397,24 +406,27 @@ textarea { resize: vertical; }
 .btn-secondary {
   height: var(--control-h-md); padding: 0 var(--space-md);
   background: var(--color-surface-raised); color: var(--color-text);
+  border-color: var(--color-border-control);
   box-shadow: var(--shadow-sm);
 }
-.btn-secondary:hover { background: var(--color-border); }
+/* Hover used to darken into --color-border, i.e. *below* the resting fill on the
+   luminance ladder -- the control dimmed when pointed at. Brighten instead. */
+.btn-secondary:hover { background: color-mix(in srgb, var(--color-border-control) 12%, var(--color-surface-raised)); border-color: var(--color-border-control-hover); }
 
 .btn-ghost {
   height: var(--control-h-md); padding: 0 var(--space-md);
   background: transparent; color: var(--color-text);
-  border-color: var(--color-border);
-}
-.btn-ghost:hover { background: var(--color-surface-raised); color: var(--color-text); }
+  border-color: var(--color-border-control);
+  }
+  .btn-ghost:hover { background: var(--color-surface-raised); color: var(--color-text); border-color: var(--color-border-control-hover); }
 
 .btn-outline {
   height: var(--control-h-md); padding: 0 var(--space-md);
   background: var(--color-surface); color: var(--color-text);
-  border-color: var(--color-border);
+  border-color: var(--color-border-control);
   box-shadow: var(--shadow-sm);
-}
-.btn-outline:hover { background: var(--color-surface-raised); }
+  }
+  .btn-outline:hover { background: var(--color-surface-raised); border-color: var(--color-border-control-hover); }
 
 .btn-destructive {
   height: var(--control-h-md); padding: 0 var(--space-md);
@@ -481,7 +493,7 @@ textarea { resize: vertical; }
   display: block; width: 100%; height: var(--control-h-md);
   padding: 0 var(--space-md);
   background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-control);
   border-radius: var(--radius-md);
   color: var(--color-text);
   font-family: var(--font-ui); font-size: var(--text-sm);
@@ -494,11 +506,11 @@ textarea { resize: vertical; }
   display: block; width: 100%; height: var(--control-h-md);
   padding: 0 var(--space-md);
   background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-control);
   border-radius: var(--radius-md);
   color: var(--color-text);
   font-family: var(--font-ui); font-size: var(--text-sm);
-}
+  }
 
 .badge {
   display: inline-flex; align-items: center;
@@ -845,6 +857,13 @@ body { overflow-x: clip; }
    full-bleed and is only clipped at the viewport edge, where a cut is invisible,
    and it fades vertically so it never ends on a line. */
 .aurora {
+  /* Painted order, not DOM order, decides who wins: a positioned element with
+     z-index:auto paints ABOVE every in-flow sibling, so this glow used to sit
+     on top of the whole hero -- measured, the wash turned a #8a96b8 border into
+     #9394aa and #1e2430 into #2f2b2e (pixel-probed before/after hiding the
+     blobs). isolation on .hero fences the -1 layer inside the hero, so it
+     cannot slide under the page background either. */
+  z-index: -1;
   position: absolute;
   top: 0;
   left: 50%;
@@ -905,7 +924,7 @@ body { overflow-x: clip; }
 /* The page's top padding lives on .shell, not here: it is the same step on
    every route, and a hero-local value made the home headline sit lower than
    every other page's headline. */
-.hero { position: relative; }
+.hero { position: relative; isolation: isolate; }
 /* The hero is one editorial lockup: eyebrow -> display headline -> tagline ->
    action. Every step is a named step of the scale, because the reset leaves
    these elements with no margins of their own and the measured result was
@@ -992,8 +1011,8 @@ body { overflow-x: clip; }
 .code-block { margin: 0; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); overflow: hidden; }
 .code-block-bar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-md); padding: var(--space-xs) var(--space-sm) var(--space-xs) var(--space-md); border-bottom: 1px solid var(--color-border); background: var(--color-surface-raised); }
 .code-block-name { font-family: var(--font-mono); font-size: var(--text-caption); color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.code-block-copy { flex: none; display: inline-flex; align-items: center; min-height: var(--control-h-sm, 28px); padding: 0 var(--space-sm); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: transparent; color: var(--color-text-muted); font: inherit; font-size: var(--text-caption); font-weight: 600; cursor: pointer; }
-.code-block-copy:hover { color: var(--color-text); border-color: var(--color-border-strong); }
+.code-block-copy { flex: none; display: inline-flex; align-items: center; min-height: var(--control-h-sm, 28px); padding: 0 var(--space-sm); border: 1px solid var(--color-border-control); border-radius: var(--radius-sm); background: transparent; color: var(--color-text-muted); font: inherit; font-size: var(--text-caption); font-weight: 600; cursor: pointer; }
+.code-block-copy:hover { color: var(--color-text); border-color: var(--color-border-control-hover); }
 .code-block-copy[data-copied='true'] { color: var(--color-success); border-color: var(--color-success); }
 .code-block pre { border: 0; border-radius: 0; background: transparent; }
 /* The “there is more to the right” cue for samples wider than the card. Keyed
@@ -1024,7 +1043,7 @@ body { overflow-x: clip; }
 .console-side-nav a { padding: var(--space-xs) var(--space-sm); border-radius: var(--radius-sm); color: var(--color-text-muted); }
 .console-side-nav a:hover { color: var(--color-text); background: var(--color-surface); }
 .console-side-nav a.current { color: var(--color-text); font-weight: 600; background: var(--color-surface); }
-.console-side-toggle { justify-self: start; padding: 2px var(--space-sm); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: transparent; color: var(--color-text-muted); font: inherit; cursor: pointer; }
+.console-side-toggle { justify-self: start; padding: 2px var(--space-sm); border: 1px solid var(--color-border-control); border-radius: var(--radius-sm); background: transparent; color: var(--color-text-muted); font: inherit; cursor: pointer; }
 .console-side-toggle:hover { color: var(--color-text); border-color: var(--color-border-strong); }
 .console-shell.collapsed { grid-template-columns: auto minmax(0, 1fr); }
 @media (max-width: 720px) { .console-shell { grid-template-columns: minmax(0, 1fr); } .console-side { position: static; } }

@@ -11,7 +11,7 @@
   border: 1px solid var(--color-border); border-radius: var(--radius-md);
   background: var(--color-surface); color: var(--color-text);
 }
-.changelog-item a:hover { border-color: var(--color-border-strong); text-decoration: none; }
+.changelog-item a:hover { border-color: var(--color-border-control-hover); text-decoration: none; }
 .changelog-date { flex: none; color: var(--color-text-muted); font-family: var(--font-mono); font-size: var(--text-sm); }
 
 /* Prose spacing for the injected HTML. The base reset strips list markers and

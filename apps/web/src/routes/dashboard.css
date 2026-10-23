@@ -60,6 +60,16 @@
    answer to "where am I". The registry labels are lowercase ("analytics") while
    the overview is "Overview"; capitalize at render so the bar is consistent
    without rewriting the canonical labels. */
+/* A labelled form field: label above the control, so a wrapping row of mixed
+   inputs and selects still shares one baseline instead of zig-zagging between
+   inline labels and stacked ones. */
+.admin-field { display: grid; gap: 2px; }
+.admin-field > span { font-size: var(--text-sm); color: var(--color-text-muted); }
+/* Below the console breakpoint the field row becomes one column: two labelled
+   controls sharing a 390px line left the shorter label floating above its
+   neighbour's input. */
+@media (max-width: 720px) { .row > .admin-field { flex: 1 1 100%; } }
+
 /* The pill row is desktop-only; below 720px AdminNav renders a native select
    instead (17 pills wrapped to 140px, 16.6% of a 390x844 screen). */
 .admin-nav-select { display: none; }

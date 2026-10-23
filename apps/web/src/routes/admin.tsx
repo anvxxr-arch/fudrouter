@@ -902,16 +902,266 @@ function RequestsView() {
   </>);
 }
 
-type Routing = { policies: { id: string; name: string; strategy: string; enabled: boolean; maxAttempts: number; fallbackEnabled: boolean; scope: string; scopeName: string }[]; chain: { account: string; policyId: string | null; policyName: string | null }[]; platformDefaultId: string | null; platformDefaultName: string | null };
+type RoutingPolicy = { id: string; account_id: string | null; name: string; strategy: string; enabled: boolean; max_attempts: number; request_timeout_ms: number; fallback_enabled: boolean; provider_preferences: unknown; model_preferences: unknown; constraints: unknown; weights: unknown };
+// `strategies` on this endpoint is a bare string[] of keys; the human-readable
+// "what it optimises" text lives on /routing/strategies. Reading the shape wrong
+// rendered a table of eight blank rows and an empty <select> in the editor.
+type RoutingPolicies = { policies: RoutingPolicy[]; accounts: { id: string; email: string }[]; strategies: string[]; scopes: string[] };
+type StrategyList = { strategies: { key: string; uses: string }[] };
+type Fallbacks = { policies: { id: string; name: string; maxAttempts: number; fallbackEnabled: boolean; enabled: boolean }[]; retryable: string[]; neverRetry: string[] };
+type SimIndex = { models: { id: string; name: string; slug: string; status: string }[]; strategies: string[] };
+type SimRow = { providerName: string; connectionName: string; estimatedCostMicro: string; healthStatus: string; score: number; reason: string };
+type SimResult = { simulated: boolean; strategy: string; candidatesConsidered: number; region: string | null; rows: SimRow[] };
+
+// One editor for create and edit: the server's _policyPatch validates the same
+// body either way, and a second form for "edit" would be a second place for the
+// field list to drift. The four JSON columns are optional (the server parses an
+// empty string as {}), so they sit in a <details> -- an operator changing a
+// max-attempts value should not have to scroll past four JSON boxes.
+function PolicyEditor({ policy, strategies, accounts, onSaved, onCancel }: {
+  policy: RoutingPolicy | null;
+  strategies: { key: string; uses: string }[];
+  accounts: { id: string; email: string }[];
+  onSaved: () => void;
+  onCancel: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [scope, setScope] = useState(policy?.account_id ? "account" : "platform");
+  // Controlled, because the hint under the row has to follow the selection --
+  // reading it off `policy` would freeze the text at the policy's stored value.
+  const [strategy, setStrategy] = useState(policy?.strategy ?? "balanced");
+  const submit = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    const body: Record<string, unknown> = {
+      name: fd.get("name"),
+      strategy: fd.get("strategy"),
+      maxAttempts: fd.get("maxAttempts"),
+      requestTimeoutMs: fd.get("requestTimeoutMs"),
+      fallbackEnabled: fd.get("fallbackEnabled") === "on",
+      enabled: fd.get("enabled") === "on",
+      scope,
+      scopeId: scope === "account" ? fd.get("scopeId") : "",
+      providerPreferences: fd.get("providerPreferences"),
+      modelPreferences: fd.get("modelPreferences"),
+      constraints: fd.get("constraints"),
+      weights: fd.get("weights"),
+    };
+    if (policy) body.id = policy.id;
+    setBusy(true); setErr(null);
+    try {
+      await postJSON(policy ? "/api/admin/routing/policies/update" : "/api/admin/routing/policies/create", body);
+      onSaved();
+    } catch (x) {
+      setErr(x instanceof Error ? x.message : String(x));
+    } finally { setBusy(false); }
+  };
+  return (<Card titleAs="h2" title={policy ? "Edit policy: " + policy.name : "New policy"}>
+    {err ? <p className="error" role="alert">{err}</p> : null}
+    <form className="stack" onSubmit={submit}>
+      {/* Every control carries a visible label. A row of bare inputs read as
+          "6" and "30000" with no unit, and the two selects looked like static
+          text with a chevron. */}
+      <div className="row" style={{ flexWrap: "wrap", alignItems: "flex-end" }}>
+        <label className="admin-field">
+          <span className="muted">Name</span>
+          <Input aria-label="Policy name" name="name" placeholder="e.g. cheap-first" defaultValue={policy?.name ?? ""} required />
+        </label>
+        <label className="admin-field">
+          <span className="muted">Scope</span>
+          <select aria-label="Scope" value={scope} onChange={(e) => setScope(e.currentTarget.value)}>
+            <option value="platform">platform (everyone)</option>
+            <option value="account">account (one user)</option>
+          </select>
+        </label>
+        {scope === "account" ? (
+          <label className="admin-field">
+            <span className="muted">Account</span>
+            <select aria-label="Account" name="scopeId" defaultValue={policy?.account_id ?? ""} required>
+              <option value="">pick an account…</option>
+              {accounts.map((a) => <option key={a.id} value={a.id}>{a.email}</option>)}
+            </select>
+          </label>
+        ) : null}
+        <label className="admin-field">
+          <span className="muted">Strategy</span>
+          <select aria-label="Strategy" name="strategy" value={strategy} onChange={(e) => setStrategy(e.currentTarget.value)}>
+            {strategies.map((s) => <option key={s.key} value={s.key} title={s.uses}>{s.key}</option>)}
+          </select>
+        </label>
+        <label className="admin-field">
+          <span className="muted">Max attempts</span>
+          <Input aria-label="Max attempts" name="maxAttempts" type="number" min={1} max={10} defaultValue={String(policy?.max_attempts ?? 6)} />
+        </label>
+        <label className="admin-field">
+          <span className="muted">Timeout (ms)</span>
+          <Input aria-label="Request timeout ms" name="requestTimeoutMs" type="number" min={1} max={600000} defaultValue={String(policy?.request_timeout_ms ?? 30000)} />
+        </label>
+        <div className="admin-field">
+          <span>Options</span>
+          <div className="row" style={{ minHeight: "2.25rem" }}>
+            <label className="row"><input type="checkbox" name="fallbackEnabled" defaultChecked={policy?.fallback_enabled ?? true} /> fallback</label>
+            <label className="row"><input type="checkbox" name="enabled" defaultChecked={policy?.enabled ?? true} /> enabled</label>
+          </div>
+        </div>
+      </div>
+      <p className="muted">{strategies.find((s) => s.key === strategy)?.uses}</p>
+      <details>
+        <summary className="muted">Advanced (JSON: provider/model preferences, constraints, weights)</summary>
+        <div className="row" style={{ flexWrap: "wrap" }}>
+          <Input aria-label="providerPreferences" name="providerPreferences" placeholder="providerPreferences {}" defaultValue={policy && policy.provider_preferences ? JSON.stringify(policy.provider_preferences) : ""} />
+          <Input aria-label="modelPreferences" name="modelPreferences" placeholder="modelPreferences {}" defaultValue={policy && policy.model_preferences ? JSON.stringify(policy.model_preferences) : ""} />
+          <Input aria-label="constraints" name="constraints" placeholder="constraints {}" defaultValue={policy && policy.constraints ? JSON.stringify(policy.constraints) : ""} />
+          <Input aria-label="weights" name="weights" placeholder="weights {}" defaultValue={policy && policy.weights ? JSON.stringify(policy.weights) : ""} />
+        </div>
+      </details>
+      <div className="row">
+        <Button size="sm" type="submit" disabled={busy}>{busy ? "Saving…" : policy ? "Save changes" : "Create policy"}</Button>
+        <Button size="sm" variant="ghost" type="button" onClick={onCancel}>Cancel</Button>
+      </div>
+    </form>
+  </Card>);
+}
+
+// Simulation is the only place the routing score is observable before it
+// affects live traffic: pick a model and a strategy, and the server returns the
+// candidate order it would use with the reason for each score. Nothing is
+// written -- POST routing/simulations/simulate is read-only by design.
+function SimulationPanel() {
+  const { d } = useLoad<SimIndex>("/api/admin/routing/simulations");
+  const [q, setQ] = useState("");
+  const [modelId, setModelId] = useState("");
+  const [strategy, setStrategy] = useState("balanced");
+  const [inTok, setInTok] = useState("1000");
+  const [outTok, setOutTok] = useState("500");
+  const [res, setRes] = useState<SimResult | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  // 382 models, many sharing a slug; the picker dedupes by slug because two
+  // rows with the same visible label are indistinguishable to the operator.
+  const models = (() => {
+    const seen = new Set<string>();
+    const needle = q.trim().toLowerCase();
+    const out: { id: string; label: string }[] = [];
+    for (const m of d?.models ?? []) {
+      if (seen.has(m.slug)) continue;
+      if (needle && !m.slug.toLowerCase().includes(needle) && !m.name.toLowerCase().includes(needle)) continue;
+      seen.add(m.slug);
+      out.push({ id: m.id, label: m.slug + (m.name && m.name !== m.slug ? " — " + m.name : "") });
+      if (out.length >= 120) break;
+    }
+    return out;
+  })();
+  const run = async () => {
+    setBusy(true); setErr(null); setRes(null);
+    try {
+      setRes(await postJSON<SimResult>("/api/admin/routing/simulations/simulate", { modelId, strategy, inputTokens: inTok, outputTokens: outTok }));
+    } catch (x) {
+      setErr(x instanceof Error ? x.message : String(x));
+    } finally { setBusy(false); }
+  };
+  return (<Card titleAs="h2" title="Simulate a route">
+    {err ? <p className="error" role="alert">{err}</p> : null}
+    <div className="row" style={{ flexWrap: "wrap" }}>
+      <Input aria-label="Filter models" placeholder="filter models…" value={q} onChange={(e) => setQ(e.currentTarget.value)} />
+      <select aria-label="Model" value={modelId} onChange={(e) => setModelId(e.currentTarget.value)}>
+        <option value="">pick a model…</option>
+        {models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+      </select>
+      <select aria-label="Strategy" value={strategy} onChange={(e) => setStrategy(e.currentTarget.value)}>
+        {(d?.strategies ?? []).map((s) => <option key={s} value={s}>{s}</option>)}
+      </select>
+      <Input aria-label="Input tokens" type="number" min={0} value={inTok} onChange={(e) => setInTok(e.currentTarget.value)} />
+      <Input aria-label="Output tokens" type="number" min={0} value={outTok} onChange={(e) => setOutTok(e.currentTarget.value)} />
+      <Button size="sm" disabled={busy || !modelId} onClick={() => void run()}>{busy ? "Simulating…" : "Simulate"}</Button>
+    </div>
+    {res ? (res.rows.length === 0 ? (
+      <p className="muted">No candidates: {res.candidatesConsidered} provider/model rows exist for this model, and none survived the strategy's filters.</p>
+    ) : (<>
+      <p className="muted">{res.rows.length} candidate{res.rows.length === 1 ? "" : "s"} in score order · strategy {res.strategy}{res.region ? " · region " + res.region : ""}</p>
+      <Table
+        head={["#", "Provider", "Connection", "Est. cost", "Health", "Score", "Why"]}
+        numeric={[0, 3, 5]}
+        rows={res.rows.map((r, i) => [String(i + 1), r.providerName, r.connectionName, fmtUsd(r.estimatedCostMicro), r.healthStatus, String(r.score), <span key="w" title={r.reason}>{clip(r.reason, 60)}</span>])}
+      />
+    </>)) : null}
+  </Card>);
+}
+
 function RoutingView() {
-  const { d, err } = useLoad<Routing>("/api/admin/routing");
-  return (<State err={err} d={d}>{(v: Routing) => (<>
-    <Card titleAs="h2" title="Platform default" desc={v.platformDefaultName ?? v.platformDefaultId ?? "none"} />
-    <h2>Policies</h2>
-    <Table head={["Name", "Scope", "Strategy", "Enabled", "Attempts", "Fallback"]} numeric={[4]} rows={v.policies.map((p) => [p.name, p.scopeName, p.strategy, String(p.enabled), String(p.maxAttempts), String(p.fallbackEnabled)])} />
-    <h2>Resolution chain (account → policy)</h2>
-    <Table head={["Account", "Policy"]} rows={v.chain.map((c) => [c.account, c.policyName ?? "—"])} />
-  </>)}</State>);
+  const [tick, setTick] = useState(0);
+  const [editing, setEditing] = useState<RoutingPolicy | null | "new">(null);
+  const [actionErr, setActionErr] = useState<string | null>(null);
+  const { d, err } = useLoad<RoutingPolicies>("/api/admin/routing/policies", tick);
+  const fb = useLoad<Fallbacks>("/api/admin/routing/fallbacks", tick);
+  const st = useLoad<StrategyList>("/api/admin/routing/strategies", tick);
+  // Fall back to the bare keys if the description endpoint is slow: a strategy
+  // picker with no options is worse than one without explanations.
+  const strategies = st.d?.strategies ?? (d?.strategies ?? []).map((key) => ({ key, uses: "" }));
+  const reload = () => { setEditing(null); setTick((n) => n + 1); };
+  const del = async (p: RoutingPolicy) => {
+    if (!window.confirm(`Delete routing policy "${p.name}"? Accounts on it fall back to the platform default.`)) return;
+    setActionErr(null);
+    try { await postJSON("/api/admin/routing/policies/delete", { id: p.id }); reload(); }
+    catch (e) { setActionErr(e instanceof Error ? e.message : String(e)); }
+  };
+  return (<>
+    <State err={err} d={d}>{(v: RoutingPolicies) => (<>
+      {actionErr ? <p className="error" role="alert">{actionErr}</p> : null}
+      <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
+        <h2 className="dash-h">Policies</h2>
+        <Button size="sm" variant="primary" onClick={() => setEditing("new")}>New policy</Button>
+      </div>
+      {v.policies.length === 0 ? <Card desc="No routing policies. Every request uses the built-in default strategy." /> : (
+        <Table
+          head={["Name", "Scope", "Strategy", "Attempts", "Timeout", "Fallback", "Enabled", "Actions"]}
+          numeric={[3, 4]}
+          rows={v.policies.map((p) => [
+            p.name,
+            p.account_id ? (v.accounts.find((a) => a.id === p.account_id)?.email ?? p.account_id) : "platform",
+            p.strategy,
+            String(p.max_attempts),
+            p.request_timeout_ms + " ms",
+            p.fallback_enabled ? "on" : "off",
+            <Badge key="e" tone={p.enabled ? "ok" : "default"}>{p.enabled ? "enabled" : "disabled"}</Badge>,
+            <span key="a" className="row">
+              <Button size="sm" variant="secondary" onClick={() => setEditing(p)}>Edit</Button>
+              <Button size="sm" variant="destructive" onClick={() => void del(p)}>Delete</Button>
+            </span>,
+          ])}
+        />
+      )}
+      {editing ? (
+        <PolicyEditor
+          key={editing === "new" ? "new" : editing.id}
+          policy={editing === "new" ? null : editing}
+          strategies={strategies}
+          accounts={v.accounts}
+          onSaved={reload}
+          onCancel={() => setEditing(null)}
+        />
+      ) : null}
+      <h2 className="dash-h">Strategies</h2>
+      <Table head={["Strategy", "What it optimises"]} rows={strategies.map((s) => [s.key, s.uses])} />
+      <h2 className="dash-h">Resolution chain (account → policy)</h2>
+      <Card desc="A policy scoped to an account wins over the platform default. Anything without a match uses the default policy set in Settings." />
+    </>)}</State>
+    <State err={fb.err} d={fb.d}>{(f: Fallbacks) => (<>
+      <h2 className="dash-h">Fallback</h2>
+      <Table head={["Policy", "Max attempts", "Fallback", "Enabled"]} numeric={[1]} rows={f.policies.map((p) => [p.name, String(p.maxAttempts), p.fallbackEnabled ? "on" : "off", p.enabled ? "enabled" : "disabled"])} />
+      <div className="row" style={{ flexWrap: "wrap", alignItems: "flex-start" }}>
+        <Card titleAs="h3" title="Retried">
+          <div className="row" style={{ flexWrap: "wrap" }}>{f.retryable.map((c) => <code key={c}>{c}</code>)}</div>
+        </Card>
+        <Card titleAs="h3" title="Never retried">
+          <div className="row" style={{ flexWrap: "wrap" }}>{f.neverRetry.map((c) => <code key={c}>{c}</code>)}</div>
+        </Card>
+      </div>
+    </>)}</State>
+    <h2 className="dash-h">Simulation</h2>
+    <SimulationPanel />
+  </>);
 }
 
 type Security = { rules: { id: string; name: string; kind: string; config: unknown; enabled: boolean; action: string }[] };

@@ -217,6 +217,15 @@ nav[aria-label="Admin"] a.active .btn {
 .credits-legend { display: flex; flex-wrap: wrap; gap: var(--space-sm) var(--space-md); margin: var(--space-sm) 0 0; padding: 0; list-style: none; font-size: var(--text-sm); color: var(--color-text-muted); }
 .credits-legend li { display: inline-flex; align-items: center; gap: var(--space-xs); }
 .credits-legend-swatch { width: 10px; height: 10px; border-radius: 2px; }
+/* The .credits-chart-seg--N classes set `fill`, which is an SVG property and does
+   nothing on the <span> swatch -- every legend entry rendered with no colour at
+   all. Repeat the six colours as backgrounds for the swatch only. */
+.credits-legend-swatch.credits-chart-seg--0 { background: var(--primary); }
+.credits-legend-swatch.credits-chart-seg--1 { background: var(--color-info); }
+.credits-legend-swatch.credits-chart-seg--2 { background: var(--color-success); }
+.credits-legend-swatch.credits-chart-seg--3 { background: var(--warning); }
+.credits-legend-swatch.credits-chart-seg--4 { background: var(--color-danger); }
+.credits-legend-swatch.credits-chart-seg--5 { background: var(--color-text-muted); }
 
 /* Breakdown panels reuse the usage page's two-column grid. */
 .credits-panels { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-md); align-items: start; }

@@ -287,7 +287,12 @@ const SIM_STRATEGIES = ['balanced', 'lowest_cost', 'lowest_latency', 'highest_re
 const STRATEGY_USES = { balanced: 'price · latency · reliability · capacity (equal-ish mix)', lowest_cost: 'estimated cost for the token estimate', lowest_latency: 'observed p95 latency', highest_reliability: 'observed availability', provider_priority: 'provider priority', weighted: 'weights jsonb (price / latency / reliability / capacity)', round_robin: 'rotation slot (simulated order is deterministic)', random: 'shuffle slot (simulated order is deterministic)', smart: 'weights jsonb (price / latency / reliability / capacity)' };
 const RETRYABLE_CODES = ['RATE_LIMITED', 'PROVIDER_TIMEOUT', 'PROVIDER_UNAVAILABLE', 'CIRCUIT_OPEN', 'UPSTREAM_ERROR', 'transport'];
 const NEVER_RETRY_CODES = ['INVALID_REQUEST', 'UNSUPPORTED_PARAMETER', 'CONTEXT_TOO_LONG', 'MODEL_NOT_FOUND', 'AUTHORIZATION_ERROR', 'CONTENT_REJECTED'];
-const JOB_STATUSES = ['pending', 'running', 'done', 'failed', 'cancelled'];
+// Must match `JobStatus` in packages/platform/server/jobs.ts, which is what the
+// scheduler actually writes: 'completed', not 'done'. With 'done' here the enum
+// rejected the real value, so "?status=completed" was silently dropped and the
+// endpoint returned every job unfiltered -- and the UI offered a "done" filter
+// that could only ever match zero rows.
+const JOB_STATUSES = ['pending', 'running', 'completed', 'failed', 'cancelled'];
 const RETRYABLE_JOBS = ['failed', 'cancelled'];
 const CANCELLABLE_JOBS = ['pending', 'running'];
 const REQUEST_STATUSES = ['success', 'client_error', 'provider_error', 'timeout', 'rate_limited', 'cancelled', 'internal_error', 'error', 'upstream_error'];
@@ -2417,8 +2422,13 @@ export function registerAdminRoutes(app, ctx) {
 		return { components };
 	}));
 	// Jobs (admin/system/jobs): GET + retry/cancel.
+	// An unknown status has to be a 400, not a silently dropped filter: with the
+	// filter gone this endpoint returns every job, which reads as "the filter
+	// worked" until someone notices a pending job under the "completed" tab.
 	app.get('/api/admin/system/jobs', handler('system', async (database, url) => {
-		const status = _parseEnum(JOB_STATUSES, url.searchParams.get('status'));
+		const rawStatus = url.searchParams.get('status');
+		if (rawStatus && !_parseEnum(JOB_STATUSES, rawStatus)) _fail(400, 'Unknown job status (expected ' + JOB_STATUSES.join('/') + ')');
+		const status = _parseEnum(JOB_STATUSES, rawStatus);
 		const rawType = _cleanField(url.searchParams.get('type'), 120);
 		const rows = (status && rawType)
 			? _rowsOf(await database.execute(sql`select id, type, status, attempts, max_attempts, available_at, started_at, finished_at, error, payload, created_at from job where status = ${status} and type = ${rawType} order by created_at desc limit 100`))

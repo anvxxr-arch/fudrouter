@@ -69,6 +69,19 @@
    controls sharing a 390px line left the shorter label floating above its
    neighbour's input. */
 @media (max-width: 720px) { .row > .admin-field { flex: 1 1 100%; } }
+/* `.select` is the only styled select in the design system, and the admin forms
+   build their controls inline -- a bare <select> renders as unstyled text with a
+   chevron next to a bordered input. Same treatment, width left to content. */
+.admin-field select {
+  height: var(--control-h-md);
+  padding: 0 var(--space-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  font-family: var(--font-ui); font-size: var(--text-sm);
+  min-width: 9rem; max-width: 100%;
+}
 
 /* The pill row is desktop-only; below 720px AdminNav renders a native select
    instead (17 pills wrapped to 140px, 16.6% of a 390x844 screen). */

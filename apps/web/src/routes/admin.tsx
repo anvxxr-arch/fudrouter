@@ -534,6 +534,346 @@ function SyncPanel({ onApplied }: { onApplied: () => void }) {
     </div> : null}
   </Card>);
 }
+type MappingRow = { id: string; modelId: string; providerId: string; connectionId: string | null; providerModelId: string; enabled: boolean; capabilitiesOverride: unknown; contextOverride: number | null; status: string; modelSlug: string; providerName: string; connectionName: string | null };
+type MappingsData = { rows: MappingRow[]; models: { id: string; slug: string; name: string }[]; providers: { id: string; name: string }[]; connections: { id: string; provider_id: string; name: string; region: string | null }[]; statuses: string[] };
+
+// A mapping is the join between a catalogue model and one provider's upstream
+// name; it is what the router walks. The endpoint had create/update/delete and
+// the page exposed none of them, so adding a provider's model meant SQL.
+// 386 rows against 382 models, so this panel filters before it lists.
+function MappingsPanel() {
+  const [tick, setTick] = useState(0);
+  const [q, setQ] = useState("");
+  const [provider, setProvider] = useState("");
+  const [limit, setLimit] = useState(60);
+  const [editing, setEditing] = useState<MappingRow | "new" | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [actionErr, setActionErr] = useState<string | null>(null);
+  const { d, err } = useLoad<MappingsData>("/api/admin/models/mappings", tick);
+  const reload = () => { setEditing(null); setTick((n) => n + 1); };
+  const del = async (m: MappingRow) => {
+    if (!window.confirm(`Delete mapping ${m.modelSlug} → ${m.providerName}/${m.providerModelId}? Requests routed through it stop being served.`)) return;
+    setBusy(m.id); setActionErr(null);
+    try { await postJSON("/api/admin/models/mappings/delete", { id: m.id }); reload(); }
+    catch (e) { setActionErr(e instanceof Error ? e.message : String(e)); }
+    finally { setBusy(null); }
+  };
+  return (<>
+    <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
+      <h2 className="dash-h">Mappings</h2>
+      <Button size="sm" variant="primary" onClick={() => setEditing("new")}>New mapping</Button>
+    </div>
+    <p className="muted">A mapping binds a catalogue model to one provider&rsquo;s upstream name. Routing only walks enabled mappings whose status is available.</p>
+    {actionErr ? <p className="error" role="alert">{actionErr}</p> : null}
+    <State err={err} d={d}>{(v: MappingsData) => {
+      const needle = q.trim().toLowerCase();
+      const rows = v.rows.filter((m) => (!provider || m.providerId === provider) && (!needle || m.modelSlug.toLowerCase().includes(needle) || m.providerModelId.toLowerCase().includes(needle) || m.providerName.toLowerCase().includes(needle)));
+      return (<>
+        <div className="row" style={{ flexWrap: "wrap", alignItems: "flex-end" }}>
+          <label className="admin-field">
+            <span>Filter</span>
+            <Input aria-label="Filter mappings" placeholder="slug or upstream" value={q} onChange={(e) => { setQ(e.currentTarget.value); setLimit(60); }} />
+          </label>
+          <label className="admin-field">
+            <span>Provider</span>
+            <select aria-label="Provider filter" value={provider} onChange={(e) => { setProvider(e.currentTarget.value); setLimit(60); }}>
+              <option value="">All providers</option>
+              {v.providers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </label>
+        </div>
+        {editing ? (
+          <MappingEditor
+            key={editing === "new" ? "new" : editing.id}
+            mapping={editing === "new" ? null : editing}
+            data={v}
+            onSaved={reload}
+            onCancel={() => setEditing(null)}
+          />
+        ) : null}
+        {rows.length === 0 ? <Card desc={v.rows.length === 0 ? "No provider mappings. Every catalogue model is unroutable until one exists." : "No mapping matches this filter."} /> : (<>
+          <Table
+            head={["Model", "Provider", "Connection", "Upstream", "Status", "Enabled", "Actions"]}
+            rows={rows.slice(0, limit).map((m) => [
+              m.modelSlug,
+              m.providerName,
+              m.connectionName ?? <span key="c" className="muted">any</span>,
+              <code key="u">{m.providerModelId}</code>,
+              <Badge key="s" tone={m.status === "available" ? "ok" : m.status === "degraded" ? "warn" : "default"}>{m.status}</Badge>,
+              m.enabled ? "yes" : "no",
+              <span key="a" className="row">
+                <Button size="sm" variant="secondary" onClick={() => setEditing(m)}>Edit</Button>
+                <Button size="sm" variant="destructive" disabled={busy === m.id} onClick={() => void del(m)}>Delete</Button>
+              </span>,
+            ])}
+          />
+          <p className="meta">{Math.min(rows.length, limit)} of {rows.length} mappings{v.rows.length !== rows.length ? " (filtered from " + v.rows.length + ")" : ""}{rows.length > limit ? " · " : ""}
+            {rows.length > limit ? <button type="button" className="usage-row-btn" onClick={() => setLimit((n) => n + 120)}>Show more</button> : null}
+          </p>
+        </>)}
+      </>);
+    }}</State>
+  </>);
+}
+
+function MappingEditor({ mapping, data, onSaved, onCancel }: {
+  mapping: MappingRow | null;
+  data: MappingsData;
+  onSaved: () => void;
+  onCancel: () => void;
+}) {
+  const [modelId, setModelId] = useState(mapping?.modelId ?? data.models[0]?.id ?? "");
+  const [providerId, setProviderId] = useState(mapping?.providerId ?? data.providers[0]?.id ?? "");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  // The connection select only offers connections owned by the chosen provider:
+  // the server refuses a cross-provider connection (create rejects it too, after
+  // it used to accept any existing connection and spend another provider's
+  // credentials under this provider's name).
+  const conns = data.connections.filter((c) => c.provider_id === providerId);
+  const submit = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    const body: Record<string, unknown> = {
+      providerModelId: fd.get("providerModelId"),
+      connectionId: fd.get("connectionId"),
+      enabled: fd.get("enabled") === "on",
+      capabilitiesOverride: fd.get("capabilitiesOverride") || "{}",
+      contextOverride: fd.get("contextOverride"),
+    };
+    if (mapping) {
+      body.id = mapping.id;
+      body.status = fd.get("status");
+    } else {
+      body.modelId = modelId;
+      body.providerId = providerId;
+    }
+    setBusy(true); setErr(null);
+    try {
+      await postJSON(mapping ? "/api/admin/models/mappings/update" : "/api/admin/models/mappings/create", body);
+      onSaved();
+    } catch (x) {
+      setErr(x instanceof Error ? x.message : String(x));
+    } finally { setBusy(false); }
+  };
+  return (<Card titleAs="h3" title={mapping ? "Edit mapping: " + mapping.modelSlug + " → " + mapping.providerModelId : "New mapping"}>
+    {err ? <p className="error" role="alert">{err}</p> : null}
+    <form className="stack" onSubmit={submit}>
+      <div className="row" style={{ flexWrap: "wrap", alignItems: "flex-end" }}>
+        {mapping ? null : (<>
+          <label className="admin-field">
+            <span>Model</span>
+            <select aria-label="Model" value={modelId} onChange={(e) => setModelId(e.currentTarget.value)}>
+              {data.models.map((m) => <option key={m.id} value={m.id}>{m.slug}</option>)}
+            </select>
+          </label>
+          <label className="admin-field">
+            <span>Provider</span>
+            <select aria-label="Provider" value={providerId} onChange={(e) => setProviderId(e.currentTarget.value)}>
+              {data.providers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </label>
+        </>)}
+        <label className="admin-field">
+          <span>Upstream model id</span>
+          <Input aria-label="Upstream model id" name="providerModelId" placeholder="gpt-4o-mini" defaultValue={mapping?.providerModelId ?? ""} required />
+        </label>
+        <label className="admin-field">
+          <span>Connection</span>
+          <select aria-label="Connection" name="connectionId" defaultValue={mapping?.connectionId ?? ""}>
+            <option value="">any connection of this provider</option>
+            {conns.map((c) => <option key={c.id} value={c.id}>{c.name}{c.region ? " · " + c.region : ""}</option>)}
+          </select>
+        </label>
+        {mapping ? (
+          <label className="admin-field">
+            <span>Status</span>
+            <select aria-label="Status" name="status" defaultValue={mapping.status}>
+              {data.statuses.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </label>
+        ) : null}
+        <label className="admin-field">
+          <span>Context override</span>
+          <Input aria-label="Context override" name="contextOverride" type="number" min={1} placeholder="inherit" defaultValue={mapping?.contextOverride == null ? "" : String(mapping.contextOverride)} />
+        </label>
+        <div className="admin-field">
+          <span>Options</span>
+          <div className="row" style={{ minHeight: "2.25rem" }}><label className="row"><input type="checkbox" name="enabled" defaultChecked={mapping?.enabled ?? true} /> enabled</label></div>
+        </div>
+      </div>
+      <details>
+        <summary className="muted">Capabilities override (JSON flags, {} = inherit from the model)</summary>
+        <Input aria-label="Capabilities override" name="capabilitiesOverride" placeholder="{}" defaultValue={mapping && mapping.capabilitiesOverride ? JSON.stringify(mapping.capabilitiesOverride) : ""} />
+      </details>
+      <div className="row">
+        <Button size="sm" type="submit" disabled={busy}>{busy ? "Saving…" : mapping ? "Save mapping" : "Create mapping"}</Button>
+        <Button size="sm" variant="ghost" type="button" onClick={onCancel}>Cancel</Button>
+      </div>
+    </form>
+  </Card>);
+}
+
+type PricingRule = { id: string; modelId: string; providerModelId: string | null; scope: string; modelSlug: string; version: number; currency: string; inputPriceMicro: string; cachedInputPriceMicro: string | null; outputPriceMicro: string; reasoningPriceMicro: string | null; effectiveFrom: string; effectiveUntil: string | null; createdBy: string | null; createdAt: string; current: boolean };
+type PricingData = { models: { id: string; slug: string }[]; mappings: { id: string; model_id: string; upstream: string }[]; rules: PricingRule[]; modelFilter: string };
+
+// Price changes are append-only versions: applying closes the open rule and
+// inserts the next one, so a mistaken price is corrected by another version and
+// the ledger keeps the history. The models table only exposed two single-field
+// editors, which meant changing input and output together produced an
+// intermediate version nobody meant to create. This panel shows the versions and
+// edits all four prices in one proposal.
+function PricingPanel() {
+  const [tick, setTick] = useState(0);
+  const [modelId, setModelId] = useState("");
+  const [q, setQ] = useState("");
+  const [limit, setLimit] = useState(60);
+  const [form, setForm] = useState(false);
+  const path = "/api/admin/models/pricing" + (modelId ? "?model=" + encodeURIComponent(modelId) : "");
+  const { d, err } = useLoad<PricingData>(path, tick);
+  return (<>
+    <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
+      <h2 className="dash-h">Pricing versions</h2>
+      <Button size="sm" variant="primary" onClick={() => setForm((v) => !v)}>{form ? "Close editor" : "New price version"}</Button>
+    </div>
+    <p className="muted">Append-only. Applying a proposal closes the open rule at now and inserts the next version, so every price a request was billed at stays reconstructible.</p>
+    {form && d ? <PriceEditor data={d} onSaved={() => { setForm(false); setTick((n) => n + 1); }} onCancel={() => setForm(false)} /> : null}
+    <div className="row" style={{ flexWrap: "wrap", alignItems: "flex-end" }}>
+      <label className="admin-field">
+        <span>Model</span>
+        <select aria-label="Pricing model filter" value={modelId} onChange={(e) => { setModelId(e.currentTarget.value); setLimit(60); }}>
+          <option value="">All models</option>
+          {(d?.models ?? []).map((m) => <option key={m.id} value={m.id}>{m.slug}</option>)}
+        </select>
+      </label>
+      <label className="admin-field">
+        <span>Filter</span>
+        <Input aria-label="Filter pricing" placeholder="model slug" value={q} onChange={(e) => { setQ(e.currentTarget.value); setLimit(60); }} />
+      </label>
+    </div>
+    <State err={err} d={d}>{(v: PricingData) => {
+      const needle = q.trim().toLowerCase();
+      const rows = v.rules.filter((r) => !needle || r.modelSlug.toLowerCase().includes(needle));
+      if (rows.length === 0) return <Card desc={v.rules.length === 0 ? "No pricing rules. Models without a rule cannot be billed." : "No rule matches this filter."} />;
+      return (<>
+        <Table
+          head={["Model", "Scope", "Ver", "Currency", "In / 1M", "Cached", "Out / 1M", "Reasoning", "From", "Until", "State"]}
+          numeric={[2, 4, 5, 6, 7]}
+          rows={rows.slice(0, limit).map((r) => [
+            r.modelSlug,
+            r.providerModelId ? <code key="s">{r.scope}</code> : <span key="s" className="muted">model-wide</span>,
+            "v" + r.version,
+            r.currency,
+            fmtUsd(r.inputPriceMicro),
+            r.cachedInputPriceMicro === null ? "—" : fmtUsd(r.cachedInputPriceMicro),
+            fmtUsd(r.outputPriceMicro),
+            r.reasoningPriceMicro === null ? "—" : fmtUsd(r.reasoningPriceMicro),
+            fmtDate(r.effectiveFrom),
+            r.effectiveUntil ? fmtDate(r.effectiveUntil) : "open",
+            <Badge key="c" tone={r.current ? "ok" : "default"}>{r.current ? "current" : "closed"}</Badge>,
+          ])}
+        />
+        <p className="meta">{Math.min(rows.length, limit)} of {rows.length} rules{rows.length > limit ? " · " : ""}
+          {rows.length > limit ? <button type="button" className="usage-row-btn" onClick={() => setLimit((n) => n + 120)}>Show more</button> : null}
+        </p>
+      </>);
+    }}</State>
+  </>);
+}
+
+function PriceEditor({ data, onSaved, onCancel }: { data: PricingData; onSaved: () => void; onCancel: () => void }) {
+  const [modelId, setModelId] = useState(data.models[0]?.id ?? "");
+  const [scopeId, setScopeId] = useState("");
+  const [preview, setPreview] = useState<PricePreview | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const scopes = data.mappings.filter((m) => m.model_id === modelId);
+  const fields = () => {
+    const form = document.getElementById("price-editor-form") as HTMLFormElement | null;
+    const fd = form ? new FormData(form) : null;
+    return {
+      modelId,
+      providerModelId: scopeId,
+      currency: String(fd?.get("currency") ?? "USD"),
+      inputPrice: String(fd?.get("inputPrice") ?? ""),
+      cachedInputPrice: String(fd?.get("cachedInputPrice") ?? ""),
+      outputPrice: String(fd?.get("outputPrice") ?? ""),
+      reasoningPrice: String(fd?.get("reasoningPrice") ?? ""),
+      effectiveFrom: String(fd?.get("effectiveFrom") ?? ""),
+    };
+  };
+  const runPreview = async () => {
+    setBusy(true); setErr(null);
+    try { setPreview(await postJSON<PricePreview>("/api/admin/models/pricing/preview", fields())); }
+    catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+    finally { setBusy(false); }
+  };
+  const apply = async () => {
+    if (!preview) return;
+    if (!window.confirm(`Apply ${preview.modelSlug} v${preview.nextVersion}? The open rule closes now and this version starts billing.`)) return;
+    setBusy(true); setErr(null);
+    try { await postJSON("/api/admin/models/pricing/apply", { ...fields(), approved: "on" }); onSaved(); }
+    catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+    finally { setBusy(false); }
+  };
+  return (<Card titleAs="h3" title="New price version">
+    {err ? <p className="error" role="alert">{err}</p> : null}
+    <form id="price-editor-form" className="stack" onSubmit={(e) => { e.preventDefault(); void runPreview(); }}>
+      <div className="row" style={{ flexWrap: "wrap", alignItems: "flex-end" }}>
+        <label className="admin-field">
+          <span>Model</span>
+          <select aria-label="Model" value={modelId} onChange={(e) => { setModelId(e.currentTarget.value); setScopeId(""); setPreview(null); }}>
+            {data.models.map((m) => <option key={m.id} value={m.id}>{m.slug}</option>)}
+          </select>
+        </label>
+        <label className="admin-field">
+          <span>Scope</span>
+          <select aria-label="Scope" value={scopeId} onChange={(e) => { setScopeId(e.currentTarget.value); setPreview(null); }}>
+            <option value="">model-wide (every mapping)</option>
+            {scopes.map((m) => <option key={m.id} value={m.id}>{m.upstream}</option>)}
+          </select>
+        </label>
+        <label className="admin-field">
+          <span>Currency</span>
+          <Input aria-label="Currency" name="currency" defaultValue="USD" style={{ width: "5rem" }} />
+        </label>
+        <label className="admin-field">
+          <span>Input / 1M</span>
+          <Input aria-label="Input price" name="inputPrice" className="num" placeholder="0.15" required />
+        </label>
+        <label className="admin-field">
+          <span>Cached / 1M</span>
+          <Input aria-label="Cached input price" name="cachedInputPrice" className="num" placeholder="blank = none" />
+        </label>
+        <label className="admin-field">
+          <span>Output / 1M</span>
+          <Input aria-label="Output price" name="outputPrice" className="num" placeholder="0.60" required />
+        </label>
+        <label className="admin-field">
+          <span>Reasoning / 1M</span>
+          <Input aria-label="Reasoning price" name="reasoningPrice" className="num" placeholder="blank = none" />
+        </label>
+        <label className="admin-field">
+          <span>Effective from</span>
+          <Input aria-label="Effective from" name="effectiveFrom" type="date" defaultValue={new Date().toISOString().slice(0, 10)} />
+        </label>
+      </div>
+      <div className="row">
+        <Button size="sm" type="submit" disabled={busy || !modelId}>{busy ? "Previewing…" : "Preview"}</Button>
+        <Button size="sm" variant="ghost" type="button" onClick={onCancel}>Cancel</Button>
+      </div>
+    </form>
+    {preview ? (<div className="stack" style={{ gap: "var(--space-xs)" }}>
+      <p className="muted">
+        {preview.modelSlug} · v{preview.current?.version ?? 0} → v{preview.nextVersion} ·{" "}
+        {preview.current ? <>current {fmtUsd(preview.current.inputPriceMicro)} in / {fmtUsd(preview.current.outputPriceMicro)} out → </> : "no open rule → "}
+        {fmtUsd(preview.proposal.inputPrice)} in / {fmtUsd(preview.proposal.outputPrice)} out
+      </p>
+      <div className="row"><Button size="sm" variant="primary" disabled={busy} onClick={() => void apply()}>{busy ? "Applying…" : "Apply v" + preview.nextVersion}</Button></div>
+    </div>) : null}
+  </Card>);
+}
+
 function ModelsView() {
   const [tick, setTick] = useState(0);
   const [actionErr, setActionErr] = useState<string | null>(null);
@@ -590,6 +930,8 @@ function ModelsView() {
       ])} />
       <p className="meta">{rows.length} of {v.models.length} models · <button type="button" className="usage-row-btn" onClick={() => setSel(allSel ? new Set() : new Set(rows.map((m) => m.id)))}>{allSel ? "Clear selection" : "Select all (filtered)"}</button></p>
       {modal ? <ModelModal model={modal.model} providers={v.providers} onClose={() => setModal(null)} onSaved={() => setTick((n) => n + 1)} /> : null}
+      <MappingsPanel />
+      <PricingPanel />
     </>);
   }}</State>);
 }

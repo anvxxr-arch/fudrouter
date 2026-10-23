@@ -1052,6 +1052,19 @@ body { overflow-x: clip; }
    20 -> 18 -> 16 -> 14. Scoped to .console-main so public pages and the admin
    tree (which has no .console-main) are untouched. */
 .console-main h1 { font-size: var(--text-h3); line-height: 1.2; margin: 0; }
+/* The h1 above was pulled down to 32px but `h2` still rode the marketing ramp
+   at 40px, so every section heading outranked the page title it sat under and
+   the hierarchy inverted. The ladder has to stay monotonic inside the console:
+   32 -> 24 -> 20, still well clear of body copy. */
+.console-main h2 { font-size: var(--text-h4); }
+.console-main h3 { font-size: var(--text-h5); }
+/* Fact rows (billing detail header): the "·" separator must travel with the
+   item that follows it, or a wrap strands it at the end of the previous line
+   ("hard stop off ·" / "opened …"). Each span paints its own leading dot, so
+   the span+dot pair is one wrapping unit and a break can only fall between
+   facts. */
+.meta-row { display: flex; flex-wrap: wrap; align-items: baseline; }
+.meta-row > span + span::before { content: "·"; margin: 0 0.5rem; }
 .console-shell { display: grid; grid-template-columns: 14rem minmax(0, 1fr); gap: var(--space-xl); align-items: start; }
 .console-side { position: sticky; top: var(--space-lg); display: grid; gap: var(--space-md); }
 .console-side-nav { display: grid; gap: var(--space-xs); }

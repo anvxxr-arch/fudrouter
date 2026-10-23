@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { apiGet } from "../lib/server";
 import { ROLE_CAPS } from "../lib/caps";
 import { ConsoleLayout } from "../components/ConsoleLayout";
@@ -57,6 +57,14 @@ const fmtDate = (v: unknown) => { try { return v ? new Date(String(v)).toLocaleS
 // used to truncate the cents and skip grouping, so the admin KPI read
 // "$102055.00" for the balance the member dashboard showed as "$102,054.94".
 const fmtUsd = (micro: unknown) => fmtMicro(micro as string | null | undefined);
+// Assets are money in, charges are money out: the ledger table is unreadable
+// when every figure is "$-" something. fmtUsd keeps the sign for the math
+// columns (balances, drift) so a negative balance still reads as negative.
+const fmtSigned = (micro: unknown) => {
+  const n = BigInt(String(micro ?? "0"));
+  return n < 0n ? "−" + fmtUsd((-n).toString()) : fmtUsd(n.toString());
+};
+
 
 // apiPost in lib/server.ts throws "path: status" and drops the body, so a
 // refused admin action ("you cannot ban yourself") is indistinguishable from a
@@ -225,11 +233,143 @@ function AnalyticsView() {
 }
 
 type Billing = { accounts: { id: string; accountEmail: string; currency: string; status: string; warningThresholdMicro: string; hardStopThresholdMicro: string; balanceMicro: string; ledgerSumMicro: string }[]; totals: { type: string; totalMicro: string }[]; monthly: { month: string; series: { type: string; totalMicro: string }[] }[]; recent: { id: string; accountEmail: string; type: string; amountMicro: string; currency: string; requestId: string | null; description: string | null; createdBy: string | null; createdAt: string }[]; invoices: { id: string; accountEmail: string; number: string; periodStart: string; periodEnd: string; amountMicro: string; currency: string; status: string; issuedAt: string | null; paidAt: string | null }[] };
+// One account: the summary table above is a list, this is where an operator
+// can actually act on a balance. Everything except the identity and the ledger
+// read is derived from the ledger itself, so the page cannot disagree with the
+// billing that produced it.
+type BillingDetail = {
+  account: { id: string; accountEmail: string; currency: string; status: string; warningThresholdMicro: string; hardStopThresholdMicro: string; balanceMicro: string; ledgerSumMicro: string; createdAt: string };
+  byType: { type: string; totalMicro: string; entries: number }[];
+  ledger: { page: number; pages: number; total: number; entries: { id: string; type: string; amountMicro: string; currency: string; requestId: string | null; description: string | null; createdBy: string | null; createdAt: string; balanceAfterMicro: string }[] };
+  usage: { model: string | null; requests: number; costMicro: string }[];
+  invoices: { id: string; number: string; periodStart: string; periodEnd: string; amountMicro: string; currency: string; status: string; issuedAt: string | null; paidAt: string | null }[];
+};
+
+const MANUAL_LEDGER_TYPES = ["credit_purchase", "adjustment", "refund", "promotion", "expiration"] as const;
+const BILLING_STATUSES = ["active", "suspended", "closed"] as const;
+
+function BillingDetailView({ id }: { id: string }) {
+  const [tick, setTick] = useState(0);
+  const [page, setPage] = useState(1);
+  const [err, setErr] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const [type, setType] = useState<string>(MANUAL_LEDGER_TYPES[1]);
+  const [direction, setDirection] = useState<"grant" | "charge">("grant");
+  const [amount, setAmount] = useState("");
+  const [description, setDescription] = useState("");
+  const [status, setStatus] = useState<string>("");
+  // One key per mounted page: a double-click on Grant reuses it and the server
+  // answers `already`, so the balance can only move once.
+  const [key, setKey] = useState(() => "adm_" + Math.random().toString(36).slice(2));
+  const { d, err: loadErr } = useLoad<BillingDetail>("/api/admin/billing/" + id + "?page=" + page, tick);
+
+  const run = async (fn: () => Promise<{ message?: string }>) => {
+    setErr(null); setNote(null);
+    try {
+      const r = await fn();
+      setNote(r?.message ?? "Saved.");
+      setKey("adm_" + Math.random().toString(36).slice(2));
+      setAmount(""); setDescription("");
+      setTick((n) => n + 1);
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+  };
+
+  return (<State err={loadErr} d={d}>{(v: BillingDetail) => {
+    const drift = BigInt(v.account.balanceMicro) - BigInt(v.account.ledgerSumMicro);
+    const current = status || v.account.status;
+    const credit = () => run(() => postJSON("/api/admin/billing/credit", { accountId: id, type, direction, amount: amount.trim(), description: description.trim() || null, key }));
+    const setAccountStatus = () => run(() => postJSON("/api/admin/billing/status", { accountId: id, status: current }));
+    return (<>
+      <p className="muted"><Link to="/admin/billing">← All accounts</Link></p>
+      {/* Grid, not the flex row--cards: `flex: 1 1 12rem` put one card per line
+          at 390px (4 × ~130px of chrome before any data). auto-fit at 9.5rem
+          gives 4-across on desktop and a 2×2 block on a phone. */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(9.5rem, 1fr))", gap: "var(--space-sm)", alignItems: "stretch" }}>
+        <StatCard title="Balance" value={fmtUsd(v.account.balanceMicro)} />
+        <StatCard title="Ledger sum" value={fmtUsd(v.account.ledgerSumMicro)} />
+        <StatCard title="Drift" value={fmtUsd(drift.toString())} />
+        <StatCard title="Entries" value={String(v.ledger.total)} />
+      </div>
+      {/* One fact per span with the separator glued to the FOLLOWING item
+          (.meta-row in styles.css): a plain text run used to break mid-fact and
+          strand a dangling "·" at the end of each wrapped line. */}
+      <p className="meta-row muted">
+        <span>{v.account.accountEmail}</span>
+        <span>{v.account.currency}</span>
+        <span>status <strong>{v.account.status}</strong></span>
+        <span>warn at {fmtUsd(v.account.warningThresholdMicro)}</span>
+        <span>hard stop {BigInt(v.account.hardStopThresholdMicro) === 0n ? "off" : fmtUsd(v.account.hardStopThresholdMicro)}</span>
+        <span>opened {fmtDate(v.account.createdAt)}</span>
+        <span>balance is a cache; the ledger is truth</span>
+        {drift !== 0n ? <span className="error" role="alert">cache and ledger disagree by {fmtUsd(drift.toString())}</span> : null}
+      </p>
+
+      {err ? <p className="error" role="alert">{err}</p> : null}
+      {note ? <p className="muted" role="status">{note}</p> : null}
+
+      <h2>Adjust balance</h2>
+      <form className="row" onSubmit={(e) => { e.preventDefault(); credit(); }}>
+        <select className="select" style={{ width: "auto" }} aria-label="entry type" value={type} onChange={(e) => { const t = e.currentTarget.value; setType(t); setDirection(t === "expiration" ? "charge" : "grant"); }}>
+          {MANUAL_LEDGER_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <select className="select" style={{ width: "auto" }} aria-label="direction" value={direction} onChange={(e) => setDirection(e.currentTarget.value === "charge" ? "charge" : "grant")}>
+          <option value="grant">grant (+)</option>
+          <option value="charge">charge (−)</option>
+        </select>
+        <Input aria-label="amount" inputMode="decimal" placeholder="0.00" style={{ width: "7rem" }} value={amount} onChange={(e) => setAmount(e.currentTarget.value)} />
+        <Input aria-label="description" placeholder="Reason (audited)" style={{ flex: "1 1 14rem", width: "auto" }} value={description} onChange={(e) => setDescription(e.currentTarget.value)} />
+        <Button type="submit" disabled={!amount.trim()}>Apply</Button>
+      </form>
+      <p className="muted">usage_charge is left to the meter — writing it here would double-bill.</p>
+
+      <h2>Lifecycle</h2>
+      <form className="row" onSubmit={(e) => { e.preventDefault(); setAccountStatus(); }}>
+        <span className="muted">Set status</span>
+        <select className="select" style={{ width: "auto" }} aria-label="account status" value={current} onChange={(e) => setStatus(e.currentTarget.value)}>
+          {BILLING_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
+        {/* A no-op submit is a status readout, not an action: ghost, not the
+            primary orange, so the row never shows two competing primaries. */}
+        <Button type="submit" variant={current === v.account.status ? "ghost" : "default"} disabled={current === v.account.status}>{current === v.account.status ? "Unchanged" : "Set " + current}</Button>
+      </form>
+
+      <h2>Ledger totals by type</h2>
+      {v.byType.length === 0 ? <p className="muted">No entries.</p> : (
+        <Table head={["Type", "Entries", "Total"]} numeric={[1, 2]} rows={v.byType.map((t) => [t.type, String(t.entries), fmtSigned(t.totalMicro)])} />
+      )}
+
+      <h2>Ledger entries</h2>
+      <Table
+        head={["At", "Type", "Amount", "Balance after", "Description", "By"]}
+        numeric={[2, 3]}
+        rows={v.ledger.entries.map((e) => [fmtDate(e.createdAt), e.type, fmtSigned(e.amountMicro), fmtSigned(e.balanceAfterMicro), clip(e.description ?? "—"), e.requestId ? clip(e.requestId) : (e.createdBy ? clip(e.createdBy) : "—")])}
+      />
+      {v.ledger.pages > 1 ? (
+        <div className="row">
+          <Button size="sm" variant="ghost" disabled={page <= 1} onClick={() => setPage((n) => Math.max(1, n - 1))}>Newer</Button>
+          <span className="muted">Page {v.ledger.page} of {v.ledger.pages}</span>
+          <Button size="sm" variant="ghost" disabled={page >= v.ledger.pages} onClick={() => setPage((n) => n + 1)}>Older</Button>
+        </div>
+      ) : null}
+
+      <h2>Spend, last 30 days</h2>
+      {v.usage.length === 0 ? <p className="muted">No requests.</p> : (
+        <Table head={["Model", "Requests", "Cost"]} numeric={[1, 2]} rows={v.usage.map((u) => [u.model ?? "—", String(u.requests), fmtUsd(u.costMicro)])} />
+      )}
+
+      <h2>Invoices</h2>
+      {v.invoices.length === 0 ? <p className="muted">No invoices.</p> : (
+        <Table head={["Number", "Amount", "Status", "Period", "Paid"]} numeric={[1]} rows={v.invoices.map((iv) => [iv.number, fmtUsd(iv.amountMicro), iv.status, fmtDate(iv.periodStart).slice(0, 10) + " → " + fmtDate(iv.periodEnd).slice(0, 10), iv.paidAt ? fmtDate(iv.paidAt) : "—"])} />
+      )}
+    </>);
+  }}</State>);
+}
+
 function BillingView() {
   const { d, err } = useLoad<Billing>("/api/admin/billing");
   return (<State err={err} d={d}>{(v: Billing) => (<>
     <h2>Accounts (balance is a cache — ledger sum is truth)</h2>
-    <Table head={["Account", "Status", "Balance", "Ledger sum", "Drift", "Warn", "Hard stop"]} numeric={[2, 3, 4, 5, 6]} rows={v.accounts.map((a) => [a.accountEmail, a.status, fmtUsd(a.balanceMicro), fmtUsd(a.ledgerSumMicro), a.balanceMicro === a.ledgerSumMicro ? "—" : fmtUsd(String(BigInt(a.balanceMicro) - BigInt(a.ledgerSumMicro))), fmtUsd(a.warningThresholdMicro), fmtUsd(a.hardStopThresholdMicro)])} />
+    <Table head={["Account", "Status", "Balance", "Ledger sum", "Drift", "Warn", "Hard stop"]} numeric={[2, 3, 4, 5, 6]} rows={v.accounts.map((a) => [<Link to={"/admin/billing/" + a.id}>{a.accountEmail}</Link>, a.status, fmtUsd(a.balanceMicro), fmtUsd(a.ledgerSumMicro), a.balanceMicro === a.ledgerSumMicro ? "—" : fmtUsd(String(BigInt(a.balanceMicro) - BigInt(a.ledgerSumMicro))), fmtUsd(a.warningThresholdMicro), fmtUsd(a.hardStopThresholdMicro)])} />
     <h2>Ledger totals by type</h2>
     <Table head={["Type", "Total"]} numeric={[1]} rows={v.totals.map((t) => [t.type, fmtUsd(t.totalMicro)])} />
     <h2>Recent ledger entries</h2>
@@ -2037,6 +2177,13 @@ export function AdminDetail() {
   const p = useParams();
   const section = p.section ?? "";
   const id = p.id ?? "";
+  if (section === "billing") {
+    return (<Page title="Admin / billing / account" lede="One account, its ledger, and the writes an operator can make against it."><BillingDetailView id={id} /></Page>);
+  }
+  return <AdminPlainDetail section={section} id={id} />;
+}
+
+function AdminPlainDetail({ section, id }: { section: string; id: string }) {
   const { d, err } = useLoad<Record<string, unknown>>("/api/admin/" + section);
   return (<Page title={"Admin / " + section + " / " + id} lede="Detail.">
     <State err={err} d={d}>{(v: Record<string, unknown>) => {

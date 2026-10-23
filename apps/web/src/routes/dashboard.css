@@ -83,26 +83,29 @@
   min-width: 9rem; max-width: 100%;
 }
 
-/* The pill row is desktop-only; below 720px AdminNav renders a native select
-   instead (17 pills wrapped to 140px, 16.6% of a 390x844 screen). */
-.admin-nav-select { display: none; }
-@media (max-width: 720px) {
-  .admin-nav { display: none; }
-  .admin-nav-select {
-    display: block; width: 100%; min-height: 44px; padding: 0 var(--space-sm);
-    border: 1px solid var(--color-border-control); border-radius: var(--radius-sm);
-    background: var(--color-surface); color: var(--color-text); font: inherit;
-  }
+/* A labelled form field: label above the control, so a wrapping row of mixed
+   inputs and selects still shares one baseline instead of zig-zagging between
+   inline labels and stacked ones. */
+.admin-field { display: grid; gap: 2px; }
+.admin-field > span { font-size: var(--text-sm); color: var(--color-text-muted); }
+/* Below the console breakpoint the field row becomes one column: two labelled
+   controls sharing a 390px line left the shorter label floating above its
+   neighbour's input. */
+@media (max-width: 720px) { .row > .admin-field { flex: 1 1 100%; } }
+/* `.select` is the only styled select in the design system, and the admin forms
+   build their controls inline -- a bare <select> renders as unstyled text with a
+   chevron next to a bordered input. Same treatment, width left to content. */
+.admin-field select {
+  height: var(--control-h-md);
+  padding: 0 var(--space-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  font-family: var(--font-ui); font-size: var(--text-sm);
+  min-width: 9rem; max-width: 100%;
 }
-nav[aria-label="Admin"] { gap: var(--space-xs); }
-nav[aria-label="Admin"] .btn { text-transform: capitalize; }
-nav[aria-label="Admin"] a.active .btn {
-  /* A surface fill was invisible: surface (21,25,34) against the page is a
-     three-point difference, so all 17 pills still looked identical. The accent
-     border plus accent text is unambiguous at a glance. */
-  background: transparent; color: var(--primary);
-  border-color: var(--primary); font-weight: 600;
-}
+
 /* #3d4660 at half opacity sat on the #2a3040 baseline and disappeared. The stub
    has to be legible as "month present, no entries" without competing with a bar. */
 .credits-chart-empty { fill: var(--color-border-control); opacity: 0.7; }

@@ -43,6 +43,13 @@ export function PublicLayout() {
   const burgerRef = useRef<HTMLButtonElement>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
   const { pathname } = useLocation();
+  // /dashboard and /admin render ConsoleLayout, which brings its own chrome
+  // (sidebar, 44px mobile bar, sheet). This layout kept rendering the marketing
+  // header above them, so every console page opened with Pricing / Features /
+  // Integrations / Models / Changelog / Docs -- 68px of links a signed-in
+  // operator never wants, directly above the nav they do want.
+  const consoleRoute = pathname === "/dashboard" || pathname.startsWith("/dashboard/")
+    || pathname === "/admin" || pathname.startsWith("/admin/");
 
   // Navigating closes the sheet. Without this the new page renders underneath
   // an overlay that is still covering it.
@@ -105,7 +112,7 @@ export function PublicLayout() {
       <a className="skip-link" href="#content">
         Skip to content
       </a>
-      <header className="pub" ref={headerRef}>
+      {consoleRoute ? null : (<header className="pub" ref={headerRef}>
         <NavLink className="brand" to="/">
           fudrouter
         </NavLink>
@@ -142,13 +149,13 @@ export function PublicLayout() {
           <span className="menu-bars" data-open={menuOpen} aria-hidden="true" />
         </button>
         <span className="pub-progress" aria-hidden="true" />
-      </header>
+      </header>)}
 
       {/* Mobile sheet. Kept mounted and hidden with `visibility` so the panel
           can animate both ways and so closed links leave the tab order. The
           backdrop is a button, not a div, so it is reachable by assistive tech
           as the close action it is. */}
-      <div className="pub-sheet" id={menuId} data-open={menuOpen} aria-hidden={!menuOpen}>
+      {consoleRoute ? null : (<div className="pub-sheet" id={menuId} data-open={menuOpen} aria-hidden={!menuOpen}>
         <button
           type="button"
           className="pub-sheet-backdrop"
@@ -189,7 +196,7 @@ export function PublicLayout() {
             {user ? "Dashboard" : "Log in"}
           </NavLink>
         </div>
-      </div>
+      </div>)}
       <main className="shell">
         <div id="content">
           <Suspense fallback={<p className="muted" role="status" aria-live="polite">Loading…</p>}>

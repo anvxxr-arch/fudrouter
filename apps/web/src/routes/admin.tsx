@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { apiGet } from "../lib/server";
 import { ROLE_CAPS } from "../lib/caps";
-import { ADMIN_NAV, filterNav } from "../lib/navigation";
-import { useSession } from "../components/guards";
+import { ConsoleLayout } from "../components/ConsoleLayout";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { Input } from "../components/ui/input";
@@ -13,47 +12,12 @@ import { StatCard, pctDelta } from "../components/stat-card";
 import { fmtMicro, fmtMicroShort } from "../lib/money";
 import "./dashboard.css";
 
-// The admin bar is the registry's "admin" scope filtered by the session's role,
-// exactly as ConsoleLayout does for "console". It used to render a local
-// SECTIONS array with no cap check at all, so every admin-role user saw links to
-// all 17 sections and the ones their role lacked bounced to "/" via
-// RequireRouteCap -- a button that 403s, on every admin page (Page wraps this).
-// ADMIN_NAV carries the same labels and the caps, so filtering here renders the
-// same bar for `admin` and hides what the guard would refuse.
-export function AdminNav() {
-  const user = useSession();
-  const items = filterNav(ADMIN_NAV, user?.role ?? null);
-  const { pathname } = useLocation();
-  const navigate = useNavigate();
-  // 17 pills wrap into four rows at 390px: 140px of chrome, 16.6% of the screen,
-  // before the page title. A native select is one 44px control, uses the OS
-  // picker, and needs no horizontal scroll or bespoke sheet. The pill row is
-  // hidden at that width rather than removed, so the desktop bar is unchanged.
-  const current = items.find((i) => (i.to === "/admin" ? pathname === "/admin" : pathname.startsWith(i.to)))?.to ?? "/admin";
-  return (<>
-    <nav className="row admin-nav" aria-label="Admin" style={{ flexWrap: "wrap" }}>
-      {items.map((i) => (
-        <NavLink key={i.to} to={i.to} end={i.to === "/admin"}>
-          <Button variant="ghost" size="sm">{i.label}</Button>
-        </NavLink>
-      ))}
-    </nav>
-    <select
-      className="admin-nav-select"
-      aria-label="Admin section"
-      value={current}
-      onChange={(e) => navigate(e.currentTarget.value)}
-    >
-      {items.map((i) => (<option key={i.to} value={i.to}>{i.label}</option>))}
-    </select>
-  </>);
-}
-
-// `console-main` carries the console type scale (h1 32px instead of the 48px
-// marketing ramp). The admin tree had no such scope, so "Admin" rendered at the
-// same weight as the landing hero -- 48px of chrome before any data.
+// The admin tree renders inside ConsoleLayout, whose sidebar switches to the
+// admin section list when the path is under /admin. That replaced a 17-pill bar
+// sitting under the marketing header: two primary-looking navigations on one
+// page, and on a phone a third (the pill row collapsed into a <select>).
 function Page({ title, lede, children }: { title: string; lede: string; children?: ReactNode }) {
-  return (<div className="stack console-main"><AdminNav /><h1>{title}</h1><p className="lede muted">{lede}</p>{children}</div>);
+  return (<ConsoleLayout><div className="stack console-main"><h1>{title}</h1><p className="lede muted">{lede}</p>{children}</div></ConsoleLayout>);
 }
 
 function useLoad<T>(path: string, tick = 0): { d: T | null; err: string | null } {

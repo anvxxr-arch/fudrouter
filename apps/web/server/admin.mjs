@@ -1045,50 +1045,10 @@ export function registerAdminRoutes(app, ctx) {
 		} catch { _fail(409, 'Model has request history — disable it instead'); }
 		return { deleted: id, message: `Model "${before.slug}" deleted.` };
 	}));
-	// Model detail POSTs (admin/models/[id]): update + mapping.
-	app.post('/api/admin/models/:id/update', poster('models', async (database, body, userRow, req) => {
-		const id = String(body.id ?? req.params?.id ?? '').trim();
-		const name = _cleanField(body.name, 200);
-		const slug = _parseSlug(body.slug);
-		const family = body.family ? _cleanField(body.family, 120) : null;
-		const developer = body.developer ? _cleanField(body.developer, 200) : null;
-		const description = body.description ? _cleanField(body.description, 2000) : null;
-		const modality = _parseJson(body.modality);
-		const capabilities = _parseFlags(body.capabilities);
-		const status = _parseEnum(MODEL_STATUSES, body.status);
-		const ctxRaw = String(body.context ?? '').trim(); const mxRaw = String(body.maxOutput ?? '').trim();
-		const context = ctxRaw ? _parseInt(ctxRaw, 1, 100000000) : null; const maxOutput = mxRaw ? _parseInt(mxRaw, 1, 100000000) : null;
-		if (!id) _fail(400, 'Missing model id');
-		if (!name || !slug) _fail(400, 'Name and slug required');
-		if (!status) _fail(400, 'Invalid status');
-		if (modality === null || capabilities === null) _fail(400, 'Modality/capabilities must be JSON objects');
-		if ((ctxRaw && context === null) || (mxRaw && maxOutput === null)) _fail(400, 'Context and max output must be positive integers');
-		const before = _rowsOf(await database.execute(sql`select * from model where id = ${id} limit 1`))[0];
-		if (!before) _fail(404, 'Model not found');
-		const after = { name, slug, family, developer, description, modality, capabilities, context, maxOutput, status };
-		try {
-			await database.transaction(async (tx) => {
-				await tx.execute(sql`update model set name = ${name}, slug = ${slug}, family = ${family}, developer = ${developer}, description = ${description}, modality = ${JSON.stringify(modality)}::jsonb, capabilities = ${JSON.stringify(capabilities)}::jsonb, context = ${context}, max_output = ${maxOutput}, status = ${status}, updated_at = now() where id = ${id}`);
-				await _audit(tx, { actorUserId: userRow.id, action: 'model.update', resource: 'model', resourceId: id, before: { name: before.name, slug: before.slug, family: before.family, developer: before.developer, description: before.description, modality: before.modality, capabilities: before.capabilities, context: before.context, maxOutput: before.max_output, status: before.status }, after });
-			});
-		} catch (err) { _fail(409, `Could not update model: ${err.message ?? 'update failed'}`); }
-		return { updated: id, message: `Model "${slug}" saved.` };
-	}));
-	app.post('/api/admin/models/:id/mapping', poster('models', async (database, body, userRow) => {
-		const id = String(body.id ?? '').trim();
-		const enabled = _parseBool(body.enabled);
-		const status = _parseEnum(PROVIDER_MODEL_STATUSES, body.status);
-		if (!id) _fail(400, 'Missing mapping id');
-		if (!status) _fail(400, 'Invalid status');
-		const before = _rowsOf(await database.execute(sql`select * from provider_model where id = ${id} limit 1`))[0];
-		if (!before) _fail(404, 'Mapping not found');
-		await database.transaction(async (tx) => {
-			await tx.execute(sql`update provider_model set enabled = ${enabled}, status = ${status}, updated_at = now() where id = ${id}`);
-			await _audit(tx, { actorUserId: userRow.id, action: 'provider_model.update', resource: 'provider_model', resourceId: id, before: { enabled: before.enabled, status: before.status }, after: { enabled, status } });
-		});
-		return { mappingUpdated: id, message: 'Mapping saved.' };
-	}));
-
+	// Registered BEFORE the `:id` routes below: Express matches in declaration
+	// order, and `/models/:id/update` swallowed `/models/mappings/update`
+	// (id="mappings"), so saving a mapping actually called the model update
+	// handler and failed with "Name and slug required".
 	// Mappings (admin/models/mappings): GET + create/update/delete.
 	app.post('/api/admin/models/mappings/create', poster('models', async (database, body, userRow) => {
 		const modelId = String(body.modelId ?? '').trim();
@@ -1170,6 +1130,50 @@ export function registerAdminRoutes(app, ctx) {
 		} catch (err) { _fail(409, `Could not delete mapping: ${err.message ?? 'delete failed'}`); }
 		return { deleted: id, message: `Mapping "${before.provider_model_id}" deleted.` };
 	}));
+	// Model detail POSTs (admin/models/[id]): update + mapping.
+	app.post('/api/admin/models/:id/update', poster('models', async (database, body, userRow, req) => {
+		const id = String(body.id ?? req.params?.id ?? '').trim();
+		const name = _cleanField(body.name, 200);
+		const slug = _parseSlug(body.slug);
+		const family = body.family ? _cleanField(body.family, 120) : null;
+		const developer = body.developer ? _cleanField(body.developer, 200) : null;
+		const description = body.description ? _cleanField(body.description, 2000) : null;
+		const modality = _parseJson(body.modality);
+		const capabilities = _parseFlags(body.capabilities);
+		const status = _parseEnum(MODEL_STATUSES, body.status);
+		const ctxRaw = String(body.context ?? '').trim(); const mxRaw = String(body.maxOutput ?? '').trim();
+		const context = ctxRaw ? _parseInt(ctxRaw, 1, 100000000) : null; const maxOutput = mxRaw ? _parseInt(mxRaw, 1, 100000000) : null;
+		if (!id) _fail(400, 'Missing model id');
+		if (!name || !slug) _fail(400, 'Name and slug required');
+		if (!status) _fail(400, 'Invalid status');
+		if (modality === null || capabilities === null) _fail(400, 'Modality/capabilities must be JSON objects');
+		if ((ctxRaw && context === null) || (mxRaw && maxOutput === null)) _fail(400, 'Context and max output must be positive integers');
+		const before = _rowsOf(await database.execute(sql`select * from model where id = ${id} limit 1`))[0];
+		if (!before) _fail(404, 'Model not found');
+		const after = { name, slug, family, developer, description, modality, capabilities, context, maxOutput, status };
+		try {
+			await database.transaction(async (tx) => {
+				await tx.execute(sql`update model set name = ${name}, slug = ${slug}, family = ${family}, developer = ${developer}, description = ${description}, modality = ${JSON.stringify(modality)}::jsonb, capabilities = ${JSON.stringify(capabilities)}::jsonb, context = ${context}, max_output = ${maxOutput}, status = ${status}, updated_at = now() where id = ${id}`);
+				await _audit(tx, { actorUserId: userRow.id, action: 'model.update', resource: 'model', resourceId: id, before: { name: before.name, slug: before.slug, family: before.family, developer: before.developer, description: before.description, modality: before.modality, capabilities: before.capabilities, context: before.context, maxOutput: before.max_output, status: before.status }, after });
+			});
+		} catch (err) { _fail(409, `Could not update model: ${err.message ?? 'update failed'}`); }
+		return { updated: id, message: `Model "${slug}" saved.` };
+	}));
+	app.post('/api/admin/models/:id/mapping', poster('models', async (database, body, userRow) => {
+		const id = String(body.id ?? '').trim();
+		const enabled = _parseBool(body.enabled);
+		const status = _parseEnum(PROVIDER_MODEL_STATUSES, body.status);
+		if (!id) _fail(400, 'Missing mapping id');
+		if (!status) _fail(400, 'Invalid status');
+		const before = _rowsOf(await database.execute(sql`select * from provider_model where id = ${id} limit 1`))[0];
+		if (!before) _fail(404, 'Mapping not found');
+		await database.transaction(async (tx) => {
+			await tx.execute(sql`update provider_model set enabled = ${enabled}, status = ${status}, updated_at = now() where id = ${id}`);
+			await _audit(tx, { actorUserId: userRow.id, action: 'provider_model.update', resource: 'provider_model', resourceId: id, before: { enabled: before.enabled, status: before.status }, after: { enabled, status } });
+		});
+		return { mappingUpdated: id, message: 'Mapping saved.' };
+	}));
+
 	// Pricing (admin/models/pricing): GET + preview/apply.
 	const _priceField = (raw) => { const s = String(raw ?? '').trim(); if (!s) return { ok: true, value: '0' }; const m = /^(\d+)(?:\.(\d{1,6}))?$/.exec(s); if (!m) return { ok: false }; try { const v = BigInt(m[1]) * 1000000n + BigInt((m[2] ?? '').padEnd(6, '0')); if (v > 1000000000000n * 1000000n) return { ok: false }; return { ok: true, value: v.toString() }; } catch { return { ok: false }; } };
 	const _optPrice = (raw) => { const s = String(raw ?? '').trim(); if (!s) return { ok: true, value: null }; const r = _priceField(s); return r.ok ? { ok: true, value: r.value } : { ok: false }; };

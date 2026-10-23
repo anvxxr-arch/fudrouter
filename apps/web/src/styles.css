@@ -1058,6 +1058,14 @@ body { overflow-x: clip; }
 .console-side-nav a { padding: var(--space-xs) var(--space-sm); border-radius: var(--radius-sm); color: var(--color-text-muted); }
 .console-side-nav a:hover { color: var(--color-text); background: var(--color-surface); }
 .console-side-nav a.current { color: var(--color-text); font-weight: 600; background: var(--color-surface); }
+/* Separated from the member sections: /admin is a different surface with its
+   own nav and its own caps, not a thirteenth dashboard page. */
+.console-side-nav .console-side-admin {
+  margin-top: var(--space-sm); padding-top: var(--space-sm);
+  border-top: 1px solid var(--color-border);
+  border-radius: 0; color: var(--color-text-muted); font-size: var(--text-sm);
+}
+.console-side-nav .console-side-admin:hover { background: transparent; color: var(--color-text); }
 .console-side-toggle { justify-self: start; padding: 2px var(--space-sm); border: 1px solid var(--color-border-control); border-radius: var(--radius-sm); background: transparent; color: var(--color-text-muted); font: inherit; cursor: pointer; }
 .console-side-toggle:hover { color: var(--color-text); border-color: var(--color-border-strong); }
 .console-shell.collapsed { grid-template-columns: auto minmax(0, 1fr); }

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { CONSOLE_NAV, filterNav } from "../lib/navigation";
+import { hasCap } from "../lib/caps";
 import { useSession } from "./guards";
 
 // The console bar is the registry's "console" scope filtered by the session's
@@ -25,6 +26,10 @@ export function ConsoleLayout({ children }: { children: ReactNode }) {
   const current =
     items.find((i) => (i.to === "/dashboard" ? pathname === "/dashboard" : pathname.startsWith(i.to)))
       ?.label ?? "Dashboard";
+  // /admin had no inbound link anywhere in the app: the 17-section registry was
+  // only reachable by typing the URL, so the surface existed but nobody could
+  // find it. One entry, gated by the same cap the route guard enforces.
+  const isAdmin = hasCap(user?.role ?? null, "admin.view");
 
   // Navigating closes the sheet; without this the new page renders under an
   // overlay that is still covering it.
@@ -71,6 +76,9 @@ export function ConsoleLayout({ children }: { children: ReactNode }) {
                 {i.label}
               </NavLink>
             ))}
+            {isAdmin ? (
+              <NavLink to="/admin" end className="console-side-admin">Admin console →</NavLink>
+            ) : null}
           </nav>
         )}
       </aside>
@@ -104,6 +112,17 @@ export function ConsoleLayout({ children }: { children: ReactNode }) {
                 <span className="pub-sheet-chevron" aria-hidden="true">→</span>
               </NavLink>
             ))}
+            {isAdmin ? (
+              <NavLink
+                to="/admin"
+                end
+                style={{ "--i": items.length } as CSSProperties}
+                className={({ isActive }) => (isActive ? "pub-sheet-link active" : "pub-sheet-link")}
+              >
+                Admin console
+                <span className="pub-sheet-chevron" aria-hidden="true">→</span>
+              </NavLink>
+            ) : null}
           </nav>
         </div>
       </div>

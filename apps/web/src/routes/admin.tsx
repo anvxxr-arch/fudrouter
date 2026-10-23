@@ -1031,12 +1031,98 @@ function SystemView() {
 }
 
 type Traffic = { hard: { rpm: number; tpm: number; concurrency: number } | null };
+type Queues = {
+  counts: { status: string; type: string; n: number }[];
+  live: { id: string; type: string; status: string; attempts: number; maxAttempts: number; availableAt: string | null; error: string | null }[];
+  inFlightLastMinute: number;
+};
+type RateLimits = {
+  limits: { id: string; scope: string; scopeId: string; rpm: number | null; tpm: number | null; rpd: number | null; tpd: number | null; concurrency: number | null; dailySpendUsd: string | null; monthlySpendUsd: string | null }[];
+  budgets: { id: string; scope: string; scopeId: string; period: string; amountMicro: string; warnPercent: number | null; criticalPercent: number | null; actionAt100: string | null }[];
+  scopes: string[];
+};
+// "0" in platform_hard_limits means *no cap*, not a limit of zero (the save
+// handler documents 0 = no cap), so printing the raw 0 would read as "nothing
+// is allowed". Everything else is grouped, because 100000000 is unreadable.
+const cap = (n: number | null | undefined) => (n === null || n === undefined ? "—" : n === 0 ? "no cap" : n.toLocaleString("en-US"));
+const optNum = (n: number | null | undefined) => (n === null || n === undefined ? "—" : n === 0 ? "no cap" : n.toLocaleString("en-US"));
+
+// This page rendered one Card with a dense string ("rpm 10000 · tpm 100000000
+// · concurrency 1000") while the server exposes three more endpoints for it:
+// queue backlog, per-scope rate limits, and the throttling history. An operator
+// opening "traffic" saw a single line. Hard limits stay read-only here -- the
+// Settings page owns that editor (POST settings/updateHardLimits) and two
+// writers for one setting is how they drift.
 function TrafficView() {
-  const { d, err } = useLoad<Traffic>("/api/admin/traffic");
-  return (<State err={err} d={d}>{(v: Traffic) => (
-    <Card titleAs="h2" title="Platform hard limits" desc={v.hard ? "rpm " + v.hard.rpm + " · tpm " + v.hard.tpm + " · concurrency " + v.hard.concurrency : "not set — no platform ceiling configured"} />
-  )}</State>);
+  const traffic = useLoad<Traffic>("/api/admin/traffic");
+  const queues = useLoad<Queues>("/api/admin/traffic/queues");
+  const limits = useLoad<RateLimits>("/api/admin/traffic/rate-limits");
+  return (<>
+    <State err={traffic.err} d={traffic.d}>{(v: Traffic) => (<>
+      {v.hard ? (
+        <div className="row row--cards" style={{ flexWrap: "wrap" }}>
+          <StatCard title="Requests / min cap" value={cap(v.hard.rpm)} />
+          <StatCard title="Tokens / min cap" value={cap(v.hard.tpm)} />
+          <StatCard title="Concurrency cap" value={cap(v.hard.concurrency)} />
+        </div>
+      ) : <Card titleAs="h2" title="Platform hard limits" desc="Not set — no platform ceiling is configured, so every scope is unbounded by default." />}
+    </>)}</State>
+
+    <h2 className="dash-h">Queue</h2>
+    <State err={queues.err} d={queues.d}>{(q: Queues) => {
+      const byStatus = (s: string) => q.counts.filter((c) => c.status === s).reduce((a, c) => a + c.n, 0);
+      // One row per job type with its pending/failed counts: the flat
+      // (status, type) list the endpoint returns is 5 rows per type once every
+      // state is populated, and reading backlog means scanning status columns.
+      const types = [...new Set(q.counts.map((c) => c.type))].sort();
+      const cell = (t: string, s: string) => q.counts.filter((c) => c.type === t && c.status === s).reduce((a, c) => a + c.n, 0);
+      return (<>
+        <div className="row row--cards" style={{ flexWrap: "wrap" }}>
+          <StatCard title="Pending" value={byStatus("pending").toLocaleString("en-US")} />
+          <StatCard title="Running" value={byStatus("running").toLocaleString("en-US")} />
+          <StatCard title="Failed" value={byStatus("failed").toLocaleString("en-US")} />
+          <StatCard title="In flight, last 60s" value={q.inFlightLastMinute.toLocaleString("en-US")} />
+        </div>
+        <Table
+          head={["Job type", "Pending", "Running", "Failed", "Completed"]}
+          numeric={[1, 2, 3, 4]}
+          rows={types.map((t) => [t, String(cell(t, "pending")), String(cell(t, "running")), String(cell(t, "failed")), String(cell(t, "completed"))])}
+        />
+        {q.live.length > 0 ? (<>
+          <h2 className="dash-h">Live jobs</h2>
+          <Table
+            head={["Type", "Status", "Attempts", "Available", "Error"]}
+            numeric={[2]}
+            rows={q.live.map((j) => [j.type, j.status, j.attempts + " / " + j.maxAttempts, j.availableAt ? fmtDate(j.availableAt) : "—", j.error ?? "—"])}
+          />
+        </>) : null}
+      </>);
+    }}</State>
+
+    <h2 className="dash-h">Per-scope rate limits</h2>
+    <State err={limits.err} d={limits.d}>{(r: RateLimits) => (<>
+      {r.limits.length === 0 ? (
+        <Card desc={`No per-scope limits configured (scopes available: ${r.scopes.join(", ")}). Only the platform caps above apply.`} />
+      ) : (
+        <Table
+          head={["Scope", "Scope id", "RPM", "TPM", "RPD", "TPD", "Concurrency", "Daily $", "Monthly $"]}
+          numeric={[2, 3, 4, 5, 6, 7, 8]}
+          rows={r.limits.map((l) => [l.scope, l.scopeId, optNum(l.rpm), optNum(l.tpm), optNum(l.rpd), optNum(l.tpd), optNum(l.concurrency), l.dailySpendUsd === null ? "—" : fmtUsd(l.dailySpendUsd), l.monthlySpendUsd === null ? "—" : fmtUsd(l.monthlySpendUsd)])}
+        />
+      )}
+      <h2 className="dash-h">Budgets</h2>
+      {r.budgets.length === 0 ? <Card desc="No budgets configured." /> : (
+        <Table
+          head={["Scope", "Scope id", "Period", "Amount", "Warn %", "Critical %", "At 100%"]}
+          numeric={[3, 4, 5]}
+          rows={r.budgets.map((b) => [b.scope, b.scopeId, b.period, fmtUsd(b.amountMicro), b.warnPercent === null ? "—" : b.warnPercent + "%", b.criticalPercent === null ? "—" : b.criticalPercent + "%", b.actionAt100 ?? "—"])}
+        />
+      )}
+    </>)}</State>
+  </>);
 }
+
+
 
 // The server validates setRole against ROLE_CAPS (admin.mjs), so the select's
 // options come from that same table rather than a second copy in this file.

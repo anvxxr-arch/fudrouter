@@ -1164,20 +1164,171 @@ function RoutingView() {
   </>);
 }
 
-type Security = { rules: { id: string; name: string; kind: string; config: unknown; enabled: boolean; action: string }[] };
+type SecurityRule = { id: string; name: string; kind: string; config: unknown; enabled: boolean; action: string };
+type Security = { rules: SecurityRule[] };
+// These two endpoints return a *narrower* row than /security does: the address
+// list carries the cidr inline and the key list carries key_id inline, with no
+// config/enabled/action wrapper. Rendering them through the generic SecurityRule
+// shape produced a table of em-dashes.
+type BlockedIpRule = { id: string; name: string; cidr: string; createdAt: string };
+// keyName/keyPrefix ride the rule itself: the `keys` array on this endpoint
+// deliberately excludes already-blocked keys, so looking the name up there
+// returns nothing for exactly the rows being displayed.
+type BlockedKeyRule = { id: string; name: string; keyId: string; keyName: string | null; keyPrefix: string | null; keyStatus: string | null; createdAt: string };
+type BlockedIps = { rules: BlockedIpRule[] };
+type BlockedKeys = { rules: BlockedKeyRule[]; keys: { id: string; name: string; prefix: string; status: string }[] };
+type Abuse = {
+  signals: { id: string; name: string; kind: string; enabled: boolean; action: string }[];
+  windows: { windowStart: string; requests: number; authFailures: number; errorCount: number; distinctIps: number; topIpShare: number; keyRotations: number; credentialAuthFailures: number; spendMicro: string; budgetMicro: string | null }[];
+  ruleCount: number;
+  enabledRuleCount: number;
+  matchedActions: { action: string; n: number }[];
+  watchedActions: string[];
+};
 type Audit = { rows: { id: string; actorUserId: string | null; actorKind: string; actorEmail: string | null; action: string; resource: string | null; resourceId: string | null; ip: string | null; before: unknown; after: unknown; metadata: unknown; createdAt: string }[]; actions: { action: string; n: number }[]; page: number; action: string };
+
+const cfgStr = (config: unknown, key: string) => {
+  if (config && typeof config === "object" && key in (config as Record<string, unknown>)) {
+    const v = (config as Record<string, unknown>)[key];
+    return v === null || v === undefined ? "—" : String(v);
+  }
+  return "—";
+};
+
+// Enforcement lists were reachable only as JSON inside the rules table: adding a
+// blocked IP meant calling the endpoint by hand. Three lists now have their own
+// surface -- abuse signals (read-only), blocked addresses, blocked keys -- each
+// with the add form the server already validates (it rejects a malformed CIDR
+// itself, so the form does not duplicate the regex).
+function SecurityLists({ onChanged }: { onChanged: () => void }) {
+  // These two lists own their own tick: bumping the parent's would re-fetch the
+  // rules table but leave these `useLoad` calls with the same dependency, so an
+  // added address stayed invisible until a page reload.
+  const [tick, setTick] = useState(0);
+  const ips = useLoad<BlockedIps>("/api/admin/security/blocked-ips", tick);
+  const keys = useLoad<BlockedKeys>("/api/admin/security/blocked-keys", tick);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const run = async (label: string, fn: () => Promise<unknown>) => {
+    setBusy(label); setErr(null);
+    try { await fn(); setTick((n) => n + 1); onChanged(); }
+    catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+    finally { setBusy(null); }
+  };
+  const addIp = (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    const form = e.currentTarget;
+    void run("ip", () => postJSON("/api/admin/security/blocked-ips/add", { cidr: fd.get("cidr"), name: fd.get("name") })).then(() => form.reset());
+  };
+  const addKey = (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    const form = e.currentTarget;
+    void run("key", () => postJSON("/api/admin/security/blocked-keys/add", { key_id: fd.get("key_id"), name: fd.get("name") })).then(() => form.reset());
+  };
+  return (<>
+    {err ? <p className="error" role="alert">{err}</p> : null}
+
+    <h2 className="dash-h">Blocked addresses</h2>
+    <form className="row" style={{ flexWrap: "wrap" }} onSubmit={addIp}>
+      <Input aria-label="IP or CIDR" name="cidr" placeholder="IP or CIDR, e.g. 203.0.113.0/24" required />
+      <Input aria-label="Rule name" name="name" placeholder="name (optional)" />
+      <Button size="sm" type="submit" disabled={busy === "ip"}>{busy === "ip" ? "Adding…" : "Block address"}</Button>
+    </form>
+    <State err={ips.err} d={ips.d}>{(v: BlockedIps) => v.rules.length === 0 ? (
+      <Card desc="No blocked addresses. Requests from every IP are accepted unless another rule refuses them." />
+    ) : (
+      <Table
+        head={["Address / CIDR", "Name", "Added", ""]}
+        rows={v.rules.map((r) => [
+          <code key="c">{r.cidr}</code>,
+          r.name,
+          fmtDate(r.createdAt),
+          <Button key="x" size="sm" variant="ghost" disabled={busy === r.id} onClick={() => void run(r.id, () => postJSON("/api/admin/security/blocked-ips/remove", { id: r.id }))}>Unblock</Button>,
+        ])}
+      />
+    )}</State>
+
+    <h2 className="dash-h">Blocked keys</h2>
+    <form className="row" style={{ flexWrap: "wrap" }} onSubmit={addKey}>
+      <select aria-label="Key to block" name="key_id" required defaultValue="">
+        <option value="">pick a key…</option>
+        {(keys.d?.keys ?? []).map((k) => <option key={k.id} value={k.id}>{k.name} · {k.prefix} · {k.status}</option>)}
+      </select>
+      <Input aria-label="Rule name" name="name" placeholder="name (optional)" />
+      <Button size="sm" type="submit" disabled={busy === "key"}>{busy === "key" ? "Adding…" : "Block key"}</Button>
+    </form>
+    <State err={keys.err} d={keys.d}>{(v: BlockedKeys) => v.rules.length === 0 ? (
+      <Card desc="No blocked keys. Every active key is accepted." />
+    ) : (
+      <Table
+        head={["Key", "Prefix", "Rule", "Added", ""]}
+        rows={v.rules.map((r) => {
+          return [
+            r.keyName ?? r.keyId,
+            r.keyPrefix ?? "—",
+            r.name,
+            fmtDate(r.createdAt),
+            <Button key="x" size="sm" variant="ghost" disabled={busy === r.id} onClick={() => void run(r.id, () => postJSON("/api/admin/security/blocked-keys/remove", { id: r.id }))}>Unblock</Button>,
+          ];
+        })}
+      />
+    )}</State>
+  </>);
+}
+
 function SecurityView() {
-  const { d, err } = useLoad<Security>("/api/admin/security");
+  const [tick, setTick] = useState(0);
   const [page, setPage] = useState(1);
   const [action, setAction] = useState("");
+  const { d, err } = useLoad<Security>("/api/admin/security", tick);
+  const abuse = useLoad<Abuse>("/api/admin/security/abuse", tick);
   const qs = "/api/admin/security/audit-log?page=" + page + (action ? "&action=" + encodeURIComponent(action) : "");
   const a = useLoad<Audit>(qs);
   // before/after are arbitrary JSON or null, so a raw interpolation would print
   // "null → null" for every create/delete row; collapse both sides to "—".
   const changes = (x: unknown) => x == null ? "—" : JSON.stringify(x).slice(0, 80);
-  return (<State err={err} d={d}>{(v: Security) => (<>
-    <Table head={["Name", "Kind", "Action", "Enabled", "Config"]} rows={v.rules.map((r) => [r.name, r.kind, r.action, String(r.enabled), JSON.stringify(r.config)])} />
-    <h2>Audit log</h2>
+  return (<>
+    <State err={err} d={d}>{(v: Security) => (<>
+      <div className="row row--cards" style={{ flexWrap: "wrap" }}>
+        {/* Two pairs, each labelled with its own noun: "Abuse rules / Enabled"
+            read as one ambiguous count next to a second "rules" pair. */}
+        <StatCard title="Abuse rules" value={String(v.rules.length)} />
+        <StatCard title="Rules enabled" value={String(v.rules.filter((r) => r.enabled).length)} />
+        <StatCard title="Signal rules" value={abuse.d ? String(abuse.d.ruleCount) : "—"} />
+        <StatCard title="Signals enabled" value={abuse.d ? String(abuse.d.enabledRuleCount) : "—"} />
+      </div>
+      <h2 className="dash-h">Rules</h2>
+      {v.rules.length === 0
+        ? <Card desc="No abuse-signal rules. Only the blocked address and key lists below refuse traffic." />
+        : <Table head={["Name", "Kind", "Action", "Enabled", "Config"]} rows={v.rules.map((r) => [r.name, r.kind, r.action, String(r.enabled), clip(JSON.stringify(r.config ?? {}), 60)])} />}
+    </>)}</State>
+
+    <SecurityLists onChanged={() => setTick((n) => n + 1)} />
+
+    <h2 className="dash-h">Abuse signals, last 24h</h2>
+    <State err={abuse.err} d={abuse.d}>{(v: Abuse) => (<>
+      {v.watchedActions.length > 0 ? <p className="muted">Watching key lifecycle actions: {v.watchedActions.join(", ")}.</p> : null}
+      {v.windows.length === 0 ? <Card desc="No request activity in the last 24 hours." /> : (
+        <Table
+          head={["Window", "Requests", "Auth failures", "Errors", "Distinct IPs", "Top IP share", "Key rotations", "Cred. failures"]}
+          numeric={[1, 2, 3, 4, 5, 6, 7]}
+          rows={v.windows.map((w) => [
+            fmtDate(w.windowStart),
+            String(w.requests),
+            String(w.authFailures),
+            String(w.errorCount),
+            String(w.distinctIps),
+            (w.topIpShare * 100).toFixed(0) + "%",
+            String(w.keyRotations),
+            String(w.credentialAuthFailures),
+          ])}
+        />
+      )}
+    </>)}</State>
+
+    <h2 className="dash-h">Audit log</h2>
     <form className="row" onSubmit={(e) => e.preventDefault()}>
       <select aria-label="Filter by action" value={action} onChange={(e) => { setAction(e.currentTarget.value); setPage(1); }}>
         <option value="">All actions</option>
@@ -1196,7 +1347,7 @@ function SecurityView() {
         <Button size="sm" disabled={w.rows.length < 100} onClick={() => setPage((p) => p + 1)}>Next</Button>
       </div>
     </>)}</State>
-  </>)}</State>);
+  </>);
 }
 
 type Settings = { maintenance: boolean; genericPassthrough: boolean; registration: boolean; retention: Record<string, number>; defaultRoutingPolicyId: string; hardLimits: { rpm: number; tpm: number; concurrency: number }; policies: { id: string; name: string; strategy: string }[]; accounts: { userId: string; warningMicro: string; hardStopMicro: string }[] };
@@ -1541,7 +1692,7 @@ const VIEWS: Record<string, { lede: string; el: () => ReactNode }> = {
   providers: { lede: "Providers with model, connection, and credential counts.", el: ProvidersView },
   requests: { lede: "Request log. Bodies never cross this boundary.", el: RequestsView },
   routing: { lede: "Routing policies and the account resolution chain.", el: RoutingView },
-  security: { lede: "Abuse-signal rules. Enforcement lists live on their own pages.", el: SecurityView },
+  security: { lede: "Abuse-signal rules, blocked addresses and keys, and the audit log.", el: SecurityView },
   settings: { lede: "Platform settings, retention, limits, and billing defaults.", el: SettingsView },
   system: { lede: "Database, queue backlog, incidents, and events.", el: SystemView },
   traffic: { lede: "Platform hard limits — the ceiling every scope is capped by.", el: TrafficView },

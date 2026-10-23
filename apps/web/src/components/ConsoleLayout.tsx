@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { NavLink, useLocation } from "react-router-dom";
-import { CONSOLE_NAV, filterNav } from "../lib/navigation";
+import { ADMIN_NAV, CONSOLE_NAV, filterNav } from "../lib/navigation";
 import { hasCap } from "../lib/caps";
 import { useSession } from "./guards";
 
@@ -17,15 +17,22 @@ import { useSession } from "./guards";
 // implementation means one place for focus, Escape and scroll-lock behaviour).
 export function ConsoleLayout({ children }: { children: ReactNode }) {
   const user = useSession();
-  const items = filterNav(CONSOLE_NAV, user?.role ?? null);
+  const { pathname } = useLocation();
+  // The admin tree used to render inside the public layout: the marketing header
+  // (Pricing / Features / …) sat above a second 17-pill admin bar, so a signed-in
+  // admin had two navigations that both looked primary. /admin now shares this
+  // shell, and the sidebar becomes contextual -- one nav surface per page, the
+  // same pattern the member console already used.
+  const isAdminTree = pathname === "/admin" || pathname.startsWith("/admin/");
+  const items = filterNav(isAdminTree ? ADMIN_NAV : CONSOLE_NAV, user?.role ?? null);
   const [collapsed, setCollapsed] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
   const burgerRef = useRef<HTMLButtonElement>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
-  const { pathname } = useLocation();
-  const current =
-    items.find((i) => (i.to === "/dashboard" ? pathname === "/dashboard" : pathname.startsWith(i.to)))
-      ?.label ?? "Dashboard";
+  const current = isAdminTree
+    ? "Admin"
+    : items.find((i) => (i.to === "/dashboard" ? pathname === "/dashboard" : pathname.startsWith(i.to)))
+        ?.label ?? "Dashboard";
   // /admin had no inbound link anywhere in the app: the 17-section registry was
   // only reachable by typing the URL, so the surface existed but nobody could
   // find it. One entry, gated by the same cap the route guard enforces.
@@ -70,13 +77,16 @@ export function ConsoleLayout({ children }: { children: ReactNode }) {
           {collapsed ? "»" : "«"}
         </button>
         {!collapsed && (
-          <nav className="console-side-nav" aria-label="Dashboard">
+          <nav className="console-side-nav" aria-label={isAdminTree ? "Admin sections" : "Dashboard"}>
+            {isAdminTree ? (
+              <NavLink to="/dashboard" className="console-side-back">← Console</NavLink>
+            ) : null}
             {items.map((i) => (
-              <NavLink key={i.to} to={i.to} end={i.to === "/dashboard"} className={({ isActive }) => (isActive ? "current" : undefined)}>
+              <NavLink key={i.to} to={i.to} end={i.to === "/dashboard" || i.to === "/admin"} className={({ isActive }) => (isActive ? "current" : undefined)}>
                 {i.label}
               </NavLink>
             ))}
-            {isAdmin ? (
+            {!isAdminTree && isAdmin ? (
               <NavLink to="/admin" end className="console-side-admin">Admin console →</NavLink>
             ) : null}
           </nav>
@@ -97,22 +107,28 @@ export function ConsoleLayout({ children }: { children: ReactNode }) {
       </div>
       <div className="pub-sheet" data-open={sheetOpen} aria-hidden={!sheetOpen}>
         <button type="button" className="pub-sheet-backdrop" aria-label="Close menu" tabIndex={-1} onClick={() => setSheetOpen(false)} />
-        <div ref={sheetRef} className="pub-sheet-panel" role="dialog" aria-modal="true" aria-label="Console menu">
+        <div ref={sheetRef} className="pub-sheet-panel" role="dialog" aria-modal="true" aria-label={isAdminTree ? "Admin sections" : "Console menu"}>
           <div className="pub-sheet-grip" aria-hidden="true" />
-          <nav className="pub-sheet-nav" aria-label="Console">
+          <nav className="pub-sheet-nav" aria-label={isAdminTree ? "Admin sections" : "Console"}>
+            {isAdminTree ? (
+              <NavLink to="/dashboard" style={{ "--i": 0 } as CSSProperties} className="pub-sheet-link">
+                ← Console
+                <span className="pub-sheet-chevron" aria-hidden="true">→</span>
+              </NavLink>
+            ) : null}
             {items.map((i, n) => (
               <NavLink
                 key={i.to}
                 to={i.to}
-                end={i.to === "/dashboard"}
-                style={{ "--i": n } as CSSProperties}
+                end={i.to === "/dashboard" || i.to === "/admin"}
+                style={{ "--i": n + (isAdminTree ? 1 : 0) } as CSSProperties}
                 className={({ isActive }) => (isActive ? "pub-sheet-link active" : "pub-sheet-link")}
               >
                 {i.label}
                 <span className="pub-sheet-chevron" aria-hidden="true">→</span>
               </NavLink>
             ))}
-            {isAdmin ? (
+            {!isAdminTree && isAdmin ? (
               <NavLink
                 to="/admin"
                 end

@@ -1066,6 +1066,14 @@ body { overflow-x: clip; }
   border-radius: 0; color: var(--color-text-muted); font-size: var(--text-sm);
 }
 .console-side-nav .console-side-admin:hover { background: transparent; color: var(--color-text); }
+/* The way back out of the admin tree: same separation idea as the entry, top
+   instead of bottom, and quieter than the sections so it reads as furniture. */
+.console-side-nav .console-side-back {
+  margin-bottom: var(--space-xs); padding-bottom: var(--space-sm);
+  border-bottom: 1px solid var(--color-border); border-radius: 0;
+  color: var(--color-text-muted); font-size: var(--text-sm);
+}
+.console-side-nav .console-side-back:hover { background: transparent; color: var(--color-text); }
 .console-side-toggle { justify-self: start; padding: 2px var(--space-sm); border: 1px solid var(--color-border-control); border-radius: var(--radius-sm); background: transparent; color: var(--color-text-muted); font: inherit; cursor: pointer; }
 .console-side-toggle:hover { color: var(--color-text); border-color: var(--color-border-strong); }
 .console-shell.collapsed { grid-template-columns: auto minmax(0, 1fr); }

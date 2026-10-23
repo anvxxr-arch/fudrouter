@@ -302,7 +302,7 @@ const POLICY_SCOPES = ['platform', 'account'];
 const KEY_LIFECYCLE_ACTIONS = ['key.rotate', 'api_key.rotate', 'key.create'];
 const TIMING_KEYS = ['auth', 'rate_limit', 'routing', 'queue', 'connection', 'generation'];
 const VK_NAMESPACES = ['rl', 'conc', 'spend', 'usage', 'health', 'credential', 'circuit', 'model', 'catalog', 'session', 'idem', 'lock', 'metric', 'ver'];
-const _IDP = { model: 'mdl_', providerModel: 'pmdl_', pricingRule: 'prc_', provider: 'prv_', connection: 'con_', credential: 'cred_', routingPolicy: 'rte_', rateLimit: 'lim_', securityRule: 'rul_', circuitBreaker: 'cbr_', featureFlag: 'flg_', budget: 'bdg_' };
+const _IDP = { model: 'mdl_', providerModel: 'pmdl_', pricingRule: 'prc_', provider: 'prv_', connection: 'con_', credential: 'cred_', routingPolicy: 'rte_', rateLimit: 'lim_', securityRule: 'rul_', circuitBreaker: 'cbr_', featureFlag: 'flg_', budget: 'bdg_', creditLedger: 'txn_' };
 const _newId = (p) => p + _uuidv7();
 // The publish gate comes from packages/platform (via the bridge), NOT a local
 // copy. `_reach` and public.mjs's `served` were two hand-maintained mirrors of
@@ -537,6 +537,105 @@ export function registerAdminRoutes(app, ctx) {
 			recent: recent.map((r) => ({ id: r.id, accountEmail: info.get(r.billingAccountId)?.accountEmail ?? '—', type: r.type, amountMicro: B(r.amountMicro), currency: String(r.currency).trim(), requestId: r.requestId, description: r.description, createdBy: r.createdBy, createdAt: r.createdAt })),
 			invoices: invoices.map((v) => ({ id: v.id, accountEmail: info.get(v.billingAccountId)?.accountEmail ?? '—', number: v.number, periodStart: v.periodStart, periodEnd: v.periodEnd, amountMicro: B(v.amountMicro), currency: String(v.currency).trim(), status: v.status, issuedAt: v.issuedAt, paidAt: v.paidAt }))
 		};
+	}));
+
+	// Billing drill-down + ledger/status writes. The meter writes usage_charge,
+	// so manual entries are limited to the other five ledger types; `direction`
+	// decides the sign so one form covers both a grant and a clawback.
+	const MANUAL_LEDGER_TYPES = ['credit_purchase', 'adjustment', 'refund', 'promotion', 'expiration'];
+	const BILLING_STATUSES = ['active', 'suspended', 'closed'];
+	const _billingPage = (raw) => {
+		const n = Number.parseInt(String(raw ?? ''), 10);
+		return Number.isFinite(n) && n > 0 ? n : 1;
+	};
+
+	app.get('/api/admin/billing/:accountId', handler('billing', async (database, url) => {
+		const accountId = String(url.pathname.split('/').pop() ?? '').trim();
+		const account = _rowsOf(await database.execute(sql`select bac.id, bac.user_id, bac.currency, bac.status, bac.warning_threshold_micro::text as warning_micro, bac.hard_stop_threshold_micro::text as hard_stop_micro, bac.balance_micro::text as balance_micro, bac.created_at, u.email
+			from billing_account bac join "user" u on u.id = bac.user_id where bac.id = ${accountId} limit 1`))[0];
+		if (!account) _fail(404, 'Billing account not found');
+		// Drift = cached balance minus the ledger it is supposed to mirror. Any
+		// non-zero value here is the thing worth reconciling, so it leads.
+		const ledgerSumRow = _rowsOf(await database.execute(sql`select coalesce(sum(amount_micro), 0)::text as total from credit_ledger where billing_account_id = ${accountId}`))[0];
+		const ledgerSum = String(ledgerSumRow?.total ?? '0');
+		const byType = _rowsOf(await database.execute(sql`select type, coalesce(sum(amount_micro), 0)::text as total, count(*)::int as entries
+			from credit_ledger where billing_account_id = ${accountId} group by type order by type`));
+		const total = Number(_rowsOf(await database.execute(sql`select count(*)::int as n from credit_ledger where billing_account_id = ${accountId}`))[0]?.n ?? 0);
+		const page = _billingPage(url.searchParams.get('page'));
+		const pages = Math.max(1, Math.ceil(total / 50));
+		// balance_after is the running ledger balance in ascending time order;
+		// rows are returned newest-first for the table.
+		const entries = _rowsOf(await database.execute(sql`
+			with running as (
+				select id, type, amount_micro, currency, request_id, description, created_by, created_at,
+					sum(amount_micro) over (order by created_at, id) as balance_after
+				from credit_ledger where billing_account_id = ${accountId}
+			)
+			select id, type, amount_micro::text as amount_micro, currency, request_id, description, created_by, created_at, balance_after::text as balance_after
+			from running order by created_at desc, id desc limit 50 offset ${(page - 1) * 50}`));
+		// 30-day usage for this account: where the credit actually goes.
+		const usage = _rowsOf(await database.execute(sql`select requested_model, count(*)::int as requests, coalesce(sum(cost), 0)::text as cost_micro
+			from request_log where user_id = ${account.user_id} and created_at >= now() - interval '30 days'
+			group by 1 order by 3 desc limit 5`));
+		const invoices = _rowsOf(await database.execute(sql`select id, number, period_start::text as period_start, period_end::text as period_end, amount_micro::text as amount_micro, currency, status, issued_at, paid_at
+			from invoice where billing_account_id = ${accountId} order by created_at desc limit 20`));
+		return {
+			account: { id: account.id, accountEmail: account.email, currency: String(account.currency).trim(), status: account.status, warningThresholdMicro: String(account.warning_micro), hardStopThresholdMicro: String(account.hard_stop_micro), balanceMicro: String(account.balance_micro), ledgerSumMicro: ledgerSum, createdAt: account.created_at },
+			byType: byType.map((r) => ({ type: r.type, totalMicro: String(r.total), entries: r.entries })),
+			ledger: { page, pages, total, entries: entries.map((e) => ({ id: e.id, type: e.type, amountMicro: String(e.amount_micro), currency: String(e.currency).trim(), requestId: e.request_id, description: e.description, createdBy: e.created_by, createdAt: e.created_at, balanceAfterMicro: String(e.balance_after) })) },
+			usage: usage.map((u) => ({ model: u.requested_model, requests: u.requests, costMicro: String(u.cost_micro) })),
+			invoices: invoices.map((v) => ({ id: v.id, number: v.number, periodStart: v.period_start, periodEnd: v.period_end, amountMicro: String(v.amount_micro), currency: String(v.currency).trim(), status: v.status, issuedAt: v.issued_at, paidAt: v.paid_at }))
+		};
+	}));
+
+	// Manual ledger entry (grant or clawback). The write touches both the ledger
+	// and the cached balance in one transaction so drift cannot be introduced by
+	// this endpoint; idempotency key makes a double-submit a no-op.
+	app.post('/api/admin/billing/credit', poster('billing', async (database, body, userRow) => {
+		const accountId = String(body.accountId ?? '').trim();
+		const type = _parseEnum(MANUAL_LEDGER_TYPES, body.type);
+		const direction = String(body.direction ?? 'grant').trim() === 'charge' ? 'charge' : 'grant';
+		const amount = _parseMicros(body.amount);
+		const description = _cleanField(body.description ?? '', 200);
+		const key = _cleanField(body.key ?? '', 100) || _newId('txn_');
+		if (!accountId) _fail(400, 'Missing billing account');
+		if (!type) _fail(400, `Type must be one of: ${MANUAL_LEDGER_TYPES.join(', ')}`);
+		if (amount === null || amount <= 0n) _fail(400, 'Amount must be a positive dollar value (e.g. 5.00)');
+		const acct = _rowsOf(await database.execute(sql`select id, balance_micro, currency from billing_account where id = ${accountId} limit 1`))[0];
+		if (!acct) _fail(404, 'Billing account not found');
+		const signed = direction === 'charge' ? -amount : amount;
+		const entryId = _newId(_IDP.creditLedger);
+		let inserted = false;
+		await database.transaction(async (tx) => {
+			const rows = _rowsOf(await tx.execute(sql`insert into credit_ledger (id, billing_account_id, type, amount_micro, currency, request_id, description, created_by, idempotency_key, created_at)
+				values (${entryId}, ${accountId}, ${type}, ${signed.toString()}, ${String(acct.currency).trim()}, null, ${description ?? `Admin ${direction} (${type})`}, ${userRow.id}, ${key}, now())
+				on conflict (idempotency_key) do nothing returning id`));
+			inserted = rows.length > 0;
+			if (!inserted) return;
+			await tx.execute(sql`update billing_account set balance_micro = balance_micro + ${signed.toString()} where id = ${accountId}`);
+			await _audit(tx, { actorUserId: userRow.id, action: 'billing.credit', resource: 'billing_account', resourceId: accountId, before: { balanceMicro: B(acct.balanceMicro) }, after: { entryId, type, direction, amountMicro: B(amount) } });
+		});
+		const after = _rowsOf(await database.execute(sql`select balance_micro::text as balance from billing_account where id = ${accountId} limit 1`))[0];
+		return inserted
+			? { entryId, already: false, balanceMicro: String(after?.balance ?? '0'), message: `${direction === 'charge' ? 'Charged' : 'Granted'} $${(Number(signed < 0n ? -signed : signed) / 1e6).toFixed(2)} (${type}) — new balance $${(Number(after?.balance ?? '0') / 1e6).toFixed(2)}.` }
+			: { entryId: null, already: true, balanceMicro: String(after?.balance ?? '0'), message: `Ledger entry already exists for key ${key}.` };
+	}));
+
+	// Account lifecycle: active -> suspended -> closed. The Go admission cache
+	// (15s TTL) picks the change up on its own; we just record who flipped it.
+	app.post('/api/admin/billing/status', poster('billing', async (database, body, userRow) => {
+		const accountId = String(body.accountId ?? '').trim();
+		const status = _parseEnum(BILLING_STATUSES, body.status);
+		if (!accountId) _fail(400, 'Missing billing account');
+		if (!status) _fail(400, `Status must be one of: ${BILLING_STATUSES.join(', ')}`);
+		const acct = _rowsOf(await database.execute(sql`select id, status from billing_account where id = ${accountId} limit 1`))[0];
+		if (!acct) _fail(404, 'Billing account not found');
+		if (String(acct.status) === status) return { changed: false, message: `Already ${status}.` };
+		await database.transaction(async (tx) => {
+			await tx.execute(sql`update billing_account set status = ${status} where id = ${accountId}`);
+			await _audit(tx, { actorUserId: userRow.id, action: 'billing.status_set', resource: 'billing_account', resourceId: accountId, before: { status: acct.status }, after: { status } });
+		});
+		return { changed: true, message: `Billing account ${accountId} set to ${status} (was ${acct.status}).` };
 	}));
 
 	// Connections: routing shape + credential counts (never secrets).

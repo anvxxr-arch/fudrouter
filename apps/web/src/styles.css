@@ -232,6 +232,10 @@ table.fr .fr-num { text-align: right; }
    A flex item's default min-width is min-content, so a long label pins the item
    and shoves its siblings out of the row instead of letting them share. */
 .row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm); }
+/* A row of KPI cards is a table of figures: unequal heights (141px next to
+   113px, because only some cards carry a sparkline) read as misalignment. Only
+   the card rows stretch; a row of buttons still centres. */
+.row--cards { align-items: stretch; }
 .row > * { min-width: 0; }
 .stack { display: grid; gap: var(--space-md); }
 .stack > * { min-width: 0; }

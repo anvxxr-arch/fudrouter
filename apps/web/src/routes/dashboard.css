@@ -55,6 +55,34 @@
    258px card, so every slug rendered as "ali/glm…". Even rebalanced to 130px it
    still cut "deepseek-v4.1-flash". The bar is a proportion, not a value, so it
    gets its own full-width row under the text and the name takes the line. */
+/* The admin bar is a NavLink around a ghost Button, so the active route got the
+   `active` class on the <a> and no styling at all: 17 identical pills and no
+   answer to "where am I". The registry labels are lowercase ("analytics") while
+   the overview is "Overview"; capitalize at render so the bar is consistent
+   without rewriting the canonical labels. */
+/* The pill row is desktop-only; below 720px AdminNav renders a native select
+   instead (17 pills wrapped to 140px, 16.6% of a 390x844 screen). */
+.admin-nav-select { display: none; }
+@media (max-width: 720px) {
+  .admin-nav { display: none; }
+  .admin-nav-select {
+    display: block; width: 100%; min-height: 44px; padding: 0 var(--space-sm);
+    border: 1px solid var(--color-border-control); border-radius: var(--radius-sm);
+    background: var(--color-surface); color: var(--color-text); font: inherit;
+  }
+}
+nav[aria-label="Admin"] { gap: var(--space-xs); }
+nav[aria-label="Admin"] .btn { text-transform: capitalize; }
+nav[aria-label="Admin"] a.active .btn {
+  /* A surface fill was invisible: surface (21,25,34) against the page is a
+     three-point difference, so all 17 pills still looked identical. The accent
+     border plus accent text is unambiguous at a glance. */
+  background: transparent; color: var(--primary);
+  border-color: var(--primary); font-weight: 600;
+}
+/* #3d4660 at half opacity sat on the #2a3040 baseline and disappeared. The stub
+   has to be legible as "month present, no entries" without competing with a bar. */
+.credits-chart-empty { fill: var(--color-border-control); opacity: 0.7; }
 .dash-models li {
   display: grid; grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 2px var(--space-sm); align-items: baseline; font-size: var(--text-sm);
@@ -170,8 +198,15 @@
 
 /* Spend chart: stacked bars, one column per day. */
 .credits-chart-card { min-width: 0; }
-.credits-chart { width: 100%; height: auto; display: block; }
+/* The SVG scales to the container, so its 11px ticks scale with it: 1.46x at
+   1052px (fine) but 0.54x at 390px (6px, unreadable). Below the point where the
+   labels stop being legible the chart gets a floor width and scrolls inside its
+   own box -- the page itself never scrolls sideways. */
+.credits-chart-wrap { overflow-x: auto; overflow-y: hidden; }
+.credits-chart { width: 100%; min-width: 44rem; height: auto; display: block; }
 .credits-chart-axis { stroke: var(--color-border); stroke-width: 1; }
+.credits-chart-grid { stroke: var(--color-border); stroke-width: 1; stroke-dasharray: 2 4; opacity: 0.6; }
+.credits-chart-month { font-size: 10px; }
 .credits-chart-tick { fill: var(--color-text-muted); font-family: var(--font-mono); font-size: 11px; }
 .credits-chart-seg--0 { fill: var(--primary); }
 .credits-chart-seg--1 { fill: var(--color-info); }

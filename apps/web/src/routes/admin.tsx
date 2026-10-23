@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { NavLink, useParams } from "react-router-dom";
+import { NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
 import { apiGet } from "../lib/server";
 import { ROLE_CAPS } from "../lib/caps";
 import { ADMIN_NAV, filterNav } from "../lib/navigation";
@@ -10,6 +10,7 @@ import { Input } from "../components/ui/input";
 import { Badge } from "../components/ui/badge";
 import { Table } from "../components/ui/table";
 import { StatCard, pctDelta } from "../components/stat-card";
+import { fmtMicro, fmtMicroShort } from "../lib/money";
 import "./dashboard.css";
 
 // The admin bar is the registry's "admin" scope filtered by the session's role,
@@ -22,17 +23,37 @@ import "./dashboard.css";
 export function AdminNav() {
   const user = useSession();
   const items = filterNav(ADMIN_NAV, user?.role ?? null);
-  return (<nav className="row" aria-label="Admin" style={{ flexWrap: "wrap" }}>
-    {items.map((i) => (
-      <NavLink key={i.to} to={i.to} end={i.to === "/admin"}>
-        <Button variant="ghost" size="sm">{i.label}</Button>
-      </NavLink>
-    ))}
-  </nav>);
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
+  // 17 pills wrap into four rows at 390px: 140px of chrome, 16.6% of the screen,
+  // before the page title. A native select is one 44px control, uses the OS
+  // picker, and needs no horizontal scroll or bespoke sheet. The pill row is
+  // hidden at that width rather than removed, so the desktop bar is unchanged.
+  const current = items.find((i) => (i.to === "/admin" ? pathname === "/admin" : pathname.startsWith(i.to)))?.to ?? "/admin";
+  return (<>
+    <nav className="row admin-nav" aria-label="Admin" style={{ flexWrap: "wrap" }}>
+      {items.map((i) => (
+        <NavLink key={i.to} to={i.to} end={i.to === "/admin"}>
+          <Button variant="ghost" size="sm">{i.label}</Button>
+        </NavLink>
+      ))}
+    </nav>
+    <select
+      className="admin-nav-select"
+      aria-label="Admin section"
+      value={current}
+      onChange={(e) => navigate(e.currentTarget.value)}
+    >
+      {items.map((i) => (<option key={i.to} value={i.to}>{i.label}</option>))}
+    </select>
+  </>);
 }
 
+// `console-main` carries the console type scale (h1 32px instead of the 48px
+// marketing ramp). The admin tree had no such scope, so "Admin" rendered at the
+// same weight as the landing hero -- 48px of chrome before any data.
 function Page({ title, lede, children }: { title: string; lede: string; children?: ReactNode }) {
-  return (<div className="stack"><AdminNav /><h1>{title}</h1><p className="lede muted">{lede}</p>{children}</div>);
+  return (<div className="stack console-main"><AdminNav /><h1>{title}</h1><p className="lede muted">{lede}</p>{children}</div>);
 }
 
 function useLoad<T>(path: string, tick = 0): { d: T | null; err: string | null } {
@@ -53,8 +74,16 @@ function State({ err, d, children }: { err: string | null; d: unknown; children:
   return (<>{children(d as never)}</>);
 }
 
+// Count keys arrive as camelCase/snake_case and several views printed them
+// verbatim, so the bar read "activeKeys" and the model summary read "published".
+// One labeler for every generic count map.
+const humanKey = (k: string) =>
+  k.replace(/[_-]+/g, " ").replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/^\w/, (c) => c.toUpperCase());
 const fmtDate = (v: unknown) => { try { return v ? new Date(String(v)).toLocaleString() : "—"; } catch { return String(v ?? "—"); } };
-const fmtUsd = (micro: unknown) => { try { const m = BigInt(String(micro ?? "0")); const neg = m < 0n; const a = neg ? -m : m; return (neg ? "-" : "") + "$" + (a / 1000000n).toString() + "." + (a % 1000000n).toString().padStart(6, "0").slice(0, 2); } catch { return String(micro ?? "—"); } };
+// Same ledger, same rendering: lib/money.ts is the only formatter. This file
+// used to truncate the cents and skip grouping, so the admin KPI read
+// "$102055.00" for the balance the member dashboard showed as "$102,054.94".
+const fmtUsd = (micro: unknown) => fmtMicro(micro as string | null | undefined);
 
 // apiPost in lib/server.ts throws "path: status" and drops the body, so a
 // refused admin action ("you cannot ban yourself") is indistinguishable from a
@@ -71,6 +100,15 @@ async function postJSON<T>(path: string, body: unknown): Promise<T> {
   return data as T;
 }
 
+// Display label per count key. The API returns camelCase keys and they were
+// rendered verbatim, so the overview read "activeKeys 70".
+const INVENTORY = [
+  ["providers", "Providers"],
+  ["models", "Models"],
+  ["connections", "Connections"],
+  ["activeKeys", "Active keys"],
+  ["users", "Users"],
+] as const;
 type Overview = { counts: Record<string, number | string>; series: { day: string; requests: number; tokens: number; costMicro: string }[]; revenueMtdMicro: string; topConsumers: { keyId: string | null; keyName: string; email: string; requests: number; costMicro: string }[]; recent: { id: string; createdAt: string; requestedModel: string | null; latencyMs: number; status: string }[] };
 export function AdminHome() {
   const { d, err } = useLoad<Overview>("/api/admin/overview");
@@ -84,15 +122,28 @@ export function AdminHome() {
       const today = v.series[v.series.length - 1];
       const yesterday = v.series[v.series.length - 2];
       return (<>
-        <div className="row" style={{ flexWrap: "wrap" }}>
+        <div className="row row--cards" style={{ flexWrap: "wrap" }}>
           <StatCard title="Requests" value={String(v.counts.requests)} delta={today && yesterday ? pctDelta(today.requests, yesterday.requests) : undefined} spark={v.series.map((s) => s.requests)} />
           <StatCard title="Tokens" value={String(v.counts.tokens)} delta={today && yesterday ? pctDelta(today.tokens, yesterday.tokens) : undefined} spark={v.series.map((s) => s.tokens)} />
           <StatCard title="Cost" value={fmtUsd(v.counts.costMicro)} delta={today && yesterday ? pctDelta(Number(BigInt(today.costMicro || "0")), Number(BigInt(yesterday.costMicro || "0"))) : undefined} spark={v.series.map((s) => Number(BigInt(s.costMicro || "0")))} />
-          <StatCard title="Revenue MTD" value={fmtUsd(v.revenueMtdMicro)} />
-          {["providers", "models", "connections", "activeKeys", "users"].map((k) => <Card key={k} title={k} desc={String(v.counts[k] ?? "—")} />)}
+          <StatCard
+            title="Revenue MTD"
+            value={fmtUsd(v.revenueMtdMicro)}
+            spark={billing.d ? billing.d.monthly.map((m) => m.series.reduce((a, s) => a + Math.max(Number(s.totalMicro || "0"), 0), 0) / 1_000_000) : undefined}
+          />
+        </div>
+        {/* Inventory was five `Card title={rawKey} desc={count}` blocks in the
+            same flex row as the KPI cards: a different component, a different
+            height, no figure styling, and the raw keys ("activeKeys") printed
+            as labels. Same component, same row, human labels. */}
+        <h2 className="dash-h">Inventory</h2>
+        <div className="row row--cards" style={{ flexWrap: "wrap" }}>
+          {INVENTORY.map(([key, label]) => (
+            <StatCard key={key} title={label} value={String(v.counts[key] ?? "—")} />
+          ))}
         </div>
         {billing.d ? (<>
-          <h2>Revenue by ledger type (12 months)</h2>
+          <h2 className="dash-h">Ledger inflow, last 12 months</h2>
           <RevenueChart monthly={billing.d.monthly} />
         </>) : null}
         {users.d ? (<>
@@ -100,47 +151,82 @@ export function AdminHome() {
           <Table head={["Email", "Role", "Created", "First request"]} rows={users.d.users.slice(0, 8).map((u) => [u.email, u.role ?? "—", fmtDate(u.createdAt), u.firstRequestAt ? fmtDate(u.firstRequestAt) : "—"])} />
         </>) : null}
         <h2>Top consumers</h2>
-        <Table head={["Key", "Owner", "Requests", "Cost"]} rows={v.topConsumers.map((t) => [t.keyName, t.email, String(t.requests), fmtUsd(t.costMicro)])} />
+        <Table head={["Key", "Owner", "Requests", "Cost"]} numeric={[2, 3]} rows={v.topConsumers.map((t) => [t.keyName, t.email, String(t.requests), fmtUsd(t.costMicro)])} />
         <h2>Recent requests</h2>
-        <Table head={["ID", "Model", "Latency ms", "Status", "At"]} rows={v.recent.map((r) => [r.id, r.requestedModel ?? "—", String(r.latencyMs), r.status, fmtDate(r.createdAt)])} />
+        <Table head={["ID", "Model", "Latency ms", "Status", "At"]} numeric={[2]} rows={v.recent.map((r) => [r.id, r.requestedModel ?? "—", String(r.latencyMs), r.status, fmtDate(r.createdAt)])} />
       </>);
     }}</State>
   </Page>);
 }
 
-// Stacked bars: one column per month, one segment per ledger type. Pure SVG —
+// Stacked bars: one column per month, one segment per ledger type. Pure SVG --
 // the console ships no charting dependency and this is the whole need.
+//
+// The first cut was unreadable at 1280px, for four separate reasons:
+//   - the only y-axis label sat at the axis baseline instead of at the top of
+//     the tallest bar, so "$102054.93" read as a value on the zero line;
+//   - only the first and last month were labelled, so the single bar carrying
+//     data could not be attributed to a month;
+//   - a ledger type that never moved in the window still got a legend row
+//     (four of six), and no gridlines meant no intermediate value was readable;
+//   - negative entries (usage_charge can be a reversal) were stacked as if they
+//     were inflow: the rect height clamped at 0 while the accumulator kept
+//     moving down, so every later segment was drawn against a wrong baseline.
+// Revenue here is gross inflow, so non-positive entries are excluded from both
+// the bar and the total rather than silently collapsing the stack.
 function RevenueChart({ monthly }: { monthly: { month: string; series: { type: string; totalMicro: string }[] }[] }) {
-  const W = 720, H = 200, PAD_L = 48, PAD_R = 8, PAD_T = 8, PAD_B = 24;
-  const types = monthly[0]?.series.map((s) => s.type) ?? [];
-  const totals = monthly.map((m) => m.series.reduce((acc, s) => acc + BigInt(s.totalMicro || "0"), 0n));
-  const max = totals.reduce((acc, v) => (v > acc ? v : acc), 1n);
-  const barW = (W - PAD_L - PAD_R) / Math.max(monthly.length, 1);
-  const y = (v: bigint) => H - PAD_B - Number((v * 1000n) / max) / 1000 * (H - PAD_T - PAD_B);
-  const first = monthly[0]?.month ?? "", last = monthly[monthly.length - 1]?.month ?? "";
+  const W = 720, H = 200, PAD_L = 56, PAD_R = 8, PAD_T = 12, PAD_B = 30;
+  const pos = (v: string | null | undefined) => { const b = BigInt(v || "0"); return b > 0n ? b : 0n; };
+  const typeOrder = monthly[0]?.series.map((s) => s.type) ?? [];
+  const colorOf = (t: string) => Math.max(typeOrder.indexOf(t), 0) % 6;
+  const totals = monthly.map((m) => m.series.reduce((acc, s) => acc + pos(s.totalMicro), 0n));
+  const max = totals.reduce((acc, v) => (v > acc ? v : acc), 0n);
   const total = totals.reduce((acc, v) => acc + v, 0n);
+  const used = typeOrder.filter((t) => monthly.some((m) => pos(m.series.find((s) => s.type === t)?.totalMicro) > 0n));
+  const first = monthly[0]?.month ?? "", last = monthly[monthly.length - 1]?.month ?? "";
+  if (monthly.length === 0 || total === 0n) {
+    return <Card desc={`No ledger entries between ${first || "—"} and ${last || "—"}.`} />;
+  }
+  const barW = (W - PAD_L - PAD_R) / monthly.length;
+  const plotH = H - PAD_T - PAD_B;
+  const y = (v: bigint) => H - PAD_B - Number((v * 10_000n) / max) / 10_000 * plotH;
+  // 0 / 50% / 100% of the tallest bar. Reading a stacked bar without these was
+  // guesswork -- the only label sat on the baseline.
+  const ticks = [0n, max / 2n, max];
   return (<>
-    <svg className="credits-chart" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Monthly revenue by ledger type from ${first} to ${last}. Total ${fmtUsd(total.toString())}.`}>
-      <line className="credits-chart-axis" x1={PAD_L} y1={H - PAD_B} x2={W - PAD_R} y2={H - PAD_B} />
-      <text className="credits-chart-tick" x={PAD_L - 6} y={H - PAD_B + 4} textAnchor="end">{fmtUsd(max.toString())}</text>
-      {monthly.map((m, i) => {
-        let acc = 0n;
-        const x = PAD_L + i * barW;
-        return (<g key={m.month}>
-          {m.series.map((s, j) => {
-            const v = BigInt(s.totalMicro || "0");
-            const y0 = y(acc);
-            acc += v;
-            const y1 = y(acc);
-            return <rect key={s.type} className={`credits-chart-seg credits-chart-seg--${j % 6}`} x={x + 1} y={y1} width={Math.max(barW - 2, 1)} height={Math.max(y0 - y1, 0)} />;
-          })}
-        </g>);
-      })}
-      <text className="credits-chart-tick" x={PAD_L} y={H - 6}>{first}</text>
-      <text className="credits-chart-tick" x={W - PAD_R} y={H - 6} textAnchor="end">{last}</text>
-    </svg>
+    <div className="credits-chart-wrap">
+      <svg className="credits-chart" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Gross ledger inflow by type, ${first} to ${last}. Total ${fmtUsd(total.toString())}.`}>
+        {ticks.map((t, i) => (
+          <g key={i}>
+            <line className={i === 0 ? "credits-chart-axis" : "credits-chart-grid"} x1={PAD_L} y1={y(t)} x2={W - PAD_R} y2={y(t)} />
+            <text className="credits-chart-tick" x={PAD_L - 8} y={y(t) + 4} textAnchor="end">{fmtMicroShort(t.toString())}</text>
+          </g>
+        ))}
+        {monthly.map((m, i) => {
+          let acc = 0n;
+          const x = PAD_L + i * barW;
+          return (<g key={m.month}>
+            {/* A zero month drew nothing at all, so 10 of 12 columns looked
+                like a chart that failed to render rather than "no activity". */}
+            {totals[i] === 0n ? <rect className="credits-chart-empty" x={x + 1} y={H - PAD_B - 2} width={Math.max(barW - 2, 1)} height={2} /> : null}
+            {m.series.map((s) => {
+              const v = pos(s.totalMicro);
+              if (v === 0n) return null;
+              const y0 = y(acc);
+              acc += v;
+              const y1 = y(acc);
+              return <rect key={s.type} className={`credits-chart-seg credits-chart-seg--${colorOf(s.type)}`} x={x + 1} y={y1} width={Math.max(barW - 2, 1)} height={Math.max(y0 - y1, 0.5)} />;
+            })}
+            {/* Every month is labelled, not just the endpoints: the one bar with
+                data was otherwise unattributable. YYYY-MM fits inside a 55-unit
+                column at 10px mono, so no rotation is needed. */}
+            <text className="credits-chart-tick credits-chart-month" x={x + barW / 2} y={H - 8} textAnchor="middle">{m.month}</text>
+          </g>);
+        })}
+      </svg>
+    </div>
     <ul className="credits-legend">
-      {types.map((t, j) => (<li key={t}><span className={`credits-legend-swatch credits-chart-seg--${j % 6}`} />{t}</li>))}
+      {used.map((t) => (<li key={t}><span className={`credits-legend-swatch credits-chart-seg--${colorOf(t)}`} />{t}</li>))}
     </ul>
   </>);
 }
@@ -158,9 +244,9 @@ function AnalyticsView() {
     <State err={err} d={d}>{(v: Analytics) => (<>
       <Card desc={"Window " + v.from + " → " + v.to + " · source: " + (v.usingRollups ? "usage_daily rollups" : "request_log fallback")} />
       <h2>By model</h2>
-      <Table head={["Model", "Req", "OK", "Tok in", "Tok out", "Cost", "p50", "p95", "p99"]} rows={v.byModel.map((r) => [r.name, String(r.requests), String(r.successes), String(r.tokensIn), String(r.tokensOut), fmtUsd(r.costMicro), String(r.p50), String(r.p95), String(r.p99)])} />
+      <Table head={["Model", "Req", "OK", "Tok in", "Tok out", "Cost", "p50", "p95", "p99"]} numeric={[1, 2, 3, 4, 5, 6, 7, 8]} rows={v.byModel.map((r) => [r.name, String(r.requests), String(r.successes), String(r.tokensIn), String(r.tokensOut), fmtUsd(r.costMicro), String(r.p50), String(r.p95), String(r.p99)])} />
       <h2>By provider</h2>
-      <Table head={["Provider", "Req", "OK", "Cost", "p50", "p95", "p99"]} rows={v.byProvider.map((r) => [r.name, String(r.requests), String(r.successes), fmtUsd(r.costMicro), String(r.p50), String(r.p95), String(r.p99)])} />
+      <Table head={["Provider", "Req", "OK", "Cost", "p50", "p95", "p99"]} numeric={[1, 2, 3, 4, 5, 6]} rows={v.byProvider.map((r) => [r.name, String(r.requests), String(r.successes), fmtUsd(r.costMicro), String(r.p50), String(r.p95), String(r.p99)])} />
     </>)}</State>
   </>);
 }
@@ -170,13 +256,13 @@ function BillingView() {
   const { d, err } = useLoad<Billing>("/api/admin/billing");
   return (<State err={err} d={d}>{(v: Billing) => (<>
     <h2>Accounts (balance is a cache — ledger sum is truth)</h2>
-    <Table head={["Account", "Status", "Balance", "Ledger sum", "Drift", "Warn", "Hard stop"]} rows={v.accounts.map((a) => [a.accountEmail, a.status, fmtUsd(a.balanceMicro), fmtUsd(a.ledgerSumMicro), a.balanceMicro === a.ledgerSumMicro ? "—" : fmtUsd(String(BigInt(a.balanceMicro) - BigInt(a.ledgerSumMicro))), fmtUsd(a.warningThresholdMicro), fmtUsd(a.hardStopThresholdMicro)])} />
+    <Table head={["Account", "Status", "Balance", "Ledger sum", "Drift", "Warn", "Hard stop"]} numeric={[2, 3, 4, 5, 6]} rows={v.accounts.map((a) => [a.accountEmail, a.status, fmtUsd(a.balanceMicro), fmtUsd(a.ledgerSumMicro), a.balanceMicro === a.ledgerSumMicro ? "—" : fmtUsd(String(BigInt(a.balanceMicro) - BigInt(a.ledgerSumMicro))), fmtUsd(a.warningThresholdMicro), fmtUsd(a.hardStopThresholdMicro)])} />
     <h2>Ledger totals by type</h2>
-    <Table head={["Type", "Total"]} rows={v.totals.map((t) => [t.type, fmtUsd(t.totalMicro)])} />
+    <Table head={["Type", "Total"]} numeric={[1]} rows={v.totals.map((t) => [t.type, fmtUsd(t.totalMicro)])} />
     <h2>Recent ledger entries</h2>
-    <Table head={["Account", "Type", "Amount", "Request", "Description", "At"]} rows={v.recent.map((r) => [r.accountEmail, r.type, fmtUsd(r.amountMicro), r.requestId ?? "—", (r.description ?? "—").slice(0, 80), fmtDate(r.createdAt)])} />
+    <Table head={["Account", "Type", "Amount", "Request", "Description", "At"]} numeric={[2]} rows={v.recent.map((r) => [r.accountEmail, r.type, fmtUsd(r.amountMicro), r.requestId ?? "—", (r.description ?? "—").slice(0, 80), fmtDate(r.createdAt)])} />
     <h2>Invoices</h2>
-    <Table head={["Number", "Account", "Amount", "Status", "Period", "Paid"]} rows={v.invoices.map((i) => [i.number, i.accountEmail, fmtUsd(i.amountMicro), i.status, fmtDate(i.periodStart).slice(0, 10) + " → " + fmtDate(i.periodEnd).slice(0, 10), i.paidAt ? fmtDate(i.paidAt) : "—"])} />
+    <Table head={["Number", "Account", "Amount", "Status", "Period", "Paid"]} numeric={[2]} rows={v.invoices.map((i) => [i.number, i.accountEmail, fmtUsd(i.amountMicro), i.status, fmtDate(i.periodStart).slice(0, 10) + " → " + fmtDate(i.periodEnd).slice(0, 10), i.paidAt ? fmtDate(i.paidAt) : "—"])} />
   </>)}</State>);
 }
 
@@ -184,7 +270,7 @@ type Connections = { connections: { id: string; name: string; baseUrl: string; r
 function ConnectionsView() {
   const { d, err } = useLoad<Connections>("/api/admin/connections");
   return (<State err={err} d={d}>{(v: Connections) => (
-    <Table head={["Provider", "Connection", "Base URL", "Region", "Prio", "Enabled", "Health", "Creds ok/total"]} rows={v.connections.map((c) => [c.providerName, c.name, c.baseUrl, c.region ?? "—", String(c.priority), String(c.enabled), c.healthStatus, c.credentialHealthy + "/" + c.credentialTotal])} />
+    <Table head={["Provider", "Connection", "Base URL", "Region", "Prio", "Enabled", "Health", "Creds ok/total"]} numeric={[4, 7]} rows={v.connections.map((c) => [c.providerName, c.name, c.baseUrl, c.region ?? "—", String(c.priority), String(c.enabled), c.healthStatus, c.credentialHealthy + "/" + c.credentialTotal])} />
   )}</State>);
 }
 
@@ -194,9 +280,9 @@ function HealthView() {
   return (<State err={err} d={d}>{(v: Health) => (<>
     <Card titleAs="h2" title="Observed outcomes" desc="Last 24h from the request log — not synthetic probes." />
     <h2>Providers</h2>
-    <Table head={["Provider", "Status", "Req/OK", "p95 ms", "Error mix"]} rows={v.providers.map((p) => [p.name, p.status, p.requests + "/" + p.successes, String(p.p95), p.errorMix.map((e) => e.code + "×" + e.n).join(", ") || "—"])} />
+    <Table head={["Provider", "Status", "Req/OK", "p95 ms", "Error mix"]} numeric={[2, 3, 4]} rows={v.providers.map((p) => [p.name, p.status, p.requests + "/" + p.successes, String(p.p95), p.errorMix.map((e) => e.code + "×" + e.n).join(", ") || "—"])} />
     <h2>Connections</h2>
-    <Table head={["Connection", "Health", "Req/OK", "p95 ms", "Creds", "Errors"]} rows={v.connections.map((c) => [c.name, c.healthStatus, c.requests + "/" + c.successes, String(c.p95), c.credentialsHealthy + "/" + c.credentialsTotal, c.errorMix.map((e) => e.code + "×" + e.n).join(", ") || "—"])} />
+    <Table head={["Connection", "Health", "Req/OK", "p95 ms", "Creds", "Errors"]} numeric={[2, 3]} rows={v.connections.map((c) => [c.name, c.healthStatus, c.requests + "/" + c.successes, String(c.p95), c.credentialsHealthy + "/" + c.credentialsTotal, c.errorMix.map((e) => e.code + "×" + e.n).join(", ") || "—"])} />
   </>)}</State>);
 }
 
@@ -215,7 +301,7 @@ type Keys = { users: { id: string; email: string }[]; keys: { id: string; name: 
 function KeysView() {
   const { d, err } = useLoad<Keys>("/api/admin/keys");
   return (<State err={err} d={d}>{(v: Keys) => (
-    <Table head={["Name", "Owner", "Prefix", "Status", "Req", "Cost", "RPM", "Last used"]} rows={v.keys.map((k) => [k.name, k.email, k.prefix, k.status, String(k.usage.requests), fmtUsd(k.usage.cost), k.rpm === null ? "—" : String(k.rpm), k.lastUsedAt ? fmtDate(k.lastUsedAt) : "—"])} />
+    <Table head={["Name", "Owner", "Prefix", "Status", "Req", "Cost", "RPM", "Last used"]} numeric={[4, 5, 6]} rows={v.keys.map((k) => [k.name, k.email, k.prefix, k.status, String(k.usage.requests), fmtUsd(k.usage.cost), k.rpm === null ? "—" : String(k.rpm), k.lastUsedAt ? fmtDate(k.lastUsedAt) : "—"])} />
   )}</State>);
 }
 
@@ -457,10 +543,10 @@ function ModelsView() {
     return (<>
       {actionErr ? <p className="error" role="alert">{actionErr}</p> : null}
       <div className="row" style={{ flexWrap: "wrap" }}>
-        {Object.entries(v.counts).map(([k, n]) => <Card key={k} title={k} desc={String(n)} />)}
+        {Object.entries(v.counts).map(([k, n]) => <Card key={k} title={humanKey(k)} desc={String(n)} />)}
       </div>
       <h2>Per-provider</h2>
-      <Table head={["Provider", "Status", "Total", "Published", "Served"]} rows={v.summary.map((s) => [s.name, s.status, String(s.total), String(s.published), String(s.served)])} />
+      <Table head={["Provider", "Status", "Total", "Published", "Served"]} numeric={[2, 4]} rows={v.summary.map((s) => [s.name, s.status, String(s.total), String(s.published), String(s.served)])} />
       <SyncPanel onApplied={() => setTick((n) => n + 1)} />
       <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
         <h2>Models</h2>
@@ -481,7 +567,7 @@ function ModelsView() {
         <Button size="sm" variant="primary" type="submit">Apply status</Button>
         <Button size="sm" variant="ghost" type="button" onClick={() => setSel(new Set())}>Clear</Button>
       </form> : null}
-      <Table head={["", "Slug", "Provider", "Status", "Served", "In / 1M", "Out / 1M", "Mappings", "Actions"]} rows={rows.map((m) => [
+      <Table head={["", "Slug", "Provider", "Status", "Served", "In / 1M", "Out / 1M", "Mappings", "Actions"]} numeric={[4, 5, 6, 7]} rows={rows.map((m) => [
         <input key={m.id} type="checkbox" className="mw-check" aria-label={"select " + m.slug} checked={sel.has(m.id)} onChange={() => toggle(m.id)} />,
         <span key="s" className="keys-name">{m.slug}{m.name !== m.slug ? <span className="muted"> · {m.name}</span> : null}</span>,
         m.providerName, m.status, String(m.served),
@@ -599,7 +685,7 @@ function ProvidersView() {
         </select>
         <span className="muted">Showing {rows.length} of {v.providers.length} providers</span>
       </form>
-      <Table head={["Provider", "Slug", "Status", "Tier", "Prio", "Models", "Conns", "Creds ok/total/bad", "Actions"]} rows={rows.map((p) => [
+      <Table head={["Provider", "Slug", "Status", "Tier", "Prio", "Models", "Conns", "Creds ok/total/bad", "Actions"]} numeric={[4, 5, 6, 7]} rows={rows.map((p) => [
         <button key="n" type="button" className="usage-row-btn" onClick={() => setOpen(p)} aria-label={"Open details for provider " + p.name}>{p.name}</button>,
         p.slug ?? "—", p.status, p.tier, String(p.priority), String(p.modelCount), String(p.connectionCount), p.credentials.healthy + "/" + p.credentials.total + "/" + p.credentials.bad,
         <span key="a" className="row">
@@ -682,7 +768,7 @@ function ProviderDetail({ provider, tick, onClose, onChanged }: { provider: Prov
       <h4>Connections</h4>
       <State err={conns.err} d={conns.d}>{(v: ProviderConnections) => (
         v.connections.length === 0 ? <p className="muted">No connections.</p> : (
-          <Table head={["Connection", "Base URL", "Region", "Prio", "Enabled", "Health", "Creds ok/total"]} rows={v.connections.map((c) => [c.name, c.baseUrl, c.region ?? "—", String(c.priority), String(c.enabled), c.healthStatus, c.credentialHealthy + "/" + c.credentialCount])} />
+          <Table head={["Connection", "Base URL", "Region", "Prio", "Enabled", "Health", "Creds ok/total"]} numeric={[3, 6]} rows={v.connections.map((c) => [c.name, c.baseUrl, c.region ?? "—", String(c.priority), String(c.enabled), c.healthStatus, c.credentialHealthy + "/" + c.credentialCount])} />
         )
       )}</State>
       <h4>Credentials</h4>
@@ -698,7 +784,7 @@ function ProviderDetail({ provider, tick, onClose, onChanged }: { provider: Prov
         const probePool = v.credentials.filter((c) => c.connectionId === probeConn).sort(byPriorityId);
         return (<>
         {v.credentials.length === 0 ? <p className="muted">No credentials.</p> : (
-          <Table head={["Name", "Key", "Status", "Last success", "Cooldown", "Prio", "Actions"]} rows={v.credentials.map((c) => {
+          <Table head={["Name", "Key", "Status", "Last success", "Cooldown", "Prio", "Actions"]} numeric={[5]} rows={v.credentials.map((c) => {
             const index = probePool.findIndex((x) => x.id === c.id);
             return [
               <span key="n" className="keys-name">{c.name}</span>,
@@ -772,7 +858,7 @@ function ProviderDetail({ provider, tick, onClose, onChanged }: { provider: Prov
       <State err={breakers.err} d={breakers.d}>{(v: Breakers) => {
         const rows = v.breakers.filter((x) => x.target === "provider" && x.target_id === provider.id);
         return rows.length === 0 ? <p className="muted">No breaker configured for this provider.</p> : (
-          <Table head={["State", "Failures", "Window s", "Open ms", "Half-open probes", "Enabled"]} rows={rows.map((b) => [b.state, String(b.failure_threshold), String(b.window_seconds), String(b.open_ms), String(b.half_open_probes), String(b.enabled)])} />
+          <Table head={["State", "Failures", "Window s", "Open ms", "Half-open probes", "Enabled"]} numeric={[1, 2, 3, 4]} rows={rows.map((b) => [b.state, String(b.failure_threshold), String(b.window_seconds), String(b.open_ms), String(b.half_open_probes), String(b.enabled)])} />
         );
       }}</State>
       <h4>Observed outcomes (24h)</h4>
@@ -780,7 +866,7 @@ function ProviderDetail({ provider, tick, onClose, onChanged }: { provider: Prov
         const p = v.providers.find((x) => x.id === provider.id);
         if (!p) return <p className="muted">No requests logged for this provider in the last 24h.</p>;
         return (<>
-          <Table head={["Requests / successes", "p95 ms", "Error mix"]} rows={[[p.requests + " / " + p.successes, String(p.p95), p.errorMix.map((e) => e.code + "×" + e.n).join(", ") || "—"]]} />
+          <Table head={["Requests / successes", "p95 ms", "Error mix"]} numeric={[0, 1, 2]} rows={[[p.requests + " / " + p.successes, String(p.p95), p.errorMix.map((e) => e.code + "×" + e.n).join(", ") || "—"]]} />
           {/* The health endpoint aggregates the 24h window per provider and
               carries no hourly series, so a per-hour chart would be drawn from
               invented points. The aggregates are the honest surface. */}
@@ -802,7 +888,7 @@ function RequestsView() {
       <Input aria-label="model filter" placeholder="model filter" value={model} onChange={(e) => setModel(e.currentTarget.value)} />
     </form>
     <State err={err} d={d}>{(v: Requests) => (
-      <Table head={["ID", "At", "User", "Model", "Provider", "Status", "Latency", "Tokens", "Cost"]} rows={v.rows.map((r) => [r.id.slice(0, 12) + "…", fmtDate(r.createdAt), r.email ?? "—", r.modelSlug ?? r.requestedModel ?? "—", r.providerName ?? "—", r.errorCode ? r.status + ":" + r.errorCode : r.status, String(r.latencyMs), (r.tokensIn + r.tokensOut).toString(), fmtUsd(r.cost)])} />
+      <Table head={["ID", "At", "User", "Model", "Provider", "Status", "Latency", "Tokens", "Cost"]} numeric={[6, 7, 8]} rows={v.rows.map((r) => [r.id.slice(0, 12) + "…", fmtDate(r.createdAt), r.email ?? "—", r.modelSlug ?? r.requestedModel ?? "—", r.providerName ?? "—", r.errorCode ? r.status + ":" + r.errorCode : r.status, String(r.latencyMs), (r.tokensIn + r.tokensOut).toString(), fmtUsd(r.cost)])} />
     )}</State>
   </>);
 }
@@ -813,7 +899,7 @@ function RoutingView() {
   return (<State err={err} d={d}>{(v: Routing) => (<>
     <Card titleAs="h2" title="Platform default" desc={v.platformDefaultName ?? v.platformDefaultId ?? "none"} />
     <h2>Policies</h2>
-    <Table head={["Name", "Scope", "Strategy", "Enabled", "Attempts", "Fallback"]} rows={v.policies.map((p) => [p.name, p.scopeName, p.strategy, String(p.enabled), String(p.maxAttempts), String(p.fallbackEnabled)])} />
+    <Table head={["Name", "Scope", "Strategy", "Enabled", "Attempts", "Fallback"]} numeric={[4]} rows={v.policies.map((p) => [p.name, p.scopeName, p.strategy, String(p.enabled), String(p.maxAttempts), String(p.fallbackEnabled)])} />
     <h2>Resolution chain (account → policy)</h2>
     <Table head={["Account", "Policy"]} rows={v.chain.map((c) => [c.account, c.policyName ?? "—"])} />
   </>)}</State>);
@@ -910,7 +996,7 @@ function SettingsView() {
     <Table head={["Name", "Strategy"]} rows={v.policies.map((p) => [p.name, p.strategy])} />
     <h2>Feature flags</h2>
     <State err={f.err} d={f.d}>{(w: Flags) => (<>
-      <Table head={["Name", "Description", "Enabled", "Rollout", "Updated", "Actions"]} rows={w.flags.map((x) => [x.name, x.description, String(x.enabled), JSON.stringify(x.rollout), fmtDate(x.updatedAt),
+      <Table head={["Name", "Description", "Enabled", "Rollout", "Updated", "Actions"]} numeric={[3]} rows={w.flags.map((x) => [x.name, x.description, String(x.enabled), JSON.stringify(x.rollout), fmtDate(x.updatedAt),
         <span key={x.id} className="row">
           <Button size="sm" onClick={() => run(() => postJSON("/api/admin/settings/feature-flags/toggle", { id: x.id }))}>{x.enabled ? "Disable" : "Enable"}</Button>
           <Button size="sm" variant="destructive" onClick={() => { if (window.confirm("Delete feature flag " + x.name + "?")) run(() => postJSON("/api/admin/settings/feature-flags/delete", { id: x.id })); }}>Delete</Button>
@@ -936,7 +1022,7 @@ function SystemView() {
       <Card titleAs="h2" title="job backlog" desc={String(v.backlog)} />
     </div>
     <h2>Jobs by status</h2>
-    <Table head={["Status", "Count"]} rows={v.jobCounts.map((j) => [j.status, String(j.n)])} />
+    <Table head={["Status", "Count"]} numeric={[1]} rows={v.jobCounts.map((j) => [j.status, String(j.n)])} />
     <h2>Open incidents</h2>
     <Table head={["Title", "Component", "Severity", "Status", "Started"]} rows={v.openIncidents.map((i) => [i.title, i.component, i.severity, i.status, fmtDate(i.startedAt)])} />
     <h2>Recent system events</h2>
@@ -1021,7 +1107,7 @@ function UsersView() {
         <Button size="sm" variant="secondary" onClick={reset}>Reset</Button>
       </div>
     ) : (
-    <Table head={[<input key="all" type="checkbox" aria-label="Select all filtered users" checked={allSel} onChange={(e) => setSel(e.currentTarget.checked ? ids : [])} />, "Email", "Name", "Role", "Banned", "Keys", "Req", "Cost", "Last activity", "Actions"]} rows={rows.map((u) => [
+    <Table head={[<input key="all" type="checkbox" aria-label="Select all filtered users" checked={allSel} onChange={(e) => setSel(e.currentTarget.checked ? ids : [])} />, "Email", "Name", "Role", "Banned", "Keys", "Req", "Cost", "Last activity", "Actions"]} numeric={[5, 6, 7]} rows={rows.map((u) => [
       <input key={u.id} type="checkbox" aria-label={"Select " + u.email} checked={sel.includes(u.id)} onChange={(e) => setSel((s) => e.currentTarget.checked ? [...s, u.id] : s.filter((x) => x !== u.id))} />,
       u.email, u.name,
       <select key={u.id} value={u.role ?? ""} onChange={(e) => run(() => postJSON("/api/admin/users/setRole", { id: u.id, role: e.currentTarget.value }))}>

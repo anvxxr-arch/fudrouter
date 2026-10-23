@@ -89,6 +89,17 @@ const REGISTRY = {
       rx: /(sk_[A-Za-z0-9_-]{8,})/
     }
   },
+  minimax: {
+    providerId: 'prv_minimax',
+    connectionId: 'con_prv_minimax-default',
+    base: 'https://api.minimax.io/v1',
+    headers: {},
+    keys: {
+      kind: 'lines',
+      file: '/home/dwizzy/.secrets/minimax.keys.txt',
+      rx: /(sk-cp-[A-Za-z0-9_-]{8,})/
+    }
+  },
   tokenharbor: {
     providerId: 'prv_tokenharbor',
     connectionId: 'con_prv_tokenharbor-default',

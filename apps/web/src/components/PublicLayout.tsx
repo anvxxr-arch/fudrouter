@@ -1,5 +1,6 @@
 import { Suspense, useEffect, useId, useRef, useState, type CSSProperties } from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
+import { useSession } from "./guards";
 import { PUBLIC_NAV, filterNav } from '../lib/navigation';
 import { api, type StatusPayload } from '../lib/api';
 
@@ -30,6 +31,7 @@ function StatusDot() {
 // guards.tsx remain the enforcement.
 export function PublicLayout() {
   const links = filterNav(PUBLIC_NAV, null);
+  const user = useSession();
   // Mobile navigation is a sheet, not a scrolling rail. Six links never fit
   // beside the brand and the login button on a phone, and a horizontally
   // scrolling row hides half of them behind a gesture nobody is told about
@@ -122,8 +124,11 @@ export function PublicLayout() {
         <span className="spacer" />
         {/* One door. Two buttons (“Log in” + “Get started”) both led to the
             same Discord round trip once signup stopped being a separate page. */}
-        <NavLink className="cta pub-cta" to="/login">
-          Log in
+        {/* The console renders inside this layout, so an authenticated visitor
+            was still offered "Log in" on /dashboard -- a dead end that looks
+            like the session was lost. One label, switched by session. */}
+        <NavLink className="cta pub-cta" to={user ? "/dashboard" : "/login"}>
+          {user ? "Dashboard" : "Log in"}
         </NavLink>
         <button
           ref={burgerRef}
@@ -180,8 +185,8 @@ export function PublicLayout() {
               </NavLink>
             ))}
           </nav>
-          <NavLink className="cta pub-sheet-cta" to="/login">
-            Log in
+          <NavLink className="cta pub-sheet-cta" to={user ? "/dashboard" : "/login"}>
+            {user ? "Dashboard" : "Log in"}
           </NavLink>
         </div>
       </div>

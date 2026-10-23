@@ -3,12 +3,26 @@ import * as React from "react";
 type LegacyTableProps = {
   head?: React.ReactNode[];
   rows?: React.ReactNode[][];
+  /** Column indexes that hold figures. Both the header and the body cells get
+   *  `fr-num` (right-aligned): aligning only the body leaves the header hanging
+   *  off the opposite edge, which reads worse than not aligning at all. */
+  numeric?: number[];
 };
 
 const Table = React.forwardRef<
   HTMLTableElement,
   React.HTMLAttributes<HTMLTableElement> & LegacyTableProps
->(({ className, head, rows, children, ...props }, ref) => (
+>(({ className, head, rows, numeric, children, ...props }, ref) => (
+  // `.table-scroll` deliberately does NOT scroll: its comment in styles.css
+  // explains that a scrollport there pins the sticky `th` to the wrong box. The
+  // scrollport is `.table-wrap` -- and this component never rendered one, so
+  // every console table overflowed invisibly: measured at 390px, table 585px
+  // inside a 342px column, `overflow-x: visible` the whole way up, 0 ancestors
+  // able to scroll, and `html/body { overflow-x: clip }` cutting the Cost and
+  // Status columns off with no way to reach them. Public pages wrapped their
+  // tables by hand; the console relies on this component, so the wrap belongs
+  // here. `.table-wrap:has(.table-scroll)` then also gets the 70vh cap.
+  <div className="table-wrap">
   <div className="table-scroll">
     <table
       ref={ref}
@@ -19,7 +33,7 @@ const Table = React.forwardRef<
         <TableHeader>
           <TableRow>
             {head.map((h, i) => (
-              <TableHead key={i}>{h}</TableHead>
+              <TableHead key={i} className={numeric?.includes(i) ? "fr-num" : undefined}>{h}</TableHead>
             ))}
           </TableRow>
         </TableHeader>
@@ -29,7 +43,7 @@ const Table = React.forwardRef<
           {rows.map((r, i) => (
             <TableRow key={i}>
               {r.map((c, j) => (
-                <TableCell key={j}>{c}</TableCell>
+                <TableCell key={j} className={numeric?.includes(j) ? "fr-num" : undefined}>{c}</TableCell>
               ))}
             </TableRow>
           ))}
@@ -37,6 +51,7 @@ const Table = React.forwardRef<
       ) : null}
       {children}
     </table>
+  </div>
   </div>
 ));
 Table.displayName = "Table";

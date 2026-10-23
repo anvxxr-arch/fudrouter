@@ -10,8 +10,18 @@ import { Table } from "../components/ui/table";
 import { StatCard, pctDelta } from "../components/stat-card";
 import "./dashboard.css";
 
-function Page({ title, lede, children }: { title: string; lede: string; children?: ReactNode }) {
-  return (<div className="stack"><h1>{title}</h1><p className="lede muted">{lede}</p>{children}</div>);
+// `actions` is the page-level toolbar (the range selector). It used to be a
+// bare row wedged between the KPI cards and the first section heading, which
+// left it floating under the cards and reading as if it belonged to the first
+// card only -- and it controls every figure on the page.
+function Page({ title, lede, actions, children }: { title: string; lede: string; actions?: ReactNode; children?: ReactNode }) {
+  return (<div className="stack">
+    <div className="dash-head">
+      <div className="dash-head-text"><h1>{title}</h1><p className="lede muted">{lede}</p></div>
+      {actions ? <div className="row dash-head-actions">{actions}</div> : null}
+    </div>
+    {children}
+  </div>);
 }
 function useLoad<T>(path: string, tick = 0): { data: T | null; error: string | null; loading: boolean } {
   const [data, setData] = useState<T | null>(null);
@@ -41,13 +51,23 @@ function fmtDate(v: string | null) {
     return v;
   }
 }
+// Micro-dollars are integers, so the whole part must never pass through
+// Number(): 2^53 micro is only $9,007,199 and a balance can legitimately be
+// larger. Split with BigInt, then group the digits — `$100504.94` read as a
+// wall of digits in the KPI card, and it is the largest figure on the page.
+const GROUP = new Intl.NumberFormat("en-US");
 function fmtMicro(v: string | null | undefined) {
   if (v === null || v === undefined) return "—";
   try {
     const micro = BigInt(v);
     const sign = micro < 0n ? "-" : "";
     const abs = micro < 0n ? -micro : micro;
-    return `${sign}$${(Number(abs) / 1_000_000).toFixed(2)}`;
+    // Round half-up at the cent, not truncate: 100504937518 micro is
+    // $100,504.937518 and reads as .94 everywhere else in the product.
+    const cents = (abs + 5_000n) / 10_000n;
+    const whole = cents / 100n;
+    const frac = (cents % 100n).toString().padStart(2, "0");
+    return `${sign}$${GROUP.format(whole)}.${frac}`;
   } catch {
     return String(v);
   }
@@ -142,7 +162,10 @@ export function DashboardHome() {
   // the selected range.
   const empty = (d?.totals.requests ?? 0) === 0;
   const topModel = d?.byModel?.[0];
-  return (<ConsoleLayout><Page title="Dashboard" lede="Usage, keys, and spend at a glance.">
+  const rangePicker = [7, 30, 90].map((n) => (
+    <Button key={n} size="sm" variant={d?.range === n ? "primary" : "secondary"} onClick={() => setRange(n)}>{n}d</Button>
+  ));
+  return (<ConsoleLayout><Page title="Dashboard" lede="Usage, keys, and spend at a glance." actions={d ? rangePicker : null}>
     <LoadState loading={loading} error={error} />
     {d ? (<>
       <OnboardingBanner d={d} />
@@ -171,33 +194,30 @@ export function DashboardHome() {
           </ul>
         </Card>
       ) : null}
-      <div className="row" style={{ flexWrap: "wrap" }}>
-        {[7, 30, 90].map((n) => (<Button key={n} size="sm" variant={d.range === n ? "primary" : "secondary"} onClick={() => setRange(n)}>{n}d</Button>))}
-      </div>
       {empty ? (
         <Card titleAs="h2" title="No traffic yet" desc="Mint a key and send a request.">
           <Link to="/dashboard/keys">Go to keys</Link>
         </Card>
       ) : (<>
-        <h2>Tokens, last {d.range} days</h2>
+        <h2 className="dash-h">Tokens</h2>
         <div className="dash-panels">
           <Card titleAs="h3" title="Input vs output tokens" className="dash-chart-card"><TokenChart series={series} /></Card>
           <Card titleAs="h3" title="Top models" className="dash-models-card">
             <ul className="dash-models">
               {(d.byModel ?? []).map((m) => (
                 <li key={m.slug}>
-                  <span className="dash-model-slug">{m.slug}</span>
-                  <span className="dash-model-bar"><span style={{ width: `${topModel && topModel.requests > 0 ? Math.round((m.requests / topModel.requests) * 100) : 0}%` }} /></span>
+                  <span className="dash-model-slug" title={m.slug}>{m.slug}</span>
                   <span className="num dash-model-reqs">{m.requests}</span>
                   <span className="num dash-model-cost">{fmtMicro(m.cost)}</span>
+                  <span className="dash-model-bar" aria-hidden="true"><span style={{ width: `${topModel && topModel.requests > 0 ? Math.round((m.requests / topModel.requests) * 100) : 0}%` }} /></span>
                 </li>
               ))}
             </ul>
           </Card>
         </div>
-        <h2>Recent requests</h2>
+        <h2 className="dash-h">Recent requests</h2>
         {d.recent.length > 0 ? (<>
-          <Table head={["Time", "Model", "Provider", "Tokens", "Cost", "Status", "Latency"]} rows={d.recent.map((r) => [
+          <Table head={["Time", "Model", "Provider", "Tokens", "Cost", "Status", "Latency"]} numeric={[3, 4, 6]} rows={d.recent.map((r) => [
             fmtDate(r.createdAt),
             r.model_slug ?? "—",
             r.providerName ?? "—",
@@ -366,7 +386,7 @@ export function KeysPage() {
         </div>
       ) : null}
       {keys.length > 0 ? (
-        <Table head={["Name", "Key", "Created", "Last used", "Requests (30d)", "Status", ""]} rows={keys.map((k) => {
+        <Table head={["Name", "Key", "Created", "Last used", "Requests (30d)", "Status", ""]} numeric={[4]} rows={keys.map((k) => {
           const st = keyStatus(k);
           return [
             <div key="name" className="keys-name">{k.name}</div>,
@@ -381,7 +401,7 @@ export function KeysPage() {
       ) : null}
       {keys.length > 0 ? (<>
         <h2>Usage per key</h2>
-        <Table head={["Key", "Requests 30d", "Tokens 30d", "Cost 30d"]} rows={byUsage.map((k) => [
+        <Table head={["Key", "Requests 30d", "Tokens 30d", "Cost 30d"]} numeric={[1, 2, 3]} rows={byUsage.map((k) => [
           <span key="k">{k.name} <code className="keys-prefix">sk-ar-{k.prefix}_</code></span>,
           <span key="r" className="num">{k.usage30d.requests}</span>,
           <span key="t" className="num">{k.usage30d.tokens}</span>,
@@ -535,7 +555,7 @@ export function UsagePage() {
 			<h2>Request log</h2>
 			<p className="muted">{active ? `Filtered by ${active}. ` : ""}{log ? `${log.total} requests · page ${log.page} of ${log.pages}` : ""}</p>
 			<LoadState loading={logLoading} error={logError} />
-			<Table head={["Time", "Model", "Provider", "Tokens in/out", "Cost", "Latency", "Status"]} rows={(log?.rows ?? []).map((r) => [
+			<Table head={["Time", "Model", "Provider", "Tokens in/out", "Cost", "Latency", "Status"]} numeric={[3, 4, 5]} rows={(log?.rows ?? []).map((r) => [
 				<button key={r.id} type="button" className="usage-row-btn" onClick={() => { setOpen(r); setCopied(false); }} aria-label={`Open details for request ${r.id}`}>{fmtDate(r.createdAt)}</button>,
 				r.modelSlug ?? r.requestedModel ?? "—",
 				r.providerName ?? "—",
@@ -725,7 +745,7 @@ export function CreditsPage() {
 			<p className="muted">No ledger entries yet — credits appear here after a top-up or a metered request.</p>
 		) : (
 			<>
-				<Table head={["When", "Type", "Description", "Amount", "Balance after"]} rows={rows.map((r) => [
+				<Table head={["When", "Type", "Description", "Amount", "Balance after"]} numeric={[3, 4]} rows={rows.map((r) => [
 					fmtDate(r.createdAt),
 					<span key={r.id} className={CREDIT_BADGE[r.type] ?? "badge"}>{CREDIT_LABEL[r.type] ?? r.type}</span>,
 					r.description ?? "—",

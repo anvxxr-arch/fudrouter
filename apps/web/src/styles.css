@@ -215,6 +215,11 @@ table.fr tbody tr:hover { background: var(--color-surface); }
 /* Figures sit in columns, so they must not jitter between values: every digit
    gets the same advance. `.num` is the marker for a standalone figure. */
 .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* A figure that owns its column is read by its last digit, so the column has to
+   end on the same edge. A cell cannot detect its own content in CSS, and the
+   header lives in a different section than the body, so Table takes the column
+   indexes explicitly (see `numeric` in components/ui/table.tsx). */
+table.fr .fr-num { text-align: right; }
 .muted { color: var(--color-text-muted); }
 /* A row is an action/among-items grouping, not a fixed line: filter chips,
    card title + badge, button pairs. Without `wrap` a single extra chip pushed
@@ -1037,6 +1042,12 @@ body { overflow-x: clip; }
 .code-block[data-more='true'] .code-block-frame::after { opacity: 1; }
 
 /* ---- console sidebar (ConsoleLayout) ---- */
+/* Console pages are scanned, not read. Reusing the marketing ramp measured
+   48px for the page title and 40px for a section heading -- 8px apart, so the
+   hierarchy collapsed -- and spent 87px before any data appeared. 32 -> 24 ->
+   20 -> 18 -> 16 -> 14. Scoped to .console-main so public pages and the admin
+   tree (which has no .console-main) are untouched. */
+.console-main h1 { font-size: var(--text-h3); line-height: 1.2; margin: 0; }
 .console-shell { display: grid; grid-template-columns: 14rem minmax(0, 1fr); gap: var(--space-xl); align-items: start; }
 .console-side { position: sticky; top: var(--space-lg); display: grid; gap: var(--space-md); }
 .console-side-nav { display: grid; gap: var(--space-xs); }

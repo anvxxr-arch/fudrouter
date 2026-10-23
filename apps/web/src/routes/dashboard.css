@@ -4,10 +4,22 @@
  * admin overview imports this file too, for the same .stat-* and
  * .credits-chart-* classes — the admin console has no stylesheet of its own. */
 
+/* The console h1 override lives in styles.css: this file is a lazy chunk of the
+   dashboard route, so /dashboard/logs and /dashboard/settings never loaded it
+   and kept the 36-48px marketing title. The .dash-* rules below are used by
+   this route only, so they stay. */
+.console-main .dash-h { font-size: var(--text-h4); margin: 0; }
+.dash-head { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-md); flex-wrap: wrap; }
+.dash-head-text { display: grid; gap: var(--space-xs); min-width: 0; }
+.dash-head-actions { flex: 0 0 auto; }
+
 /* Stat cards. The four cards sit in a .row with flex-wrap, so each one takes a
    quarter of the width until the row runs out of room. */
 .stat-card { flex: 1 1 12rem; display: grid; gap: var(--space-xs); align-content: start; }
-.stat-value { margin: 0; font-size: var(--text-stat); font-weight: 600; letter-spacing: -0.01em; }
+/* A display figure inherits the body's 1.47 line box, which added 13px of dead
+   space above and below every KPI number (measured 28px/41.16px). Tighten it;
+   the card's own gap already carries the separation. */
+.stat-value { margin: 0; font-size: var(--text-stat); font-weight: 600; letter-spacing: -0.01em; line-height: 1.1; }
 .stat-foot { justify-content: space-between; }
 .stat-sub { margin: 0; font-size: var(--text-sm); color: var(--color-text-muted); }
 .stat-rate--ok { color: var(--color-success); }
@@ -20,7 +32,10 @@
 .stat-spark { width: 100%; max-width: 7rem; height: 28px; margin-left: auto; color: var(--color-text-muted); }
 
 /* Chart + models side by side; the chart takes the wider column. */
-.dash-panels { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: var(--space-md); align-items: start; }
+/* 1.6fr/1fr gave the models card 300px, and the identifying column came out at
+   90px -- "deepseek-v4.1-flash" needs 130. The chart loses 12px of an SVG that
+   is drawn to its own viewBox; the names stop being ellipses. */
+.dash-panels { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: var(--space-md); align-items: stretch; }
 @media (max-width: 820px) { .dash-panels { grid-template-columns: minmax(0, 1fr); } }
 .dash-chart-card, .dash-models-card { min-width: 0; }
 .dash-chart-card .card-title, .dash-models-card .card-title { margin-bottom: var(--space-md); }
@@ -35,7 +50,16 @@
 
 /* Top models: slug, proportional bar, request count, cost. */
 .dash-models { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--space-sm); }
-.dash-models li { display: grid; grid-template-columns: minmax(0, 1fr) 4rem 3rem 4rem; gap: var(--space-sm); align-items: center; font-size: var(--text-sm); }
+/* The bar used to be a column of its own and the widest one (4rem), while the
+   model name -- the only identifying field -- took what was left: 58px in a
+   258px card, so every slug rendered as "ali/glm…". Even rebalanced to 130px it
+   still cut "deepseek-v4.1-flash". The bar is a proportion, not a value, so it
+   gets its own full-width row under the text and the name takes the line. */
+.dash-models li {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 2px var(--space-sm); align-items: baseline; font-size: var(--text-sm);
+}
+.dash-models .dash-model-bar { grid-column: 1 / -1; margin-top: 2px; }
 .dash-model-slug { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dash-model-bar { height: 6px; border-radius: var(--radius-pill); background: var(--color-surface-raised); overflow: hidden; }
 .dash-model-bar > span { display: block; height: 100%; border-radius: var(--radius-pill); background: var(--primary); }

@@ -459,7 +459,7 @@ function PriceCell({ model, field, onApplied }: { model: ModelRow; field: "input
       <Button size="sm" variant="ghost" onClick={() => { setEditing(false); setPreview(null); }}>Cancel</Button>
     </span>
     {preview ? <span className="stack" style={{ gap: "var(--space-xs)" }}>
-      <span className="meta">v{preview.current?.version ?? 0} → v{preview.nextVersion} · in {fmtUsd(preview.proposal.inputPrice + "000000")} · out {fmtUsd(preview.proposal.outputPrice + "000000")}</span>
+      <span className="meta">v{preview.current?.version ?? 0} → v{preview.nextVersion} · in {fmtUsd(preview.proposal.inputPrice)} · out {fmtUsd(preview.proposal.outputPrice)}</span>
       <Button size="sm" variant="primary" disabled={busy} onClick={() => void apply()}>Apply v{preview.nextVersion}</Button>
     </span> : null}
     {err ? <span className="error" role="alert">{err}</span> : null}

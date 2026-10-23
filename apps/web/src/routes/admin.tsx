@@ -77,6 +77,15 @@ function State({ err, d, children }: { err: string | null; d: unknown; children:
 // Count keys arrive as camelCase/snake_case and several views printed them
 // verbatim, so the bar read "activeKeys" and the model summary read "published".
 // One labeler for every generic count map.
+// Cell text that must stay one line: cut on a word boundary and keep the full
+// value in `title`. A raw slice(0, 60) cut mid-word ("...credential\" w") and
+// looked like a rendering fault rather than a deliberate truncation.
+const clip = (s: string, n = 72) => {
+  if (s.length <= n) return s;
+  const cut = s.slice(0, n);
+  const at = cut.lastIndexOf(" ");
+  return (at > n * 0.6 ? cut.slice(0, at) : cut).trimEnd() + "…";
+};
 const humanKey = (k: string) =>
   k.replace(/[_-]+/g, " ").replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/^\w/, (c) => c.toUpperCase());
 const fmtDate = (v: unknown) => { try { return v ? new Date(String(v)).toLocaleString() : "—"; } catch { return String(v ?? "—"); } };
@@ -1013,19 +1022,81 @@ function SettingsView() {
 }
 
 type System = { database: { size: string; connections: number } | null; valkey: string; backlog: number; jobCounts: { status: string; n: number }[]; openIncidents: { id: string; title: string; component: string; severity: string; status: string; startedAt: string }[]; events: { id: string; type: string; resource: string | null; resourceId: string | null; createdAt: string }[] };
-function SystemView() {
-  const { d, err } = useLoad<System>("/api/admin/system");
-  return (<State err={err} d={d}>{(v: System) => (<>
+type JobRow = { id: string; type: string; status: string; attempts: number; maxAttempts: number; availableAt: string | null; startedAt: string | null; finishedAt: string | null; error: string | null; payload: unknown; createdAt: string };
+type Jobs = { rows: JobRow[]; types: string[]; statuses: string[]; status: string; type: string; retryable: string[]; cancellable: string[] };
+
+// The page listed job counts by status and stopped there, so a failed job was a
+// number an operator could see and not act on -- even though retry/cancel exist
+// as endpoints. The list below is the same data at row level with the two
+// actions attached, gated by the server's own retryable/cancellable sets rather
+// than a second copy of the state machine.
+function JobsPanel({ onChanged }: { onChanged: () => void }) {
+  const [status, setStatus] = useState("failed");
+  const [type, setType] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [actionErr, setActionErr] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
+  const qs = "/api/admin/system/jobs?status=" + encodeURIComponent(status) + (type ? "&type=" + encodeURIComponent(type) : "");
+  const { d, err } = useLoad<Jobs>(qs, tick);
+  const act = async (path: string, id: string) => {
+    setBusy(id); setActionErr(null);
+    try { await postJSON(path, { id }); setTick((n) => n + 1); onChanged(); }
+    catch (e) { setActionErr(e instanceof Error ? e.message : String(e)); }
+    finally { setBusy(null); }
+  };
+  return (<>
+    {actionErr ? <p className="error" role="alert">{actionErr}</p> : null}
     <div className="row" style={{ flexWrap: "wrap" }}>
-      <Card titleAs="h2" title="database" desc={v.database ? v.database.size + " · " + v.database.connections + " conns" : "unavailable"} />
-      <Card titleAs="h2" title="valkey" desc={v.valkey} />
-      <Card titleAs="h2" title="job backlog" desc={String(v.backlog)} />
+      <select className="usage-select" aria-label="Filter jobs by status" value={status} onChange={(e) => setStatus(e.currentTarget.value)}>
+        <option value="">all statuses</option>
+        {(d?.statuses ?? ["failed", "pending", "running", "completed", "cancelled"]).map((s) => <option key={s} value={s}>{s}</option>)}
+      </select>
+      <select className="usage-select" aria-label="Filter jobs by type" value={type} onChange={(e) => setType(e.currentTarget.value)}>
+        <option value="">all types</option>
+        {(d?.types ?? []).map((t) => <option key={t} value={t}>{t}</option>)}
+      </select>
     </div>
-    <h2>Jobs by status</h2>
+    <State err={err} d={d}>{(v: Jobs) => v.rows.length === 0 ? (
+      <Card desc={`No jobs with status "${status || "any"}"${type ? ` of type ${type}` : ""}.`} />
+    ) : (
+      <Table
+        head={["Type", "Status", "Attempts", "Created", "Error", "Actions"]}
+        numeric={[2]}
+        rows={v.rows.map((j) => [
+          j.type,
+          <Badge key="s" tone={j.status === "failed" ? "warn" : j.status === "completed" ? "ok" : "default"}>{j.status}</Badge>,
+          j.attempts + " / " + j.maxAttempts,
+          fmtDate(j.createdAt),
+          j.error ? <span title={String(j.error)}>{clip(String(j.error))}</span> : "—",
+          <span key="a" className="row">
+            {v.retryable.includes(j.status) ? <Button size="sm" variant="secondary" disabled={busy === j.id} onClick={() => void act("/api/admin/system/jobs/retry", j.id)}>Retry</Button> : null}
+            {v.cancellable.includes(j.status) ? <Button size="sm" variant="ghost" disabled={busy === j.id} onClick={() => void act("/api/admin/system/jobs/cancel", j.id)}>Cancel</Button> : null}
+          </span>,
+        ])}
+      />
+    )}</State>
+  </>);
+}
+
+function SystemView() {
+  const [tick, setTick] = useState(0);
+  const { d, err } = useLoad<System>("/api/admin/system", tick);
+  return (<State err={err} d={d}>{(v: System) => (<>
+    <div className="row row--cards" style={{ flexWrap: "wrap" }}>
+      <StatCard title="Database" value={v.database ? v.database.size : "—"} />
+      <StatCard title="DB connections" value={v.database ? String(v.database.connections) : "—"} />
+      <StatCard title="Valkey" value={v.valkey} />
+      <StatCard title="Job backlog" value={String(v.backlog)} />
+    </div>
+    <h2 className="dash-h">Jobs by status</h2>
     <Table head={["Status", "Count"]} numeric={[1]} rows={v.jobCounts.map((j) => [j.status, String(j.n)])} />
-    <h2>Open incidents</h2>
-    <Table head={["Title", "Component", "Severity", "Status", "Started"]} rows={v.openIncidents.map((i) => [i.title, i.component, i.severity, i.status, fmtDate(i.startedAt)])} />
-    <h2>Recent system events</h2>
+    <h2 className="dash-h">Job queue</h2>
+    <JobsPanel onChanged={() => setTick((n) => n + 1)} />
+    <h2 className="dash-h">Open incidents</h2>
+    {v.openIncidents.length === 0
+      ? <Card desc="No open incidents — every component is reporting normal." />
+      : <Table head={["Title", "Component", "Severity", "Status", "Started"]} rows={v.openIncidents.map((i) => [i.title, i.component, i.severity, i.status, fmtDate(i.startedAt)])} />}
+    <h2 className="dash-h">Recent system events</h2>
     <Table head={["Type", "Resource", "At"]} rows={v.events.map((e) => [e.type, (e.resource ?? "") + (e.resourceId ? "/" + e.resourceId : "") || "—", fmtDate(e.createdAt)])} />
   </>)}</State>);
 }

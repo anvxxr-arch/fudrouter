@@ -1057,7 +1057,33 @@ body { overflow-x: clip; }
 .console-side-toggle { justify-self: start; padding: 2px var(--space-sm); border: 1px solid var(--color-border-control); border-radius: var(--radius-sm); background: transparent; color: var(--color-text-muted); font: inherit; cursor: pointer; }
 .console-side-toggle:hover { color: var(--color-text); border-color: var(--color-border-strong); }
 .console-shell.collapsed { grid-template-columns: auto minmax(0, 1fr); }
-@media (max-width: 720px) { .console-shell { grid-template-columns: minmax(0, 1fr); } .console-side { position: static; } }
+/* Mobile section bar + bottom sheet. The old behaviour stacked the sidebar
+   inline: 468px and 62% of a 390x844 screen spent before the first stat card.
+   Below 720px the sidebar and its toggle are gone entirely; a 44px bar (the
+   touch-target floor) carries the section name and the Menu trigger, and the
+   list opens in the shared .pub-sheet. Non-sticky, so persistent chrome while
+   reading is the public header alone (56px = 6.6% of 844); at entry the bar
+   adds 44px -- 100px total, 11.8%, under the 12% budget. */
+.console-mobile-bar { display: none; }
+@media (max-width: 720px) {
+  .console-shell { grid-template-columns: minmax(0, 1fr); }
+  .console-mobile-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: var(--space-sm); min-height: 44px; margin-bottom: var(--space-md);
+  }
+  .console-side { display: none; }
+  .console-mobile-title {
+    min-width: 0; font-size: var(--text-sm); font-weight: 600;
+    color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .console-mobile-btn {
+    min-height: 44px; padding: 0 var(--space-md); flex: 0 0 auto;
+    border: 1px solid var(--color-border-control); border-radius: var(--radius-sm);
+    background: var(--color-surface); color: var(--color-text);
+    font: inherit; font-weight: 600; cursor: pointer;
+  }
+  .console-mobile-btn:hover { border-color: var(--color-border-strong); }
+}
 
 /* ---- docs (moved from Docs.tsx inline <style>) ---- */
 .doc-layout { display: grid; grid-template-columns: 14rem minmax(0, 1fr); gap: var(--space-xl); }

@@ -1063,17 +1063,32 @@ function SimulationPanel() {
   };
   return (<Card titleAs="h2" title="Simulate a route">
     {err ? <p className="error" role="alert">{err}</p> : null}
-    <div className="row" style={{ flexWrap: "wrap" }}>
-      <Input aria-label="Filter models" placeholder="filter models…" value={q} onChange={(e) => setQ(e.currentTarget.value)} />
-      <select aria-label="Model" value={modelId} onChange={(e) => setModelId(e.currentTarget.value)}>
-        <option value="">pick a model…</option>
-        {models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-      </select>
-      <select aria-label="Strategy" value={strategy} onChange={(e) => setStrategy(e.currentTarget.value)}>
-        {(d?.strategies ?? []).map((s) => <option key={s} value={s}>{s}</option>)}
-      </select>
-      <Input aria-label="Input tokens" type="number" min={0} value={inTok} onChange={(e) => setInTok(e.currentTarget.value)} />
-      <Input aria-label="Output tokens" type="number" min={0} value={outTok} onChange={(e) => setOutTok(e.currentTarget.value)} />
+    <div className="row" style={{ flexWrap: "wrap", alignItems: "flex-end" }}>
+      <label className="admin-field">
+        <span>Find</span>
+        <Input aria-label="Filter models" placeholder="filter models…" value={q} onChange={(e) => setQ(e.currentTarget.value)} />
+      </label>
+      <label className="admin-field">
+        <span>Model</span>
+        <select aria-label="Model" value={modelId} onChange={(e) => setModelId(e.currentTarget.value)}>
+          <option value="">pick a model…</option>
+          {models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+        </select>
+      </label>
+      <label className="admin-field">
+        <span>Strategy</span>
+        <select aria-label="Strategy" value={strategy} onChange={(e) => setStrategy(e.currentTarget.value)}>
+          {(d?.strategies ?? []).map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
+      </label>
+      <label className="admin-field">
+        <span>Input tokens</span>
+        <Input aria-label="Input tokens" type="number" min={0} value={inTok} onChange={(e) => setInTok(e.currentTarget.value)} />
+      </label>
+      <label className="admin-field">
+        <span>Output tokens</span>
+        <Input aria-label="Output tokens" type="number" min={0} value={outTok} onChange={(e) => setOutTok(e.currentTarget.value)} />
+      </label>
       <Button size="sm" disabled={busy || !modelId} onClick={() => void run()}>{busy ? "Simulating…" : "Simulate"}</Button>
     </div>
     {res ? (res.rows.length === 0 ? (

@@ -102,18 +102,31 @@ These are structural and cannot be copied by adding a feature.
 Ordered by value per unit of work. Each is measurable, and each either closes a gap
 9Router owns or widens a moat it cannot cross.
 
-### Step 1 — Metered token compression
+### Step 1 — Metered token compression  ✅ shipped
 
 Match RTK's compression, then do the thing RTK cannot: **charge for the saving and
 prove it**.
 
-- Compress `tool_result` / `tool` message content before dispatch, with the same
-  filter family (git-diff, grep, ls/tree, log dedup, smart truncate).
-- Fail open: any filter error, or a result that grew, keeps the original bytes.
-- Record `tokens_saved` on `request_log` and emit it in the `event: metrics` frame.
-- **Acceptance:** a request carrying a 40 KB `git diff` tool result shows
-  `tokens_saved > 0` in `request_log`, the compressed body still parses as the same
-  message shape, and a filter that throws leaves the request byte-identical.
+- Two conservative filters in `backend/go/internal/proxy/compress.go`: collapse
+  runs of ≥3 identical consecutive lines, and elide the middle of a payload over
+  32 KiB (head + tail kept, with a marker naming the removed byte count).
+- Fail open: any parse error, or a result that grew, keeps the original bytes.
+- Only the text of a `role:"tool"` message is touched — roles, `tool_call_id` and
+  every other message stay byte identical.
+- Recorded as `request_log.tokens_saved` (migration `0020`), surfaced in the
+  playground `event: metrics` frame and the request-log list.
+- Opt-out per request: `X-Fudrouter-Token-Saver: off`.
+- **Acceptance (met):** a live request carrying a 120 KB tool result recorded
+  `tokens_saved = 21824`; the same request with the saver off recorded `0`; the
+  upstream body carried the elision marker and kept `tool_call_id`.
+- **Deliberate limit:** `tokens_saved` is an estimate (chars/4) and is a separate
+  column from `tokens_in`/`tokens_out`, which remain the provider's report and
+  the only numbers a charge may come from. It is NOT in `timing` jsonb — that
+  column is spec §8 phase latencies.
+- **Not yet matched:** RTK's format-specific filters (`git-diff`, `grep`, `ls`,
+  `tree`). Those are shape-aware rewrites of one tool's output; the two generic
+  filters here capture the bulk of a coding session's waste and cannot corrupt a
+  payload they misidentify.
 
 ### Step 2 — Combos as first-class routing
 

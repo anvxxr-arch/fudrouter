@@ -102,6 +102,13 @@ func TestAliasResolutionKeepsScopeAndTargetOrder(t *testing.T) {
 
 	key := &store.APIKeyRow{UserID: env.UserID}
 
+	// A random name: the test leaves its GLOBAL row behind (account rows die
+	// with the seeded user via cascade, a global row has no owner), and a
+	// fixed name made every re-run against a shared test database collide on
+	// the (COALESCE(account_id,''), name) unique index. CI starts from a
+	// fresh schema either way; this keeps local re-runs green too.
+	name := "cust-chat-" + tests.RandChars(6)
+
 	// A second model, so an alias has two distinct targets to order. It hangs
 	// off the seeded provider (model.provider_id is the only NOT NULL FK), but
 	// the alias path reads the `model` row by id and never joins the provider.
@@ -109,11 +116,11 @@ func TestAliasResolutionKeepsScopeAndTargetOrder(t *testing.T) {
 
 	// Declare them in the order [second, first] and pin positions 0,1: the
 	// resolution must come back in that order, not creation or uuid order.
-	tests.SeedAlias(t, dsn, env, "customer-chat", []string{secondID, env.ModelID})
+	tests.SeedAlias(t, dsn, env, name, []string{secondID, env.ModelID})
 
-	res, err := s.ResolveModel(ctx, key, "customer-chat")
+	res, err := s.ResolveModel(ctx, key, name)
 	if err != nil {
-		t.Fatalf("customer-chat: %v", err)
+		t.Fatalf("%s: %v", name, err)
 	}
 	if res.Kind != "alias" {
 		t.Errorf("kind = %q, want alias", res.Kind)
@@ -139,18 +146,18 @@ func TestAliasResolutionKeepsScopeAndTargetOrder(t *testing.T) {
 
 	// Scope precedence: the SAME name at global scope must lose to the
 	// account-scoped row above.
-	tests.SeedAliasAtScope(t, dsn, env, "customer-chat", []string{env.ModelID}, "global")
-	scoped, err := s.ResolveModel(ctx, key, "customer-chat")
+	tests.SeedAliasAtScope(t, dsn, env, name, []string{env.ModelID}, "global")
+	scoped, err := s.ResolveModel(ctx, key, name)
 	if err != nil {
-		t.Fatalf("customer-chat after global row: %v", err)
+		t.Fatalf("%s after global row: %v", name, err)
 	}
 	if len(scoped.ModelIDs) != 2 || scoped.ModelIDs[0] != secondID {
 		t.Errorf("account alias must beat the global one; got %v", scoped.ModelIDs)
 	}
 
 	// A disabled alias is invisible.
-	tests.DisableAlias(t, dsn, "customer-chat")
-	if _, err := s.ResolveModel(ctx, key, "customer-chat"); !errors.Is(err, store.ErrNotFound) {
+	tests.DisableAlias(t, dsn, name)
+	if _, err := s.ResolveModel(ctx, key, name); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("disabled alias err = %v, want ErrNotFound", err)
 	}
 }

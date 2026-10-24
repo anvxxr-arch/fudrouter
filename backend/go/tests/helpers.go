@@ -738,6 +738,44 @@ func SeedModel(t testing.TB, dsn string, env *Env, slug, inputPrice string) stri
 	return modelID
 }
 
+// SeedSecondModel adds a SECOND routable model on the env's provider, with its
+// own provider_model row, so a candidate walk can actually move between two
+// models. SeedModel above deliberately omits the provider_model and is therefore
+// unusable for a routing test (its own comment says so).
+//
+// Returns an Env-shaped view of the new model so a test can hand its ModelID to
+// a combo.
+func SeedSecondModel(t *testing.T, dsn string, env *Env) *Env {
+	t.Helper()
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(ctx)
+
+	slug := "second-" + randChars(6)
+	modelID := ids.New("mdl")
+	if _, err := conn.Exec(ctx, `
+		insert into model (id, provider_id, name, slug, context, input_price, output_price, currency, status, created_at)
+		values ($1,$2,$3,$4,128000,'150000.000000','600000.000000','USD','active', now())`,
+		modelID, env.ProviderID, slug, slug); err != nil {
+		t.Fatalf("seed second model: %v", err)
+	}
+	pmID := ids.New("pmdl")
+	if _, err := conn.Exec(ctx, `
+		insert into provider_model (id, model_id, provider_id, connection_id, provider_model_id, enabled, status)
+		values ($1,$2,$3,$4,$5,true,'available')`,
+		pmID, modelID, env.ProviderID, env.ConnectionID, slug); err != nil {
+		t.Fatalf("seed second provider_model: %v", err)
+	}
+	cp := *env
+	cp.ModelID = modelID
+	cp.ProviderModelID = pmID
+	cp.Slug = slug
+	return &cp
+}
+
 // SeedEnvAccounts seeds an [OI]-passthrough provider with an explicit account
 // pool (no native protocol), so a test can exercise per-account failover on the
 // generic /v1/* path. The first token is the one the first Pick returns.

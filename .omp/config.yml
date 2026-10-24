@@ -1,4 +1,5 @@
 modelRoles:
-  default: jerouter/step-5-preview:high
-  task: jerouter/muse-unrestricted
+  default: null
+  task: jerouter/glm-5.3-flash-unrestricted
   vision: jerouter/qwen3.8-omni-flash:high
+  smol: tiprouter/step-5-preview:xhigh

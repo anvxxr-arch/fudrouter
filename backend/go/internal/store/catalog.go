@@ -200,7 +200,7 @@ func (s *Store) ResolveModel(ctx context.Context, k *APIKeyRow, name string) (*M
 	name = strings.TrimSpace(name)
 	res := &ModelResolution{Requested: name}
 
-	// 1–3: alias (account → global) or, failing that, the literal canonical
+	// 0–2: combo (account) → alias (account → global) → literal canonical
 	// slug — all in ONE round trip.
 	//
 	// Two things drove this shape. The alias branch was originally two queries
@@ -209,11 +209,23 @@ func (s *Store) ResolveModel(ctx context.Context, k *APIKeyRow, name string) (*M
 	// another round trip AFTER the alias query came back empty, on the path a
 	// canonical slug always takes: measured at 2 queries for one literal slug.
 	//
-	// UNION ALL rather than a join: the two branches read different tables and a
+	// UNION ALL rather than a join: the branches read different tables and a
 	// left join would have to fan both out. The CTE below pins its own winner
 	// with `limit 1` on the SAME scope ordering the alias branch always used, so
 	// first-match-wins is unchanged; `b` numbers the branch grids and `pos` the
 	// alias targets so the result can be reassembled in order.
+	//
+	// Combo rides the same statement as branch -1 (spec §5 precedence: an
+	// account combo beats an alias and beats a literal slug — a customer who
+	// names a combo expects THEIR sequence). A separate resolveCombo probe
+	// before this statement cost every canonical-slug request one extra round
+	// trip, which is exactly the regression admission_count_test.go pins. The
+	// `not exists (combo …)` guards on the alias and literal arms keep
+	// first-match-wins inside SQL: without them a name that is both combo and
+	// alias would merge the two grids into one ModelIDs list, because the scan
+	// loop appends every non-literal row it sees. `$2 <> ''` mirrors the
+	// k.UserID != "" gate the separate probe had — legacy S0 keys carry a NULL
+	// user_id (apikey.go scans through *string).
 	rows, err := s.pool.Query(ctx, `
 		with picked as (
 			select a.id,
@@ -226,15 +238,31 @@ func (s *Store) ResolveModel(ctx context.Context, k *APIKeyRow, name string) (*M
 			limit 1
 		)
 		select b, kind, model_id, slug from (
+			select -1 as b, 'combo' as kind, cm.model_id, m.slug, cm.position as pos
+			from combo c
+			join combo_model cm on cm.combo_id = c.id
+			join model m on m.id = cm.model_id
+			where c.account_id = $2 and c.name = $1 and c.enabled
+			  and m.status = 'active'
+			  and $2 <> ''
+			union all
 			select 0 as b, p.kind, coalesce(t.model_id, '') as model_id,
 			       coalesce(m.slug, '') as slug, coalesce(t.position, 0) as pos
 			from picked p
 			left join model_alias_target t on t.alias_id = p.id
 			left join model m on m.id = t.model_id
+			where not exists (
+				select 1 from combo c2
+				join combo_model cm2 on cm2.combo_id = c2.id
+				join model m2 on m2.id = cm2.model_id
+				where c2.account_id = $2 and c2.name = $1 and c2.enabled
+				  and m2.status = 'active' and $2 <> ''
+			)
 			union all
-			-- Only reached when no alias matched: the exists() guards on the SAME
-			-- predicate the CTE used, so a name that is both an alias and a
-			-- model.slug still resolves as the alias (spec §5 precedence is unchanged).
+			-- Only reached when no combo and no alias matched: the exists()
+			-- guards on the SAME predicates the earlier arms used, so a name
+			-- that is also a model.slug still resolves as the combo or alias
+			-- (spec §5 precedence is unchanged).
 			select 1 as b, 'model' as kind, m2.id as model_id, m2.slug as slug, 0 as pos
 			from model m2
 			where m2.slug = $1 and m2.status = 'active'
@@ -243,14 +271,22 @@ func (s *Store) ResolveModel(ctx context.Context, k *APIKeyRow, name string) (*M
 				where a2.enabled and a2.name = $1
 				  and (a2.account_id = $2 or a2.account_id is null)
 			  )
+			  and not exists (
+				select 1 from combo c3
+				join combo_model cm3 on cm3.combo_id = c3.id
+				join model m3 on m3.id = cm3.model_id
+				where c3.account_id = $2 and c3.name = $1 and c3.enabled
+				  and m3.status = 'active' and $2 <> ''
+			  )
 		) x
 		order by b, pos`, name, k.UserID)
 	if err != nil {
 		return nil, err
 	}
 	var (
-		kind  string
-		found bool
+		kind    string
+		found   bool
+		isCombo bool
 	)
 	for rows.Next() {
 		var branch int
@@ -267,6 +303,12 @@ func (s *Store) ResolveModel(ctx context.Context, k *APIKeyRow, name string) (*M
 			res.ModelSlugs = []string{sv}
 			continue
 		}
+		if branch == -1 {
+			// The combo branch is authoritative like the literal: its rows
+			// are the whole answer (the SQL guards keep alias/literal arms
+			// empty when a combo matched).
+			isCombo = true
+		}
 		if mv != "" {
 			res.ModelIDs = append(res.ModelIDs, mv)
 			res.ModelSlugs = append(res.ModelSlugs, sv)
@@ -278,6 +320,10 @@ func (s *Store) ResolveModel(ctx context.Context, k *APIKeyRow, name string) (*M
 	}
 	rows.Close()
 	if res.Kind == "model" {
+		return res, nil
+	}
+	if isCombo {
+		res.Kind = "combo"
 		return res, nil
 	}
 	if found {

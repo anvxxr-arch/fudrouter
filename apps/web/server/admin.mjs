@@ -621,6 +621,32 @@ export function registerAdminRoutes(app, ctx) {
 			: { entryId: null, already: true, balanceMicro: String(after?.balance ?? '0'), message: `Ledger entry already exists for key ${key}.` };
 	}));
 
+	// Cache repair for drift (balance_micro <> ledger sum). The ledger is truth,
+	// so the only honest fix when the cache is the wrong side is to rewrite the
+	// cache to the ledger sum and audit the before/after. When the LEDGER is the
+	// wrong side (meter glitch, lost reversal) the correction is a reversing
+	// entry through /billing/credit, never a silent cache overwrite — that path
+	// keeps both sides consistent by construction.
+	app.post('/api/admin/billing/resync', poster('billing', async (database, body, userRow) => {
+		const accountId = String(body.accountId ?? '').trim();
+		if (!accountId) _fail(400, 'Missing billing account');
+		const [acct] = _rowsOf(await database.execute(sql`select bac.id, bac.balance_micro::text as balance_micro, u.email
+			from billing_account bac join "user" u on u.id = bac.user_id where bac.id = ${accountId} limit 1`));
+		if (!acct) _fail(404, 'Billing account not found');
+		const ledgerSum = String(_rowsOf(await database.execute(sql`select coalesce(sum(amount_micro), 0)::text as total from credit_ledger where billing_account_id = ${accountId}`))[0]?.total ?? '0');
+		if (String(acct.balance_micro) === ledgerSum) return { changed: false, message: 'No drift — cache already matches the ledger.' };
+		const drift = BigInt(String(acct.balance_micro)) - BigInt(ledgerSum);
+		await database.transaction(async (tx) => {
+			await tx.execute(sql`update billing_account set balance_micro = ${ledgerSum} where id = ${accountId}`);
+			await _audit(tx, { actorUserId: userRow.id, action: 'billing.resync', resource: 'billing_account', resourceId: accountId, before: { balanceMicro: B(acct.balance_micro) }, after: { balanceMicro: ledgerSum }, metadata: { reason: `cache repaired to ledger sum for ${String(acct.email)}`, driftMicro: B(drift) } });
+		});
+		// 6dp trimmed: a 777µ drift rounds to "$0.00" at 2dp and the message then
+		// claims a repair it did not describe. Sub-cent drift is exactly the kind
+		// worth stating precisely.
+		const fmtFull = (m) => (Number(m) / 1e6).toFixed(6).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+		return { changed: true, balanceMicro: ledgerSum, driftMicro: B(drift), message: `Cache resynced to ledger sum $${fmtFull(ledgerSum)} — drift was $${fmtFull(drift)}.` };
+	}));
+
 	// Account lifecycle: active -> suspended -> closed. The Go admission cache
 	// (15s TTL) picks the change up on its own; we just record who flipped it.
 	app.post('/api/admin/billing/status', poster('billing', async (database, body, userRow) => {

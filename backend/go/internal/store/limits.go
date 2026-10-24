@@ -20,7 +20,39 @@ type Limits struct {
 	Concurrency       *int64
 	DailySpendMicro   *int64
 	MonthlySpendMicro *int64
+
+	// UserRPM / UserConcurrency are the ACCOUNT-level values: the free-tier
+	// default and any `rate_limit` scope='account' row, already clamped by the
+	// platform ceiling. They are enforced on USER-scoped counters so the free
+	// budget is per account, not per key — a user with four keys gets 75 rpm
+	// TOTAL, not four times.
+	UserRPM         *int64
+	UserConcurrency *int64
+
+	// KeyRPM / KeyConcurrency are the key's OWN policy values (api_key.policy):
+	// the only limits that are supposed to be counted per key.
+	KeyRPM         *int64
+	KeyConcurrency *int64
 }
+
+// The free-tier admission bounds. There is no payment gateway yet, so every
+// active account may spend (balance thresholds do not gate; see proxy/budget.go)
+// under these two caps, enforced at user scope. They are FALLBACKS: a
+// `rate_limit` scope='account' row replaces them, and an api_key policy may
+// tighten below them. When billing goes live these stay — they are the floor a
+// paid tier outgrows by getting its own account row.
+const (
+	FreeTierRPMPerAccount         = int64(75)
+	FreeTierConcurrencyPerAccount = int64(3)
+)
+
+// FreeAccessNoPaymentGateway: the balance gate (admission + low-balance
+// alerts) is disabled until a payment gateway exists. Balance keeps moving in
+// the ledger exactly as before, so the reconciliation and revenue numbers a
+// paid tier will invoice against are real; only the ENFORCEMENT rests. Flip it
+// to false and every gate comes back without further changes — see
+// proxy/budget.go (admission) and proxy/lifecycle.go (alerts).
+const FreeAccessNoPaymentGateway = true
 
 // minInto folds a level's value into the running minimum.
 func minInto(dst **int64, v *int64) {
@@ -42,13 +74,21 @@ func (s *Store) EffectiveLimits(ctx context.Context, k *APIKeyRow) (*Limits, err
 	// clamped by these. Cached in-process with a 60s TTL — the row changes
 	// only via operator edit, so the skew is bounded by the TTL and no
 	// invalidation channel is needed.
+	//
+	// The ceiling is also returned raw (hardRPM/hardConc): the user-scoped
+	// free-tier counter is clamped by it too, and folding it only into the
+	// effective min would lose that (the account/default value that the user
+	// counter needs is often ABOVE the ceiling's job — the ceiling exists to
+	// cap the account value, not to be the account value).
 	s.hardLimitsMu.RLock()
 	cached, exp := s.hardLimits, s.hardLimitsExp
 	s.hardLimitsMu.RUnlock()
+	var hardRPM, hardConc *int64
 	if time.Now().Before(exp) {
 		minInto(&lim.RPM, cached.RPM)
 		minInto(&lim.TPM, cached.TPM)
 		minInto(&lim.Concurrency, cached.Concurrency)
+		hardRPM, hardConc = cached.RPM, cached.Concurrency
 	} else {
 		var raw []byte
 		err := s.pool.QueryRow(ctx,
@@ -67,6 +107,7 @@ func (s *Store) EffectiveLimits(ctx context.Context, k *APIKeyRow) (*Limits, err
 				minInto(&lim.RPM, hard.RPM)
 				minInto(&lim.TPM, hard.TPM)
 				minInto(&lim.Concurrency, hard.Concurrency)
+				hardRPM, hardConc = hard.RPM, hard.Concurrency
 			}
 		}
 	}
@@ -74,6 +115,11 @@ func (s *Store) EffectiveLimits(ctx context.Context, k *APIKeyRow) (*Limits, err
 	// Scope rows, ordered from least to most specific so the running minimum
 	// can be folded in one pass. The account scope replaced the three hierarchy
 	// scopes in migration 0019; `account` rows are keyed by user id.
+	//
+	// The account values are also kept SEPARATELY (acctRPM/acctConc): they are
+	// what the user-scoped counters enforce, because an `account` scope speaks
+	// for the user across every key they own.
+	var acctRPM, acctConc *int64
 	rows, err := s.pool.Query(ctx, `
 		select scope, rpm, tpm, rpd, tpd, concurrency, daily_spend_micro, monthly_spend_micro
 		from rate_limit
@@ -91,6 +137,10 @@ func (s *Store) EffectiveLimits(ctx context.Context, k *APIKeyRow) (*Limits, err
 			rows.Close()
 			return nil, err
 		}
+		if scope == "account" {
+			acctRPM = minPtr(acctRPM, rpm)
+			acctConc = minPtr(acctConc, concurrency)
+		}
 		minInto(&lim.RPM, rpm)
 		minInto(&lim.TPM, tpm)
 		minInto(&lim.RPD, rpd)
@@ -106,13 +156,47 @@ func (s *Store) EffectiveLimits(ctx context.Context, k *APIKeyRow) (*Limits, err
 	rows.Close()
 
 	// The key policy is the most specific level (spec §3): it may only tighten.
-	minInto(&lim.RPM, int64Ptr(k.Policy.RPM))
+	// Its own values are also carried raw (KeyRPM/KeyConcurrency): they are the
+	// only limits counted PER KEY, everything account-level counts per user.
+	lim.KeyRPM = int64Ptr(k.Policy.RPM)
+	lim.KeyConcurrency = int64Ptr(k.Policy.Concurrency)
+	minInto(&lim.RPM, lim.KeyRPM)
 	minInto(&lim.TPM, k.Policy.TPM)
-	minInto(&lim.Concurrency, int64Ptr(k.Policy.Concurrency))
+	minInto(&lim.Concurrency, lim.KeyConcurrency)
 	minInto(&lim.DailySpendMicro, k.Policy.DailySpendMicro)
 	minInto(&lim.MonthlySpendMicro, k.Policy.MonthlySpendMicro)
+
+	// User-scoped rpm/concurrency = account row, else the free-tier default,
+	// clamped by the platform ceiling (the ceiling is global, so it binds the
+	// user counter too). If the key's policy is TIGHTER than the account value,
+	// the per-key counter and this one both run: the user total still respects
+	// the account bound while each key stays under its own.
+	if acctRPM == nil {
+		acctRPM = ptr64(FreeTierRPMPerAccount)
+	}
+	if acctConc == nil {
+		acctConc = ptr64(FreeTierConcurrencyPerAccount)
+	}
+	lim.UserRPM = minPtr(acctRPM, hardRPM)
+	lim.UserConcurrency = minPtr(acctConc, hardConc)
 	return lim, nil
 }
+
+// minPtr returns the smaller of two optional values; nils never constrain.
+func minPtr(a, b *int64) *int64 {
+	switch {
+	case a == nil:
+		return b
+	case b == nil:
+		return a
+	case *a < *b:
+		return a
+	default:
+		return b
+	}
+}
+
+func ptr64(v int64) *int64 { return &v }
 
 func int64Ptr(v *int) *int64 {
 	if v == nil {

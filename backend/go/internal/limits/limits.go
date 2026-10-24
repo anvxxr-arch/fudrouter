@@ -131,10 +131,31 @@ func (l *Limiter) Check(ctx context.Context, k *APIKeyIdentity, lim *store.Limit
 	}
 	id := k.KeyID
 
-	if lim.RPM != nil && *lim.RPM > 0 {
-		ok, err := l.allow(ctx, key(nsRate, "api_key", id, "rpm"), int(*lim.RPM), time.Minute, id+"rpm", 1)
+	// rpm runs on TWO counters, each for the level that set it:
+	//   - lim.UserRPM (account row or free-tier default): USER scope, so the
+	//     bound is the account's total across every key it owns — a four-key
+	//     user gets 75 rpm, not 300.
+	//   - the per-key counter ONLY when the key's own policy set a value
+	//     (lim.RPM may carry platform/account values that must not be counted
+	//     per key). Hand-built Limits (tests, S0) without UserRPM keep the old
+	//     behaviour: lim.RPM counts per key.
+	rpmKeyScope := lim.UserRPM == nil
+	if rpmKeyScope || lim.KeyRPM != nil {
+		v := lim.RPM
+		if lim.KeyRPM != nil {
+			v = lim.KeyRPM
+		}
+		if v != nil && *v > 0 {
+			ok, err := l.allow(ctx, key(nsRate, "api_key", id, "rpm"), int(*v), time.Minute, id+"rpm", 1)
+			if err == nil && !ok {
+				return nil, &Rejection{429, "RATE_LIMITED", "rate limit exceeded: too many requests per minute"}
+			}
+		}
+	}
+	if lim.UserRPM != nil && *lim.UserRPM > 0 && k.UserID != "" {
+		ok, err := l.allow(ctx, key(nsRate, "user", k.UserID, "rpm"), int(*lim.UserRPM), time.Minute, k.UserID+"urpm", 1)
 		if err == nil && !ok {
-			return nil, &Rejection{429, "RATE_LIMITED", "rate limit exceeded: too many requests per minute"}
+			return nil, &Rejection{429, "RATE_LIMITED", "rate limit exceeded for your account: too many requests per minute (75 rpm across all your keys)"}
 		}
 	}
 	if lim.RPD != nil && *lim.RPD > 0 {
@@ -177,38 +198,75 @@ func (l *Limiter) Check(ctx context.Context, k *APIKeyIdentity, lim *store.Limit
 		}
 	}
 
-	if lim.Concurrency != nil && *lim.Concurrency > 0 {
-		ck := key(nsConc, "api_key", id)
-		// H3: 60s was shorter than a legitimate stream: the gauge expired
-		// mid-request, the cap stopped enforcing, and the slot the request
-		// still held was decremented into a fresh window. 15m matches the
-		// freebuff client's streaming budget (freebuff/transport.go:45) — the
-		// longest a single request can legitimately hold a slot.
-		//
-		// Trade-off: release and refusal both decrement, so this TTL only
-		// recovers slots leaked by a crash — 15m means a leaked slot blocks
-		// the cap for 15m instead of 1m.
-		n, err := l.vk.IncrConc(ctx, ck, 15*time.Minute)
-		switch {
-		case errors.Is(err, vk.ErrDisabled):
-			// In-process fallback: the S0 gauge.
-			n2, over := l.local.tryIncr(ck, int(*lim.Concurrency))
-			if over {
-				return nil, &Rejection{429, "RATE_LIMITED", "concurrency limit exceeded for this API key"}
-			}
-			_ = n2
+	// Concurrency mirrors the rpm split: the account-level cap is a USER gauge
+	// (every key of the account shares those 3 slots), the policy cap is a key
+	// gauge. Doubling up is correct: the user's slots bound the total while the
+	// key's own cap bounds this key.
+	if lim.UserConcurrency != nil && *lim.UserConcurrency > 0 && k.UserID != "" {
+		over, ck, err := l.tryConc(ctx, key(nsConc, "user", k.UserID), *lim.UserConcurrency)
+		if err != nil {
+			// handled inside tryConc; Valkey-down path fails open
+		} else if over {
+			return nil, &Rejection{429, "RATE_LIMITED", "concurrency limit exceeded for your account (3 concurrent requests)"}
+		} else if ck != "" {
 			adm.concKeys = append(adm.concKeys, ck)
-		case err != nil:
-			// Valkey down: fail OPEN, no slot to release.
-		default:
-			if n > *lim.Concurrency {
-				_ = l.vk.DecrConc(ctx, ck) // do not hold the slot we refused
-				return nil, &Rejection{429, "RATE_LIMITED", "concurrency limit exceeded for this API key"}
-			}
+		}
+	}
+	if lim.KeyConcurrency != nil && *lim.KeyConcurrency > 0 {
+		over, ck, err := l.tryConc(ctx, key(nsConc, "api_key", id), *lim.KeyConcurrency)
+		if err != nil {
+			// Valkey down: fail open, no slot to release
+		} else if over {
+			return nil, &Rejection{429, "RATE_LIMITED", "concurrency limit exceeded for this API key"}
+		} else if ck != "" {
+			adm.concKeys = append(adm.concKeys, ck)
+		}
+	} else if lim.UserConcurrency == nil && lim.Concurrency != nil && *lim.Concurrency > 0 {
+		// Legacy shape (hand-built Limits): one cap, per key, as before.
+		over, ck, err := l.tryConc(ctx, key(nsConc, "api_key", id), *lim.Concurrency)
+		if err != nil {
+			// Valkey down: fail open
+		} else if over {
+			return nil, &Rejection{429, "RATE_LIMITED", "concurrency limit exceeded for this API key"}
+		} else if ck != "" {
 			adm.concKeys = append(adm.concKeys, ck)
 		}
 	}
 	return adm, nil
+}
+
+// tryConc takes one slot of the gauge; (over) means the caller is refused and
+// MUST NOT keep the slot it just incremented. Returns the gauge key the caller
+// appends to its admission (release path), empty when no slot was taken.
+func (l *Limiter) tryConc(ctx context.Context, ck string, cap int64) (over bool, takenKey string, err error) {
+	// H3: 60s was shorter than a legitimate stream: the gauge expired
+	// mid-request, the cap stopped enforcing, and the slot the request
+	// still held was decremented into a fresh window. 15m matches the
+	// freebuff client's streaming budget (freebuff/transport.go:45) — the
+	// longest a single request can legitimately hold a slot.
+	//
+	// Trade-off: release and refusal both decrement, so this TTL only
+	// recovers slots leaked by a crash — 15m means a leaked slot blocks
+	// the cap for 15m instead of 1m.
+	n, err := l.vk.IncrConc(ctx, ck, 15*time.Minute)
+	switch {
+	case errors.Is(err, vk.ErrDisabled):
+		// In-process fallback: the S0 gauge.
+		_, o := l.local.tryIncr(ck, int(cap))
+		if o {
+			return true, "", nil
+		}
+		return false, ck, nil
+	case err != nil:
+		// Valkey down: fail OPEN, no slot to release.
+		return false, "", err
+	default:
+		if n > cap {
+			_ = l.vk.DecrConc(ctx, ck) // do not hold the slot we refused
+			return true, "", nil
+		}
+		return false, ck, nil
+	}
 }
 
 // SpendAdd records completed spend against the daily/monthly counters so the
@@ -276,6 +334,10 @@ func periodSuffix(suffix string, now time.Time) string {
 // the field went with it rather than staying as a permanent empty string.
 type APIKeyIdentity struct {
 	KeyID string
+	// UserID scopes the ACCOUNT-level counters (free-tier rpm/concurrency,
+	// `rate_limit` scope='account' rows): those caps bind the user across every
+	// key they own, not each key separately.
+	UserID string
 	// Store is consulted only when a Valkey spend counter is missing.
 	Store SpendStore
 }

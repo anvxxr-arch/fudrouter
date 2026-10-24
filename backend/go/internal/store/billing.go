@@ -260,7 +260,7 @@ func (s *Store) ChargeRequest(ctx context.Context, r *RequestLog) (*ChargeResult
 			// gateTTL off a balance that no longer exists. Only on the crossing
 			// (not every charge) — a cache miss per charge would put the round
 			// trip back on the hot path this cache exists to remove.
-			if res.HardStop {
+			if res.HardStop && !FreeAccessNoPaymentGateway {
 				s.InvalidateAdmission(r.UserID)
 			}
 		}

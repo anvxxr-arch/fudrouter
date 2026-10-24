@@ -156,7 +156,7 @@ func (h *Handler) begin(w http.ResponseWriter, r *http.Request, start time.Time,
 	lc.lim = lim
 
 	adm, rej := h.limiter.Check(r.Context(),
-		&limits.APIKeyIdentity{KeyID: key.ID, Store: h.store},
+		&limits.APIKeyIdentity{KeyID: key.ID, UserID: key.UserID, Store: h.store},
 		lim, tokenEstimate(body))
 	if rej != nil {
 		status := "rate_limited"
@@ -796,7 +796,11 @@ func (lc *lifecycle) finish() {
 			log.Printf("[proxy] request_log insert failed: %v", err2)
 		}
 	}
-	if charge != nil && (charge.Warning || charge.HardStop) {
+	if charge != nil && !store.FreeAccessNoPaymentGateway && (charge.Warning || charge.HardStop) {
+		// Free access: the balance thresholds gate nothing while there is no
+		// payment gateway, so raiseLowBalance would pin a permanently firing
+		// "low balance" incident on every active user the moment their
+		// balance crossed $10 — noise, not signal. Restored with the gate.
 		lc.h.raiseLowBalance(ctx, charge, row.UserID)
 	}
 

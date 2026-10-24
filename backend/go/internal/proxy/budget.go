@@ -27,6 +27,14 @@ import (
 
 // checkBudgets gates admission on every budget in the account's chain plus the
 // account billing hard stop.
+//
+// The free-access flip lives in store (FreeAccessNoPaymentGateway): there is no
+// payment gateway yet, so the balance check below would refuse every account
+// the moment its (never-top-up-able) balance hit the hard stop. While it holds,
+// the BALANCE check is skipped and every active account spends freely under its
+// rate limits — usage is still metered and charged to the ledger, so the
+// numbers a paid tier will invoice against already exist. The STATUS check
+// stays: suspend still cuts a user off.
 func (h *Handler) checkBudgets(ctx context.Context, lc *lifecycle) error {
 	// The billing hard stop (spec §10), read through the in-process cache: it
 	// was 525µs of the hot path — Postgres round-trip latency, paid per request
@@ -49,7 +57,10 @@ func (h *Handler) checkBudgets(ctx context.Context, lc *lifecycle) error {
 		if acct.Status != "active" {
 			return store.ErrInsufficientCredits
 		}
-		if acct.BalanceMicro <= acct.HardStopThresholdMicro {
+		// Free access: no payment gateway, so a balance is a meter, not a
+		// wallet — nothing tops it up, and the hardcoded hard stop would block
+		// every user the instant it was crossed. Metering continues below.
+		if !store.FreeAccessNoPaymentGateway && acct.BalanceMicro <= acct.HardStopThresholdMicro {
 			return store.ErrInsufficientCredits
 		}
 	}

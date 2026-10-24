@@ -26,6 +26,7 @@ import (
 
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/ids"
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/proxy"
+	"github.com/anvxxr-arch/fudrouter/backend/go/internal/store"
 	"github.com/anvxxr-arch/fudrouter/backend/go/tests"
 	"github.com/jackc/pgx/v5"
 )
@@ -58,6 +59,12 @@ func TestBillingHardStopRefusesAtAdmission(t *testing.T) {
 	defer counting.Close()
 
 	env := tests.SeedEnv(t, dsn, counting.URL)
+	// The ship default RESTS the balance gate (no payment gateway yet: the
+	// hardcoded hard stop would block every account the moment it was crossed).
+	// This test pins the gate itself — spec §10 — so it runs with the flip OFF
+	// and restores the ship default afterwards.
+	store.FreeAccessNoPaymentGateway = false
+	t.Cleanup(func() { store.FreeAccessNoPaymentGateway = true })
 	// Balance exactly AT the hard stop is the boundary the spec calls out
 	// ("at or under"): 500 / 500 must refuse, not admit.
 	tests.SetBillingAccountHardStop(t, dsn, env.UserID, 500, 500)

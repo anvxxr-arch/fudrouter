@@ -52,7 +52,12 @@ const (
 // paid tier will invoice against are real; only the ENFORCEMENT rests. Flip it
 // to false and every gate comes back without further changes — see
 // proxy/budget.go (admission) and proxy/lifecycle.go (alerts).
-const FreeAccessNoPaymentGateway = true
+//
+// A var, not a const, because the spec §10 tests pin the gated behaviour: they
+// set it false for the gate's duration and restore the ship default deferred
+// (budget_gate_test.go, admission_cache_test.go). Production always boots with
+// the value below; the payment-gateway cutover is editing this line.
+var FreeAccessNoPaymentGateway = true
 
 // minInto folds a level's value into the running minimum.
 func minInto(dst **int64, v *int64) {

@@ -155,6 +155,12 @@ func TestHardStopCrossingIsVisibleToTheNextGateRead(t *testing.T) {
 	dsn := tests.RequireDB(t)
 	env := tests.SeedEnv(t, dsn, "http://127.0.0.1:1")
 	s, tr := startCounting(t, dsn)
+	// The charge-path invalidation below rests behind the free-access flip:
+	// while the gate is off, nothing reads the balance, so dropping the entry
+	// would be a pure cache miss. This test pins the invalidation the paid tier
+	// will rely on, so it runs with the flip OFF.
+	store.FreeAccessNoPaymentGateway = false
+	t.Cleanup(func() { store.FreeAccessNoPaymentGateway = true })
 	ctx := context.Background()
 	key, err := s.LookupAPIKey(ctx, env.Prefix)
 	if err != nil {

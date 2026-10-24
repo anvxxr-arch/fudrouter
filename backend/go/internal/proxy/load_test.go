@@ -196,6 +196,16 @@ func TestLoadLedgerStaysExactlyOnce(t *testing.T) {
 	h := tests.NewProxy(t, dsn, up.URL)
 	newReq := func() *http.Request { return newLoadRequest(t, env.Key, env.Slug) }
 
+	// The free-tier caps (75 rpm / 3 concurrent per USER, store/limits.go) would
+	// 429 a 12x120 burst through this one account long before the measured
+	// window closes — CI's failure read `6 of 120 requests succeeded`. The
+	// invariant under test is the LEDGER (exactly one request_log + one
+	// usage_charge row per admitted response), not the limiter, so an account
+	// row well above the load replaces the free-tier fallback and every request
+	// is admitted. platform_hard_limits (10000 rpm / 1000 concurrent) is the
+	// ceiling these fold into, so the values match it.
+	seedAccountRateLimit(t, dsn, env.UserID, 10000, 1000)
+
 	const total = 120
 	const workers = 12
 	// The pool and the statement cache warm here, BEFORE the delta baseline: the
@@ -286,4 +296,45 @@ func ledgerRows(t *testing.T, dsn string, env *tests.Env) (rows, distinct int) {
 		t.Fatalf("credit_ledger count: %v", err)
 	}
 	return rows, distinct
+}
+
+// seedAccountRateLimit writes a scope='account' rate_limit row for the user, so
+// EffectiveLimits resolves UserRPM/UserConcurrency from a REAL row instead of
+// the free-tier fallback (75 rpm / 3 concurrent, store/limits.go). Defined here
+// rather than in tests/helpers.go because the load harness is its only caller.
+//
+// The cleanup order matters: t.Cleanup runs LIFO and this registers AFTER
+// SeedEnv's teardown, so the row is deleted BEFORE the user cascades away —
+// rate_limit.scope_id carries no FK, but a test that leaks rows leaks them into
+// whatever DATABASE_URL points at, and that refuse-guard (productionDatabases)
+// is the only thing standing between a mistake and the app database.
+func seedAccountRateLimit(t *testing.T, dsn, userID string, rpm, concurrency int) {
+	t.Helper()
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(ctx)
+	if _, err := conn.Exec(ctx, `
+		insert into rate_limit (id, scope, scope_id, rpm, concurrency)
+		values ($1, 'account', $2, $3, $4)
+		on conflict (scope, scope_id) do update
+			set rpm = $3, concurrency = $4, updated_at = now()`,
+		"rl-acct-"+userID, userID, rpm, concurrency); err != nil {
+		t.Fatalf("seed account rate limit: %v", err)
+	}
+	t.Cleanup(func() {
+		cctx := context.Background()
+		c, err := pgx.Connect(cctx, dsn)
+		if err != nil {
+			t.Errorf("rate limit teardown (connect): %v", err)
+			return
+		}
+		defer c.Close(cctx)
+		if _, err := c.Exec(cctx,
+			`delete from rate_limit where scope = 'account' and scope_id = $1`, userID); err != nil {
+			t.Errorf("rate limit teardown (leaks a row): %v", err)
+		}
+	})
 }

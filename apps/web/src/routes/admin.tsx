@@ -307,6 +307,15 @@ function BillingDetailView({ id }: { id: string }) {
       {err ? <p className="error" role="alert">{err}</p> : null}
       {note ? <p className="muted" role="status">{note}</p> : null}
 
+      {drift !== 0n ? (
+        <form className="row" onSubmit={(e) => { e.preventDefault(); run(() => postJSON("/api/admin/billing/resync", { accountId: id })); }}>
+          <span className="error" role="alert">Cash figure disagrees with the ledger.</span>
+          <Button type="submit" variant="ghost">Resync cache to ledger</Button>
+        </form>
+      ) : null}
+      {/* Drift where the LEDGER is wrong side needs a reversing entry through
+          the Adjust form — never a silent cache overwrite. */}
+
       <h2>Adjust balance</h2>
       <form className="row" onSubmit={(e) => { e.preventDefault(); credit(); }}>
         <select className="select" style={{ width: "auto" }} aria-label="entry type" value={type} onChange={(e) => { const t = e.currentTarget.value; setType(t); setDirection(t === "expiration" ? "charge" : "grant"); }}>

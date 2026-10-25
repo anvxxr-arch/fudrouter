@@ -8,10 +8,10 @@ import (
 )
 
 // The data plane's SSRF guard lives in internal/netguard so every outbound
-// upstream client enforces one rule. It was implemented here alone, which is how
-// the [OI] client came to be guarded while the freebuff client was not: a
-// provider whose blob declared protocol="freebuff" could dial the internal
-// network. See internal/netguard for the rationale.
+// upstream client enforces one rule. It was once implemented here alone, which
+// left a second upstream client unguarded: a provider whose blob named that
+// protocol could dial the internal network. See internal/netguard for the
+// rationale.
 //
 // These aliases exist so the guard stays callable by its original name at the
 // construction sites in proxy.go. They are one line each and add no behaviour.

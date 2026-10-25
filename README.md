@@ -35,7 +35,6 @@ see `internal/netguard`).
 | `packages/platform/server/db/` | Drizzle schema + connection |
 | `backend/go/internal/proxy/` | The hot path, split by concern: `proxy.go` handler, `auth.go` auth+failover policy, `billing.go` the cost funnel, `generic.go` the non-chat passthrough |
 | `backend/go/internal/netguard/` | The SSRF dial guard, shared by every upstream client |
-| `backend/go/internal/freebuff/` | The native Codebuff protocol (split into protocol/transport/classify) |
 | `backend/go/migrations/` | SQL migrations, applied in order by `ops/migrate.sh` (both CI jobs and deploys use this runner — drizzle-kit's journal is retired) |
 | `docs/specs/` | Design specs. The endpoint-surface spec is the source of truth for what the API actually supports |
 

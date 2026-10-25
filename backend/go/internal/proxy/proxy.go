@@ -4,8 +4,7 @@
 // One lifecycle for every endpoint (§85): authenticate → limits → budget →
 // resolve model → route → attempt(s) → record → charge. The two public entry
 // points (ServeCompletions for chat, ServeGeneric for the rest) differ only in
-// body handling and the freebuff dispatch; everything else is shared machinery
-// in lifecycle.go.
+// body handling; everything else is shared machinery in lifecycle.go.
 package proxy
 
 import (
@@ -22,7 +21,6 @@ import (
 	"time"
 
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/crypt"
-	"github.com/anvxxr-arch/fudrouter/backend/go/internal/freebuff"
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/limits"
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/routing"
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/store"
@@ -34,10 +32,6 @@ type Handler struct {
 	crypt     *crypt.Crypt
 	client    *http.Client
 	refresher TokenRefresher
-
-	// freebuff drives the native Codebuff/Freebuff protocol for providers whose
-	// connection config declares protocol="freebuff".
-	freebuff *freebuff.Manager
 
 	// limiter enforces the spec §7 limit chain (Valkey fast path, S0 in-process
 	// fallback, fail-open on a cache outage).
@@ -96,7 +90,6 @@ func New(st *store.Store, cr *crypt.Crypt, client *http.Client, refresher TokenR
 		crypt:        cr,
 		client:       client,
 		refresher:    refresher,
-		freebuff:     freebuff.New(os.Getenv("FREEBUFF_BASE_URL")),
 		limiter:      limits.New(c),
 		vk:           c,
 		breaker:      routing.NewCircuitBreaker(c, nil),
@@ -152,9 +145,9 @@ func newUpstreamClient() *http.Client {
 			// dial the PROXY address, so the dial guard would inspect the proxy
 			// and never the provider — the guard stops being a guard on base_url
 			// at all, and CONNECT-tunnelled traffic hands the rotated provider
-			// bearer tokens to a third party. The other two upstream clients
-			// (freebuff/transport.go, pool.go) already omit it, so this made the
-			// chat path the only one whose target was unpinned.
+			// bearer tokens to a third party. The other upstream clients
+			// (pool.go) already omit it, so this made the chat path the only
+			// one whose target was unpinned.
 			//
 			// A proxy deployment, if one is ever wanted, must instead be an
 			// explicit, reviewed setting that keeps the real target verifiable.
@@ -358,35 +351,6 @@ func (h *Handler) ServeCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	lc.serveBuffered(w, respBody, resp.Header)
-}
-
-// statusForKind maps a freebuff protocol failure to a taxonomy code.
-func statusForKind(k freebuff.ErrorKind) string {
-	switch k {
-	case freebuff.KindAuthExpired:
-		return routing.ErrCodeUpstreamError
-	case freebuff.KindModelUnavailable:
-		return routing.ErrCodeModelNotFound
-	case freebuff.KindWaitingRoom:
-		return routing.ErrCodeProviderUnavailable
-	case freebuff.KindRateLimit:
-		return routing.ErrCodeRateLimited
-	case freebuff.KindBadRequest:
-		return routing.ErrCodeInvalidRequest
-	default:
-		return routing.ErrCodeUpstreamError
-	}
-}
-
-// retryableFreebuff maps a freebuff failure onto the spec §9 retry table.
-func retryableFreebuff(k freebuff.ErrorKind) bool {
-	switch k {
-	case freebuff.KindAuthExpired, freebuff.KindWaitingRoom, freebuff.KindRateLimit, freebuff.KindNetwork:
-		return true // another account or another target can fix it
-	case freebuff.KindModelUnavailable, freebuff.KindBadRequest:
-		return false
-	}
-	return false
 }
 
 // poolBuildHook is nil in production. export_test.go sets it so a test can

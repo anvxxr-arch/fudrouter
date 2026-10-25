@@ -77,11 +77,10 @@ type account struct {
 // `accounts` is the OAuth pool. `api_key` is retained for providers that are a
 // single static key, and for a blob written before the pool existed.
 //
-// `protocol` selects the upstream wire protocol. Empty means the default
-// [OI] passthrough (POST {base_url}/chat/completions with a Bearer token).
-// "freebuff" means the Codebuff/Freebuff private protocol, which needs a
-// session, an agent run, and codebuff_metadata injection — see
-// internal/freebuff.
+// `protocol` is retained for wire compatibility with the control plane but no
+// longer selects a client: the only protocol the data plane speaks is the
+// default [OI] passthrough (POST {base_url}/chat/completions with a Bearer
+// token).
 type credentials struct {
 	APIKey         string            `json:"api_key"`
 	AuthKind       string            `json:"auth_kind"`
@@ -89,9 +88,6 @@ type credentials struct {
 	DefaultHeaders map[string]string `json:"default_headers"`
 	Accounts       []account         `json:"accounts"`
 }
-
-// ProtocolFreebuff selects the native Codebuff/Freebuff upstream protocol.
-const ProtocolFreebuff = "freebuff"
 
 // TokenRefresher exchanges a refresh token for a fresh access token.
 //
@@ -470,8 +466,8 @@ func (p *Pool) save(ctx context.Context) error {
 		}
 	}
 
-	// protocol and auth_kind must survive a rewrite: dropping protocol turns a
-	// freebuff provider into a broken [OI] passthrough on the next rotation.
+	// protocol and auth_kind must survive a rewrite: dropping either turns a
+	// provider into a broken [OI] passthrough on the next rotation.
 	kind := p.authKind
 	if kind == "" {
 		kind = "oauth"

@@ -56,7 +56,7 @@ handler inside an `AsyncLocalStorage` carrying the proxy-aware client IP, then
 | `apps/web/server/` | Express: `index.mjs` (entry), `admin.mjs`, `pages.mjs`, `public.mjs`, `playground.mjs`, `lib/` |
 | `packages/platform/` | Shared domain/persistence/jobs library, loaded at **runtime** as TS |
 | `packages/contracts/` | The frozen public surface: `routes.json` + `openapi/*.yaml` + 8-test gate |
-| `backend/go/internal/` | `proxy`, `store`, `routing`, `crypt`, `keys`, `limits`, `netguard`, `cost`, `vk`, `ids`, `freebuff` |
+| `backend/go/internal/` | `proxy`, `store`, `routing`, `crypt`, `keys`, `limits`, `netguard`, `cost`, `vk`, `ids` |
 | `backend/go/migrations/` | The only migration path (`ops/migrate.sh`) |
 | `ops/` | Operations scripts + `ops/verify/` gates. **Must stay at repo root** (crontab + 4 systemd units reference it) |
 | `docs/decisions/` | ADRs. `docs/migration/` migration map + baseline. `docs/specs/` PRD |
@@ -190,11 +190,11 @@ through the same transport, redirects are covered for free. The non-obvious rule
 `Control` must **refuse an unresolved hostname** — by the time it runs, resolution
 has already happened, so a name means the guard cannot vouch for the target
 (`netguard.go:118-121`). The OpenAI client reaches the guard through the one-line
-aliases in `internal/proxy/guard.go`; the freebuff client wires it directly in
-`internal/freebuff/transport.go:56-61`. That asymmetry is the historical reason the
-rule lives in one package: the freebuff client was originally unguarded, so a
-provider blob declaring `protocol="freebuff"` could dial the internal network
-(`guard.go:10-14`). On the TS side the equivalent boundary is
+aliases in `internal/proxy/guard.go`. The rule lives in one package because a
+second upstream client was once added that wired the guard directly and, before
+that, not at all — a provider blob naming that protocol could dial the internal
+network (`guard.go:10-14`). A client added later inherits the guard by importing
+the package. On the TS side the equivalent boundary is
 `packages/platform/server/ssrf.ts`, re-exported by `apps/web/server/lib/ip.mjs` —
 the platform module **owns** the rule and nothing may carry a local copy. A prior
 audit found the console carrying a *shorter* blocklist than the shared one, which

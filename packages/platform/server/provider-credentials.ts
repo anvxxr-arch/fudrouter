@@ -107,9 +107,9 @@ export function headersFor(cred: Credentials, token: string): Record<string, str
  * The native protocol this blob declares, or null for the plain [OI] wire.
  *
  * `openai` means "no special protocol" and is normalised away so callers can test
- * for null. Anything else (`freebuff`) needs a protocol-specific client the
- * sandbox does not have, so the page must say so rather than send a plain chat
- * the upstream will reject.
+ * for null. The data plane speaks only the [OI] wire, so any other value means
+ * the sandbox cannot serve this credential and the page must say so rather than
+ * send a plain chat the upstream will reject.
  */
 export function nativeProtocol(cred: Credentials): string | null {
 	const protocol = cred.Protocol ?? cred.protocol;

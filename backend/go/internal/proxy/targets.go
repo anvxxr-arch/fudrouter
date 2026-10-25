@@ -201,7 +201,7 @@ func applyConnectionConfig(cred *credentials, configJSON []byte) {
 // a throttled credential was re-picked FIRST after a pool rebuild and burned
 // the request's pick budget on an account the upstream had just refused.
 // retryAfterSeconds honours the upstream's Retry-After hint when the caller
-// parsed one (freebuff sets a.RetryAfterSeconds); 0 falls back to 60s.
+// parsed one; 0 falls back to 60s.
 func (h *Handler) parkCredential(credID, status string, retryAfterSeconds int) {
 	if credID == "" {
 		return

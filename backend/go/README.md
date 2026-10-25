@@ -25,12 +25,6 @@ internal/
   crypt/              AES-256-GCM provider credentials (wire-identical to TS)
   keys/               sk-ar- key parsing/hashing (wire-identical to TS)
   cost/               integer micro-unit money; multiply/divide through big.Int
-  freebuff/           the native Codebuff protocol, split into:
-    protocol.go           constants + payload shapes
-    transport.go          HTTP client (carries the netguard dial hook)
-    classify.go           codebuff_metadata injection + the error taxonomy
-    manager.go            the session/run state machine
-    models.go             model resolution
 tests/                the DB-backed seeder + the production-database guard
 bin/                  the deployed binary (gitignored; run.sh execs it)
 ```
@@ -42,9 +36,9 @@ bin/                  the deployed binary (gitignored; run.sh execs it)
 resolution and *before* the socket connects. That is what makes it catch a name
 that resolves into private space (DNS rebinding) as well as a literal address —
 and because every redirect dials through the same transport, redirects are
-covered with no separate policy to keep in sync. Both the `[OI]` client and the
-freebuff client use it; the freebuff client originally did not, which was a real
-boundary hole (`guard.go` documents the threat).
+covered with no separate policy to keep in sync. Every upstream client uses it.
+The rule lives in one package because a second client was once added without it,
+which was a real boundary hole (`guard.go` documents the threat).
 
 **2. Cost is computed at exactly one funnel.**
 The router never counts tokens itself — it bills what the upstream reports in

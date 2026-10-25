@@ -213,3 +213,29 @@ ON CONFLICT ("key") DO NOTHING;
 - On the deployed box: set the value to 1 minute, watch `job` rows for
   `provider_health_check` arrive roughly a minute apart, then restore 5
   minutes.
+
+---
+
+## As built (2026-10-26)
+
+Two decisions changed during implementation, both recorded here because the
+design said one thing and the code does another:
+
+**The clamp moved to its own module.** `packages/platform/server/health-check-cadence.ts`
+exists because importing `scheduler.ts` pulls in `db/index.ts`, which throws
+without `DATABASE_URL`. The clamp is pure logic and its test should not need a
+database. `scheduler.ts` re-exports it so callers do not have to know where it
+moved.
+
+**The POST route rejects out-of-range instead of clamping.** The design said
+"clamp"; the route uses `_parseInt(body.minutes, 1, 30)` and 400s outside that.
+Both behaviours are correct and they are not redundant: the route tells the
+operator immediately, while the clamp is the backstop for a value that arrives
+some other way (a hand-edited row, a future caller). The clamp still falls
+back to the default rather than to the nearest bound.
+
+Verified: 7 clamp tests (red-green), 1 integration test proving the resolver
+is consulted at tick time rather than at boot, contracts 8/8 after
+regenerating the two lock files, `tsc` clean on platform and web, Go suite
+12 ok / 0 FAIL. Migration 0023 applied on the deployed box; the seeded row
+reads `{"everyMs": 300000}`.

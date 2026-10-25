@@ -28,6 +28,11 @@ type ModelInfo struct {
 // The gate is the same rule the control plane's publish gate implements
 // (`packages/platform/publish.ts`, endpoint-surface spec §2.1): canonical model
 // active AND provider servable. Two views of one catalogue must not drift.
+//
+// The connection + credential predicates mirror Candidates exactly, so a model
+// the hot path cannot dial is not advertised: on the deployed box 249 of 346
+// published models had no live credential, and every one of them failed at
+// request time. The catalogue now describes what the router can serve.
 func (s *Store) ActiveModels(ctx context.Context) ([]ModelInfo, error) {
 	rows, err := s.pool.Query(ctx, `
 		select m.slug, m.name, coalesce(m.context, 0),
@@ -47,7 +52,21 @@ func (s *Store) ActiveModels(ctx context.Context) ([]ModelInfo, error) {
 			order by r.version desc
 			limit 1
 		) pr on true
-		where m.status = 'active' and `+s.providerServableSQL()+`
+		where m.status = 'active'
+		  and pm.status not in ('disabled', 'unavailable')
+		  and exists (
+			select 1 from connection c
+			where c.id = pm.connection_id
+			  and c.enabled
+			  and c.health_status is distinct from 'unhealthy'
+			  and exists (
+				select 1 from credential cr
+				where cr.connection_id = c.id
+				  and cr.status not in ('disabled', 'invalid')
+				  and (cr.cooldown_until is null or cr.cooldown_until <= now())
+			  )
+		  )
+		  and `+s.providerServableSQL()+`
 		group by m.slug, m.name, m.context, m.input_price, m.output_price, m.currency,
 		         pr.input_price, pr.output_price, pr.currency
 		order by m.slug`)
@@ -92,7 +111,21 @@ func (s *Store) PublishedModel(ctx context.Context, slug string) (*ModelInfo, er
 			order by r.version desc
 			limit 1
 		) pr on true
-		where m.slug = $1 and m.status = 'active' and `+s.providerServableSQL()+`
+		where m.slug = $1 and m.status = 'active'
+		  and pm.status not in ('disabled', 'unavailable')
+		  and exists (
+			select 1 from connection c
+			where c.id = pm.connection_id
+			  and c.enabled
+			  and c.health_status is distinct from 'unhealthy'
+			  and exists (
+				select 1 from credential cr
+				where cr.connection_id = c.id
+				  and cr.status not in ('disabled', 'invalid')
+				  and (cr.cooldown_until is null or cr.cooldown_until <= now())
+			  )
+		  )
+		  and `+s.providerServableSQL()+`
 		limit 1`, slug,
 	).Scan(&m.Slug, &m.Name, &m.Context, &priceIn, &priceOut, &curCode)
 	if errors.Is(err, pgx.ErrNoRows) {

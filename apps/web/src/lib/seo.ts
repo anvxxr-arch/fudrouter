@@ -293,14 +293,52 @@ export function patternMatches(pattern: string, pathname: string): boolean {
 }
 
 /**
- * The metadata for a pathname: the longest matching public pattern, else a
- * generic entry. Longest-first matters — `/docs/:x` would otherwise shadow a
- * more specific route.
+ * Titles for the GUARDED trees — /dashboard/* and /admin/*.
+ *
+ * Why a second table instead of entries in PUBLIC_SEO: `seoFor` is the one
+ * function both planes call, so a console entry there would be read by the
+ * server's head renderer and by /sitemap.xml. Every entry here is
+ * `indexable: false` and `sitemapPaths()` filters on PUBLIC_SEO alone, so the
+ * crawler's view is unchanged — what changes is the browser tab of a
+ * signed-in user, which used to fall through to the landing page's title
+ * (`fudrouter — one API key, every model`) on all twelve console routes.
+ *
+ * The labels mirror navigation.ts's CONSOLE_NAV / ADMIN_NAV, which is the
+ * listing the user is looking at, so the tab names the page they are on.
+ * `/admin` is one entry for the whole tree: the admin sections are a hub that
+ * swaps content in place, and a title per section would need the section
+ * registry duplicated here.
+ */
+const GUARDED_SEO: readonly SeoMeta[] = [
+  { to: '/dashboard', title: `Overview | ${SITE_NAME}`, description: SITE_DESCRIPTION, indexable: false },
+  { to: '/dashboard/keys', title: `API keys | ${SITE_NAME}`, description: SITE_DESCRIPTION, indexable: false },
+  { to: '/dashboard/usage', title: `Usage | ${SITE_NAME}`, description: SITE_DESCRIPTION, indexable: false },
+  { to: '/dashboard/logs', title: `Request logs | ${SITE_NAME}`, description: SITE_DESCRIPTION, indexable: false },
+  { to: '/dashboard/playground', title: `Playground | ${SITE_NAME}`, description: SITE_DESCRIPTION, indexable: false },
+  { to: '/dashboard/limits', title: `Limits | ${SITE_NAME}`, description: SITE_DESCRIPTION, indexable: false },
+  { to: '/dashboard/budgets', title: `Budgets | ${SITE_NAME}`, description: SITE_DESCRIPTION, indexable: false },
+  { to: '/dashboard/aliases', title: `Aliases | ${SITE_NAME}`, description: SITE_DESCRIPTION, indexable: false },
+  { to: '/dashboard/routing', title: `Routing | ${SITE_NAME}`, description: SITE_DESCRIPTION, indexable: false },
+  { to: '/dashboard/alerts', title: `Alerts | ${SITE_NAME}`, description: SITE_DESCRIPTION, indexable: false },
+  { to: '/dashboard/billing', title: `Billing | ${SITE_NAME}`, description: SITE_DESCRIPTION, indexable: false },
+  { to: '/dashboard/billing/credits', title: `Credits | ${SITE_NAME}`, description: SITE_DESCRIPTION, indexable: false },
+  { to: '/dashboard/billing/invoices', title: `Invoices | ${SITE_NAME}`, description: SITE_DESCRIPTION, indexable: false },
+  { to: '/dashboard/billing/payment-methods', title: `Payment methods | ${SITE_NAME}`, description: SITE_DESCRIPTION, indexable: false },
+  { to: '/dashboard/account', title: `Account | ${SITE_NAME}`, description: SITE_DESCRIPTION, indexable: false },
+  { to: '/dashboard/settings', title: `Settings | ${SITE_NAME}`, description: SITE_DESCRIPTION, indexable: false },
+  { to: '/admin', title: `Admin console | ${SITE_NAME}`, description: SITE_DESCRIPTION, indexable: false },
+  { to: '/admin/*', title: `Admin console | ${SITE_NAME}`, description: SITE_DESCRIPTION, indexable: false },
+];
+/**
+ * The metadata for a pathname: the longest matching public pattern, else the
+ * guarded table (console/admin), else a generic entry. Longest-first matters —
+ * `/docs/:x` would otherwise shadow a more specific route, and
+ * `/dashboard/billing/credits` must not be claimed by `/dashboard`.
  */
 export function seoFor(pathname: string): SeoMeta {
   let best: SeoMeta | null = null;
   let bestLen = -1;
-  for (const meta of PUBLIC_SEO) {
+  for (const meta of [...PUBLIC_SEO, ...GUARDED_SEO]) {
     if (!patternMatches(meta.to, pathname)) continue;
     const len = meta.to.split('/').filter(Boolean).length;
     if (len > bestLen) {

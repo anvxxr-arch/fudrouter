@@ -370,3 +370,51 @@ test('the shell carries only tags the head rewrite leaves alone', () => {
 	assert.match(shell, /rel="manifest" href="\/site\.webmanifest"/);
 	assert.match(shell, /rel="apple-touch-icon" href="\/icon-192\.png"/);
 });
+test('every console route carries its own title instead of the landing page\'s', () => {
+	// The bug this pins: `seoFor` matched PUBLIC_SEO only, so all twelve
+	// /dashboard/* routes fell through to the generic fallback — the landing
+	// page's title — in a signed-in browser tab. A crawler never saw it (the
+	// server renders the shell head for a guarded route and redirects an
+	// anonymous request to /login), so only a person with twelve tabs open
+	// could tell. The fix is GUARDED_SEO, consulted by seoFor but NOT by
+	// sitemapPaths or isKnownRoute, which is asserted here too.
+	const consoleRoutes = [
+		'/dashboard',
+		'/dashboard/keys',
+		'/dashboard/usage',
+		'/dashboard/logs',
+		'/dashboard/playground',
+		'/dashboard/limits',
+		'/dashboard/budgets',
+		'/dashboard/aliases',
+		'/dashboard/routing',
+		'/dashboard/alerts',
+		'/dashboard/billing',
+		'/dashboard/settings',
+	];
+	const landing = `${seo.SITE_NAME} — ${seo.SITE_TAGLINE}`;
+	for (const route of consoleRoutes) {
+		const meta = seo.seoFor(route);
+		assert.notEqual(meta.title, landing, `${route} still renders the landing page's title`);
+		assert.match(meta.title, new RegExp(`\\| ${seo.SITE_NAME}$`), `${route} title must name the product`);
+		assert.equal(meta.indexable, false, `${route} must stay noindex`);
+	}
+	// The billing sub-routes are registry-only (nav: false) but are still pages
+	// a signed-in user opens, so they need titles of their own rather than
+	// /dashboard/billing's — the longest-match rule has to hold here too.
+	assert.match(seo.seoFor('/dashboard/billing/credits').title, /Credits/);
+	assert.match(seo.seoFor('/dashboard/billing/invoices').title, /Invoices/);
+	assert.match(seo.seoFor('/dashboard/billing/payment-methods').title, /Payment methods/);
+	assert.match(seo.seoFor('/dashboard/account').title, /Account/);
+	// /admin is one entry for the whole tree: the hub swaps sections in place.
+	assert.match(seo.seoFor('/admin').title, /Admin console/);
+	assert.match(seo.seoFor('/admin/models').title, /Admin console/);
+	// The crawler's view must not move: no guarded path reaches the sitemap.
+	const sitemap = seo.sitemapPaths();
+	for (const route of [...consoleRoutes, '/admin', '/dashboard/billing/credits']) {
+		assert.equal(sitemap.includes(route), false, `${route} leaked into the sitemap`);
+	}
+	// And the guarded table must not make an unknown path "known".
+	assert.equal(seo.isKnownRoute('/dashboard/nope'), true, 'a guarded prefix is served by the SPA shell');
+	assert.equal(seo.isKnownRoute('/nonsense'), false, 'an unknown path is still a 404');
+});

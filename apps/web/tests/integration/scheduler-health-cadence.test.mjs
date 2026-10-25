@@ -66,16 +66,31 @@ test('a tighter cadence makes provider_health_check due sooner', { skip: SKIP },
 			'the same 90s-old run IS due once the cadence is 1 minute'
 		);
 
-		// 3. The resolver is not consulted for other types, and a non-configurable
-		//    type keeps its constant.
+		// 3. The resolver is consulted for every periodic entry — it has to be,
+		//    because it receives the entry's own constant as its fallback — but
+		//    only provider_health_check is allowed to CHANGE it. Asserting the
+		//    resolver is never called for other types would be wrong: the
+		//    scheduler cannot know which types are configurable without asking.
 		const seen = [];
 		await schedulerTick(db, new Date(), SCHEDULE, async (type, fallback) => {
-			seen.push(type);
+			seen.push({ type, fallback });
 			return fallback;
 		});
 		assert.ok(
-			seen.every((t) => t === 'provider_health_check'),
-			`only provider_health_check may be resolved, saw: ${seen.join(', ')}`
+			seen.length > 0,
+			'the resolver must be consulted, otherwise a configured cadence would never apply'
+		);
+		for (const s of seen) {
+			const entryFor = SCHEDULE.find((e) => e.type === s.type);
+			assert.equal(
+				s.fallback,
+				entryFor.everyMs,
+				`the resolver must receive ${s.type}'s own constant as its fallback`
+			);
+		}
+		assert.ok(
+			seen.some((s) => s.type === 'provider_health_check'),
+			'provider_health_check must be among the resolved types'
 		);
 	} finally {
 		await db.execute(sql.raw(`delete from job where id like '${MARK}%'`));

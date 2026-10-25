@@ -44,6 +44,18 @@ type Handler struct {
 	// circuit_breaker table and is refreshed with the routing policy.
 	breaker *routing.CircuitBreaker
 
+	// healthInMem is the process-local fallback for probe results when the
+	// Valkey snapshot is unreadable — see health.go. Fallback, not primary.
+	healthInMem sync.Map
+
+	// healthViewCached is the render-path's in-process snapshot of the Valkey
+	// health map: the render guarantee is ONE Valkey read per window
+	// (models_render_cache_test), so the health read must not join the
+	// per-render budget — it refreshes on its own short TTL instead.
+	healthViewMu     sync.Mutex
+	healthViewCached map[string]HealthEntry
+	healthViewExp    time.Time
+
 	// pools caches one rotation Pool per credential target. The pool is the
 	// in-memory source of truth for account state once built, because it is
 	// also the writer of the persisted secret.

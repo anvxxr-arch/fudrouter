@@ -98,6 +98,10 @@ func main() {
 	}
 	// The OAuth pool needs a refresher; a static-key provider never calls it.
 	p := proxy.New(st, cr, nil, proxy.NewXAIRefresher(), c)
+	// Model health sweeper: background probes that fill the catalogue's
+	// `health` field. Dies with ctx; ctx is process-wide here, so the sweeper
+	// lives and dies with main exactly like the pools.
+	p.StartHealthSweeper(ctx)
 
 	mux := newMux(p, st)
 

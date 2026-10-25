@@ -28,6 +28,15 @@ import (
 // through cachedModels on the same 45 s window the Valkey entry uses, so
 // publish latency is unchanged.
 func (h *Handler) ServeModels(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Get("health") == "1" {
+		if body, ok := h.renderedModelsWithHealth(r.Context()); ok {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(body)
+			return
+		}
+		h.writeErrCode(w, "INTERNAL_ERROR", "database error")
+		return
+	}
 	body, ok := h.renderedModels(r.Context())
 	if !ok {
 		h.writeErrCode(w, "INTERNAL_ERROR", "database error")
@@ -104,9 +113,12 @@ func (h *Handler) renderedModels(ctx context.Context) ([]byte, bool) {
 		}
 		return nil, false
 	}
+	view := h.healthView(ctx)
 	data := make([]map[string]any, 0, len(models))
 	for _, m := range models {
-		data = append(data, modelObject(m))
+		obj := modelObject(m)
+		attachHealth(obj, view)
+		data = append(data, obj)
 	}
 	var buf bytes.Buffer
 	_ = json.NewEncoder(&buf).Encode(map[string]any{
@@ -137,8 +149,18 @@ func (h *Handler) ServeModel(w http.ResponseWriter, r *http.Request) {
 		h.writeErrCode(w, "MODEL_NOT_FOUND", "model not found: "+slug)
 		return
 	}
+	obj := modelObject(*m)
+	// Health is OPT-IN (`?health=1`): the default object keeps the literal
+	// §6 P1 field set (exactly id/object/owned_by/context/pricing, mirrored
+	// 1:1 by the list). No record yet = field omitted, which is the honest
+	// "not probed yet" signal — the probe loop fills it within a sweep.
+	if r.URL.Query().Get("health") == "1" {
+		if e, ok := h.healthView(r.Context())[slug]; ok {
+			obj["health"] = e
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(modelObject(*m))
+	_ = json.NewEncoder(w).Encode(obj)
 }
 
 // modelObject renders one catalogue row. The field set is IDENTICAL on both
@@ -146,10 +168,10 @@ func (h *Handler) ServeModel(w http.ResponseWriter, r *http.Request) {
 // same fields /v1/models returns, for one slug").
 func modelObject(m store.ModelInfo) map[string]any {
 	return map[string]any{
-		"id":        m.Slug,
-		"object":    "model",
-		"owned_by":  m.OwnedBy,
-		"context":   m.Context,
+		"id":       m.Slug,
+		"object":   "model",
+		"owned_by": m.OwnedBy,
+		"context":  m.Context,
 		"pricing": map[string]any{
 			"input":    m.InputPrice,
 			"output":   m.OutputPrice,

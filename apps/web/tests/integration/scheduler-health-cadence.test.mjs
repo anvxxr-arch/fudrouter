@@ -71,6 +71,12 @@ test('a tighter cadence makes provider_health_check due sooner', { skip: SKIP },
 		//    only provider_health_check is allowed to CHANGE it. Asserting the
 		//    resolver is never called for other types would be wrong: the
 		//    scheduler cannot know which types are configurable without asking.
+		//
+		// Clear the pending rows first: `inFlight` skips an entry that already
+		// has one, and the `job` table is shared with every other test in the
+		//    suite (scheduler.ts says so). Without this the whole SCHEDULE pass
+		//    short-circuits and the resolver is never reached.
+		await db.execute(sql.raw(`delete from job where status in ('pending','running')`));
 		const seen = [];
 		await schedulerTick(db, new Date(), SCHEDULE, async (type, fallback) => {
 			seen.push({ type, fallback });
@@ -93,8 +99,12 @@ test('a tighter cadence makes provider_health_check due sooner', { skip: SKIP },
 			'provider_health_check must be among the resolved types'
 		);
 	} finally {
+		// Everything this test enqueued, plus the seeded row. The pending rows
+		// from the full-SCHEDULE pass matter most: left behind, they make
+		// `inFlight` skip every entry for the next test that touches `job`.
 		await db.execute(sql.raw(`delete from job where id like '${MARK}%'`));
 		await db.execute(sql.raw(`delete from job where type = 'provider_health_check'`));
+		await db.execute(sql.raw(`delete from job where status in ('pending','running')`));
 		await client.end({ timeout: 5 });
 	}
 });

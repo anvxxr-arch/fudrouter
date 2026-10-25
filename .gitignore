@@ -36,3 +36,6 @@ node_modules/.pnpm/
 # One-off investigation scratch space. Anything here is a single-sighting probe
 # by definition; real tools get promoted into ops/verify/ and committed from there.
 scratch/
+
+# probe API key secret (minted for live router proofs) — never commit
+.liveproof.key

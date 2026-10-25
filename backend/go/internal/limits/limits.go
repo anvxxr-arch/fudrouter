@@ -242,8 +242,7 @@ func (l *Limiter) tryConc(ctx context.Context, ck string, cap int64) (over bool,
 	// H3: 60s was shorter than a legitimate stream: the gauge expired
 	// mid-request, the cap stopped enforcing, and the slot the request
 	// still held was decremented into a fresh window. 15m matches the
-	// freebuff client's streaming budget (freebuff/transport.go:45) — the
-	// longest a single request can legitimately hold a slot.
+	// longest a single streaming request can legitimately hold a slot.
 	//
 	// Trade-off: release and refusal both decrement, so this TTL only
 	// recovers slots leaked by a crash — 15m means a leaked slot blocks

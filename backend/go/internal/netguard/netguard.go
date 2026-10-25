@@ -15,11 +15,11 @@
 // redirect opens a new connection through the same transport, redirects are
 // covered for free — no separate CheckRedirect policy to keep in sync.
 //
-// This package exists because the boundary was implemented twice with
-// different strength: the [OI] client was guarded and the freebuff client was
-// not, so a provider whose credential blob declared protocol="freebuff" could
-// drive the router into the internal network. One package, one rule, every
-// upstream client.
+// This package exists because the boundary was once implemented twice with
+// different strength: one upstream client was guarded and another was not, so a
+// provider whose credential blob named an unguarded protocol could drive the
+// router into the internal network. One package, one rule, every upstream
+// client — a protocol added later inherits the guard by construction.
 package netguard
 
 import (

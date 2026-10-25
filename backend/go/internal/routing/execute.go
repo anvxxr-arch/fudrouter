@@ -33,11 +33,11 @@ type Attempt struct {
 	// request_log.error / attempt metadata ONLY (spec §8: never as the
 	// client-facing code).
 	RawMessage string
-	// RetryAfterSeconds carries an upstream Retry-After hint (freebuff waiting
-	// room / rate limit) so the client response can relay it.
+	// RetryAfterSeconds carries an upstream Retry-After hint (waiting room /
+	// rate limit) so the client response can relay it.
 	RetryAfterSeconds int
 	// ClientStatus overrides the taxonomy's default HTTP status for this
-	// attempt's failure (e.g. a freebuff waiting room is 503, not the generic
+	// attempt's failure (e.g. a waiting room is 503, not the generic
 	// provider-unavailable 502). Zero = use the default.
 	ClientStatus int
 	// Payload is the caller's own exchange artifact (e.g. *http.Response),

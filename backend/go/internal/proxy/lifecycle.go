@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/cost"
-	"github.com/anvxxr-arch/fudrouter/backend/go/internal/freebuff"
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/ids"
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/limits"
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/routing"
@@ -622,8 +621,8 @@ func (lc *lifecycle) fail(err error) {
 	}
 	msg := lc.errMsg
 	// The queue message is trusted only when the LAST attempt asked for a
-	// client-visible status (the freebuff waiting room): an earlier attempt's
-	// hint must not describe a later, different failure.
+	// client-visible status: an earlier attempt's hint must not describe a
+	// later, different failure.
 	if len(lc.attempts) == 0 || lc.attempts[len(lc.attempts)-1].ClientStatus == 0 {
 		msg = ""
 	}
@@ -1136,58 +1135,6 @@ func (lc *lifecycle) exchange(ctx context.Context, cand *routing.Candidate, n in
 	}
 
 	a.CredentialID = picked.CredID
-
-	if target.protocol == ProtocolFreebuff {
-		resp, err := lc.h.freebuff.Chat(ctx, cand.Store.BaseURL, picked.Token, cand.Store.UpstreamModel, upBody)
-		a.FinishedAt = time.Now()
-		a.LatencyMs = a.FinishedAt.Sub(a.StartedAt).Milliseconds()
-		if err != nil {
-			var pe *freebuff.Error
-			if errors.As(err, &pe) {
-				a.ErrorCode = statusForKind(pe.Kind)
-				a.Retryable = retryableFreebuff(pe.Kind)
-				a.HTTPStatus = statusForFreebuff(pe.Kind)
-				a.RawMessage = pe.Msg
-				// The waiting room is an OPERATIONAL hint, not an outage: the
-				// client gets 503 + Retry-After + the queue position (pinned by
-				// TestFreebuffWaitingRoomReturns503), never a generic 502. The
-				// rate limit keeps its taxonomy 429 but still relays the
-				// back-off hint. Only the waiting-room message is safe to show:
-				// manager.go composes it from session metadata, while a rate
-				// limit's pe.Msg is raw upstream text (spec §8 keeps that in
-				// request_log.error only).
-				if pe.Kind == freebuff.KindWaitingRoom {
-					a.ClientStatus = http.StatusServiceUnavailable
-					a.RetryAfterSeconds = pe.RetryAfter
-					lc.errMsg = pe.Msg
-				} else if pe.Kind == freebuff.KindRateLimit {
-					a.RetryAfterSeconds = pe.RetryAfter
-				}
-				if retryableFreebuff(pe.Kind) {
-					// The waiting room is a PROVIDER-wide back-off: the queue
-					// is not this account's fault, and parking it makes the
-					// follow-up attempt fail at credential pick — the client
-					// then loses the queue hint to a "no usable credential"
-					// error. Everything else in the retryable set is
-					// account-shaped (auth, rate limit) and IS parked.
-					if pe.Kind != freebuff.KindWaitingRoom {
-						target.pool.MarkFailed(picked.Token)
-						// M-c: the freebuff rate limit parsed a Retry-After
-						// hint (a.RetryAfterSeconds, set above) — honour it.
-						lc.h.parkCredential(a.CredentialID, "rate_limited", a.RetryAfterSeconds)
-					}
-				}
-				return a
-			}
-			a.ErrorCode, a.Retryable = routing.ErrCodeProviderUnavailable, true
-			a.RawMessage = err.Error()
-			return a
-		}
-		a.HTTPStatus = resp.StatusCode
-		a.Payload = resp
-		return a
-	}
-
 	// The upstream must see the provider's OWN model id, never the name the
 	// client asked for: a virtual (`fudrouter/auto`) or an alias resolves to a
 	// concrete canonical model, and even a canonical slug can be served under a
@@ -1297,24 +1244,6 @@ func rewriteModelField(body []byte, name string) []byte {
 type errorBody struct {
 	status int
 	body   []byte
-}
-
-func statusForFreebuff(k freebuff.ErrorKind) int {
-	switch k {
-	case freebuff.KindAuthExpired:
-		return 401
-	case freebuff.KindModelUnavailable:
-		return 404
-	case freebuff.KindRateLimit:
-		return 429
-	case freebuff.KindBadRequest:
-		return 400
-	case freebuff.KindWaitingRoom:
-		// Operational, not broken: come back later (Retry-After relays when).
-		return 503
-	default:
-		return 502
-	}
 }
 
 // upstreamMessage extracts the provider's own error message from a body, for

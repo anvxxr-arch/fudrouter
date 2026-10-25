@@ -237,7 +237,10 @@ credential (id, connection_id, name, secret_enc, status
   rows always and `tier='dev'` rows only under `ROUTER_ALLOW_DEV_PROVIDERS` (S0 matched on
   `provider.status='dev'`, which the PRD §52 status set no longer contains).
 - `connection.config` jsonb carries what used to live in the blob's shared fields:
-  `{"protocol": "freebuff", "default_headers": {...}, "auth_kind": "..."}`.
+  `{"protocol": "openai", "default_headers": {...}, "auth_kind": "..."}`. `protocol`
+  is retained for wire compatibility; the data plane speaks only the [OI] wire, so
+  any other value makes the credential unservable (the native-protocol client that
+  once read it was removed).
 - `credential.secret_enc` reuses the exact S0 envelope: base64(`iv[12] || ct || tag[16]`),
   AES-256-GCM, key `CREDENTIALS_MASTER_KEY` (packages shared: TS `lib/server/crypt.ts`, Go
   `internal/crypt`). Ciphertext content is **one account JSON** `{"email","access_token",

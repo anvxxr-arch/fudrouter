@@ -182,51 +182,6 @@ func SeedEnvFull(t testing.TB, dsn, upstreamBaseURL, status string, extraHeaders
 	return seedEnvCred(t, dsn, upstreamBaseURL, status, extra)
 }
 
-// SeedEnvFreebuff seeds a provider whose credential blob declares the native
-// Codebuff/Freebuff protocol, so the data plane must run the session/run/
-// metadata handshake instead of an [OI] passthrough.
-func SeedEnvFreebuff(t *testing.T, dsn, upstreamBaseURL string) *Env {
-	t.Helper()
-	// The freebuff upstream in these tests is an httptest server on 127.0.0.1,
-	// and the freebuff client carries the same SSRF dial guard as the [OI] one
-	// (internal/netguard) — so a loopback upstream is refused unless the escape
-	// hatch is on. t.Setenv, not os.Setenv: it restores the value when the test
-	// ends, so the guard stays fail-closed for every other test in the run.
-	//
-	// See SeedEnvFreebuffAccounts for why the escape hatch is set there.
-	return SeedEnvFreebuffAccounts(t, dsn, upstreamBaseURL, nil)
-}
-
-// SeedEnvFreebuffAccounts is SeedEnvFreebuff with an explicit account pool, so a
-// test can exercise per-account failover. Nil tokens → a single static api_key.
-func SeedEnvFreebuffAccounts(t *testing.T, dsn, upstreamBaseURL string, tokens []string) *Env {
-	t.Helper()
-	// See SeedEnvFreebuff: the freebuff tests use a loopback httptest upstream,
-	// and the client carries the real SSRF dial guard.
-	t.Setenv("ALLOW_PRIVATE_UPSTREAMS", "1")
-	cred := map[string]any{
-		"api_key":   UpstreamKeyPlain,
-		"protocol":  "freebuff",
-		"auth_kind": "apikey",
-	}
-	if len(tokens) > 0 {
-		accts := make([]map[string]any, 0, len(tokens))
-		for i, tok := range tokens {
-			accts = append(accts, map[string]any{
-				"email":         "acct-" + randChars(4) + "@codebuff.com",
-				"api_key":       tok,
-				"access_token":  tok,
-				"refresh_token": nil,
-				"expired":       "2099-01-01T00:00:00Z",
-			})
-			_ = i
-		}
-		cred["accounts"] = accts
-		cred["api_key"] = tokens[0]
-	}
-	return seedEnvCred(t, dsn, upstreamBaseURL, "active", cred)
-}
-
 // seedEnvCred is the shared seeder. extraCred is merged into the encrypted
 // credential blob so a test can declare protocol/auth_kind/etc.
 func seedEnvCred(t testing.TB, dsn, upstreamBaseURL, status string, extraCred map[string]any) *Env {

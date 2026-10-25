@@ -18,7 +18,7 @@ interface Tier {
 
 // One plain const so the marketing copy is auditable in one place. Every
 // number here is a plan price, not a token allowance: the free tier's model
-// list is whatever the gateway's freebuff pool serves, and quoting a token
+// list is whatever the gateway's free-tier pool serves, and quoting a token
 // count we cannot back with data would be a promise the ledger can't keep.
 const TIERS: Tier[] = [
   {

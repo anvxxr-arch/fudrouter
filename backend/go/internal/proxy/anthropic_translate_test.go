@@ -162,8 +162,13 @@ func TestTranslateAnthropicToolUseAndResults(t *testing.T) {
 		t.Fatalf("unexpected rejection: %+v", apiErr)
 	}
 	msgs := decodeOI(t, oi)["messages"].([]any)
-	if len(msgs) != 4 {
-		t.Fatalf("messages len = %d, want 4 (user, assistant+toolcall, tool)", len(msgs))
+	// Three turns: the user question, the assistant turn carrying the
+	// tool_call, and the tool result. The tool_result-only message used to
+	// also emit a trailing empty role:"user" placeholder, because the
+	// converter appended the results before a mutually-exclusive switch that
+	// still ran its default branch — a phantom turn upstreams have to ignore.
+	if len(msgs) != 3 {
+		t.Fatalf("messages len = %d, want 3 (user, assistant+toolcall, tool)", len(msgs))
 	}
 	asst := msgs[1].(map[string]any)
 	if asst["role"] != "assistant" {
@@ -392,5 +397,122 @@ func TestToolChoiceToChat(t *testing.T) {
 	}
 	if got := toolChoiceToOpenAI(json.RawMessage(`{"type":"tool","name":"x"}`)); got == nil {
 		t.Error("a named tool_choice must map to a function object")
+	}
+}
+
+// TestTranslateAnthropicRejectsToolResultWithoutID pins that a tool_result
+// block with no usable tool_use_id is REJECTED at translation time.
+//
+// The converter used to read the field with a bare type assertion and forward
+// whatever it got, so a missing or non-string id produced
+// `{"role":"tool","tool_call_id":""}` — which every [OI] upstream rejects with
+// a 400 the client cannot act on, because the client never sent an empty id.
+// Rejecting here names the malformed block in the router's own envelope.
+func TestTranslateAnthropicRejectsToolResultWithoutID(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{"missing id", `{
+			"model":"m","max_tokens":1,
+			"messages":[
+				{"role":"user","content":"go"},
+				{"role":"assistant","content":[
+					{"type":"tool_use","id":"tu_1","name":"calc","input":{"x":1}}
+				]},
+				{"role":"user","content":[
+					{"type":"tool_result","content":"orphan"}
+				]}
+			]
+		}`},
+		{"non-string id", `{
+			"model":"m","max_tokens":1,
+			"messages":[
+				{"role":"user","content":"go"},
+				{"role":"assistant","content":[
+					{"type":"tool_use","id":"tu_1","name":"calc","input":{"x":1}}
+				]},
+				{"role":"user","content":[
+					{"type":"tool_result","tool_use_id":7,"content":"orphan"}
+				]}
+			]
+		}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, _, apiErr := translateAnthropicRequest([]byte(tc.body))
+			if apiErr == nil {
+				t.Fatal("a tool_result with no usable tool_use_id must be rejected, not forwarded")
+			}
+			if apiErr.Status != 400 {
+				t.Errorf("status = %d, want 400", apiErr.Status)
+			}
+			if !strings.Contains(apiErr.Message, "tool_use_id") {
+				t.Errorf("message = %q, want it to name tool_use_id", apiErr.Message)
+			}
+		})
+	}
+}
+
+// TestTranslateAnthropicToolResultsFollowTheirToolCalls pins emission ORDER.
+//
+// A single Anthropic message may legally carry text + tool_use + tool_result.
+// The converter used to append every collected tool_result BEFORE the assistant
+// message that declares the matching tool_calls, so the [OI] body arrived with
+// role:"tool" messages ahead of the assistant turn they answer — an ordering
+// every [OI] upstream rejects. Tool results must be emitted after the assistant
+// message carrying the tool_calls they reference.
+func TestTranslateAnthropicToolResultsFollowTheirToolCalls(t *testing.T) {
+	body := []byte(`{
+		"model":"m","max_tokens":1,
+		"messages":[
+			{"role":"user","content":"go"},
+			{"role":"assistant","content":[
+				{"type":"text","text":"checking"},
+				{"type":"tool_use","id":"tu_1","name":"calc","input":{"x":1}}
+			]},
+			{"role":"user","content":[
+				{"type":"text","text":"here you go"},
+				{"type":"tool_use","id":"tu_2","name":"calc","input":{"x":2}},
+				{"type":"tool_result","tool_use_id":"tu_1","content":"one"},
+				{"type":"tool_result","tool_use_id":"tu_2","content":"two"}
+			]}
+		]
+	}`)
+	_, oi, _, apiErr := translateAnthropicRequest(body)
+	if apiErr != nil {
+		t.Fatalf("unexpected rejection: %+v", apiErr)
+	}
+	msgs := decodeOI(t, oi)["messages"].([]any)
+
+	// Every role:"tool" message must come after an assistant message that
+	// declares a tool_call with that id.
+	declared := map[string]bool{}
+	for i, raw := range msgs {
+		m, ok := raw.(map[string]any)
+		if !ok {
+			t.Fatalf("msgs[%d] is not an object", i)
+		}
+		role, _ := m["role"].(string)
+		if role == "assistant" {
+			if tcs, ok := m["tool_calls"].([]any); ok {
+				for _, tc := range tcs {
+					if id, ok := tc.(map[string]any)["id"].(string); ok {
+						declared[id] = true
+					}
+				}
+			}
+			continue
+		}
+		if role != "tool" {
+			continue
+		}
+		id, _ := m["tool_call_id"].(string)
+		if id == "" {
+			t.Errorf("msgs[%d] role:tool has an empty tool_call_id", i)
+			continue
+		}
+		if !declared[id] {
+			t.Errorf("msgs[%d] role:tool tool_call_id=%q precedes the assistant message that declares it", i, id)
+		}
 	}
 }

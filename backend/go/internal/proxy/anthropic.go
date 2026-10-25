@@ -293,6 +293,13 @@ func anthropicMessageToOpenAI(m anthropicMessage) ([]any, error) {
 			})
 		case "tool_result":
 			id, _ := b["tool_use_id"].(string)
+			// An absent or non-string tool_use_id used to pass through as
+			// `tool_call_id: ""`, which every [OI] upstream rejects with a 400
+			// the client cannot act on — it never sent an empty id. Reject here
+			// so the router names the malformed block in its own envelope.
+			if id == "" {
+				return nil, fmt.Errorf("tool_result block is missing a string tool_use_id")
+			}
 			result := ""
 			if raw, err := json.Marshal(b["content"]); err == nil {
 				result = rawText(raw)
@@ -304,9 +311,13 @@ func anthropicMessageToOpenAI(m anthropicMessage) ([]any, error) {
 	}
 
 	var out []any
-	out = append(out, toolResults...)
 	switch {
 	case len(toolCalls) > 0:
+		// The assistant turn declaring the tool_calls MUST be emitted before
+		// the role:"tool" messages that answer them: [OI] upstreams reject a
+		// tool message whose tool_call_id no preceding assistant turn declared.
+		// One Anthropic message may legally carry tool_use and tool_result
+		// together, so the order cannot rely on the blocks arriving apart.
 		msg := map[string]any{"role": "assistant", "tool_calls": toolCalls}
 		if len(textParts) > 0 {
 			msg["content"] = strings.Join(textParts, "\n")
@@ -314,6 +325,7 @@ func anthropicMessageToOpenAI(m anthropicMessage) ([]any, error) {
 			msg["content"] = nil
 		}
 		out = append(out, msg)
+		out = append(out, toolResults...)
 	case len(images) > 0:
 		content := make([]any, 0, len(images)+1)
 		if len(textParts) > 0 {
@@ -321,11 +333,20 @@ func anthropicMessageToOpenAI(m anthropicMessage) ([]any, error) {
 		}
 		content = append(content, images...)
 		out = append(out, map[string]any{"role": m.Role, "content": content})
+		out = append(out, toolResults...)
 	case len(textParts) > 0:
 		out = append(out, map[string]any{"role": m.Role, "content": strings.Join(textParts, "\n")})
+		out = append(out, toolResults...)
 	default:
-		// An empty turn still needs its role for some upstreams.
-		out = append(out, map[string]any{"role": m.Role, "content": ""})
+		// A turn carrying only tool_result blocks still has to emit them: the
+		// switch above is mutually exclusive, so falling through to the empty
+		// placeholder would silently drop the results.
+		if len(toolResults) > 0 {
+			out = append(out, toolResults...)
+		} else {
+			// An empty turn still needs its role for some upstreams.
+			out = append(out, map[string]any{"role": m.Role, "content": ""})
+		}
 	}
 	return out, nil
 }

@@ -442,6 +442,21 @@ func (s *Store) modelBySlug(ctx context.Context, slug string) (*modelRow, error)
 	return &m, err
 }
 
+// SetChatCapable flips capabilities->'chat' on a model row after a probe
+// proves the chat endpoint cannot serve it. The probe is the authority here:
+// the catalogue gate is capabilities AND the request path is capabilities,
+// so a row that fails the probe has a wrong claim and the correction is a
+// one-shot write, not a recurring maintenance task. Idempotent: re-running
+// the sweep rewrites the same value.
+func (s *Store) SetChatCapable(ctx context.Context, slug string, chat bool) error {
+	_, err := s.pool.Exec(ctx,
+		`update model set capabilities = jsonb_set(
+			coalesce(capabilities, '{}'::jsonb), '{chat}', $1::jsonb
+		) where slug = $2`, chat, slug,
+	)
+	return err
+}
+
 func (s *Store) activeModelIDs(ctx context.Context) ([]string, []string, error) {
 	rows, err := s.pool.Query(ctx, `
 		select m.id, m.slug from model m

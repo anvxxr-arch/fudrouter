@@ -349,6 +349,17 @@ func (h *Handler) probeModel(parent context.Context, slug string) HealthEntry {
 	if resp.StatusCode != http.StatusOK {
 		e.ErrCode = fmt.Sprintf("http_%d", resp.StatusCode)
 		e.LatencyMs = lastAttemptLatency(lc)
+		// A 400 from the chat endpoint means the model is not a chat model —
+		// OCR, TTS, image, segmentation, upscaler. The catalogue gate is
+		// capabilities AND the request path is capabilities, so a row whose
+		// claim the probe contradicts is wrong; correct it once and the next
+		// sweep stops advertising it. This is the probe writing the catalogue,
+		// not a maintenance script.
+		if resp.StatusCode == http.StatusBadRequest {
+			if merr := h.store.SetChatCapable(ctx, slug, false); merr != nil {
+				log.Printf("[health] self-heal chat=false failed for %s: %v", slug, merr)
+			}
+		}
 		return e
 	}
 	var probe struct {
@@ -358,8 +369,18 @@ func (h *Handler) probeModel(parent context.Context, slug string) HealthEntry {
 		e.ErrCode = "malformed_ok"
 		return e
 	}
-	e.Status = "ok"
-	e.LatencyMs = lastAttemptLatency(lc)
+	// A reasoning model answers with content null + finish_reason length and is
+	// a valid chat response — the probe must not call it malformed. The only
+	// malformed shape is a choice object that is not a JSON object.
+	for _, c := range probe.Choices {
+		var obj map[string]json.RawMessage
+		if json.Unmarshal(c, &obj) == nil {
+			e.Status = "ok"
+			e.LatencyMs = lastAttemptLatency(lc)
+			return e
+		}
+	}
+	e.ErrCode = "malformed_ok"
 	return e
 }
 

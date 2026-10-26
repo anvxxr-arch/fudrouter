@@ -165,3 +165,134 @@ func TestActiveModelsHidesModelsWithNoConnection(t *testing.T) {
 		t.Error("PublishedModel returns a model with no connection")
 	}
 }
+
+// A model whose `capabilities` claim is ABSENT must stay advertised.
+//
+// Migration 0012 backfilled `capabilities->>'chat'` on every row that existed
+// when it ran. Rows onboarded afterwards carry no claim at all, and every one
+// of them is a chat model (claude-fable-5-1, gpt-6-sol, qwen3-coder-next, …).
+// A strict `= 'true'` gate hides those 12 working models from the catalogue —
+// the mirror image of the bug this gate fixes, where the catalogue promised
+// more than the router could serve.
+//
+// The request path tolerates the missing claim: CapabilitySatisfied eliminates
+// a candidate only on an explicit `false`. The catalogue must use the same
+// rule, or the two views drift and /v1/models under-reports what routing will
+// happily serve.
+func TestActiveModelsKeepsModelsWithNoChatClaim(t *testing.T) {
+	dsn := tests.RequireDB(t)
+	env := tests.SeedEnv(t, dsn, "http://127.0.0.1:1")
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { conn.Close(context.Background()) })
+	// A second model on the SAME provider network, so it inherits the seeded
+	// connection + credential and is fully routable. Its capabilities column is
+	// left at the '{}' default — the exact shape of a post-0012 onboarding.
+	id := ids.New("mdl")
+	if _, err := conn.Exec(ctx, `
+		insert into model (id, provider_id, name, slug, context, input_price, output_price, currency, status, created_at)
+		values ($1,$2,'NoChatClaim',$3,128000,'150000.000000','600000.000000','USD','active', now())`,
+		id, env.ProviderID, "no-chat-claim-model"); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := conn.Exec(context.Background(), `delete from model where id = $1`, id); err != nil {
+			t.Errorf("teardown leaked a row: %v", err)
+		}
+	})
+	// Without the provider_model row ActiveModels excludes it for the same
+	// reason it excludes a model with no connection, and the test would pass
+	// for the wrong reason. SeedSecondModel's shape: model + provider_model.
+	pmID := ids.New("pmdl")
+	if _, err := conn.Exec(ctx, `
+		insert into provider_model (id, model_id, provider_id, connection_id, provider_model_id, enabled, status)
+		values ($1,$2,$3,$4,$5,true,'available')`,
+		pmID, id, env.ProviderID, env.ConnectionID, "no-chat-claim-model"); err != nil {
+		t.Fatalf("seed provider_model: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := conn.Exec(context.Background(), `delete from provider_model where id = $1`, pmID); err != nil {
+			t.Errorf("teardown leaked a row: %v", err)
+		}
+	})
+	st, err := store.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	models, err := st.ActiveModels(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, m := range models {
+		if m.Slug == "no-chat-claim-model" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("a routable model with no capabilities claim is hidden from /v1/models")
+	}
+	if _, err := st.PublishedModel(ctx, "no-chat-claim-model"); err != nil {
+		t.Errorf("PublishedModel drops a routable model with no capabilities claim: %v", err)
+	}
+}
+
+// The other half of the gate: an EXPLICIT `chat: false` must still be hidden,
+// or the catalogue goes back to advertising embedding/image/video models the
+// chat endpoint answers with a 400.
+func TestActiveModelsHidesExplicitNonChatModels(t *testing.T) {
+	dsn := tests.RequireDB(t)
+	env := tests.SeedEnv(t, dsn, "http://127.0.0.1:1")
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { conn.Close(context.Background()) })
+	// Same routable network as above, but the row declares itself non-chat.
+	id := ids.New("mdl")
+	if _, err := conn.Exec(ctx, `
+		insert into model (id, provider_id, name, slug, context, input_price, output_price, currency, status, capabilities, created_at)
+		values ($1,$2,'Embedding',$3,8192,'150000.000000','600000.000000','USD','active','{"chat":false,"embedding":true}'::jsonb, now())`,
+		id, env.ProviderID, "explicit-non-chat-model"); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := conn.Exec(context.Background(), `delete from model where id = $1`, id); err != nil {
+			t.Errorf("teardown leaked a row: %v", err)
+		}
+	})
+	pmID := ids.New("pmdl")
+	if _, err := conn.Exec(ctx, `
+		insert into provider_model (id, model_id, provider_id, connection_id, provider_model_id, enabled, status)
+		values ($1,$2,$3,$4,$5,true,'available')`,
+		pmID, id, env.ProviderID, env.ConnectionID, "explicit-non-chat-model"); err != nil {
+		t.Fatalf("seed provider_model: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := conn.Exec(context.Background(), `delete from provider_model where id = $1`, pmID); err != nil {
+			t.Errorf("teardown leaked a row: %v", err)
+		}
+	})
+	st, err := store.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	models, err := st.ActiveModels(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range models {
+		if m.Slug == "explicit-non-chat-model" {
+			t.Error("a model declaring chat=false is advertised in /v1/models")
+		}
+	}
+	if _, err := st.PublishedModel(ctx, "explicit-non-chat-model"); err == nil {
+		t.Error("PublishedModel returns a model declaring chat=false")
+	}
+}

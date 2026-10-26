@@ -23,9 +23,10 @@ const LOCK_KEY = 'lock:scheduler';
 const LOCK_TTL_MS = 60_000;
 const IDENTITY = String(process.pid);
 
-const { schedulerTick, describeSchedule } = await import('@fudrouter/platform/server/scheduler.ts');
+const { schedulerTick, describeSchedule, clampHealthCheckMs } = await import('@fudrouter/platform/server/scheduler.ts');
 const { db } = await import('@fudrouter/platform/server/db/index.ts');
 const { vk } = await import('@fudrouter/platform/server/vk.ts');
+const { getSetting } = await import('@fudrouter/platform/server/settings.ts');
 
 /**
  * Take (or refresh) the scheduler lock. Degrades OPEN without Valkey: the
@@ -80,7 +81,19 @@ async function main() {
 				await sleep(tickMs);
 				continue;
 			}
-			const result = await schedulerTick();
+			// Read the health-check cadence once per tick, not once at boot: an
+			// operator who tightens it in the console must not have to restart
+			// the scheduler for it to bite. One indexed primary-key read per
+			// 15s tick, against a tick that already runs inFlight +
+			// lastTerminalAt per entry. A failure here propagates into the
+			// catch below, which logs with SQLSTATE and retries next tick — it
+			// must not crash the scheduler.
+			const resolveEveryMs = async (type, fallback) => {
+				if (type !== 'provider_health_check') return fallback;
+				const s = await getSetting('provider_health_check');
+				return clampHealthCheckMs(s?.everyMs ?? fallback);
+			};
+			const result = await schedulerTick(db, new Date(), undefined, resolveEveryMs);
 			ticks += 1;
 			for (const job of result.enqueued) {
 				console.log(`[scheduler] + ${job.type} ${job.id} (${job.reason})`);

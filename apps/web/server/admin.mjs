@@ -915,11 +915,12 @@ export function registerAdminRoutes(app, ctx) {
 
 	// Settings: platform settings + policies + billing thresholds.
 	app.get('/api/admin/settings', handler('settings', async (database) => {
-		const keys = ['maintenance', 'generic_passthrough', 'registration', 'retention', 'default_routing_policy', 'platform_hard_limits'];
+		const keys = ['maintenance', 'generic_passthrough', 'registration', 'retention', 'default_routing_policy', 'platform_hard_limits', 'provider_health_check'];
 		const srows = await database.select({ key: sysSet.key, value: sysSet.value }).from(sysSet).where(inArray(sysSet.key, keys));
 		const got = (k) => srows.find((r) => r.key === k)?.value ?? null;
 		const maintenance = got('maintenance'), passthrough = got('generic_passthrough'), registration = got('registration');
 		const retention = got('retention'), defaultRouting = got('default_routing_policy'), hardLimits = got('platform_hard_limits');
+		const healthCheck = got('provider_health_check');
 		const policies = await database.select({ id: rpol.id, name: rpol.name, strategy: rpol.strategy }).from(rpol).orderBy(rpol.name);
 		const accounts = await database.select({ userId: bac.userId, warningThresholdMicro: bac.warningThresholdMicro, hardStopThresholdMicro: bac.hardStopThresholdMicro }).from(bac).orderBy(bac.createdAt);
 		return {
@@ -929,6 +930,10 @@ export function registerAdminRoutes(app, ctx) {
 			retention: { request_metadata_days: retention?.request_metadata_days ?? 90, request_content_days: retention?.request_content_days ?? 0, system_events_days: retention?.system_events_days ?? 90, audit_logs_days: retention?.audit_logs_days ?? 365 },
 			defaultRoutingPolicyId: defaultRouting?.id ?? '',
 			hardLimits: { rpm: hardLimits?.rpm ?? 10000, tpm: hardLimits?.tpm ?? 100000000, concurrency: hardLimits?.concurrency ?? 1000 },
+			// Minutes, not milliseconds: the console field is in minutes and the
+			// stored value is milliseconds, so the conversion happens exactly
+			// here and in the POST route — nowhere else.
+			healthCheckMinutes: Math.round((healthCheck?.everyMs ?? 300000) / 60000),
 			policies,
 			accounts: accounts.map((a) => ({ userId: a.userId, warningMicro: B(a.warningThresholdMicro), hardStopMicro: B(a.hardStopThresholdMicro) }))
 		};
@@ -2387,6 +2392,23 @@ export function registerAdminRoutes(app, ctx) {
 			await _audit(tx, { actorUserId: userRow.id, action: 'system_setting.update', resource: 'system_setting', resourceId: 'retention', before, after });
 		});
 		return { saved: 'Retention settings' };
+	}));
+	// The one configurable periodic cadence. The console field is in MINUTES
+	// because that is how an operator thinks about it; the stored value is
+	// milliseconds because that is what the scheduler compares against. The
+	// clamp is applied HERE as well as in the scheduler: rejecting an
+	// out-of-range value at the door tells the operator immediately, while
+	// clamping silently would make a typo look like it worked.
+	app.post('/api/admin/settings/updateHealthCheckCadence', poster('settings', async (database, body, userRow) => {
+		const minutes = _parseInt(body.minutes, 1, 30);
+		if (minutes === null) _fail(400, 'Cadence must be a whole number of minutes between 1 and 30');
+		const after = { everyMs: minutes * 60_000 };
+		const before = await _getSetting(database, 'provider_health_check');
+		await database.transaction(async (tx) => {
+			await _setSetting(tx, 'provider_health_check', after, userRow.id);
+			await _audit(tx, { actorUserId: userRow.id, action: 'system_setting.update', resource: 'system_setting', resourceId: 'provider_health_check', before, after });
+		});
+		return { saved: `Health check every ${minutes} minute${minutes === 1 ? '' : 's'}` };
 	}));
 	app.post('/api/admin/settings/updateDefaultRouting', poster('settings', async (database, body, userRow) => {
 		const id = String(body.policyId ?? '').trim();

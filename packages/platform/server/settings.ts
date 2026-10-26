@@ -24,6 +24,14 @@ export type SystemSettings = {
 	registration: { enabled: boolean } | null;
 	maintenance: { enabled: boolean } | null;
 	generic_passthrough: { enabled: boolean } | null;
+	/**
+	 * Cadence of the `provider_health_check` job, in milliseconds. Seeded at
+	 * 300000 (5 minutes), the value the scheduler constant carried before this
+	 * became configurable. Read once per scheduler tick; the scheduler clamps
+	 * it to [60s, 30m] and falls back to 300000 on anything unusable, so a
+	 * malformed value is inert rather than dangerous.
+	 */
+	provider_health_check: { everyMs: number } | null;
 };
 
 export async function getSetting<K extends keyof SystemSettings>(

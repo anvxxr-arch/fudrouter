@@ -1820,7 +1820,7 @@ function SecurityView() {
   </>);
 }
 
-type Settings = { maintenance: boolean; genericPassthrough: boolean; registration: boolean; retention: Record<string, number>; defaultRoutingPolicyId: string; hardLimits: { rpm: number; tpm: number; concurrency: number }; policies: { id: string; name: string; strategy: string }[]; accounts: { userId: string; warningMicro: string; hardStopMicro: string }[] };
+type Settings = { maintenance: boolean; genericPassthrough: boolean; registration: boolean; retention: Record<string, number>; defaultRoutingPolicyId: string; hardLimits: { rpm: number; tpm: number; concurrency: number }; healthCheckMinutes: number; policies: { id: string; name: string; strategy: string }[]; accounts: { userId: string; warningMicro: string; hardStopMicro: string }[] };
 type Flags = { flags: { id: string; name: string; description: string; enabled: boolean; rollout: unknown; updatedAt: string }[] };
 function SettingsView() {
   const [tick, setTick] = useState(0);
@@ -1864,6 +1864,12 @@ function SettingsView() {
       <Input aria-label="rpm" name="rpm" type="number" defaultValue={String(v.hardLimits.rpm)} />
       <Input aria-label="tpm" name="tpm" type="number" defaultValue={String(v.hardLimits.tpm)} />
       <Input aria-label="concurrency" name="concurrency" type="number" defaultValue={String(v.hardLimits.concurrency)} />
+      <Button size="sm" type="submit">Save</Button>
+    </form>
+    <h2>Provider health check</h2>
+    <form className="row" onSubmit={submit("/api/admin/settings/updateHealthCheckCadence", (fd) => ({ minutes: fd.get("minutes") }))}>
+      <Input aria-label="Health check interval in minutes" name="minutes" type="number" min={1} max={30} defaultValue={String(v.healthCheckMinutes ?? 5)} />
+      <span className="muted">minutes, 1–30 — applies on the next scheduler tick (no restart)</span>
       <Button size="sm" type="submit">Save</Button>
     </form>
     <h2>Billing defaults</h2>

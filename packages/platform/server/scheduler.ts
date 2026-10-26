@@ -36,6 +36,16 @@ const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 
+// The cadence clamp lives in its own module so it can be unit-tested without
+// a database; re-exported here because the scheduler is its only caller and
+// callers should not have to know where it moved to.
+export {
+	clampHealthCheckMs,
+	HEALTH_CHECK_MIN_MS,
+	HEALTH_CHECK_MAX_MS,
+	HEALTH_CHECK_DEFAULT_MS
+} from './health-check-cadence.ts';
+
 /** A job that runs on a cadence, one occurrence in flight at a time. */
 export interface PeriodicEntry {
 	kind: 'periodic';
@@ -233,11 +243,19 @@ async function fanOutTargets(
  * `now` is injectable so the cadence rules are testable without sleeping, and
  * `schedule` so a test can exercise one entry without the other entries' rows
  * interfering (the `job` table is shared with every other test in the suite).
+ *
+ * `resolveEveryMs` overrides a PERIODIC entry's cadence at tick time, which is
+ * what makes `provider_health_check` configurable without a restart. It is
+ * consulted only when supplied and only for periodic entries: with it absent
+ * the tick reads `entry.everyMs` exactly as before, so every existing caller
+ * and test is unchanged. The fan-out branch deliberately keeps using
+ * `entry.everyMs` — no fan-out job is configurable in this change.
  */
 export async function schedulerTick(
 	handle: JobHandle = db,
 	now: Date = new Date(),
-	schedule: readonly ScheduleEntry[] = SCHEDULE
+	schedule: readonly ScheduleEntry[] = SCHEDULE,
+	resolveEveryMs?: (type: string, fallback: number) => Promise<number> | number
 ): Promise<TickResult> {
 	const result: TickResult = { enqueued: [], skipped: [] };
 
@@ -247,8 +265,9 @@ export async function schedulerTick(
 			result.skipped.push({ type: entry.type, reason: 'in-flight' });
 			continue;
 		}
+		const everyMs = resolveEveryMs ? await resolveEveryMs(entry.type, entry.everyMs) : entry.everyMs;
 		const last = await lastTerminalAt(handle, entry.type);
-		if (last !== null && now.getTime() - last.getTime() < entry.everyMs) {
+		if (last !== null && now.getTime() - last.getTime() < everyMs) {
 			result.skipped.push({ type: entry.type, reason: 'not-due' });
 			continue;
 		}

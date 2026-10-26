@@ -15,7 +15,11 @@ export const user = pgTable('user', {
 	role: text('role'),
 	banned: boolean('banned').default(false),
 	banReason: text('ban_reason'),
-	banExpires: timestamp('ban_expires')
+	banExpires: timestamp('ban_expires'),
+	// Invite gate (migration 0024). 'active' is the default so every account
+	// that predates the gate keeps working; the sign-in hook in
+	// apps/web/server/index.mjs refuses 'pending' and 'revoked'.
+	accessStatus: text('access_status').notNull().default('active')
 });
 
 export const session = pgTable(

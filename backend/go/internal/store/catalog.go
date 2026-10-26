@@ -23,7 +23,7 @@ type ModelInfo struct {
 	Currency    string
 }
 
-// ActiveModels lists the published catalogue.
+// ActiveModels lists the published chat catalogue.
 //
 // The gate is the same rule the control plane's publish gate implements
 // (`packages/platform/publish.ts`, endpoint-surface spec §2.1): canonical model
@@ -33,6 +33,20 @@ type ModelInfo struct {
 // the hot path cannot dial is not advertised: on the deployed box 249 of 346
 // published models had no live credential, and every one of them failed at
 // request time. The catalogue now describes what the router can serve.
+//
+// Chat-only: `capabilities->>'chat'` is not an explicit `false`. The catalogue
+// is the chat surface (spec §2.1) — embedding, image, audio and video models
+// are published rows the chat endpoint cannot serve, and advertising them cost
+// users a 400 they had to discover by asking. The gate is the same one the
+// request path uses (CapabilitySatisfied eliminates only on an explicit
+// `false`), so the two views cannot drift.
+//
+// A missing claim stays advertised on purpose. Migration 0012 backfilled every
+// row that existed when it ran; rows onboarded afterwards (claude-fable-5-1,
+// gpt-6-sol, qwen3-coder-next, …) are chat models whose claim is simply absent.
+// `= 'true'` would hide 12 working chat models from the catalogue, which is the
+// same class of bug this gate exists to fix — the catalogue promising less than
+// the router can serve.
 func (s *Store) ActiveModels(ctx context.Context) ([]ModelInfo, error) {
 	rows, err := s.pool.Query(ctx, `
 		select m.slug, m.name, coalesce(m.context, 0),
@@ -53,6 +67,7 @@ func (s *Store) ActiveModels(ctx context.Context) ([]ModelInfo, error) {
 			limit 1
 		) pr on true
 		where m.status = 'active'
+		  and (m.capabilities->>'chat') is distinct from 'false'
 		  and pm.status not in ('disabled', 'unavailable')
 		  and exists (
 			select 1 from connection c
@@ -67,6 +82,7 @@ func (s *Store) ActiveModels(ctx context.Context) ([]ModelInfo, error) {
 			  )
 		  )
 		  and `+s.providerServableSQL()+`
+		  and `+verificationWithheldSQL+`
 		group by m.slug, m.name, m.context, m.input_price, m.output_price, m.currency,
 		         pr.input_price, pr.output_price, pr.currency
 		order by m.slug`)
@@ -90,6 +106,10 @@ func (s *Store) ActiveModels(ctx context.Context) ([]ModelInfo, error) {
 // handler (endpoint-surface spec §6 P1). Unknown or unpublished → ErrNotFound,
 // which the handler turns into a truthful 404. Public, exactly like
 // `/v1/models`: the catalogue is not a protected resource (spec §2.1).
+//
+// Same chat-surface gate as ActiveModels, for the same reason: a model
+// `/v1/models` does not list must not be reachable through `/v1/models/{slug}`,
+// or the two views of one catalogue drift.
 func (s *Store) PublishedModel(ctx context.Context, slug string) (*ModelInfo, error) {
 	m := &ModelInfo{OwnedBy: "fudrouter"}
 	var priceIn, priceOut, curCode *string
@@ -112,6 +132,7 @@ func (s *Store) PublishedModel(ctx context.Context, slug string) (*ModelInfo, er
 			limit 1
 		) pr on true
 		where m.slug = $1 and m.status = 'active'
+		  and (m.capabilities->>'chat') is distinct from 'false'
 		  and pm.status not in ('disabled', 'unavailable')
 		  and exists (
 			select 1 from connection c
@@ -126,6 +147,7 @@ func (s *Store) PublishedModel(ctx context.Context, slug string) (*ModelInfo, er
 			  )
 		  )
 		  and `+s.providerServableSQL()+`
+		  and `+verificationWithheldSQL+`
 		limit 1`, slug,
 	).Scan(&m.Slug, &m.Name, &m.Context, &priceIn, &priceOut, &curCode)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -153,6 +175,44 @@ func (s *Store) PublishedModel(ctx context.Context, slug string) (*ModelInfo, er
 func (s *Store) providerServableSQL() string {
 	return s.providerServable
 }
+
+// verificationWithheldSQL is the model-identity predicate: a mapping whose
+// LATEST verification verdict says the upstream does not serve the model it
+// claims is not routable.
+//
+// Why this exists: `model_verification` (migration 0018) records what a
+// provider's endpoint actually answered when asked for a specific model. A
+// `mismatch` means the provider served a DIFFERENT model under the requested
+// name (a relabelled alias, a downgrade), and `not_served` means it answered
+// nothing usable. Both are evidence that the catalogue row is a claim the
+// upstream does not honour, so the row must leave the catalogue and the
+// candidate set — otherwise the router advertises and routes to a model that
+// is not the model the customer asked for, which is worse than a 404.
+//
+// LATEST-VERDICT-WINS, not "any bad verdict ever": the table is append-only
+// evidence, so a provider that fixes its endpoint appends a `pass` and the model
+// returns without anyone editing this predicate. The correlated max(created_at)
+// is the same shape the admin endpoint's lateral join uses, so the console and
+// the router read the same row. `model_verification_provider_model_idx` is
+// (provider_model_id, created_at DESC), which is exactly this subquery's access
+// path.
+//
+// `error` is deliberately NOT withholding: the migration's own comment records
+// why — a 5xx, a rate limit or a timeout proves nothing about what the provider
+// serves, and collapsing it into `not_served` would flag a healthy model on
+// every flaky probe.
+//
+// A mapping with NO verification rows is unaffected (there is no evidence
+// either way), which is why this is `not exists` rather than a join.
+const verificationWithheldSQL = `not exists (
+			select 1 from model_verification mv
+			where mv.provider_model_id = pm.id
+			  and mv.verdict in ('mismatch', 'not_served')
+			  and mv.created_at = (
+				select max(mv2.created_at) from model_verification mv2
+				where mv2.provider_model_id = pm.id
+			  )
+		  )`
 
 // providerServableSQLFor builds the one provider predicate. It speaks BOTH
 // status vocabularies because migration 0009 widened the CHECKs while 0010 still
@@ -428,7 +488,8 @@ func (s *Store) activeModelIDs(ctx context.Context) ([]string, []string, error) 
 		where m.status = 'active'
 		  and exists (select 1 from provider_model pm
 		              join provider p on p.id = pm.provider_id
-		              where pm.model_id = m.id and pm.enabled and `+s.providerServableSQL()+`)
+		              where pm.model_id = m.id and pm.enabled and `+s.providerServableSQL()+`
+		                and `+verificationWithheldSQL+`)
 		order by m.slug`)
 	if err != nil {
 		return nil, nil, err
@@ -560,6 +621,7 @@ func (s *Store) CandidatesBatch(ctx context.Context, modelIDs []string, required
 			  and (c.id is null or c.enabled)
 			  and (c.id is null or c.health_status is distinct from 'unhealthy')
 			  and `+s.providerServableSQL()+`
+			  and `+verificationWithheldSQL+`
 		) ranked
 		-- Ordered across the whole set so the map is built in one pass and every
 		-- model's slice comes out in its own rank order.
@@ -671,6 +733,7 @@ func (s *Store) Candidates(ctx context.Context, modelID string, requiredCaps map
 		  and (c.id is null or c.enabled)
 		  and (c.id is null or c.health_status is distinct from 'unhealthy')
 		  and `+s.providerServableSQL()+`
+		  and `+verificationWithheldSQL+`
 		order by p.priority asc, pm.id`, modelID)
 	if err != nil {
 		return nil, err

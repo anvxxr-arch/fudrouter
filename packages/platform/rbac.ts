@@ -22,8 +22,10 @@
 
 export type Capability =
 	| 'member'
+	| 'billing.credit'
 	| 'admin.view'
 	| 'admin.users'
+	| 'admin.access'
 	| 'admin.keys'
 	| 'admin.providers'
 	| 'admin.models'
@@ -33,14 +35,28 @@ export type Capability =
 	| 'admin.audit'
 	| 'admin.settings';
 
+/**
+ * `billing.credit` is deliberately NOT part of `member`: it is the capability
+ * that lets a caller write a `credit_purchase` ledger row, i.e. mint balance.
+ * Every role below except the two operator roles lacks it, so the customer-facing
+ * "add credits" endpoint cannot be used to top yourself up for free — there is
+ * no payment gateway yet, and the endpoint used to do exactly that for anyone
+ * with a session.
+ *
+ * `admin.access` gates the invite allowlist and the pending-user queue. It is
+ * separate from `admin.users` because approving access and editing a user are
+ * different powers; ops_admin does not get it.
+ */
 export const ROLE_CAPS: Record<string, readonly Capability[]> = {
 	user: ['member'],
-	finance_admin: ['member', 'admin.view', 'admin.billing', 'admin.users'],
+	finance_admin: ['member', 'billing.credit', 'admin.view', 'admin.billing', 'admin.users'],
 	ops_admin: ['member', 'admin.view', 'admin.providers', 'admin.models', 'admin.requests', 'admin.ops'],
 	admin: [
 		'member',
+		'billing.credit',
 		'admin.view',
 		'admin.users',
+		'admin.access',
 		'admin.keys',
 		'admin.providers',
 		'admin.models',

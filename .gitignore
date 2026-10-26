@@ -37,5 +37,13 @@ node_modules/.pnpm/
 # by definition; real tools get promoted into ops/verify/ and committed from there.
 scratch/
 
+# Benchmark harness + raw results. Same rule as scratch/: a measurement is a
+# single-sighting probe, and the raw JSON holds live API responses.
+bench/
+
 # probe API key secret (minted for live router proofs) — never commit
 .liveproof.key
+
+# Raw model-poll probe results: same rule as scratch/ — the JSONL holds
+# live upstream API responses from every probe run.
+ops/data/

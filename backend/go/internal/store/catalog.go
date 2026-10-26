@@ -204,6 +204,17 @@ func (s *Store) providerServableSQL() string {
 //
 // A mapping with NO verification rows is unaffected (there is no evidence
 // either way), which is why this is `not exists` rather than a join.
+//
+// MEASURED COST, and why it is not cached. On a production-shaped database
+// (346 mappings, 2.4k verdict rows) this took the catalogue read from 0.78ms to
+// ~2-4ms, and CandidatesBatch runs on every chat request. An in-process cache of
+// the withheld set was built and REVERTED: refreshing it costs one round trip on
+// the first read, which breaks the "CandidatesBatch is one query" contract
+// pinned by query_count_test.go and candidates_batch_test.go — a round trip
+// (~360µs on a warm pool, and the budget in proxy/lifecycle.go counts them) is
+// worth more than the 1.2ms this saves. The correlated form stays because it is
+// the cheapest of the shapes tried: `distinct on` and `order by … limit 1` both
+// measured worse (3-20ms) at the same scale.
 const verificationWithheldSQL = `not exists (
 			select 1 from model_verification mv
 			where mv.provider_model_id = pm.id

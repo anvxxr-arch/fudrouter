@@ -23,7 +23,7 @@ type ModelInfo struct {
 	Currency    string
 }
 
-// ActiveModels lists the published catalogue.
+// ActiveModels lists the published chat catalogue.
 //
 // The gate is the same rule the control plane's publish gate implements
 // (`packages/platform/publish.ts`, endpoint-surface spec §2.1): canonical model
@@ -33,6 +33,20 @@ type ModelInfo struct {
 // the hot path cannot dial is not advertised: on the deployed box 249 of 346
 // published models had no live credential, and every one of them failed at
 // request time. The catalogue now describes what the router can serve.
+//
+// Chat-only: `capabilities->>'chat'` is not an explicit `false`. The catalogue
+// is the chat surface (spec §2.1) — embedding, image, audio and video models
+// are published rows the chat endpoint cannot serve, and advertising them cost
+// users a 400 they had to discover by asking. The gate is the same one the
+// request path uses (CapabilitySatisfied eliminates only on an explicit
+// `false`), so the two views cannot drift.
+//
+// A missing claim stays advertised on purpose. Migration 0012 backfilled every
+// row that existed when it ran; rows onboarded afterwards (claude-fable-5-1,
+// gpt-6-sol, qwen3-coder-next, …) are chat models whose claim is simply absent.
+// `= 'true'` would hide 12 working chat models from the catalogue, which is the
+// same class of bug this gate exists to fix — the catalogue promising less than
+// the router can serve.
 func (s *Store) ActiveModels(ctx context.Context) ([]ModelInfo, error) {
 	rows, err := s.pool.Query(ctx, `
 		select m.slug, m.name, coalesce(m.context, 0),
@@ -53,6 +67,7 @@ func (s *Store) ActiveModels(ctx context.Context) ([]ModelInfo, error) {
 			limit 1
 		) pr on true
 		where m.status = 'active'
+		  and (m.capabilities->>'chat') is distinct from 'false'
 		  and pm.status not in ('disabled', 'unavailable')
 		  and exists (
 			select 1 from connection c
@@ -90,6 +105,10 @@ func (s *Store) ActiveModels(ctx context.Context) ([]ModelInfo, error) {
 // handler (endpoint-surface spec §6 P1). Unknown or unpublished → ErrNotFound,
 // which the handler turns into a truthful 404. Public, exactly like
 // `/v1/models`: the catalogue is not a protected resource (spec §2.1).
+//
+// Same chat-surface gate as ActiveModels, for the same reason: a model
+// `/v1/models` does not list must not be reachable through `/v1/models/{slug}`,
+// or the two views of one catalogue drift.
 func (s *Store) PublishedModel(ctx context.Context, slug string) (*ModelInfo, error) {
 	m := &ModelInfo{OwnedBy: "fudrouter"}
 	var priceIn, priceOut, curCode *string
@@ -112,6 +131,7 @@ func (s *Store) PublishedModel(ctx context.Context, slug string) (*ModelInfo, er
 			limit 1
 		) pr on true
 		where m.slug = $1 and m.status = 'active'
+		  and (m.capabilities->>'chat') is distinct from 'false'
 		  and pm.status not in ('disabled', 'unavailable')
 		  and exists (
 			select 1 from connection c

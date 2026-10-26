@@ -420,6 +420,31 @@ func TestExecuteCircuitOpenDoesNotConsumeMaxAttempts(t *testing.T) {
 	}
 }
 
+// A 429 is the upstream saying "busy", not "dead": free-tier concurrency
+// caps emit them under any real load. Five throttled responses inside the
+// window must NOT open the breaker — that blackholed every model on a
+// healthy connection (dahl, tokenharbor) for the whole cooling-off period.
+func TestExecuteRateLimitedDoesNotTripBreaker(t *testing.T) {
+	cands := []Candidate{build("m", "prv_a", "busyco", 1, 1, 1, 1, 1)}
+	cb := NewCircuitBreaker(vk.NewFake(), map[string]BreakerDefaults{
+		"connection:con_busy": {FailureThreshold: 2, WindowSeconds: 60, OpenMs: 60_000, HalfOpenProbes: 1},
+	})
+	cands[0].Store.ConnectionID = "con_busy"
+	throttled := func(_ context.Context, _ *Candidate, _ int) []*Attempt {
+		return []*Attempt{{HTTPStatus: 429, ErrorCode: ErrCodeRateLimited}}
+	}
+	plan := Plan{Strategy: StrategyProviderPriority, MaxAttempts: 1}
+	for range 5 {
+		_ = Execute(context.Background(), cands, plan, time.Time{}, cb, throttled)
+	}
+	res := Execute(context.Background(), cands, plan, time.Time{}, cb, throttled)
+	for _, a := range res.Attempts {
+		if a.ErrorCode == ErrCodeCircuitOpen {
+			t.Fatalf("429s tripped the breaker — attempts: %+v", res.Attempts)
+		}
+	}
+}
+
 // A dead Valkey must leave the breaker CLOSED (PRD §150): traffic keeps moving.
 func TestCircuitBreakerDegradesClosedWhenValkeyIsDown(t *testing.T) {
 	f := vk.NewFake()

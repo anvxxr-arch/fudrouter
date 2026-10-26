@@ -100,6 +100,22 @@ const REGISTRY = {
       rx: /(sk-cp-[A-Za-z0-9_-]{8,})/
     }
   },
+  // Format baris: email|password|session_token|KEYED|mstrl_<key>
+  // 10.000 akun KEYED (farm 7-10 Okt 2026, 8.099 LIVE per keytest).
+  // Dulu di-inject ke 9Router (mistral_inject_9router.py) — 9Router sudah
+  // mati, ~/.9router hilang, jadi key efektif nganggur di file ini.
+  mistral: {
+    providerId: 'prv_mistral',
+    connectionId: 'con_prv_mistral-default',
+    base: 'https://api.mistral.ai/v1',
+    headers: {},
+    keys: {
+      kind: 'lines',
+      file: `${FARM_DIR}/mistral-farm/mistral_keys.txt`,
+      rx: /(mstrl_[A-Za-z0-9_]+)/,
+      email: /^([^|]+@[^|]+)\|/
+    }
+  },
   tokenharbor: {
     providerId: 'prv_tokenharbor',
     connectionId: 'con_prv_tokenharbor-default',

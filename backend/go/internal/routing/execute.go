@@ -147,8 +147,15 @@ func Execute(ctx context.Context, ordered []Candidate, plan Plan, deadline time.
 			}
 			res.Attempts = append(res.Attempts, a)
 
-			// 3. Circuit feedback.
-			if cb != nil {
+			// 3. Circuit feedback. RATE_LIMITED and MODEL_NOT_FOUND are
+			// deliberately neutral for the breaker: a 429 is the upstream
+			// saying "busy", not "dead" — free-tier concurrency caps emit
+			// them under any real load — and a 404 is one account's
+			// per-model gate, not the connection dying. Counting either as
+			// a failure tripped the per-connection breaker and blackholed
+			// every model on a healthy connection for the whole cooling-off
+			// window (5 throttle responses in 60s = 30s total outage).
+			if cb != nil && a.ErrorCode != ErrCodeRateLimited && a.ErrorCode != ErrCodeModelNotFound {
 				cb.Result(ctx, &cand, a.ErrorCode == "")
 			}
 

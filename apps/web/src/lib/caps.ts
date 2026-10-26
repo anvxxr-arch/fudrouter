@@ -20,6 +20,7 @@ export function hasCap(role: string | null | undefined, cap: Capability): boolea
 }
 
 export const ROUTE_CAPS: [string, Capability][] = [
+  ["/admin/access", "admin.access"],
   ["/admin/providers", "admin.providers"], ["/admin/models", "admin.models"],
   ["/admin/keys", "admin.keys"], ["/admin/users", "admin.users"],
   ["/admin/requests", "admin.requests"], ["/admin/connections", "admin.ops"],

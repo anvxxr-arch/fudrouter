@@ -46,8 +46,11 @@ const FEATURES: Feature[] = [
   },
   {
     title: 'Budget gate',
-    desc: 'A zero balance refuses the request with HTTP 402 INSUFFICIENT_CREDITS before it reaches a provider. The hard stop gates admission, not in-flight spend.',
-    status: 'GA',
+    // The gate is implemented but disabled during the beta (no payment
+    // gateway), so the status says so: 'Beta', not 'GA'. The description and
+    // the badge must agree, or the card claims enforcement it does not have.
+    desc: 'Admission checks the billing account against its hard-stop threshold before a provider is called, so the gate sits on the request path rather than on in-flight spend. It is switched off while there is no payment gateway.',
+    status: 'Beta',
   },
   {
     title: 'Audit log',
@@ -99,7 +102,7 @@ const COMPARISON: CompareRow[] = [
   { feature: 'Combo routing', us: 'Planned', nine: '—', omni: '—', lite: '—' },
   { feature: 'Credit billing (integer micro-units)', us: '✓', nine: '—', omni: '—', lite: '—' },
   { feature: 'Per-account isolation (account → api_key)', us: '✓', nine: '—', omni: '—', lite: '—' },
-  { feature: 'Budget gate (402 before provider)', us: '✓', nine: '—', omni: '—', lite: '—' },
+  { feature: 'Budget gate (built, off during beta)', us: '✓', nine: '—', omni: '—', lite: '—' },
   { feature: 'Audit log', us: '✓', nine: '—', omni: '—', lite: '—' },
   { feature: 'Provider health / circuit breaker', us: '✓', nine: '—', omni: '—', lite: '—' },
   { feature: 'Model rewrite (alias)', us: '✓', nine: '✓', omni: '—', lite: '—' },

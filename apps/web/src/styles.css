@@ -1140,12 +1140,12 @@ p.muted:not(.lede) { max-width: 30rem; }
 .meta { color: var(--color-text-muted); font-size: var(--text-caption); }
 .fr-divider { display: flex; align-items: center; gap: var(--space-md); color: var(--color-text-muted); font-size: var(--text-caption); }
 /* ---- pricing page ---- */
-.pricing-tiers { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-md); align-items: stretch; }
-@media (max-width: 900px) { .pricing-tiers { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* One column per plan. The grid was repeat(4) for four advertised tiers; there
+   is one seeded plan during the beta, and a 4-column grid with a single card
+   in it left three quarters of the row empty. `auto-fit` follows the data. */
+.pricing-tiers { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 340px)); gap: var(--space-md); align-items: stretch; }
 @media (max-width: 560px) { .pricing-tiers { grid-template-columns: minmax(0, 1fr); } }
 .pricing-tier { position: relative; display: flex; flex-direction: column; gap: var(--space-sm); padding: var(--space-card); border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); }
-.pricing-tier--pro { border-color: var(--warning); }
-.pricing-tier-badge { position: absolute; top: calc(var(--space-sm) * -1); right: var(--space-md); padding: 2px var(--space-sm); border-radius: var(--radius-pill); background: var(--warning); color: var(--color-bg); font-size: var(--text-caption); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
 .pricing-tier h3 { margin: 0; }
 .pricing-tier-price { margin: 0; font-size: var(--text-stat); font-weight: 600; letter-spacing: -0.01em; }
 .pricing-tier-price .muted { font-size: var(--text-sm); font-weight: 400; }

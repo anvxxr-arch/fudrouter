@@ -1179,6 +1179,100 @@ type ProviderCredentials = { provider: { id: string; name: string }; connections
 // drizzle-typed endpoints return.
 type Breakers = { breakers: { id: string; target: string; target_id: string; failure_threshold: number; window_seconds: number; open_ms: number; half_open_probes: number; enabled: boolean; state: string }[] };
 const CRED_TONE: Record<string, "ok" | "warn" | "danger" | "default"> = { healthy: "ok", rate_limited: "warn", cooldown: "warn", auth_failed: "danger", invalid: "danger", disabled: "default", unknown: "default" };
+// Model identity: what the provider's endpoint actually answers when asked for
+// each mapped model. Until this panel existed the verdicts were recorded
+// (migration 0018) and served by two admin endpoints that nothing rendered, so
+// an operator had no way to see — let alone act on — a provider that serves a
+// different model under a mapped name.
+//
+// The table shows the LATEST verdict per mapping, which is the row the router's
+// gate reads. Verdicts are colour AND word (DESIGN.md: never colour alone):
+// `pass` green/Pass, `mismatch` amber/Mismatch, `not_served` red/Not served,
+// `error` muted/Error, and no row at all muted/Never checked — the state an
+// operator most needs to see, because it means the mapping is a claim with no
+// evidence behind it.
+type VerificationRow = {
+  mappingId: string;
+  upstreamSlug: string;
+  modelSlug: string;
+  requestedSlug: string | null;
+  responseModel: string | null;
+  verdict: string | null;
+  error: string | null;
+  tokensIn: number | null;
+  tokensOut: number | null;
+  latencyMs: number | null;
+  createdAt: string | null;
+};
+type Verification = { rows: VerificationRow[] };
+
+const VERDICT_TONE: Record<string, "ok" | "warn" | "danger" | "default"> = {
+  pass: "ok",
+  mismatch: "warn",
+  not_served: "danger",
+  error: "default"
+};
+const VERDICT_WORD: Record<string, string> = {
+  pass: "Pass",
+  mismatch: "Mismatch",
+  not_served: "Not served",
+  error: "Error"
+};
+// The two verdicts the router's gate withholds a model on. Kept here as a list
+// rather than an `if` chain so the note below and the badge tone cannot drift.
+const WITHHOLDING_VERDICTS = ["mismatch", "not_served"];
+
+function VerificationPanel({ providerId, tick, onChanged }: { providerId: string; tick: number; onChanged: () => void }) {
+  const [local, setLocal] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const v = useLoad<Verification>("/api/admin/providers/" + providerId + "/verification", tick + local);
+  return (<State err={v.err} d={v.d}>{(data: Verification) => {
+    const withheld = data.rows.filter((r) => r.verdict && WITHHOLDING_VERDICTS.includes(r.verdict)).length;
+    return (<>
+      <div className="row">
+        <Button size="sm" disabled={busy} onClick={() => {
+          setErr(null); setNotice(null); setBusy(true);
+          postJSON<{ enqueued: boolean; message: string }>("/api/admin/providers/" + providerId + "/verify", {})
+            .then((r) => { setNotice(r.message); setLocal((n) => n + 1); onChanged(); })
+            .catch((e: Error) => setErr(e.message))
+            .finally(() => setBusy(false));
+        }}>Verify now</Button>
+        <span className="muted">
+          {data.rows.length === 0
+            ? "No model mappings yet."
+            : withheld > 0
+              ? withheld + " mapping" + (withheld === 1 ? "" : "s") + " withheld from the catalogue — the upstream serves a different model or nothing."
+              : "Every mapping's latest probe matches."}
+        </span>
+      </div>
+      {err ? <p className="error" role="alert">{err}</p> : null}
+      {notice ? <p className="ps-ok" role="status">{notice}</p> : null}
+      {data.rows.length > 0 ? (
+        <Table
+          head={["Model", "Requested", "Upstream answered", "Verdict", "Latency", "Checked"]}
+          numeric={[4]}
+          rows={data.rows.map((r) => [
+            <span key="m" className="keys-name" title={r.modelSlug}>{r.modelSlug}</span>,
+            <code key="q" className="keys-prefix">{r.requestedSlug ?? r.upstreamSlug}</code>,
+            <code key="r" className="keys-prefix">{r.responseModel ?? "—"}</code>,
+            r.verdict
+              ? <Badge key="v" tone={VERDICT_TONE[r.verdict] ?? "default"}>{VERDICT_WORD[r.verdict] ?? r.verdict}</Badge>
+              : <Badge key="v" tone="default">Never checked</Badge>,
+            r.latencyMs === null ? "—" : r.latencyMs + " ms",
+            r.createdAt ? fmtDate(r.createdAt) : "—",
+          ])}
+        />
+      ) : null}
+      <p className="muted">
+        The router hides a model whose latest verdict is Mismatch or Not served, and restores it on the next Pass.
+        An Error is a transient probe failure and withholds nothing.
+      </p>
+    </>);
+  }}</State>);
+}
+
 function ProviderDetail({ provider, tick, onClose, onChanged }: { provider: ProviderRow; tick: number; onClose: () => void; onChanged: () => void }) {
   const [actionErr, setActionErr] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -1325,6 +1419,8 @@ function ProviderDetail({ provider, tick, onClose, onChanged }: { provider: Prov
           <Table head={["State", "Failures", "Window s", "Open ms", "Half-open probes", "Enabled"]} numeric={[1, 2, 3, 4]} rows={rows.map((b) => [b.state, String(b.failure_threshold), String(b.window_seconds), String(b.open_ms), String(b.half_open_probes), String(b.enabled)])} />
         );
       }}</State>
+      <h4>Model identity</h4>
+      <VerificationPanel providerId={provider.id} tick={tick} onChanged={onChanged} />
       <h4>Observed outcomes (24h)</h4>
       <State err={health.err} d={health.d}>{(v: Health) => {
         const p = v.providers.find((x) => x.id === provider.id);
@@ -2157,7 +2253,95 @@ function UsersView() {
     </>)}}</State>);
 }
 
+// ---------------------------------------------------------------- access ----
+// Invite allowlist + pending queue (migration 0024). There is no payment
+// gateway yet, so this is the surface that grants access: an admin adds a
+// Discord id, and the sign-up gate in index.mjs lets that id through.
+//
+// Two tables because there are two questions an operator asks. "Who is
+// waiting?" is the pending queue, which needs an Approve button. "Who did we
+// invite, and did they use it?" is the allowlist, where an unused row can be
+// withdrawn and a used one cannot (it is the record of who was let in).
+type AccessInvite = {
+  id: string;
+  discordId: string;
+  note: string | null;
+  createdBy: string | null;
+  createdAt: string | null;
+  usedBy: string | null;
+  usedByEmail: string | null;
+  usedAt: string | null;
+};
+type AccessPending = {
+  id: string;
+  name: string;
+  email: string;
+  discordId: string | null;
+  createdAt: string | null;
+};
+
+function AccessView() {
+  const [tick, setTick] = useState(0);
+  const [actionErr, setActionErr] = useState<string | null>(null);
+  const [discordId, setDiscordId] = useState("");
+  const [note, setNote] = useState("");
+  const invites = useLoad<{ rows: AccessInvite[] }>("/api/admin/access/allowlist", tick);
+  const pending = useLoad<{ rows: AccessPending[] }>("/api/admin/access/pending", tick);
+  const run = async (fn: () => Promise<unknown>) => {
+    setActionErr(null);
+    try { await fn(); setTick((n) => n + 1); } catch (e) { setActionErr(e instanceof Error ? e.message : String(e)); }
+  };
+  const add = (e: FormEvent) => {
+    e.preventDefault();
+    const id = discordId.trim();
+    if (!id) { setActionErr("A Discord id is required."); return; }
+    run(async () => { await postJSON("/api/admin/access/allowlist/add", { discordId: id, note }); setDiscordId(""); setNote(""); });
+  };
+  return (<div className="stack">
+    {actionErr ? <p className="error" role="alert">{actionErr}</p> : null}
+    <Card title="Invite someone" desc="Access is invite-only while there is no payment gateway. Add the Discord id they will sign in with.">
+      <form className="row" onSubmit={add}>
+        <Input aria-label="Discord id" placeholder="Discord id (15-20 digits)" value={discordId} onChange={(e) => setDiscordId(e.currentTarget.value)} />
+        <Input aria-label="Note" placeholder="Note (optional)" value={note} onChange={(e) => setNote(e.currentTarget.value)} />
+        <Button size="sm" type="submit">Add invite</Button>
+      </form>
+    </Card>
+
+    <Card title="Awaiting approval" desc="Accounts created without an invite. They cannot sign in until approved.">
+      <State err={pending.err} d={pending.d}>
+        {(v: { rows: AccessPending[] }) => v.rows.length === 0
+          ? <p className="muted">Nobody is waiting.</p>
+          : <Table head={["Email", "Name", "Discord id", "Signed up", "Actions"]} rows={v.rows.map((r) => [
+              r.email, r.name, r.discordId ?? "—", r.createdAt ? fmtDate(r.createdAt) : "—",
+              <span key={r.id} className="row">
+                <Button size="sm" onClick={() => run(() => postJSON("/api/admin/access/approve", { userId: r.id }))}>Approve</Button>
+                <Button size="sm" variant="ghost" onClick={() => run(() => postJSON("/api/admin/access/revoke", { userId: r.id }))}>Revoke</Button>
+              </span>
+            ])} />}
+      </State>
+    </Card>
+
+    <Card title="Allowlist" desc="Every invited Discord id, and whether it has been used.">
+      <State err={invites.err} d={invites.d}>
+        {(v: { rows: AccessInvite[] }) => v.rows.length === 0
+          ? <p className="muted">No invites yet — nobody can sign up until you add one.</p>
+          : <Table head={["Discord id", "Note", "Status", "Used by", "Added", "Actions"]} rows={v.rows.map((r) => [
+              r.discordId,
+              r.note ?? "—",
+              r.usedAt ? <Badge key={r.id} tone="ok">Used</Badge> : <Badge key={r.id} tone="info">Unused</Badge>,
+              r.usedByEmail ?? (r.usedBy ? r.usedBy : "—"),
+              r.createdAt ? fmtDate(r.createdAt) : "—",
+              r.usedBy
+                ? <span key={r.id} className="muted">Used invites stay for the record</span>
+                : <Button key={r.id} size="sm" variant="ghost" onClick={() => run(() => postJSON("/api/admin/access/allowlist/remove", { id: r.id }))}>Remove</Button>
+            ])} />}
+      </State>
+    </Card>
+  </div>);
+}
+
 const VIEWS: Record<string, { lede: string; el: () => ReactNode }> = {
+  access: { lede: "Invite-only access: who may sign up, and who is waiting for approval.", el: AccessView },
   analytics: { lede: "Usage rollups with request-log fallback and exact latency percentiles.", el: AnalyticsView },
   billing: { lede: "Billing accounts, credit ledger, and invoices.", el: BillingView },
   connections: { lede: "Provider connections and credential health. Secrets never leave the server.", el: ConnectionsView },

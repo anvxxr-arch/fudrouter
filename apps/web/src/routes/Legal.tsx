@@ -52,8 +52,10 @@ const TERMS: Section[] = [
     title: 'Service description & SLA',
     body: 'The service is a hosted router: one OpenAI-compatible endpoint, one key, many upstream providers, with per-request metering and fallback. Availability is measured as the share of requests that receive a response rather than a transport or 5xx error, excluding scheduled maintenance announced in advance.',
     list: [
-      'Paid plans: 99.9% monthly availability.',
-      'Free plan: 99.5% monthly availability.',
+      // One plan exists during the beta (plan.slug = 'free'), so a two-tier SLA
+      // table described a distinction the product does not make — and quoted a
+      // "free plan" against a "paid plan" nobody can buy.
+      'During the beta there is one plan, and no availability target is committed: the platform is invite-only and the upstream providers set their own reliability.',
       'A miss is credited, not paid out — see Credits & payment.',
     ],
   },
@@ -63,7 +65,10 @@ const TERMS: Section[] = [
     body: 'Billing is metered per request: each call is priced from the normalized per-1M-token price of the route that served it, and the charge lands on the request\u2019s ledger row when the call ends. Money is stored in integer micro-units, so a total never passes through a floating-point number.',
     list: [
       'Credits do not expire. An unused balance is not a liability and is not forfeited.',
-      'A zero balance returns HTTP 402 before the request reaches a provider. There is no overage and no negative balance.',
+      // No 402 is returned today: the balance gate is off while there is no
+      // payment gateway (store.FreeAccessNoPaymentGateway). Terms that describe
+      // a refusal the service does not perform are worse than silent.
+      'During the beta no charge is collected: usage is metered and recorded, but the balance gate is disabled because there is no payment gateway yet. There is no overage and no negative balance.',
       'Refunds are issued when we miss the SLA above, and otherwise at our discretion.',
     ],
   },

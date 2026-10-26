@@ -67,10 +67,13 @@ export function LoginPage() {
       <h1>Log in</h1>
       <Card>
         <DiscordButton label="Continue with Discord" />
-        {/* One line, because the button already says what it does. The previous
-            version ran three sentences explaining provisioning, roles and
-            signup — every one of them restated the button. */}
-        <p className="muted">No account needed — Discord makes one.</p>
+        {/* One line, because the button already says what it does.
+            It used to promise "No account needed — Discord makes one", which
+            stopped being true with the invite gate (migration 0024): a Discord
+            sign-in with no invite creates a PENDING account that cannot get a
+            session. Promising instant access and then refusing it is the worst
+            version of this copy. */}
+        <p className="muted">Access is invite-only during the beta. Signing in creates an account; an admin has to approve it before you can mint a key.</p>
       </Card>
     </div>
   );

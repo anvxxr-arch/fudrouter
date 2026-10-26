@@ -81,8 +81,11 @@ export const PUBLIC_SEO: readonly SeoMeta[] = [
   {
     to: '/pricing',
     title: `Pricing — per-1M-token rates | ${SITE_NAME}`,
+    // Names the columns the table actually renders (Input, Cached input,
+    // Output, Context). It used to promise "reasoning rates", which the table
+    // has no column for.
     description:
-      'Every model price in one table, grouped by developer: input, cached input, output and reasoning rates in micro-units per 1M tokens.',
+      'Every model price in one table, grouped by developer: input, cached input and output rates in micro-units per 1M tokens, with context windows. Free while in beta.',
     indexable: true,
     changefreq: 'daily',
     priority: 0.9,

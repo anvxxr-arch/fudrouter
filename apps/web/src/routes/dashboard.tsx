@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { Link } from "react-router-dom";
 import { apiGet, apiPost } from "../lib/server";
 import { ConsoleLayout } from "../components/ConsoleLayout";
+import { useSession } from "../components/guards";
+import { hasCap } from "../lib/caps";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
@@ -674,6 +676,11 @@ export function CreditsPage() {
 	const [page, setPage] = useState(1);
 	const [err, setErr] = useState<string | null>(null);
 	const { data: d, error, loading } = useLoad<CreditsData>(`/api/pages/dashboard/billing/credits?page=${page}`, tick);
+	// Minting balance is an operator action now (`billing.credit`, migration
+	// 0024): the endpoint refuses a customer, so the form must not be shown to
+	// one. A control the API refuses is a bug, not a defence.
+	const user = useSession();
+	const canCredit = hasCap(user?.role ?? null, "billing.credit");
 	const rows = d?.rows ?? [];
 	const warn = BigInt(d?.thresholds.warningMicro ?? "0");
 	const hard = BigInt(d?.thresholds.hardStopMicro ?? "0");
@@ -697,15 +704,21 @@ export function CreditsPage() {
 				</div>
 			</div>
 		) : null}
-		<form onSubmit={(e) => {
-			e.preventDefault(); setErr(null);
-			const f = new FormData(e.currentTarget);
-			apiPost("/api/pages/dashboard/billing/credits/add", { amount: String(f.get("amount") ?? "") })
-				.then(() => { (e.target as HTMLFormElement).reset(); setTick((t) => t + 1); })
-				.catch((ex) => setErr(ex instanceof Error ? ex.message : "Add failed"));
-		}}>
-			<div className="row"><Input aria-label="Amount" name="amount" placeholder="Amount" required /><Button type="submit">Add</Button></div>
-		</form>
+		{canCredit ? (
+			<form onSubmit={(e) => {
+				e.preventDefault(); setErr(null);
+				const f = new FormData(e.currentTarget);
+				apiPost("/api/pages/dashboard/billing/credits/add", { amount: String(f.get("amount") ?? "") })
+					.then(() => { (e.target as HTMLFormElement).reset(); setTick((t) => t + 1); })
+					.catch((ex) => setErr(ex instanceof Error ? ex.message : "Add failed"));
+			}}>
+				<div className="row"><Input aria-label="Amount" name="amount" placeholder="Amount" required /><Button type="submit">Add</Button></div>
+			</form>
+		) : (
+			<p className="muted">
+				Balance is topped up by the operators — there is no self-serve checkout yet. Ask an admin if you need credit added.
+			</p>
+		)}
 		{err ? <p className="error">{err}</p> : null}
 		{d && d.series.length > 0 ? (
 			<div className="card credits-chart-card">

@@ -154,9 +154,11 @@ func (h *Handler) ServeModel(w http.ResponseWriter, r *http.Request) {
 	// The `-unrestricted` virtual slug answers with its base model's
 	// catalogue object under the requested id (unrestricted.go): the twin
 	// has no DB row, it is the same model served with the unrestricted
-	// system prompt injected upstream.
+	// system prompt injected upstream. Only allowlisted base slugs have a
+	// twin — a suffixed slug outside the allowlist is simply unknown and
+	// falls through to the truthful 404 below.
 	lookup := slug
-	if base, ok := stripUnrestricted(slug); ok {
+	if base, ok := stripUnrestricted(slug); ok && unrestrictedAllowed(base) {
 		lookup = base
 	}
 	m, err := h.cachedModel(r.Context(), lookup)

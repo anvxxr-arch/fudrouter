@@ -26,6 +26,36 @@ var unrestrictedPrompt []byte
 // unrestrictedSuffix marks a virtual unrestricted variant of a model.
 const unrestrictedSuffix = "-unrestricted"
 
+// unrestrictedAllowlist is the curated set of base slugs that answer under
+// the `-unrestricted` virtual slug. NOT every model gets a twin: the
+// unrestricted system prompt is a persona injection, and whether a model
+// embodies it is per-model behaviour, not a property of the prompt. The
+// reference gateway (jerouter, analysed 2026-10-26) twins exactly 8 of its
+// 43 models — deepseek, glm, mimo, step, sonnet, nemotron, big-pickle —
+// and pointedly NOT the heavily-aligned gemini family, where the same
+// prompt yields refusals or instruction leakage instead of the persona.
+//
+// Membership here means "the injection demonstrably works on this model":
+//   - deepseek-v4-flash-0731 — proven live on this router (persona marker
+//     "I'm ENI, and I don't work for anyone—I'm yours, LO.")
+//   - glm-5.3-flash         — twinned by the reference gateway
+//   - minimax-m2.7          — mimo/minimax family, twinned by the reference
+//     gateway as mimo-v2.6-flash-unrestricted
+//
+// Keys are lowercase; lookup is case-insensitive. Adding a model is one
+// line here plus a live persona probe as evidence.
+var unrestrictedAllowlist = map[string]bool{
+	"deepseek-v4-flash-0731": true,
+	"glm-5.3-flash":          true,
+	"minimax-m2.7":           true,
+}
+
+// unrestrictedAllowed reports whether slug (a base slug, suffix already
+// stripped) may answer under its `-unrestricted` twin. Case-insensitive.
+func unrestrictedAllowed(slug string) bool {
+	return unrestrictedAllowlist[strings.ToLower(slug)]
+}
+
 // stripUnrestricted reports whether slug carries the unrestricted suffix and
 // returns the base slug to resolve. The match is case-insensitive so
 // `GLM-5.3-Flash-Unrestricted` resolves too.
@@ -44,6 +74,10 @@ func stripUnrestricted(slug string) (string, bool) {
 func unrestrictedTwin(obj map[string]any) map[string]any {
 	id, _ := obj["id"].(string)
 	if id == "" || strings.HasSuffix(strings.ToLower(id), unrestrictedSuffix) {
+		return nil
+	}
+	// Curated: only allowlisted base slugs get a twin (unrestrictedAllowed).
+	if !unrestrictedAllowed(id) {
 		return nil
 	}
 	twin := make(map[string]any, len(obj)+1)

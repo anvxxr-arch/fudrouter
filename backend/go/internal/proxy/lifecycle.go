@@ -153,8 +153,11 @@ func (h *Handler) begin(w http.ResponseWriter, r *http.Request, start time.Time,
 	// `-unrestricted` is a virtual suffix: resolve the base slug, remember
 	// the flag for dispatch's system-prompt injection. The raw string stays
 	// in lc.requested so logs and billing name what the client asked for.
+	// Only allowlisted base slugs carry a twin (unrestricted.go): a
+	// suffixed slug outside the allowlist keeps its full form and fails
+	// resolution as the unknown model it is.
 	resolveSlug := slug
-	if base, ok := stripUnrestricted(slug); ok {
+	if base, ok := stripUnrestricted(slug); ok && unrestrictedAllowed(base) {
 		lc.unrestricted = true
 		resolveSlug = base
 	}

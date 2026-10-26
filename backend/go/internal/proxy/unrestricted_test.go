@@ -110,6 +110,25 @@ func TestUnrestrictedTwin(t *testing.T) {
 	}
 }
 
+func TestUnrestrictedTwinAllowlist(t *testing.T) {
+	// A model outside the curated allowlist gets NO twin: the persona
+	// injection demonstrably does not take on it (reference gateway twins
+	// 8 of 43 models and skips the aligned gemini family).
+	for _, slug := range []string{"gemini-3.5-flash", "gemini-3.6-flash", "some-future-model"} {
+		obj := map[string]any{"id": slug, "object": "model"}
+		if twin := unrestrictedTwin(obj); twin != nil {
+			t.Errorf("unrestrictedTwin(%q) = %v, want nil (not allowlisted)", slug, twin)
+		}
+	}
+	// Allowlisted slugs do twin, case-insensitively.
+	for _, slug := range []string{"deepseek-v4-flash-0731", "GLM-5.3-Flash", "minimax-m2.7"} {
+		obj := map[string]any{"id": slug, "object": "model"}
+		if twin := unrestrictedTwin(obj); twin == nil {
+			t.Errorf("unrestrictedTwin(%q) = nil, want a twin (allowlisted)", slug)
+		}
+	}
+}
+
 func mustMessages(t *testing.T, body []byte) json.RawMessage {
 	t.Helper()
 	var m map[string]json.RawMessage

@@ -21,11 +21,12 @@ import { ROUTE_CAPS, requiredCap, hasCap } from '../../src/lib/caps.ts';
 
 const EXPECTED = {
 	user: ['member'],
-	finance_admin: ['member', 'admin.view', 'admin.billing', 'admin.users'],
+	finance_admin: ['member', 'billing.credit', 'admin.view', 'admin.billing', 'admin.users'],
 	ops_admin: ['member', 'admin.view', 'admin.providers', 'admin.models', 'admin.requests', 'admin.ops'],
 	admin: [
-		'member', 'admin.view', 'admin.users', 'admin.keys', 'admin.providers',
-		'admin.models', 'admin.requests', 'admin.ops', 'admin.billing', 'admin.audit', 'admin.settings'
+		'member', 'billing.credit', 'admin.view', 'admin.users', 'admin.access', 'admin.keys',
+		'admin.providers', 'admin.models', 'admin.requests', 'admin.ops', 'admin.billing',
+		'admin.audit', 'admin.settings'
 	]
 };
 

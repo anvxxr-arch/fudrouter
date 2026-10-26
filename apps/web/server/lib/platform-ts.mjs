@@ -101,12 +101,18 @@ export const newId = (prefix) => ids.newId(prefix);
 // and public.mjs's `served` — which is exactly the drift the module's header
 // warns about. Both now call this.
 //
+// The provider half takes the three columns the router's SQL reads
+// (`status`, `enabled`, `tier`). It used to take `providerStatus` alone, which
+// could not see `enabled` or `tier` at all, so every caller compensated in SQL
+// and the admin model list — which did not — could show a row as served that
+// the router refused.
+//
 // `reachability` is the reason-carrying form (the admin surfaces show WHY a row
 // is hidden); `served` is the boolean the catalogue filters on.
-export const reachability = (modelStatus, providerStatus, allowDevProviders) =>
-	publish.reachability(modelStatus, providerStatus, allowDevProviders);
-export const served = (modelStatus, providerStatus, allowDevProviders) =>
-	publish.reachability(modelStatus, providerStatus, allowDevProviders).served;
+export const reachability = (modelStatus, provider, allowDevProviders) =>
+	publish.reachability(modelStatus, provider, allowDevProviders);
+export const served = (modelStatus, provider, allowDevProviders) =>
+	publish.reachability(modelStatus, provider, allowDevProviders).served;
 // The env read for the opt-in, from the same module that owns the rule.
 export const allowDevProviders = () => publishEnv.allowDevProviders();
 

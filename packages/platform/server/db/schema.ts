@@ -555,6 +555,43 @@ export const usageDaily = pgTable('usage_daily', {
 	// 0006_platform_schema.sql — see usageHourly.
 });
 
+// ------------------------------------------------------------------ access -----
+// Invite-only access (migration 0024). There is no payment gateway yet, so the
+// gate is an admin allowlist of Discord ids checked when an account is created.
+// `discordId` is deliberately not unique: a used invite can be withdrawn and
+// re-issued as a second row, and `usedBy`/`usedAt` is what tells them apart.
+export const inviteAllowlist = pgTable(
+	'invite_allowlist',
+	{
+		id: text('id').primaryKey(),
+		discordId: text('discord_id').notNull(),
+		note: text('note'),
+		createdBy: text('created_by'),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		usedBy: text('used_by').references(() => user.id, { onDelete: 'set null' }),
+		usedAt: timestamp('used_at', { withTimezone: true })
+	},
+	(t) => [index('invite_allowlist_discord_idx').on(t.discordId)]
+);
+
+// Plans (migration 0024). No billing integration exists yet; this table exists
+// so a gateway has something to attach to and so the key cap is a number an
+// operator edits rather than a constant in code. `maxApiKeys` NULL = unlimited.
+export const plan = pgTable(
+	'plan',
+	{
+		id: text('id').primaryKey(),
+		slug: text('slug').notNull().unique(),
+		name: text('name').notNull(),
+		maxApiKeys: integer('max_api_keys'),
+		rpm: integer('rpm'),
+		concurrency: integer('concurrency'),
+		priceMicro: bigint('price_micro', { mode: 'bigint' }).notNull().default(sql`0`),
+		active: boolean('active').notNull().default(true),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+	}
+);
+
 // ----------------------------------------------------------------- billing -----
 // PRD §47–48, §128–129: ledger, never a bare balance. balanceMicro is a cache
 // of SUM(credit_ledger.amount_micro), reconcilable at any time.
@@ -576,6 +613,14 @@ export const billingAccount = pgTable(
 		balanceMicro: bigint('balance_micro', { mode: 'bigint' })
 			.notNull()
 			.default(sql`0`),
+		// The plan this account is on (migration 0024). DEFAULT 'pln_free' so a
+		// new account never lands planless; the key-cap query still falls back
+		// to the seeded free plan when the column is NULL (plan retired).
+		// ON DELETE SET NULL so retiring a plan never deletes the account or
+		// its ledger.
+		planId: text('plan_id')
+			.default('pln_free')
+			.references(() => plan.id, { onDelete: 'set null' }),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
 	},

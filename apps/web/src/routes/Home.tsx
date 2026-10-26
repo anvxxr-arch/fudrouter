@@ -153,7 +153,10 @@ const FAQ: { q: string; a: string }[] = [
   },
   {
     q: 'What happens when my credit runs out?',
-    a: 'The request is refused with HTTP 402 INSUFFICIENT_CREDITS before it reaches a provider. There is no overage and no negative balance.',
+    // The 402 gate exists in the data plane but is switched OFF during the beta
+    // (store.FreeAccessNoPaymentGateway), so promising a refusal would be a claim
+    // the running router does not make. This says what happens instead.
+    a: 'Usage is metered per token and drawn from your balance, but nothing is charged during the beta — the balance gate is disabled because there is no payment gateway yet. There is never an overage or a negative balance.',
   },
   {
     q: 'Which providers are supported?',

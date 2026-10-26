@@ -13,50 +13,36 @@ interface Tier {
   features: string[];
   cta: string;
   to: string;
-  highlight?: boolean;
 }
 
-// One plain const so the marketing copy is auditable in one place. Every
-// number here is a plan price, not a token allowance: the free tier's model
-// list is whatever the gateway's free-tier pool serves, and quoting a token
-// count we cannot back with data would be a promise the ledger can't keep.
+// One plain const so the copy is auditable in one place.
+//
+// These are the plans that EXIST, not a pricing wishlist. There is one seeded
+// plan row (`plan.slug = 'free'`, migration 0024) and no payment gateway, so
+// there is nothing to buy and no checkout to link to. The page used to
+// advertise Pro at $20/month with "10 API keys" and Team at $99 — three tiers
+// that no row, endpoint or gateway ever implemented, quoting a key count
+// (10) the code did not enforce and a 402 the free-access flag suppresses.
+//
+// The cap numbers below are read from the seeded plan row: max_api_keys 5,
+// rpm 75, concurrency 3 — the last two are the Go data plane's own
+// FreeTierRPMPerAccount / FreeTierConcurrencyPerAccount, so the page and the
+// limiter cannot disagree.
 const TIERS: Tier[] = [
   {
-    name: 'Free',
+    name: 'Invite beta',
     price: '$0',
-    period: 'forever',
-    blurb: 'Free-tier models, metered per token.',
-    features: ['Free-tier models', '1 API key', 'Community support'],
-    cta: 'Start free',
+    period: 'during beta',
+    blurb: 'Everything the router serves, while there is no payment gateway.',
+    features: [
+      'Every published model',
+      '5 API keys',
+      '75 requests / minute',
+      '3 concurrent requests',
+      'Usage metered per token',
+    ],
+    cta: 'Request an invite',
     to: '/login',
-  },
-  {
-    name: 'Pro',
-    price: '$20',
-    period: 'per month',
-    blurb: 'Every model, with fallback routing.',
-    features: ['All models', '10 API keys', 'Fallback routing', 'Email support'],
-    cta: 'Get Pro',
-    to: '/login',
-    highlight: true,
-  },
-  {
-    name: 'Team',
-    price: '$99',
-    period: 'per month',
-    blurb: 'For teams that need an audit trail.',
-    features: ['Audit log', 'Priority support'],
-    cta: 'Get Team',
-    to: '/login',
-  },
-  {
-    name: 'Enterprise',
-    price: 'Custom',
-    period: 'annual',
-    blurb: 'Your provider credentials, your terms.',
-    features: ['Dedicated provider credentials', 'SSO', 'NET-30 invoicing'],
-    cta: 'Read the docs',
-    to: '/docs',
   },
 ];
 
@@ -65,12 +51,20 @@ const TIERS: Tier[] = [
 // links there directly.
 const FAQ: { q: string; a: string }[] = [
   {
-    q: 'Do unused credits expire?',
-    a: 'No. Credits you top up stay on your balance until you spend them, however long that takes.',
+    q: 'How do I get access?',
+    a: 'Access is invite-only while the platform is in beta. Signing in with Discord creates an account that waits for approval; an admin adds your Discord id to the invite list and your next sign-in works. There is no self-serve signup and no card to enter.',
   },
   {
-    q: 'What happens when my balance hits zero?',
-    a: 'The request is refused with HTTP 402 (INSUFFICIENT_CREDITS) before it reaches a provider. There is no overage and no negative balance — top up and retry.',
+    q: 'What does it cost?',
+    a: 'Nothing right now. There is no payment gateway, so there is no checkout and no card on file. Usage is still metered per token and written to your credit ledger, so the numbers on this page are what a request costs — they are not currently charged.',
+  },
+  {
+    q: 'Can I top up my balance?',
+    a: 'Not yourself. Adding credit is an operator action during the beta, so the add-credits form is hidden for ordinary accounts. Ask an admin if you need balance added.',
+  },
+  {
+    q: 'How many API keys can I have?',
+    a: 'Five on the beta plan. Revoking a key frees a slot immediately. The cap is a column on the plan row, not a constant in code, so it can be raised for you without a deploy.',
   },
   {
     q: 'How is each request billed?',
@@ -86,7 +80,11 @@ const FAQ: { q: string; a: string }[] = [
   },
   {
     q: 'What is in the free tier?',
-    a: 'The models the gateway serves from its free provider pool, one API key, and community support. Usage is metered the same way as paid tiers — per token, from your balance.',
+    a: 'The models listed in the table below — every model the router can actually serve right now. A model is only published when it has a live credential and its upstream has been verified to serve it, so the list is shorter than a raw provider catalog and every entry works.',
+  },
+  {
+    q: 'A model I used to see is gone. Why?',
+    a: 'Two gates decide that. The model needs a live credential behind it, and its upstream has to answer as the model it claims to be — a provider that returns a different model under a mapped name gets that mapping withheld. Both are re-checked continuously, so a model can come back.',
   },
   {
     q: 'Can prices change?',
@@ -94,7 +92,7 @@ const FAQ: { q: string; a: string }[] = [
   },
   {
     q: 'Do you offer invoices or refunds?',
-    a: 'Not yet. There is no invoice or refund flow implemented — billing today is prepaid credits only. Enterprise plans are quoted individually with NET-30 terms.',
+    a: 'Not yet. There is no invoice or refund flow — nothing has been charged, so there is nothing to invoice. The ledger and invoice machinery exists and is exercised in the console, but it is dormant until payments are real.',
   },
 ];
 
@@ -248,14 +246,16 @@ export function PricingPage() {
     <Reveal>
       <div className="stack">
         <h1>Pricing</h1>
-        <p className="lede muted">Pay for what you use. Credits never expire. No per-seat fees.</p>
+        <p className="lede muted">Metered per token, no per-seat fees. Free while the platform is in beta.</p>
 
         <section aria-labelledby="pricing-plans">
           <h2 id="pricing-plans">Plans</h2>
           <div className="pricing-tiers">
             {TIERS.map((t) => (
-              <div key={t.name} className={t.highlight ? 'pricing-tier pricing-tier--pro' : 'pricing-tier'}>
-                {t.highlight ? <span className="pricing-tier-badge">Most popular</span> : null}
+              // No highlight branch: there is one plan, so a "Most popular"
+              // badge and a Pro accent would be decoration pointing at a
+              // choice the reader does not have.
+              <div key={t.name} className="pricing-tier">
                 <h3>{t.name}</h3>
                 <p className="pricing-tier-price">
                   <span className="num">{t.price}</span> <span className="muted">{t.period}</span>
@@ -269,7 +269,7 @@ export function PricingPage() {
                   ))}
                 </ul>
                 <Link to={t.to}>
-                  <Button variant={t.highlight ? 'primary' : 'secondary'} className="w-full">
+                  <Button variant="primary" className="w-full">
                     {t.cta}
                   </Button>
                 </Link>
@@ -283,13 +283,13 @@ export function PricingPage() {
           <div className="pricing-credits">
             <ol className="pricing-steps">
               <li>
-                <strong>Top up.</strong> Add credits to your balance from the billing page. Credits never expire — an unused balance is not a liability.
+                <strong>Access is granted, not bought.</strong> An admin invites your Discord id. There is no checkout while the platform is in beta, and no card is stored.
               </li>
               <li>
                 <strong>Every request writes a ledger row.</strong> When a request finishes, one <code>credit_ledger</code> row records the tokens actually used, with an idempotency key so a retry cannot double-charge.
               </li>
               <li>
-                <strong>Zero balance returns 402.</strong> When the balance is exhausted the request is refused with HTTP 402 <code>INSUFFICIENT_CREDITS</code> at admission, before it reaches a provider. There is no overage charge — a request at a zero balance is refused before it reaches a provider.
+                <strong>Usage is metered, and thresholds alert.</strong> Balance draws down per request. Crossing the warning threshold raises an alert; crossing the hard stop is where a balance gate applies. During the beta that gate is switched off by design — <code>FreeAccessNoPaymentGateway</code> in the data plane — so nothing is refused for lack of balance.
               </li>
             </ol>
             <FlowDiagram />
@@ -353,7 +353,7 @@ export function PricingPage() {
 
         <section aria-labelledby="pricing-table">
           <h2 id="pricing-table">Model pricing table</h2>
-          <p className="lede muted">Pay per token — no seat fees. One API key, every model. All prices normalized per 1M tokens.</p>
+          <p className="lede muted">Pay per token — no seat fees. Every model below is one the router can serve right now. All prices normalized per 1M tokens.</p>
           {error ? <p className="error" role="alert">Pricing could not be loaded — reload in a moment.</p> : null}
           {groups.map((g) => (
             <section key={g.developer}>
@@ -397,10 +397,10 @@ export function PricingPage() {
         </section>
 
         <section className="pricing-cta" aria-labelledby="pricing-cta">
-          <h2 id="pricing-cta">Start free. Upgrade when you need to.</h2>
+          <h2 id="pricing-cta">Invite-only while in beta.</h2>
           <div className="row">
-            <Link to="/login"><Button>Get started</Button></Link>
-            <span className="muted">Then mint a key and point a client at the API.</span>
+            <Link to="/login"><Button>Sign in with Discord</Button></Link>
+            <span className="muted">An account created without an invite waits for approval. Then mint a key and point a client at the API.</span>
           </div>
         </section>
       </div>

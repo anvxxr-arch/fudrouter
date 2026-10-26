@@ -27,6 +27,7 @@ import { joinFudcourt } from './lib/discord.mjs';
 import { emailAuthEnabled } from './lib/auth-config.mjs';
 import { compress } from './lib/compress.mjs';
 import { clientIp, requestOrigin } from './lib/ip.mjs';
+import { rowsOf } from './lib/validate.mjs';
 import { readShell, withHead, seo } from './lib/head.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -57,7 +58,11 @@ export const user = pgTable('user', {
 	role: text('role'),
 	banned: boolean('banned').default(false),
 	banReason: text('ban_reason'),
-	banExpires: timestamp('ban_expires')
+	banExpires: timestamp('ban_expires'),
+	// Invite gate (migration 0024). Declared here because the session hook and
+	// getSessionUser both read it; the column list in this file is the copy
+	// better-auth and the server queries actually use.
+	accessStatus: text('access_status').notNull().default('active')
 });
 export const session = pgTable(
 	'session',
@@ -251,6 +256,59 @@ async function writeAudit(dbtx, entry) {
 	});
 }
 
+// ------------------------------------------------------------ invite ------
+// Who may use the platform (migration 0024). There is no payment gateway yet,
+// so access is an admin allowlist of Discord ids: a Discord sign-up whose id is
+// absent from `invite_allowlist` creates a `pending` account that cannot obtain
+// a session until an admin approves it (POST /api/admin/access/approve).
+//
+// Two deliberate asymmetries:
+//
+//   * `access_status` is read on EVERY sign-in, not only at account creation.
+//     That is what makes `revoked` and admin approval real: a pending user's
+//     next sign-in is refused, and flipping the flag is what lets them in.
+//   * A user whose only identity is `credential` is not gated. That provider
+//     is email/password, which exists only under NODE_ENV=test
+//     (lib/auth-config.mjs) — the integration harness needs it because no test
+//     can log in with a Discord account. An invite is a Discord id, and such a
+//     fixture has no Discord identity for an allowlist to name.
+//
+// A user with ANY other identity (discord today, another OAuth provider
+// tomorrow) but no Discord one fails CLOSED (pending): adding a second OAuth
+// provider must not silently bypass the gate.
+async function identityFor(userId) {
+	const rows = await db
+		.select({ providerId: account.providerId, accountId: account.accountId })
+		.from(account)
+		.where(eq(account.userId, userId));
+	const oauth = rows.filter((r) => r.providerId !== 'credential');
+	return {
+		hasOAuthIdentity: oauth.length > 0,
+		discordId: oauth.find((r) => r.providerId === 'discord')?.accountId ?? null
+	};
+}
+
+// Claim an unused invite for `discordId` in ONE statement, so two concurrent
+// sign-ups cannot both consume the same row: the `used_by is null` predicate
+// picks the row, and the second writer re-evaluates it after the row lock.
+//
+// Returns true when a row was claimed. The caller swallows errors and treats
+// them as "not invited": an unreadable allowlist must never be a way in.
+async function claimInvite(discordId, userId) {
+	const rows = rowsOf(
+		await db.execute(sql`
+			update invite_allowlist set used_by = ${userId}, used_at = now()
+			where id = (
+				select id from invite_allowlist
+				where discord_id = ${discordId} and used_by is null
+				order by created_at
+				limit 1
+			)
+			returning id`)
+	);
+	return rows.length > 0;
+}
+
 // ------------------------------------------------------------ provision ----
 // An account is the tenant (migration 0019): a new user gets a billing account
 // and nothing else. The workspace → project → environment tree this function
@@ -323,9 +381,42 @@ export const auth = betterAuth({
 	databaseHooks: {
 		user: {
 			create: {
+				// INVITE GATE. An invited Discord id gets a normal account; anyone
+				// else gets `access_status='pending'` and NO billing account, and
+				// is refused a session below until an admin approves them.
+				//
+				// Runs after commit (better-auth queues create.after hooks), so
+				// the `account` row carrying the Discord id is already there for
+				// the OAuth path. The email path has no account row yet — see
+				// the "no Discord identity" note on discordIdFor.
 				after: async (created) => {
 					if (!db) throw new Error('DATABASE_URL is not set; cannot provision account');
+					const { hasOAuthIdentity, discordId } = await identityFor(created.id);
+					let invited = !hasOAuthIdentity;
+					if (discordId) {
+						try {
+							invited = await claimInvite(discordId, created.id);
+						} catch (err) {
+							// Fail CLOSED: an unreadable allowlist is not an invite.
+							console.error('[auth] invite allowlist lookup failed; account stays pending', err);
+							invited = false;
+						}
+					}
 					await db.transaction(async (tx) => {
+						if (!invited) {
+							await tx
+								.update(user)
+								.set({ accessStatus: 'pending' })
+								.where(eq(user.id, created.id));
+							await writeAudit(tx, {
+								actorUserId: created.id,
+								action: 'access.pending',
+								resource: 'user',
+								resourceId: created.id,
+								metadata: { discordId }
+							});
+							return;
+						}
 						await provisionAccount(tx, { userId: created.id });
 					});
 				}
@@ -343,13 +434,28 @@ export const auth = betterAuth({
 				before: async (session, ctx) => {
 					if (!db || !ctx) return;
 					const rows = await db
-						.select({ banned: user.banned, banExpires: user.banExpires })
+						.select({
+							banned: user.banned,
+							banExpires: user.banExpires,
+							accessStatus: user.accessStatus
+						})
 						.from(user)
 						.where(eq(user.id, session.userId))
 						.limit(1);
 					const row = rows[0];
 					if (row?.banned && !(row.banExpires && row.banExpires.getTime() < Date.now())) {
 						throw new APIError('FORBIDDEN', { message: 'You have been banned from this application' });
+					}
+					// ACCESS GATE (migration 0024). Same enforcement point as the
+					// ban above and for the same reason: this is where a session
+					// is minted, so it is where access is granted or refused.
+					if (row?.accessStatus === 'pending') {
+						throw new APIError('FORBIDDEN', {
+							message: 'Your account is awaiting an invite. Ask an admin to approve it.'
+						});
+					}
+					if (row?.accessStatus === 'revoked') {
+						throw new APIError('FORBIDDEN', { message: 'Your access has been revoked' });
 					}
 				},
 				// After every sign-in, put the user into the FUDCourt Discord
@@ -494,12 +600,22 @@ async function getSessionUser(req) {
 	// enforce `banned` is deliberately not loaded (see the "No plugins" note on
 	// the config below), so without this gate a banned user's cookie validates
 	// forever. A ban whose banExpires window has already passed is not in force.
+	//
+	// ACCESS GATE (migration 0024) is checked in the SAME query, not only at
+	// sign-in: the session.create.before hook refuses a NEW session, but a
+	// session minted while the account was active survives a later revocation,
+	// and this is the only check every authenticated request runs.
 	const [row] = await db
-		.select({ banned: user.banned, banExpires: user.banExpires })
+		.select({
+			banned: user.banned,
+			banExpires: user.banExpires,
+			accessStatus: user.accessStatus
+		})
 		.from(user)
 		.where(eq(user.id, sessionUser.id))
 		.limit(1);
 	if (row?.banned && !(row.banExpires && row.banExpires.getTime() < Date.now())) return null;
+	if (row?.accessStatus === 'pending' || row?.accessStatus === 'revoked') return null;
 	return sessionUser;
 }
 class HttpError extends Error {

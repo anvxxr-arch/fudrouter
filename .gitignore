@@ -33,6 +33,14 @@ node_modules/.pnpm/
 # `git add -A` away from being committed. Go's test source is the `.go` file.
 *.test
 
+# Python bytecode from ops/verify/route-integrity/mock_upstream.py. One .pyc was
+# committed and shipped for months: it is a build artifact of a file that is
+# already in the tree, it breaks on any interpreter but the one that wrote it,
+# and nothing reads it.
+__pycache__/
+*.pyc
+*.pyo
+
 # One-off investigation scratch space. Anything here is a single-sighting probe
 # by definition; real tools get promoted into ops/verify/ and committed from there.
 scratch/

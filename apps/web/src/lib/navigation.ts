@@ -89,6 +89,7 @@ export const CONSOLE_NAV: readonly NavItem[] = [
 // so the rendered bar is byte-identical.
 export const ADMIN_NAV: readonly NavItem[] = [
   { to: "/admin", label: "Overview", scope: "admin", cap: "admin.view", nav: true },
+  { to: "/admin/access", label: "Access", scope: "admin", cap: "admin.access", nav: true },
   { to: "/admin/analytics", label: "Analytics", scope: "admin", cap: "admin.view", nav: true },
   { to: "/admin/billing", label: "Billing", scope: "admin", cap: "admin.billing", nav: true },
   { to: "/admin/connections", label: "Connections", scope: "admin", cap: "admin.ops", nav: true },
@@ -106,8 +107,6 @@ export const ADMIN_NAV: readonly NavItem[] = [
   { to: "/admin/users", label: "Users", scope: "admin", cap: "admin.users", nav: true },
   { to: "/admin/:section/:id", label: "Detail", scope: "admin", cap: "admin.view", nav: false },
 ];
-
-export const navigationRegistry: readonly NavItem[] = [...PUBLIC_NAV, ...CONSOLE_NAV, ...ADMIN_NAV];
 
 /**
  * Items of one scope that `role` may see (nav: true only). Hiding only -- the

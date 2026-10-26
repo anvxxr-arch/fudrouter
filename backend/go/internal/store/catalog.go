@@ -82,6 +82,7 @@ func (s *Store) ActiveModels(ctx context.Context) ([]ModelInfo, error) {
 			  )
 		  )
 		  and `+s.providerServableSQL()+`
+		  and `+verificationWithheldSQL+`
 		group by m.slug, m.name, m.context, m.input_price, m.output_price, m.currency,
 		         pr.input_price, pr.output_price, pr.currency
 		order by m.slug`)
@@ -146,6 +147,7 @@ func (s *Store) PublishedModel(ctx context.Context, slug string) (*ModelInfo, er
 			  )
 		  )
 		  and `+s.providerServableSQL()+`
+		  and `+verificationWithheldSQL+`
 		limit 1`, slug,
 	).Scan(&m.Slug, &m.Name, &m.Context, &priceIn, &priceOut, &curCode)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -173,6 +175,55 @@ func (s *Store) PublishedModel(ctx context.Context, slug string) (*ModelInfo, er
 func (s *Store) providerServableSQL() string {
 	return s.providerServable
 }
+
+// verificationWithheldSQL is the model-identity predicate: a mapping whose
+// LATEST verification verdict says the upstream does not serve the model it
+// claims is not routable.
+//
+// Why this exists: `model_verification` (migration 0018) records what a
+// provider's endpoint actually answered when asked for a specific model. A
+// `mismatch` means the provider served a DIFFERENT model under the requested
+// name (a relabelled alias, a downgrade), and `not_served` means it answered
+// nothing usable. Both are evidence that the catalogue row is a claim the
+// upstream does not honour, so the row must leave the catalogue and the
+// candidate set — otherwise the router advertises and routes to a model that
+// is not the model the customer asked for, which is worse than a 404.
+//
+// LATEST-VERDICT-WINS, not "any bad verdict ever": the table is append-only
+// evidence, so a provider that fixes its endpoint appends a `pass` and the model
+// returns without anyone editing this predicate. The correlated max(created_at)
+// is the same shape the admin endpoint's lateral join uses, so the console and
+// the router read the same row. `model_verification_provider_model_idx` is
+// (provider_model_id, created_at DESC), which is exactly this subquery's access
+// path.
+//
+// `error` is deliberately NOT withholding: the migration's own comment records
+// why — a 5xx, a rate limit or a timeout proves nothing about what the provider
+// serves, and collapsing it into `not_served` would flag a healthy model on
+// every flaky probe.
+//
+// A mapping with NO verification rows is unaffected (there is no evidence
+// either way), which is why this is `not exists` rather than a join.
+//
+// MEASURED COST, and why it is not cached. On a production-shaped database
+// (346 mappings, 2.4k verdict rows) this took the catalogue read from 0.78ms to
+// ~2-4ms, and CandidatesBatch runs on every chat request. An in-process cache of
+// the withheld set was built and REVERTED: refreshing it costs one round trip on
+// the first read, which breaks the "CandidatesBatch is one query" contract
+// pinned by query_count_test.go and candidates_batch_test.go — a round trip
+// (~360µs on a warm pool, and the budget in proxy/lifecycle.go counts them) is
+// worth more than the 1.2ms this saves. The correlated form stays because it is
+// the cheapest of the shapes tried: `distinct on` and `order by … limit 1` both
+// measured worse (3-20ms) at the same scale.
+const verificationWithheldSQL = `not exists (
+			select 1 from model_verification mv
+			where mv.provider_model_id = pm.id
+			  and mv.verdict in ('mismatch', 'not_served')
+			  and mv.created_at = (
+				select max(mv2.created_at) from model_verification mv2
+				where mv2.provider_model_id = pm.id
+			  )
+		  )`
 
 // providerServableSQLFor builds the one provider predicate. It speaks BOTH
 // status vocabularies because migration 0009 widened the CHECKs while 0010 still
@@ -463,7 +514,8 @@ func (s *Store) activeModelIDs(ctx context.Context) ([]string, []string, error) 
 		where m.status = 'active'
 		  and exists (select 1 from provider_model pm
 		              join provider p on p.id = pm.provider_id
-		              where pm.model_id = m.id and pm.enabled and `+s.providerServableSQL()+`)
+		              where pm.model_id = m.id and pm.enabled and `+s.providerServableSQL()+`
+		                and `+verificationWithheldSQL+`)
 		order by m.slug`)
 	if err != nil {
 		return nil, nil, err
@@ -595,6 +647,7 @@ func (s *Store) CandidatesBatch(ctx context.Context, modelIDs []string, required
 			  and (c.id is null or c.enabled)
 			  and (c.id is null or c.health_status is distinct from 'unhealthy')
 			  and `+s.providerServableSQL()+`
+			  and `+verificationWithheldSQL+`
 		) ranked
 		-- Ordered across the whole set so the map is built in one pass and every
 		-- model's slice comes out in its own rank order.
@@ -706,6 +759,7 @@ func (s *Store) Candidates(ctx context.Context, modelID string, requiredCaps map
 		  and (c.id is null or c.enabled)
 		  and (c.id is null or c.health_status is distinct from 'unhealthy')
 		  and `+s.providerServableSQL()+`
+		  and `+verificationWithheldSQL+`
 		order by p.priority asc, pm.id`, modelID)
 	if err != nil {
 		return nil, err

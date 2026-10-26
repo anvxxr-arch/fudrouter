@@ -39,8 +39,8 @@ function num(v) {
  * publish-env, so the console and the router parse ROUTER_ALLOW_DEV_PROVIDERS
  * identically.
  */
-function served(modelStatus, providerStatus) {
-	return _served(modelStatus, providerStatus, _allowDevProviders());
+function served(modelStatus, provider) {
+	return _served(modelStatus, provider, _allowDevProviders());
 }
 function toPrice(raw) {
 	const r = raw ?? {};
@@ -106,16 +106,14 @@ function parseCompareList(raw) {
  * the one query layer behind /models, /providers, /pricing and /metrics.
  */
 async function servedModels(database) {
-	// The structural half of the router's provider gate (providerServableSQLFor,
-	// backend/go/internal/store/catalog.go) belongs HERE, in SQL, because
-	// reachability()'s three arguments cannot see p.enabled or p.tier at all.
-	// Before this predicate a model served ONLY through a disabled provider
-	// (p.enabled = false) or a dev-tier one (p.tier = 'dev' with the
-	// ROUTER_ALLOW_DEV_PROVIDERS opt-in off) still appeared on the public
-	// catalogue while the router refused to serve it — probed against the test
-	// database: GET /api/models listed both probe models, GET /v1/models
-	// excluded both. Filtering in the SPA would be worse: the page must not be
-	// a security boundary.
+	// The provider gate is applied by `served()` below, from the shared rule in
+	// packages/platform/publish.ts — the same predicate the Go router's SQL
+	// implements. This query used to ALSO carry `p.enabled and (p.tier =
+	// 'commercial' or <opt-in>)` in SQL, because reachability() could not see
+	// those two columns; that is why the console and the router could disagree
+	// about a provider and nobody could point at which copy was wrong. The
+	// predicate is one place now (reachability()), and the columns it needs are
+	// selected here.
 	const allowDev = _allowDevProviders();
 	const rows = rowsOf(
 		await database.execute(sql`
@@ -147,7 +145,8 @@ async function servedModels(database) {
 				pm.id as pm_id, pm.provider_model_id as pm_provider_model_id,
 				pm.status as pm_status, pm.enabled as pm_enabled,
 				pm.context_override, pm.capabilities_override,
-				p.name as provider_name, p.slug as provider_slug, p.status as provider_status,
+				p.name as provider_name, p.slug as provider_slug,
+				p.status as provider_status, p.enabled as provider_enabled, p.tier as provider_tier,
 				c.name as connection_name, c.region,
 				(select jsonb_build_object(
 					'input', pr.input_price::text,
@@ -165,11 +164,15 @@ async function servedModels(database) {
 			inner join provider_model pm on pm.model_id = m.id and pm.enabled = true
 			inner join provider p on p.id = pm.provider_id
 			left join connection c on c.id = pm.connection_id
-			where p.enabled = true
-			  and (p.tier = 'commercial' or ${allowDev})
 			order by m.slug, p.name`)
 	);
-	const gated = rows.filter((r) => served(r.model_status, r.provider_status));
+	const gated = rows.filter((r) =>
+		served(r.model_status, {
+			status: r.provider_status,
+			enabled: r.provider_enabled,
+			tier: r.provider_tier
+		}, allowDev)
+	);
 	const pmIds = [...new Set(gated.map((r) => r.pm_id))].filter((id) =>
 		/^[A-Za-z0-9_-]+$/.test(String(id ?? ''))
 	);

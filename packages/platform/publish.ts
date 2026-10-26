@@ -1,11 +1,15 @@
 /**
- * Publish semantics — the rule that decides whether a model is reachable, and
- * which half of it this module mirrors.
+ * Publish semantics — the rule that decides whether a model is reachable.
  *
- * The data plane's rule is a model gate AND a provider gate, in SQL —
- * `providerServableSQLFor` in `backend/go/internal/store/catalog.go`, composed
- * by `ActiveModels` and `PublishedModel` with `m.status = 'active'` and by
- * `Candidates` with `pm.enabled`:
+ * There is ONE rule and two implementations of it: the data plane's SQL
+ * (`providerServableSQLFor` in `backend/go/internal/store/catalog.go`, composed
+ * by `ActiveModels`, `PublishedModel`, `Candidates`, `CandidatesBatch`) and
+ * `reachability()` below. The console reads this module; the router reads its
+ * SQL. `publish.test.ts` pins the cases that have historically drifted, so a
+ * change to one that is not made to the other fails a test instead of silently
+ * showing a model the router refuses.
+ *
+ * The rule, in the router's own terms:
  *
  *   m.status = 'active'
  *     and p.enabled
@@ -13,65 +17,30 @@
  *     and p.status not in ('disabled', 'maintenance', 'outage')
  *     and (p.status <> 'dev' or <allowDevProviders>)
  *
- * PROVIDER GATE NOT MIRRORED HERE. `reachability()` below encodes the model gate
- * plus `providerStatus === 'active'`, with a `'dev'` pass when the opt-in is on.
- * Its three-argument signature cannot see the provider's `p.enabled` column or
- * `p.tier` at all, and it carries only the legacy status vocabulary — so it is
- * not a reimplementation of the SQL and must not be read as one.
+ * `reachability()` used to take three arguments — model status, provider status
+ * and the dev opt-in — which structurally could not see `p.enabled` or `p.tier`.
+ * Every caller then compensated by hand in SQL, and one (the admin model list)
+ * did not, so the console could show a row as served that the router refused.
+ * All five inputs are arguments now and the compensating SQL is gone.
  *
- * MIRRORED BY THE CONSOLE THROUGH THIS MODULE NOW. The gate used to be reproduced
- * BY HAND in two more places, neither of which imported this module: `admin.mjs`'s
- * `_reach` and `public.mjs`'s `served`. Both now call this export through
- * `apps/web/server/lib/platform-ts.mjs`, and a source scan
- * (`server/lib/platform-ts.test.mjs`, "no hand copy of the publish gate survives
- * in the server") fails if one comes back. That leaves two implementations of the
- * rule in total — this one and the router's SQL — and they share a gap:
- *
- *   - `p.enabled = false` / `p.tier = 'dev'` are structural blind spots — no
- *     argument conveys them. The public catalogue closed its half: servedModels
- *     (apps/web/server/public.mjs) applies `p.enabled and (p.tier =
- *     'commercial' or <opt-in>)` in SQL before calling this, probed against a
- *     live DB (GET /api/models now hides what GET /v1/models hides). Surfaces
- *     that call reachability() ALONE — admin.mjs's `_reach` display — can still
- *     show a row as served that the router refuses.
- *   - the status vocabulary drifts: the SQL (catalog.go:142-145) excludes
- *     `not in ('disabled', 'maintenance', 'outage')`, while these copies know only
- *     the S0 `'active'`/`'dev'`. A PRD `'operational'`/`'degraded'` provider is
- *     SERVED by the router and HIDDEN in the console/catalog.
- *
- * Migration 0010 closes the *provider on-gate* — it flips these copies to the PRD
- * status set in the same commit as the value migration. The MODEL side needs no
- * predicate change: both the router (`m.status = 'active'`) and `isPublished`
- * already gate on `active` (docs/specs/2026-09-30-platform-schema.md:110-124).
- * The provider vocabulary here is the pre-0010 S0 set — see catalog.go:125-131
- * ("It speaks BOTH status vocabularies because migration 0009 widened the CHECKs
- * while 0010 still has to move the values"). Do not unify it before that cutover.
- *
- * It is NOT pinned by a test: there is no `publish.test.ts` in this package,
- * and the Go predicate and `reachability()` are maintained by hand. An earlier
- * version of this comment claimed a `publish.test.ts` pinned the mirror; no such
- * file exists, so the claim is removed rather than left as a false assurance.
- * A future reader adding one should pin, at minimum, the two drift cases named
- * above: a provider row with `enabled = false`, and a PRD `operational`/`degraded`
- * provider (SERVED by the router, HIDDEN here). Note the direction: `maintenance`
- * and `outage` are NOT drift — catalog.go:144 excludes them and these copies
- * serve only `active`/`dev`, so those two agree on both sides.
- *
- * `reachability()` and `isPublished()` ARE CALLED — `reachability` by the console
- * through `server/lib/platform-ts.mjs` (admin's `_reach` and public's `served`),
- * pinned by the bridge test named above. `isPublished` still has no call site in
- * apps/ or packages/ (verified); the 0010 cutover must flip THIS export plus the
- * mirrored SQL, and the two console call sites now follow from it rather than
- * having to be found by hand.
+ * The status predicate speaks BOTH vocabularies on purpose. Migration 0010
+ * narrowed `provider_status_check` to the PRD §52 set (`operational`,
+ * `degraded`, `disabled`, `maintenance`, `outage`), but S0-era rows still carry
+ * `active`/`dev`, and the Go gate accepts both. An ALLOW-list would therefore
+ * hide `operational`/`degraded` providers the router serves; this is a
+ * deny-list for that reason.
  */
 
 /** Statuses a model row can carry. Only `active` publishes it. */
-export const MODEL_STATUSES = ['active', 'dev', 'disabled'] as const;
+export const MODEL_STATUSES = ['active', 'deprecated', 'sunset', 'disabled'] as const;
 export type ModelStatus = (typeof MODEL_STATUSES)[number];
 
 export function isModelStatus(value: string): value is ModelStatus {
 	return (MODEL_STATUSES as readonly string[]).includes(value);
 }
+
+/** Provider statuses that stop a provider serving, in both vocabularies. */
+export const PROVIDER_BLOCKING_STATUSES = ['disabled', 'maintenance', 'outage'] as const;
 
 /** Why a model is not reachable, or null when it is. */
 export type HiddenReason = 'unpublished' | 'provider-off';
@@ -83,20 +52,39 @@ export interface Reachability {
 	reason: HiddenReason | null;
 }
 
+/** The provider columns the gate reads. */
+export interface ProviderGate {
+	status: string;
+	enabled: boolean;
+	tier: string;
+}
+
 /**
  * The publish gate. `allowDevProviders` is the data plane's
  * `ROUTER_ALLOW_DEV_PROVIDERS` opt-in — pass the value the router actually runs
  * with, or the console will disagree with the router.
+ *
+ * A provider is servable when it is enabled, its tier is `commercial` (or the
+ * dev opt-in is on), its status is not one of the blocking three, and it is not
+ * a legacy `status='dev'` row without the opt-in.
  */
 export function reachability(
 	modelStatus: string,
-	providerStatus: string,
+	provider: ProviderGate,
 	allowDevProviders: boolean
 ): Reachability {
 	if (modelStatus !== 'active') return { served: false, reason: 'unpublished' };
-	if (providerStatus === 'active') return { served: true, reason: null };
-	if (providerStatus === 'dev' && allowDevProviders) return { served: true, reason: null };
-	return { served: false, reason: 'provider-off' };
+	if (!provider.enabled) return { served: false, reason: 'provider-off' };
+	if (provider.tier !== 'commercial' && !allowDevProviders) {
+		return { served: false, reason: 'provider-off' };
+	}
+	if ((PROVIDER_BLOCKING_STATUSES as readonly string[]).includes(provider.status)) {
+		return { served: false, reason: 'provider-off' };
+	}
+	if (provider.status === 'dev' && !allowDevProviders) {
+		return { served: false, reason: 'provider-off' };
+	}
+	return { served: true, reason: null };
 }
 
 /** The admin-facing flag on its own: has this row been published? */

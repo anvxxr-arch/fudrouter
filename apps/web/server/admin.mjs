@@ -308,8 +308,14 @@ const _newId = (p) => p + _uuidv7();
 // copy. `_reach` and public.mjs's `served` were two hand-maintained mirrors of
 // the same rule, which is what publish.ts's header warns about; both call the
 // shared one now, and it is the predicate the Go router's SQL mirrors.
-const _reach = (modelStatus, providerStatus, allowDev) =>
-	_reachability(modelStatus, providerStatus, allowDev);
+//
+// The provider half takes the row, not just its status: `_reach` used to pass
+// `parent.status` alone, so a model whose ONLY provider was disabled
+// (p.enabled=false) or dev-tier without the opt-in was reported `served: true`
+// here while the router refused it. public.mjs compensated in SQL and this did
+// not — that asymmetry is why the two surfaces disagreed.
+const _reach = (modelStatus, provider, allowDev) =>
+	_reachability(modelStatus, provider, allowDev);
 const _allowDev = _allowDevProviders;
 const _allowPrivate = () => ['1', 'true', 'yes', 'on'].includes(String(process.env.ALLOW_PRIVATE_UPSTREAMS ?? '').trim().toLowerCase());
 
@@ -746,7 +752,10 @@ export function registerAdminRoutes(app, ctx) {
 
 	// Models: catalog + mapping counts + effective price + per-provider summary.
 	app.get('/api/admin/models', handler('models', async (database, url) => {
-		const providers = await database.select({ id: prv.id, name: prv.name, status: prv.status }).from(prv).orderBy(asc(prv.name));
+		// `enabled` and `tier` are selected because the publish gate reads them:
+		// without them the list showed a model served through a disabled or
+		// dev-tier provider as reachable while the router refused it.
+		const providers = await database.select({ id: prv.id, name: prv.name, status: prv.status, enabled: prv.enabled, tier: prv.tier }).from(prv).orderBy(asc(prv.name));
 		const models = await database
 			.select({ id: mdl.id, providerId: mdl.providerId, name: mdl.name, slug: mdl.slug, family: mdl.family, developer: mdl.developer, description: mdl.description, modality: mdl.modality, context: mdl.context, maxOutput: mdl.maxOutput, capabilities: mdl.capabilities, inputPrice: mdl.inputPrice, outputPrice: mdl.outputPrice, currency: mdl.currency, status: mdl.status })
 			.from(mdl)
@@ -779,7 +788,11 @@ export function registerAdminRoutes(app, ctx) {
 		const rows = models.map((m) => {
 			const parent = providerOf.get(m.providerId);
 			const rule = effectiveOf.get(m.id);
-			const reach = _reach(m.status, parent?.status ?? 'disabled', allowDev);
+			const reach = _reach(m.status, {
+				status: parent?.status ?? 'disabled',
+				enabled: parent?.enabled ?? false,
+				tier: parent?.tier ?? 'commercial'
+			}, allowDev);
 			return {
 				id: m.id, providerId: m.providerId, name: m.name, slug: m.slug, family: m.family,
 				developer: m.developer, description: m.description, modality: m.modality, context: m.context,
@@ -2897,6 +2910,126 @@ export function registerAdminRoutes(app, ctx) {
 			return n;
 		});
 		return { accessDisabled: id, keysDisabled: disabled };
+	}));
+	// ---- access (migration 0024): invite allowlist + pending queue ----
+	// There is no payment gateway yet, so access is granted by an admin adding a
+	// Discord id to `invite_allowlist`. A sign-up whose id is absent creates a
+	// `pending` account with no billing account, and is refused a session
+	// (index.mjs session.create.before) until it is approved here.
+	//
+	// Every mutation is audited: this is the only surface that hands out access,
+	// so "who let this person in" must be answerable from audit_log alone.
+	app.get('/api/admin/access/allowlist', handler('access', async (database) => {
+		const rows = _rowsOf(await database.execute(sql`
+			select a.id, a.discord_id, a.note, a.created_by, a.created_at,
+			       a.used_by, a.used_at, u.email as used_by_email
+			from invite_allowlist a
+			left join "user" u on u.id = a.used_by
+			order by a.used_at desc nulls first, a.created_at desc
+			limit 500`));
+		return {
+			rows: rows.map((r) => ({
+				id: r.id,
+				discordId: r.discord_id,
+				note: r.note,
+				createdBy: r.created_by,
+				createdAt: r.created_at ? new Date(r.created_at).toISOString() : null,
+				usedBy: r.used_by,
+				usedByEmail: r.used_by_email ?? null,
+				usedAt: r.used_at ? new Date(r.used_at).toISOString() : null
+			}))
+		};
+	}));
+	// A Discord snowflake is 17-20 digits today (accounts created before 2015
+	// are shorter, so the floor is 15). Validating the shape here keeps a typo
+	// from becoming an invite that can never match, which would read as "the
+	// invite does not work" rather than "the id is wrong".
+	const DISCORD_ID_RE = /^\d{15,20}$/;
+	app.post('/api/admin/access/allowlist/add', poster('access', async (database, body, userRow) => {
+		const discordId = String(body.discordId ?? body.discord_id ?? '').trim();
+		const note = String(body.note ?? '').trim().slice(0, 500) || null;
+		if (!DISCORD_ID_RE.test(discordId)) _fail(400, 'A Discord id is 15-20 digits.');
+		const id = _newId('inv_');
+		await database.transaction(async (tx) => {
+			await tx.execute(sql`insert into invite_allowlist (id, discord_id, note, created_by) values (${id}, ${discordId}, ${note}, ${userRow.id})`);
+			await _audit(tx, { actorUserId: userRow.id, action: 'access.allowlist.add', resource: 'invite_allowlist', resourceId: id, after: { discordId, note } });
+		});
+		return { added: id, discordId };
+	}));
+	// Removing a row revokes the INVITE, not the account: an already-used row is
+	// the record of who was let in, and deleting it would erase that evidence.
+	// Only unused rows may be removed; used ones are refused with a message that
+	// says why, so an operator who wants someone out reaches for
+	// `/api/admin/access/revoke` instead.
+	app.post('/api/admin/access/allowlist/remove', poster('access', async (database, body, userRow) => {
+		const id = String(body.id ?? '').trim();
+		if (!id) _fail(400, 'Missing invite id');
+		const row = _rowsOf(await database.execute(sql`select id, discord_id, used_by from invite_allowlist where id = ${id} limit 1`))[0];
+		if (!row) _fail(404, 'Invite not found');
+		if (row.used_by) _fail(409, 'That invite has already been used. Revoke the account instead.');
+		await database.transaction(async (tx) => {
+			await tx.execute(sql`delete from invite_allowlist where id = ${id} and used_by is null`);
+			await _audit(tx, { actorUserId: userRow.id, action: 'access.allowlist.remove', resource: 'invite_allowlist', resourceId: id, before: { discordId: row.discord_id } });
+		});
+		return { removed: id };
+	}));
+	// Accounts refused at sign-in. `billing_account` is absent by construction
+	// (the create hook skips provisioning for a pending account), so the count
+	// here is the number of people waiting on an invite.
+	app.get('/api/admin/access/pending', handler('access', async (database) => {
+		const rows = _rowsOf(await database.execute(sql`
+			select u.id, u.name, u.email, u.created_at, a.account_id as discord_id
+			from "user" u
+			left join account a on a.user_id = u.id and a.provider_id = 'discord'
+			where u.access_status = 'pending'
+			order by u.created_at desc
+			limit 500`));
+		return {
+			rows: rows.map((r) => ({
+				id: r.id,
+				name: r.name,
+				email: r.email,
+				discordId: r.discord_id ?? null,
+				createdAt: r.created_at ? new Date(r.created_at).toISOString() : null
+			}))
+		};
+	}));
+	// Approve = flip to active AND provision the billing account, in one
+	// transaction: a `pending` account was created without one (the invite gate
+	// skips provisioning), so approving without provisioning would leave the
+	// user able to sign in but unable to hold a key.
+	app.post('/api/admin/access/approve', poster('access', async (database, body, userRow) => {
+		const id = String(body.userId ?? body.id ?? '').trim();
+		if (!id) _fail(400, 'Missing user id');
+		const target = _rowsOf(await database.execute(sql`select id, access_status from "user" where id = ${id} limit 1`))[0];
+		if (!target) _fail(404, 'User not found');
+		if (target.access_status !== 'pending') _fail(409, 'That account is not awaiting approval.');
+		await database.transaction(async (tx) => {
+			await tx.execute(sql`update "user" set access_status = 'active' where id = ${id}`);
+			// ON CONFLICT keeps this idempotent: a second approval (or an account
+			// that already had a row from before migration 0024) must not fail.
+			await tx.execute(sql`insert into billing_account (id, user_id) values (${_newId('bac_')}, ${id}) on conflict (user_id) do nothing`);
+			await _audit(tx, { actorUserId: userRow.id, action: 'access.approve', resource: 'user', resourceId: id, before: { accessStatus: target.access_status }, after: { accessStatus: 'active' } });
+		});
+		return { approved: id };
+	}));
+	// Revoke = the way out. Sets the flag AND drops live sessions, because the
+	// access check in getSessionUser would otherwise only take effect on the
+	// next sign-in while an already-minted cookie kept working.
+	app.post('/api/admin/access/revoke', poster('access', async (database, body, userRow) => {
+		const id = String(body.userId ?? body.id ?? '').trim();
+		if (!id) _fail(400, 'Missing user id');
+		if (id === userRow.id) _fail(400, 'You cannot revoke your own access');
+		const target = _rowsOf(await database.execute(sql`select id, access_status, role from "user" where id = ${id} limit 1`))[0];
+		if (!target) _fail(404, 'User not found');
+		const refusal = _guardUser(userRow, target.role);
+		if (refusal) _fail(403, refusal);
+		await database.transaction(async (tx) => {
+			await tx.execute(sql`update "user" set access_status = 'revoked' where id = ${id}`);
+			await _revokeSessions(tx, id);
+			await _audit(tx, { actorUserId: userRow.id, action: 'access.revoke', resource: 'user', resourceId: id, before: { accessStatus: target.access_status }, after: { accessStatus: 'revoked' }, metadata: { sessionsRevoked: true } });
+		});
+		return { revoked: id };
 	}));
 	// The workspace section (detail + setStatus/suspend/unsuspend) is gone with
 	// the `workspace` table in migration 0019. The tenant kill switch it carried

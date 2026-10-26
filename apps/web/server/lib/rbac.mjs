@@ -25,6 +25,7 @@ export { ROLE_CAPS, capsFor };
 // silently inherited `admin.users` gating. The test below now asserts the
 // mirror instead of trusting it.
 export const SECTION_CAPS = {
+	access: 'admin.access',
 	analytics: 'admin.view',
 	billing: 'admin.billing',
 	connections: 'admin.ops',

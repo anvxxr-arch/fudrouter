@@ -309,6 +309,35 @@ export function registerPages(app, ctx) {
 		const name = String(b.name ?? '').trim() || 'default';
 		const expiresIn = String(b.expiresIn ?? 'never').trim() || 'never';
 		if (expiresIn !== 'never' && !Object.hasOwn(KEY_EXPIRY_DAYS, expiresIn)) return fail(res, 400, 'Expiry must be never, 30d, 90d or 1y');
+		// PLAN CAP (migration 0024). The plan's max_api_keys is the only limit
+		// on how many working credentials one account can hold; before this,
+		// any signed-in user could mint keys without bound.
+		//
+		// The plan is resolved in one statement: the account's own plan, else
+		// the free plan. That second branch is what keeps a retired plan
+		// (plan_id SET NULL) and an account with no billing row from reading as
+		// "no limit" — only a plan row whose max_api_keys is genuinely NULL is
+		// unlimited.
+		const plan = rowsOf(
+			await database.execute(sql`
+				select name, max_api_keys from plan
+				where id = coalesce(
+					(select plan_id from billing_account where user_id = ${userRow.id}),
+					(select id from plan where slug = 'free')
+				)
+				limit 1`)
+		)[0];
+		if (plan && plan.max_api_keys !== null && plan.max_api_keys !== undefined) {
+			const maxKeys = num(plan.max_api_keys);
+			const used = num(
+				rowsOf(
+					await database.execute(sql`select count(*)::int as n from api_key where user_id = ${userRow.id} and revoked_at is null`)
+				)[0]?.n
+			);
+			if (used >= maxKeys) {
+				return fail(res, 403, `Your ${plan.name} plan allows ${maxKeys} API keys. Revoke one to create another.`);
+			}
+		}
 		const { key, prefix, keyHash } = generateApiKey();
 		const id = newId(ID_PREFIXES.apiKey);
 		const expiresAt = expiresIn === 'never' ? null : new Date(Date.now() + KEY_EXPIRY_DAYS[expiresIn] * 86_400_000).toISOString();
@@ -507,6 +536,12 @@ export function registerPages(app, ctx) {
 		const database = needDb(res);
 		if (!database) return;
 		const userRow = await mustAuth(req);
+		// TOP-UP GATE (migration 0024). This endpoint writes a credit_purchase
+		// ledger row and bumps balance_micro with no payment step behind it, so
+		// without a capability check any signed-in user could credit themselves
+		// to any balance — which makes every balance-based rule downstream
+		// meaningless. Operators keep it for offline top-ups; customers do not.
+		requireCap(userRow, 'billing.credit');
 		const b = okBody(req);
 		const amount = parseAmountToMicro(b.amount ?? '');
 		if (amount === null || amount <= 0n) return fail(res, 400, 'Enter a positive dollar amount, e.g. 100 or 25.50.');

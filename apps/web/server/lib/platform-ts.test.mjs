@@ -30,12 +30,13 @@ test('bridge exposes the shared publish gate', () => {
 	// warns about — an earlier audit found the copies disagreeing with the shared
 	// list. This pins the bridge's version so a future local copy has something
 	// to fail against.
-	assert.deepEqual(reachability('active', 'active', false), { served: true, reason: null });
-	assert.deepEqual(reachability('active', 'dev', false), { served: false, reason: 'provider-off' });
-	assert.deepEqual(reachability('active', 'dev', true), { served: true, reason: null });
-	assert.deepEqual(reachability('draft', 'active', true), { served: false, reason: 'unpublished' });
-	assert.equal(served('draft', 'active', true), false);
-	assert.equal(served('active', 'active', false), true);
+	const ok = { status: 'active', enabled: true, tier: 'commercial' };
+	assert.deepEqual(reachability('active', ok, false), { served: true, reason: null });
+	assert.deepEqual(reachability('active', { ...ok, status: 'dev' }, false), { served: false, reason: 'provider-off' });
+	assert.deepEqual(reachability('active', { ...ok, status: 'dev' }, true), { served: true, reason: null });
+	assert.deepEqual(reachability('draft', ok, true), { served: false, reason: 'unpublished' });
+	assert.equal(served('draft', ok, true), false);
+	assert.equal(served('active', ok, false), true);
 	// The env read must agree with the rule's own parser: a truthy spelling the
 	// router accepts but the console rejected would be a two-plane disagreement.
 	const before = process.env.ROUTER_ALLOW_DEV_PROVIDERS;

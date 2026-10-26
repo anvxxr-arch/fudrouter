@@ -3,50 +3,34 @@
  * JSON shapes mirror the control-plane `load` payloads so routes keep their logic
  * when the server lands.
  *
- * Failures are distinguishable from empty data: `get` records the reason in
- * `lastApiError` AND routes surface it via `useApiError` — an operator seeing
- * "could not be loaded" can tell an outage (500/network) from an empty DB.
+ * A failure is `null`, and every caller renders its own message from that. This
+ * module used to ALSO record the reason in a `lastApiError` with a
+ * `getLastApiError`/`onApiError` pub-sub on top, and a `getWithStatus` that
+ * reported the HTTP code — all three were exported, documented as what "routes
+ * surface", and called by nothing. A second, unwired error channel beside the
+ * one every route actually uses is worse than none: it reads as coverage.
  */
 const BASE = '/api';
-let lastApiError: string | null = null;
-const errorListeners = new Set<(msg: string | null) => void>();
-function setLastApiError(msg: string | null) {
-  lastApiError = msg;
-  for (const fn of errorListeners) {
-    try { fn(msg); } catch { /* listener must not break fetches */ }
-  }
-}
-/** Last failure reason recorded by `get` — null after a success. */
-export function getLastApiError(): string | null {
-  return lastApiError;
-}
-/** Subscribe to failure-reason changes; returns an unsubscribe fn. UI error states use this. */
-export function onApiError(fn: (msg: string | null) => void): () => void {
-  errorListeners.add(fn);
-  return () => { errorListeners.delete(fn); };
-}
 async function get<T>(path: string): Promise<T | null> {
   try {
     const res = await fetch(`${BASE}${path}`);
-    if (!res.ok) {
-      setLastApiError(`${path}: ${res.status}`);
-      return null;
-    }
-    setLastApiError(null);
+    if (!res.ok) return null;
     return (await res.json()) as T;
-  } catch (e) {
-    setLastApiError(`${path}: ${e instanceof Error ? e.message : 'network error'}`);
+  } catch {
     return null;
   }
 }
-/** Like `get`, but reports the HTTP status (null when the request never landed). */
+/**
+ * Like `get`, but keeps the HTTP status so a caller can tell "no such row" (404)
+ * from "the request never landed" (null). The model, provider, doc and
+ * changelog detail pages need that distinction: a 404 is a legitimate answer to
+ * render, an outage is not.
+ */
 async function getWithStatus<T>(path: string): Promise<{ data: T | null; status: number | null }> {
   try {
     const res = await fetch(`${BASE}${path}`);
-    setLastApiError(res.ok ? null : `${path}: ${res.status}`);
     return { data: res.ok ? ((await res.json()) as T) : null, status: res.status };
-  } catch (e) {
-    setLastApiError(`${path}: ${e instanceof Error ? e.message : 'network error'}`);
+  } catch {
     return { data: null, status: null };
   }
 }

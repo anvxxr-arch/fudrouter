@@ -405,7 +405,9 @@ textarea { resize: vertical; }
 .btn:disabled { pointer-events: none; opacity: 0.5; cursor: not-allowed; }
 .btn svg { pointer-events: none; width: 16px; height: 16px; flex-shrink: 0; }
 
-.btn-primary, .btn-default {
+/* No `.btn-default` selector: `variantClass` maps variant="default" to
+   `btn-primary`, so a rule for it styled a class that is never emitted. */
+.btn-primary {
   height: var(--control-h-md); padding: 0 var(--space-md);
   background: var(--primary); color: var(--on-primary);
   box-shadow: var(--shadow-sm);
@@ -429,14 +431,6 @@ textarea { resize: vertical; }
   }
   .btn-ghost:hover { background: var(--color-surface-raised); color: var(--color-text); border-color: var(--color-border-control-hover); }
 
-.btn-outline {
-  height: var(--control-h-md); padding: 0 var(--space-md);
-  background: var(--color-surface); color: var(--color-text);
-  border-color: var(--color-border-control);
-  box-shadow: var(--shadow-sm);
-  }
-  .btn-outline:hover { background: var(--color-surface-raised); border-color: var(--color-border-control-hover); }
-
 .btn-destructive {
   height: var(--control-h-md); padding: 0 var(--space-md);
   background: var(--color-danger); color: var(--color-bg);
@@ -444,15 +438,7 @@ textarea { resize: vertical; }
 }
 .btn-destructive:hover { opacity: 0.9; }
 
-.btn-link {
-  height: auto; padding: 0; background: none; border-color: transparent;
-  color: var(--primary); text-underline-offset: 4px;
-}
-.btn-link:hover { text-decoration-line: underline; }
-
 .btn-sm { height: var(--control-h-sm); padding: 0 12px; font-size: var(--text-caption); }
-.btn-lg { height: var(--control-h-lg); padding: 0 var(--space-xl); }
-.btn-icon { height: var(--control-h-md); width: var(--control-h-md); padding: 0; }
 
 .card {
   background: var(--color-surface);
@@ -565,7 +551,6 @@ textarea { resize: vertical; }
 .fr tbody tr:last-child td { border-bottom-width: 0; }
 .fr tfoot { border-top: 1px solid var(--color-border); font-weight: 500; }
 .fr tfoot tr:last-child { border-bottom-width: 0; }
-.fr-caption { margin-top: var(--space-md); font-size: var(--text-sm); color: var(--color-text-muted); }
 .fr-tr { border-bottom: 1px solid var(--color-border); }
 .fr-tr:last-child { border-bottom-width: 0; }
 
@@ -995,7 +980,6 @@ body { overflow-x: clip; }
 .metrics-strip > div + div::before { content: ""; position: absolute; left: 0; top: 0.15em; bottom: 0.15em; width: 1px; background: var(--color-border); }
 .metrics-strip .num { font-size: var(--text-stat); font-weight: 600; letter-spacing: -0.01em; }
 .metrics-strip .muted { margin-top: var(--space-xs); font-size: var(--text-sm); }
-.metrics-error { grid-column: 1 / -1; }
 /* 14rem made this a four-up grid at 1280 (251px cards), which set card copy at
    19 characters per line -- a measure that reads as a column of nouns. 17rem
    lands on three columns of 340px (44 cpl) and matches what the class name
@@ -1138,7 +1122,6 @@ body { overflow-x: clip; }
 p.muted:not(.lede) { max-width: 30rem; }
 .error { color: var(--color-danger); font-size: var(--text-sm); }
 .meta { color: var(--color-text-muted); font-size: var(--text-caption); }
-.fr-divider { display: flex; align-items: center; gap: var(--space-md); color: var(--color-text-muted); font-size: var(--text-caption); }
 /* ---- pricing page ---- */
 /* One column per plan. The grid was repeat(4) for four advertised tiers; there
    is one seeded plan during the beta, and a 4-column grid with a single card

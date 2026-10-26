@@ -35,10 +35,6 @@
 export const MODEL_STATUSES = ['active', 'deprecated', 'sunset', 'disabled'] as const;
 export type ModelStatus = (typeof MODEL_STATUSES)[number];
 
-export function isModelStatus(value: string): value is ModelStatus {
-	return (MODEL_STATUSES as readonly string[]).includes(value);
-}
-
 /** Provider statuses that stop a provider serving, in both vocabularies. */
 export const PROVIDER_BLOCKING_STATUSES = ['disabled', 'maintenance', 'outage'] as const;
 
@@ -85,11 +81,6 @@ export function reachability(
 		return { served: false, reason: 'provider-off' };
 	}
 	return { served: true, reason: null };
-}
-
-/** The admin-facing flag on its own: has this row been published? */
-export function isPublished(modelStatus: string): boolean {
-	return modelStatus === 'active';
 }
 
 /**

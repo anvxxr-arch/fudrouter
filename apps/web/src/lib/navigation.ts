@@ -108,8 +108,6 @@ export const ADMIN_NAV: readonly NavItem[] = [
   { to: "/admin/:section/:id", label: "Detail", scope: "admin", cap: "admin.view", nav: false },
 ];
 
-export const navigationRegistry: readonly NavItem[] = [...PUBLIC_NAV, ...CONSOLE_NAV, ...ADMIN_NAV];
-
 /**
  * Items of one scope that `role` may see (nav: true only). Hiding only -- the
  * guards and the server remain the enforcement path.

@@ -26,7 +26,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
 	reachability,
-	isPublished,
 	devProvidersAllowed,
 	MODEL_STATUSES,
 	PROVIDER_BLOCKING_STATUSES
@@ -110,8 +109,6 @@ test('an unpublished model is hidden whatever the provider is doing', () => {
 
 test('an all-clear row is served', () => {
 	assert.deepEqual(reachability('active', servable, false), { served: true, reason: null });
-	assert.equal(isPublished('active'), true);
-	assert.equal(isPublished('deprecated'), false);
 });
 
 test('the dev opt-in fails closed on anything unrecognised', () => {

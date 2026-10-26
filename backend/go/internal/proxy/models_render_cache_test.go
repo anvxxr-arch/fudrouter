@@ -56,9 +56,15 @@ func sampleModels() []store.ModelInfo {
 // expectedModelsBody renders the list the way the pre-cache handler did:
 // modelObject per row into the {"object":"list","data":…} envelope.
 func expectedModelsBody(models []store.ModelInfo) []byte {
-	data := make([]map[string]any, 0, len(models))
+	data := make([]map[string]any, 0, len(models)*2)
 	for _, m := range models {
-		data = append(data, modelObject(m))
+		obj := modelObject(m)
+		data = append(data, obj)
+		// The catalogue also renders each model's `-unrestricted` virtual
+		// twin (unrestricted.go) — the golden body must include it.
+		if u := unrestrictedTwin(obj); u != nil {
+			data = append(data, u)
+		}
 	}
 	var buf bytes.Buffer
 	_ = json.NewEncoder(&buf).Encode(map[string]any{"object": "list", "data": data})

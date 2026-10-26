@@ -114,11 +114,20 @@ func (h *Handler) renderedModels(ctx context.Context) ([]byte, bool) {
 		return nil, false
 	}
 	view := h.healthView(ctx)
-	data := make([]map[string]any, 0, len(models))
+	data := make([]map[string]any, 0, len(models)*2)
 	for _, m := range models {
 		obj := modelObject(m)
 		attachHealth(obj, view)
 		data = append(data, obj)
+		// Every published chat model also answers under its
+		// `-unrestricted` virtual slug (same routing, same pricing, the
+		// unrestricted system prompt injected upstream — unrestricted.go).
+		// No DB row exists for the twin; it is rendered here only. The
+		// clone is taken AFTER attachHealth so the twin inherits the
+		// base model's health entry — it dials the same upstream.
+		if u := unrestrictedTwin(obj); u != nil {
+			data = append(data, u)
+		}
 	}
 	var buf bytes.Buffer
 	_ = json.NewEncoder(&buf).Encode(map[string]any{
@@ -142,7 +151,15 @@ func (h *Handler) ServeModel(w http.ResponseWriter, r *http.Request) {
 		h.ServeModels(w, r)
 		return
 	}
-	m, err := h.cachedModel(r.Context(), slug)
+	// The `-unrestricted` virtual slug answers with its base model's
+	// catalogue object under the requested id (unrestricted.go): the twin
+	// has no DB row, it is the same model served with the unrestricted
+	// system prompt injected upstream.
+	lookup := slug
+	if base, ok := stripUnrestricted(slug); ok {
+		lookup = base
+	}
+	m, err := h.cachedModel(r.Context(), lookup)
 	if err != nil {
 		// A truthful 404 for unknown AND unpublished slugs (spec §6 P1) — the
 		// answer must not distinguish "never existed" from "not published".
@@ -150,6 +167,9 @@ func (h *Handler) ServeModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	obj := modelObject(*m)
+	if lookup != slug {
+		obj["id"] = slug
+	}
 	// Health is OPT-IN (`?health=1`): the default object keeps the literal
 	// §6 P1 field set (exactly id/object/owned_by/context/pricing, mirrored
 	// 1:1 by the list). No record yet = field omitted, which is the honest

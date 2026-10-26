@@ -36,6 +36,12 @@ type lifecycle struct {
 	endpoint  string
 	requested string // the raw `model` string, or "" for non-model endpoints
 
+	// unrestricted is set when the requested slug carried the
+	// `-unrestricted` virtual suffix: resolution, routing and billing all
+	// run on the base slug, and dispatch prepends the unrestricted system
+	// prompt to the upstream body (unrestricted.go).
+	unrestricted bool
+
 	key   *store.APIKeyRow
 	lim   *store.Limits
 	pol   *routing.Plan
@@ -144,6 +150,15 @@ func (h *Handler) begin(w http.ResponseWriter, r *http.Request, start time.Time,
 		return lc, false
 	}
 
+	// `-unrestricted` is a virtual suffix: resolve the base slug, remember
+	// the flag for dispatch's system-prompt injection. The raw string stays
+	// in lc.requested so logs and billing name what the client asked for.
+	resolveSlug := slug
+	if base, ok := stripUnrestricted(slug); ok {
+		lc.unrestricted = true
+		resolveSlug = base
+	}
+
 	limStart := time.Now()
 	lim, err := h.store.AdmissionLimits(r.Context(), key)
 	if err != nil {
@@ -193,7 +208,7 @@ func (h *Handler) begin(w http.ResponseWriter, r *http.Request, start time.Time,
 	lc.pol, lc.polID = &plan, pol.ID
 
 	if slug != "" {
-		res, err := h.store.ResolveModel(r.Context(), key, slug)
+		res, err := h.store.ResolveModel(r.Context(), key, resolveSlug)
 		if err != nil {
 			code := routing.ErrCodeModelNotFound
 			if !errors.Is(err, store.ErrNotFound) {
@@ -1045,6 +1060,13 @@ func (lc *lifecycle) dispatch(ctx context.Context, upBody []byte, method, rawQue
 	if len(lc.cands) == 0 {
 		// No model resolution (non-model endpoint): pick nothing to route.
 		return nil, fmt.Errorf("no routable target")
+	}
+
+	// One injection per request, before the attempt loop: a retry inside
+	// attempt() reuses the same body, so injecting in exchange() would
+	// prepend the prompt once per upstream try.
+	if lc.unrestricted {
+		upBody = injectUnrestricted(upBody)
 	}
 
 	attemptFn := func(attemptCtx context.Context, cand *routing.Candidate, next int) []*routing.Attempt {

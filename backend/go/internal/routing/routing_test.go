@@ -187,7 +187,10 @@ func TestClassifyRetryable(t *testing.T) {
 		{ErrCodeInvalidRequest, 400, false, false},
 		{ErrCodeUnsupportedParam, 400, false, false},
 		{ErrCodeContextTooLong, 413, false, false},
-		{ErrCodeModelNotFound, 404, false, false},
+		// MODEL_NOT_FOUND is retryable since per-account model gating was
+		// proved on tokenharbor (2026-10-26): a 404 here came from one
+		// upstream account, and the next Pick()/candidate may serve it.
+		{ErrCodeModelNotFound, 404, false, true},
 		{ErrCodeAuthorization, 403, false, false},
 		{ErrCodeContentRejected, 403, false, false},
 	}

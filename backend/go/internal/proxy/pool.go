@@ -507,6 +507,16 @@ func (p *Pool) marshalAccount(a account) (string, error) {
 	return string(blob), err
 }
 
+// Len reports the pool's account count. The hot path uses it to decide
+// whether a per-account upstream failure deserves another attempt: a
+// single-account pool answering 404 will answer 404 again, while a
+// multi-account pool rotates to a different account on the next Pick().
+func (p *Pool) Len() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.accounts)
+}
+
 // MarkFailed parks the account holding this access token. Called when the
 // upstream rejects a credential (401/403), so the next request tries a
 // different account instead of repeating the failure.

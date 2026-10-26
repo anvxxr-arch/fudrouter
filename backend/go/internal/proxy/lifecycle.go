@@ -1217,6 +1217,22 @@ func (lc *lifecycle) exchange(ctx context.Context, cand *routing.Candidate, n in
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	_ = resp.Body.Close()
 	code, retryable := routing.ClassifyUpstream(resp.StatusCode)
+	// A 404 from ONE upstream account is not proof the model is gone.
+	// Pools gate models per account — proved on tokenharbor, where
+	// mimo-v2.6-flash:free answers 404 "This model is unavailable right
+	// now" on throttled accounts and 200 on the rest of the same pool,
+	// so the round-robin landing on a throttled account killed every
+	// request that a neighbouring account would have served. With more
+	// than one account the next Pick() rotates to a different one, so
+	// the walk continues; a single-account pool keeps the honest
+	// non-retryable 404, because retrying it would only burn the attempt
+	// budget on the same deterministic answer. The parked account
+	// (MarkFailed below) keeps the next request off it for failCooldown;
+	// no DB cooldown is written — the account is healthy for the pool's
+	// other models, the throttle is per-model.
+	if resp.StatusCode == 404 && code == routing.ErrCodeModelNotFound && target.pool.Len() > 1 {
+		retryable = true
+	}
 	a.ErrorCode, a.Retryable = code, retryable
 	a.RawMessage = upstreamMessage(body)
 	if retryable {

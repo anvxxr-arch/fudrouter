@@ -207,16 +207,29 @@ const (
 
 // ClassifyRetryable implements spec §9's retry table.
 //
-// Retry ONLY on: RATE_LIMITED, PROVIDER_TIMEOUT, PROVIDER_UNAVAILABLE,
-// CIRCUIT_OPEN, UPSTREAM_ERROR(5xx/429/401/403) and transport errors.
-// NEVER on: INVALID_REQUEST, UNSUPPORTED_PARAMETER, CONTEXT_TOO_LONG,
-// MODEL_NOT_FOUND, AUTHORIZATION_ERROR, CONTENT_REJECTED.
+// Retry on: RATE_LIMITED, PROVIDER_TIMEOUT, PROVIDER_UNAVAILABLE,
+// CIRCUIT_OPEN, UPSTREAM_ERROR(5xx/429/401/403), transport errors, and
+// MODEL_NOT_FOUND.
+//
+// MODEL_NOT_FOUND used to be in the never-retry set, written when one
+// credential per provider was the norm. Pools broke that assumption:
+// upstreams gate models PER ACCOUNT — proved on tokenharbor 2026-10-26,
+// where mimo-v2.6-flash:free answers 200 on 23 of 25 probed accounts and
+// 404 "This model is unavailable right now" on the throttled rest while
+// the same accounts serve other models fine. A 404 that reaches this
+// table came from an UPSTREAM response (resolution-time unknowns are
+// rejected before the walk starts), so it describes one account's answer,
+// not the model's existence: the next Pick() rotates to a different
+// account and the next candidate is a different provider. The walk stays
+// bounded by MaxAttempts and the request deadline, and a genuinely
+// unknown model still surfaces MODEL_NOT_FOUND after the budget is spent.
 func ClassifyRetryable(code string, httpStatus int, transport bool) bool {
 	if transport {
 		return true
 	}
 	switch code {
-	case ErrCodeRateLimited, ErrCodeProviderTimeout, ErrCodeProviderUnavailable, ErrCodeCircuitOpen:
+	case ErrCodeRateLimited, ErrCodeProviderTimeout, ErrCodeProviderUnavailable, ErrCodeCircuitOpen,
+		ErrCodeModelNotFound:
 		return true
 	case ErrCodeUpstreamError:
 		switch httpStatus {
@@ -225,7 +238,7 @@ func ClassifyRetryable(code string, httpStatus int, transport bool) bool {
 		}
 		return httpStatus >= 500
 	case ErrCodeInvalidRequest, ErrCodeUnsupportedParam, ErrCodeContextTooLong,
-		ErrCodeModelNotFound, ErrCodeAuthorization, ErrCodeContentRejected,
+		ErrCodeAuthorization, ErrCodeContentRejected,
 		ErrCodeAuthError, ErrCodeInsufficientCredits:
 		return false
 	}

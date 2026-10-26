@@ -51,7 +51,8 @@ export const JOB_TYPES = [
 	'data_retention_cleanup',
 	'statistics_aggregation',
 	'model_verification',
-	'model_status_poll'
+	'model_status_poll',
+	'routing_signals_refresh'
 ] as const;
 export type JobType = (typeof JOB_TYPES)[number];
 

@@ -116,6 +116,19 @@ export const PERIODIC: PeriodicEntry[] = [
 		everyMs: HOUR,
 		note: 'published vs worked truth poll; one model_status_snapshot row per run'
 	},
+	// Measured routing signals: request_log's 7-day p95/availability per
+	// connection, merged into connection.config where the Go router's
+	// LoadSignals reads them. Without this the balanced strategy scores
+	// every candidate on neutral signals (300ms, 0.95) and same-model
+	// failover is decided by a coin flip. 30 minutes: the aggregate is one
+	// statement over an indexed window, and routing does not need
+	// second-fresh signals to stop being blind.
+	{
+		kind: 'periodic',
+		type: 'routing_signals_refresh',
+		everyMs: 30 * MINUTE,
+		note: 'measured p95/availability into connection.config for routing'
+	},
 	{ kind: 'periodic', type: 'invoice_generation', everyMs: DAY, note: 'previous calendar month, idempotent' },
 	{ kind: 'periodic', type: 'data_retention_cleanup', everyMs: DAY, note: 'enforce retention policy' }
 ];

@@ -1185,7 +1185,88 @@ const modelStatusPollJob: JobHandler = async (dbtx) => {
 			: null,
 		durationMs: Date.now() - started
 	});
-};
+	};
+
+	/**
+	* `routing_signals_refresh`: feed the router's scoring the numbers it was
+	* always meant to read.
+	*
+	* routing/select.go's LoadSignals takes a candidate's p95 latency and
+	* availability from `connection.config` (`p95_latency_ms`, `availability`,
+	* `capacity`) and falls back to NEUTRAL values (300ms, 0.95, 100) when the
+	* keys are absent. Nothing in the platform ever wrote those keys, so every
+	* balanced-strategy decision scored all candidates at the neutral midpoint
+	* and same-model failover was effectively arbitrary — the data existed in
+	* request_log the whole time and never reached the decision.
+	*
+	* One set-based statement: aggregate the trailing 7 days of chat traffic
+	* per connection, then merge the measurements into `connection.config`
+	* with jsonb `||` (existing keys like `auth_kind`/`default_headers`
+	* survive — this is a merge, not a replace). Availability is the
+	* sub-400 ratio; p95 is the full-request latency the constraint
+	* `max_p95_latency_ms` is specified against; ttft_p95 is carried as an
+	* extra operator-visible key (the router ignores it today).
+	*
+	* Guards:
+	*  - MIN_SIGNAL_SAMPLES: a connection with a handful of requests has no
+	*    statistically meaningful p95; leaving its config untouched keeps the
+	*    neutral midpoint instead of enshrining noise.
+	*  - Only `endpoint like '%chat%'` rows count: embeddings/audio traffic
+	*    has a different latency shape and would poison the signal.
+	*  - Stale silence is safe: a connection with no recent traffic keeps its
+	*    last measured values (a 7-day window that stopped updating is still
+	*    the best knowledge about that connection), and health_status remains
+	*    the live fallback the Go side already applies.
+	*
+	* Idempotent: re-running recomputes the same window and writes the same
+	* values. Priority is deliberately NOT touched here — it is the
+	* operator's manual lever for provider_priority, and a job overwriting
+	* it every 30 minutes would fight the console.
+	*/
+	const routingSignalsRefresh: JobHandler = async (dbtx) => {
+	const rows = (await dbtx.execute(sql`
+		with measured as (
+			select
+				rl.connection_id as cid,
+				count(*) as n,
+				count(*) filter (where rl.http_status < 400)::float / count(*) as avail,
+				percentile_disc(0.95) within group (order by rl.latency_ms) as p95,
+				percentile_disc(0.95) within group (order by rl.ttft_ms)
+					filter (where rl.ttft_ms is not null) as ttft_p95
+			from request_log rl
+			where rl.created_at > now() - interval '7 days'
+				and rl.connection_id is not null
+				and rl.endpoint like '%chat%'
+			group by rl.connection_id
+			having count(*) >= 20
+		)
+		update connection c
+		set config = c.config || jsonb_build_object(
+				'p95_latency_ms', m.p95,
+				'availability', round(m.avail::numeric, 4),
+				'ttft_p95_ms', m.ttft_p95,
+				'signal_samples', m.n,
+				'signal_updated_at', to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+			),
+			updated_at = now()
+		from measured m
+		where c.id = m.cid
+		returning c.id, c.slug,
+			c.config ->> 'p95_latency_ms' as p95_latency_ms,
+			c.config ->> 'availability' as availability
+	`)) as unknown as Array<{
+		id: string;
+		slug: string;
+		p95_latency_ms: string;
+		availability: string;
+	}>;
+
+	for (const r of rows) {
+		console.log(
+			`[routing_signals_refresh] ${r.slug}: p95=${r.p95_latency_ms}ms availability=${r.availability}`
+		);
+	}
+	};
 
 /**
  * How many rows ONE retention statement touches.
@@ -1444,7 +1525,8 @@ export const JOB_HANDLERS: Record<JobType, JobHandler> = {
 	data_retention_cleanup: dataRetentionCleanup,
 	statistics_aggregation: statisticsAggregation,
 	model_verification: modelVerificationJob,
-	model_status_poll: modelStatusPollJob
+	model_status_poll: modelStatusPollJob,
+	routing_signals_refresh: routingSignalsRefresh
 };
 
 /** Run one claimed job to completion/failure. */

@@ -7,13 +7,16 @@ import {
 	creditLedger,
 	invoice,
 	job,
+	model,
 	pricingRule,
+	provider,
 	providerModel,
 	requestLog,
 	systemEvent,
 	usageDaily,
 	usageHourly,
-	modelVerification
+	modelVerification,
+	modelStatusSnapshot
 } from './db/schema.ts';
 import { db } from './db/index.ts';
 import {
@@ -961,6 +964,230 @@ const modelVerificationJob: JobHandler = async (dbtx, payload) => {
 };
 
 /**
+ * `model_status_poll` — hourly published-vs-worked truth poll.
+ *
+ * Why it exists: `/v1/models` is gated on LIVE credentials, so "published"
+ * means "some credential is not in cooldown", NOT "a completion succeeds".
+ * A revoked key that has not aged into cooldown, a provider whose /models
+ * probe passes unauthenticated while chat fails, slug drift after a provider
+ * rename — every one of those keeps a model published and unusable. This poll
+ * probes every published model the way a user request would and records both
+ * numbers plus the gap, so "percuma ada tapi gabisa dipake" is a query
+ * instead of a guess.
+ *
+ * Published set: the Go catalogue gate (ActiveModels) re-stated in SQL — the
+ * poll must never count a model the router itself would refuse to serve. If
+ * that gate changes in backend/go/internal/store/catalog.go, change it here.
+ *
+ * Probe: upstream /chat/completions directly, like model_verification above,
+ * with failover capped at three mappings per model so one dead primary cannot
+ * masquerade as a dead model. Concurrency is small on purpose — the upstream
+ * free tiers rate-limit, and a slow honest poll beats a fast banned one.
+ */
+const MODEL_POLL_CONCURRENCY = 4;
+const MODEL_POLL_TIMEOUT_MS = 35_000;
+const MODEL_POLL_MAX_TRIES = 3;
+const MODEL_POLL_FAILURES_CAP = 100;
+
+const modelStatusPollJob: JobHandler = async (dbtx) => {
+	const started = Date.now();
+
+	// Published models with their candidate mappings, in routing order:
+	// pinned connection first, then provider priority.
+	const rows = await dbtx
+		.select({
+			slug: model.slug,
+			pmId: providerModel.id,
+			upstreamSlug: providerModel.providerModelId,
+			connId: connection.id,
+			baseUrl: connection.baseUrl,
+			timeoutMs: connection.timeoutMs
+		})
+		.from(model)
+		.innerJoin(
+			providerModel,
+			and(eq(providerModel.modelId, model.id), eq(providerModel.enabled, true))
+		)
+		.innerJoin(provider, eq(provider.id, providerModel.providerId))
+		.innerJoin(
+			connection,
+			and(
+				sql`(${connection.id} = ${providerModel.connectionId} or (${providerModel.connectionId} is null and ${connection.providerId} = ${provider.id}))`,
+				eq(connection.enabled, true),
+				sql`${connection.healthStatus} is distinct from 'unhealthy'`
+			)
+		)
+		.where(
+			and(
+				eq(model.status, 'active'),
+				sql`${providerModel.status} not in ('disabled', 'unavailable')`,
+				eq(provider.enabled, true),
+				sql`(${provider.tier} = 'commercial' or false)`,
+				sql`exists (select 1 from ${credential} cr where cr.connection_id = ${connection.id} and cr.status not in ('disabled', 'invalid') and (cr.cooldown_until is null or cr.cooldown_until <= now()))`
+			)
+		)
+		.orderBy(
+			sql`(${connection.id} = ${providerModel.connectionId}) desc`,
+			connection.priority,
+			connection.id
+		);
+
+	const bySlug = new Map<string, typeof rows>();
+	for (const row of rows) {
+		const list = bySlug.get(row.slug);
+		if (list) list.push(row);
+		else bySlug.set(row.slug, [row]);
+	}
+
+	// One live credential per connection, decrypted lazily and memoized — the
+	// poll probes with the same credential routing would pick.
+	const credCache = new Map<string, { id: string; cred: Credentials } | null>();
+	const liveCredential = async (connectionId: string) => {
+		const cached = credCache.get(connectionId);
+		if (cached !== undefined) return cached;
+		const [row] = await dbtx
+			.select({ id: credential.id, secretEnc: credential.secretEnc })
+			.from(credential)
+			.where(
+				and(
+					eq(credential.connectionId, connectionId),
+					sql`${credential.status} not in ('disabled', 'invalid')`,
+					sql`(${credential.cooldownUntil} is null or ${credential.cooldownUntil} <= now())`
+				)
+			)
+			.orderBy(credential.priority, credential.id)
+			.limit(1);
+		if (!row) {
+			credCache.set(connectionId, null);
+			return null;
+		}
+		try {
+			const entry = { id: row.id, cred: decryptCredentials(row.secretEnc) };
+			credCache.set(connectionId, entry);
+			return entry;
+		} catch {
+			credCache.set(connectionId, null);
+			return null;
+		}
+	};
+
+	const failures: { model: string; http: number; error: string }[] = [];
+	const failBreakdown: Record<string, number> = {};
+	const workedLatencies: number[] = [];
+	let worked = 0;
+
+	const probeOne = async (slug: string, candidates: typeof rows) => {
+		for (const candidate of candidates.slice(0, MODEL_POLL_MAX_TRIES)) {
+			const live = await liveCredential(candidate.connId);
+			if (!live) {
+				failBreakdown.no_credential = (failBreakdown.no_credential ?? 0) + 1;
+				failures.push({ model: slug, http: 0, error: 'no live credential' });
+				return;
+			}
+			if (isExpiredOAuth(live.cred)) {
+				failBreakdown.oauth_expired = (failBreakdown.oauth_expired ?? 0) + 1;
+				failures.push({ model: slug, http: 0, error: 'oauth credential expired' });
+				return;
+			}
+			const latencyStart = Date.now();
+			try {
+				const probed = await guardedUpstreamFetch(
+					candidate.baseUrl,
+					allowPrivateUpstreams(),
+					'/chat/completions',
+					{
+						method: 'POST',
+						headers: {
+							...headersFor(live.cred, tokenAt(live.cred, 0)),
+							'content-type': 'application/json'
+						},
+						body: JSON.stringify({
+							model: candidate.upstreamSlug,
+							messages: [{ role: 'user', content: 'Reply with exactly: OK' }],
+							max_tokens: 16
+						}),
+						timeoutMs: Math.min(candidate.timeoutMs, MODEL_POLL_TIMEOUT_MS)
+					}
+				);
+				if (!probed.ok) {
+					// SSRF block or transport failure — the next mapping may
+					// route elsewhere, so keep trying before declaring dead.
+					failBreakdown.fetch_failed = (failBreakdown.fetch_failed ?? 0) + 1;
+					continue;
+				}
+				const code = probed.response.status;
+				const text = await probed.response.text();
+				if (code >= 200 && code < 300) {
+					let hasContent = false;
+					try {
+						const body = JSON.parse(text) as {
+							choices?: { message?: { content?: string | null } }[];
+						};
+						hasContent = Boolean(body.choices?.[0]?.message?.content);
+					} catch {
+						hasContent = false;
+					}
+					if (hasContent) {
+						worked += 1;
+						workedLatencies.push(Date.now() - latencyStart);
+						return;
+					}
+					continue; // 2xx with no content — try the next mapping
+				}
+				// Definitive failures: no mapping will serve these.
+				if (code === 401 || code === 403 || code === 404) {
+					const key = `http_${code}`;
+					failBreakdown[key] = (failBreakdown[key] ?? 0) + 1;
+					failures.push({ model: slug, http: code, error: text.slice(0, 120) });
+					return;
+				}
+				continue;
+			} catch (e) {
+				// guardedUpstreamFetch converts transport errors into
+				// {ok:false}; reaching here is a bug, not a model failure.
+				const message = e instanceof Error ? e.message : String(e);
+				failBreakdown.probe_crashed = (failBreakdown.probe_crashed ?? 0) + 1;
+				failures.push({ model: slug, http: 0, error: message.slice(0, 120) });
+				return;
+			}
+		}
+		failBreakdown.all_mappings_failed = (failBreakdown.all_mappings_failed ?? 0) + 1;
+		failures.push({ model: slug, http: 0, error: 'no mapping served a completion' });
+	};
+
+	const slugs = [...bySlug.keys()];
+	let cursor = 0;
+	await Promise.all(
+		Array.from({ length: Math.min(MODEL_POLL_CONCURRENCY, slugs.length) }, async () => {
+			while (cursor < slugs.length) {
+				const slug = slugs[cursor] as string;
+				cursor += 1;
+				await probeOne(slug, bySlug.get(slug) as typeof rows);
+			}
+		})
+	);
+
+	workedLatencies.sort((a, b) => a - b);
+	const p50 = workedLatencies.length
+		? (workedLatencies[Math.floor(workedLatencies.length / 2)] as number)
+		: null;
+
+	await dbtx.insert(modelStatusSnapshot).values({
+		id: newId('mss_'),
+		published: slugs.length,
+		worked,
+		failed: slugs.length - worked,
+		failBreakdown,
+		failures: failures.slice(0, MODEL_POLL_FAILURES_CAP),
+		workedP50Ms: p50,
+		workedMaxMs: workedLatencies.length
+			? (workedLatencies[workedLatencies.length - 1] as number)
+			: null,
+		durationMs: Date.now() - started
+	});
+};
+
+/**
  * How many rows ONE retention statement touches.
  *
  * Why batching exists at all: the handler ran four unbounded statements and the
@@ -1216,7 +1443,8 @@ export const JOB_HANDLERS: Record<JobType, JobHandler> = {
 	pricing_sync: pricingSync,
 	data_retention_cleanup: dataRetentionCleanup,
 	statistics_aggregation: statisticsAggregation,
-	model_verification: modelVerificationJob
+	model_verification: modelVerificationJob,
+	model_status_poll: modelStatusPollJob
 };
 
 /** Run one claimed job to completion/failure. */

@@ -380,6 +380,30 @@ export const modelVerification = pgTable(
 	(t) => [index('model_verification_provider_model_idx').on(t.providerModelId, t.createdAt)]
 );
 
+/**
+ * Hourly published-vs-worked snapshot written by `model_status_poll`.
+ * Append-only: each row is evidence from one run, and the "latest" a reader
+ * wants is max-by created_at — same rule as model_verification.
+ */
+export const modelStatusSnapshot = pgTable('model_status_snapshot', {
+	id: text('id').primaryKey(),
+	published: integer('published').notNull(),
+	worked: integer('worked').notNull(),
+	failed: integer('failed').notNull(),
+	failBreakdown: jsonb('fail_breakdown')
+		.$type<Record<string, number>>()
+		.notNull()
+		.default({}),
+	failures: jsonb('failures')
+		.$type<{ model: string; http: number; error: string }[]>()
+		.notNull()
+		.default([]),
+	workedP50Ms: integer('worked_p50_ms'),
+	workedMaxMs: integer('worked_max_ms'),
+	durationMs: integer('duration_ms').notNull(),
+	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+});
+
 // ---------------------------------------------------------------- pricing -----
 // PRD §60–61: versioned, immutable history. A new price is a NEW ROW; the old
 // one gets effectiveUntil. Prices are micro-units of currency per 1M tokens.

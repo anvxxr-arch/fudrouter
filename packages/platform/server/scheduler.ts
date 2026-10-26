@@ -105,6 +105,17 @@ export const PERIODIC: PeriodicEntry[] = [
 	{ kind: 'periodic', type: 'provider_health_check', everyMs: 5 * MINUTE, note: 'connection health' },
 	{ kind: 'periodic', type: 'statistics_aggregation', everyMs: 15 * MINUTE },
 	{ kind: 'periodic', type: 'billing_aggregation', everyMs: HOUR, note: 'balance cache reconcile' },
+	// Hourly, unlike the daily verification above: `published` is a live-cred
+	// gate that flaps with provider cooldowns within the hour, and `worked` is
+	// the only number that answers "bisa dipake" — a model that is published
+	// but fails its probe is exactly the gap this poll counts. Probes are
+	// failover-capped, so one run stays inside a few minutes.
+	{
+		kind: 'periodic',
+		type: 'model_status_poll',
+		everyMs: HOUR,
+		note: 'published vs worked truth poll; one model_status_snapshot row per run'
+	},
 	{ kind: 'periodic', type: 'invoice_generation', everyMs: DAY, note: 'previous calendar month, idempotent' },
 	{ kind: 'periodic', type: 'data_retention_cleanup', everyMs: DAY, note: 'enforce retention policy' }
 ];

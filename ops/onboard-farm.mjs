@@ -116,6 +116,19 @@ const REGISTRY = {
       email: /^([^|]+@[^|]+)\|/
     }
   },
+  // Format baris: dahl_<key> (batch panen 17 Okt 2026, 50 key).
+  // Base = inference.dahl.global (bukan api.dahl.global — cek connection row).
+  dahl: {
+    providerId: 'prv_dahl',
+    connectionId: 'con_prv_dahl-default',
+    base: 'https://inference.dahl.global/v1',
+    headers: {},
+    keys: {
+      kind: 'lines',
+      file: `${FARM_DIR}/dahl-farm/dahl_keys_batch_20261017.txt`,
+      rx: /(dahl_[A-Za-z0-9]+)/
+    }
+  },
   tokenharbor: {
     providerId: 'prv_tokenharbor',
     connectionId: 'con_prv_tokenharbor-default',

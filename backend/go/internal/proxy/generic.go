@@ -75,14 +75,14 @@ func (h *Handler) ServeGeneric(w http.ResponseWriter, r *http.Request) {
 		lower := strings.ToLower(path)
 		if strings.Contains(lower, "..") || strings.Contains(lower, "%2e") || strings.Contains(lower, "%2f") {
 			return "", &apiError{Code: "MODEL_NOT_FOUND", Status: 404,
-				Type: "invalid_request_error",
+				Type:    "invalid_request_error",
 				Message: fmt.Sprintf("%s is not implemented on this router", path)}
 		}
 		// Stateful resources (spec §6 P2): honest 404, never a forwarded lie.
 		for _, p := range statefulPrefixes {
 			if path == p || strings.HasPrefix(path, p+"/") {
 				return "", &apiError{Code: "MODEL_NOT_FOUND", Status: 404,
-					Type: "invalid_request_error",
+					Type:    "invalid_request_error",
 					Message: fmt.Sprintf("%s is not implemented on this router: stateful resources are not routed", p)}
 			}
 		}
@@ -91,7 +91,7 @@ func (h *Handler) ServeGeneric(w http.ResponseWriter, r *http.Request) {
 			// operator raised the passthrough hatch.
 			if !passthrough {
 				return "", &apiError{Code: "MODEL_NOT_FOUND", Status: 404,
-					Type: "invalid_request_error",
+					Type:    "invalid_request_error",
 					Message: fmt.Sprintf("%s is not implemented on this router", path)}
 			}
 			// Escape hatch (endpoint-surface spec §8): forward the ad-hoc
@@ -124,7 +124,7 @@ func (h *Handler) ServeGeneric(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			return "", &apiError{Code: "INVALID_REQUEST", Status: 400,
-				Type: "invalid_request_error",
+				Type:    "invalid_request_error",
 				Message: fmt.Sprintf("%s cannot be forwarded: no model in the request body to select an upstream by", path)}
 		}
 		var req map[string]any
@@ -159,7 +159,7 @@ func (h *Handler) ServeGeneric(w http.ResponseWriter, r *http.Request) {
 	// auth). A lookup failure means the hatch is DOWN: honesty is the default.
 	passthrough = h.store.GenericPassthrough(r.Context())
 
-	lc, ok := h.begin(w, r, start, path, body, validate, false)
+	lc, ok := h.begin(w, r, start, path, body, validate, "")
 	if !ok {
 		return
 	}

@@ -159,14 +159,14 @@ func TestEndpointSurfaceSpec3Rows(t *testing.T) {
 	})
 
 	statefulRows := []struct{ method, path string }{
-		{http.MethodPost, "/v1/batches"},          // row 8
-		{http.MethodGet, "/v1/batches/b_1"},       // row 9
-		{http.MethodPost, "/v1/files"},            // row 10
-		{http.MethodGet, "/v1/files"},             // row 11
-		{http.MethodGet, "/v1/files/f_1"},         // row 12
-		{http.MethodDelete, "/v1/files/f_1"},      // row 13 (was: forwarded as POST)
-		{http.MethodPost, "/v1/vector_stores"},    // row 14
-		{http.MethodGet, "/v1/vector_stores"},     // row 15
+		{http.MethodPost, "/v1/batches"},       // row 8
+		{http.MethodGet, "/v1/batches/b_1"},    // row 9
+		{http.MethodPost, "/v1/files"},         // row 10
+		{http.MethodGet, "/v1/files"},          // row 11
+		{http.MethodGet, "/v1/files/f_1"},      // row 12
+		{http.MethodDelete, "/v1/files/f_1"},   // row 13 (was: forwarded as POST)
+		{http.MethodPost, "/v1/vector_stores"}, // row 14
+		{http.MethodGet, "/v1/vector_stores"},  // row 15
 	}
 	for i, row := range statefulRows {
 		t.Run("stateful row "+strconv.Itoa(8+i), func(t *testing.T) {

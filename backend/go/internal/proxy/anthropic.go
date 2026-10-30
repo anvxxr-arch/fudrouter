@@ -114,7 +114,7 @@ func (h *Handler) ServeMessages(w http.ResponseWriter, r *http.Request) {
 		return slug, nil
 	}
 
-	lc, ok := h.begin(w, r, start, "/v1/messages", body, validate, true)
+	lc, ok := h.begin(w, r, start, "/v1/messages", body, validate, "anthropic")
 	if !ok {
 		return
 	}

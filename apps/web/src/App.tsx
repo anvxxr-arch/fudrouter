@@ -28,6 +28,7 @@ const AliasesPage = lazy(() => import('./routes/dashboard').then((m) => ({ defau
 const AlertsPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.AlertsPage })));
 const BillingPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.BillingPage })));
 const BudgetsPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.BudgetsPage })));
+const CombosPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.CombosPage })));
 const CreditsPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.CreditsPage })));
 const DashboardHome = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.DashboardHome })));
 const InvoicesPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.InvoicesPage })));
@@ -36,6 +37,7 @@ const LimitsPage = lazy(() => import('./routes/dashboard').then((m) => ({ defaul
 const LogsPage = lazy(() => import('./routes/logs').then((m) => ({ default: m.LogsPage })));
 const PayMethodsPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.PayMethodsPage })));
 const PlaygroundPage2 = lazy(() => import('./routes/playground').then((m) => ({ default: m.PlaygroundPage2 })));
+const PromptInjectionPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.PromptInjectionPage })));
 const RoutingPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.RoutingPage })));
 const SettingsHub = lazy(() => import('./routes/settings').then((m) => ({ default: m.SettingsHub })));
 const UsagePage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.UsagePage })));
@@ -129,6 +131,8 @@ export default function App() {
           <Route path="dashboard/aliases" element={<RequireAuth><AliasesPage /></RequireAuth>} />
           <Route path="dashboard/routing" element={<RequireAuth><RoutingPage /></RequireAuth>} />
           <Route path="dashboard/alerts" element={<RequireAuth><AlertsPage /></RequireAuth>} />
+          <Route path="dashboard/combos" element={<RequireAuth><CombosPage /></RequireAuth>} />
+          <Route path="dashboard/injections" element={<RequireAuth><PromptInjectionPage /></RequireAuth>} />
           <Route path="dashboard/playground" element={<RequireAuth><PlaygroundPage2 /></RequireAuth>} />
           <Route path="admin" element={<RequireRouteCap><AdminHome /></RequireRouteCap>} />
           <Route path="admin/:name" element={<RequireRouteCap><AdminSectionRoute /></RequireRouteCap>} />

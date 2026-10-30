@@ -1085,6 +1085,192 @@ export function registerPages(app, ctx) {
 		return res.json({ removed: id });
 	}));
 
+	// ---- prompt injection (account-scoped; three scopes, one row each) ----
+	// Mirrors the 9Router Pro feature that decided adoption for it, with the
+	// difference that here every injected request still passes the ledger: an
+	// injected hop is metered like any other, because the injection happens in
+	// the data plane AFTER admission (backend/go/internal/proxy/injection.go).
+	const INJECTION_MODES = ['system_prepend', 'system_append', 'chat_script'];
+	const INJECTION_MAX_BYTES = 256 * 1024;
+	function injectionError(b) {
+		const mode = String(b.mode ?? '').trim();
+		if (!INJECTION_MODES.includes(mode)) return 'Mode must be system_prepend, system_append or chat_script.';
+		const content = String(b.content ?? '');
+		if (!content.trim()) return 'The injection content is required.';
+		if (Buffer.byteLength(content, 'utf8') > INJECTION_MAX_BYTES) return 'The injection is larger than 256 KiB.';
+		const scope = String(b.scope ?? '').trim();
+		if (!['account', 'key', 'model'].includes(scope)) return 'Scope must be account, key or model.';
+		if (scope === 'key' && !String(b.apiKeyId ?? '').trim()) return 'Pick the API key this injection applies to.';
+		if (scope === 'model' && !String(b.modelSlug ?? '').trim()) return 'Pick or name the model this injection applies to.';
+		return null;
+	}
+	app.get('/api/pages/injections', wrap(async (req, res) => {
+		const database = needDb(res);
+		if (!database) return;
+		const userRow = await mustAuth(req);
+		const rows = rowsOf(await database.execute(sql`select i.id, i.api_key_id, i.model_slug, i.mode, i.content, i.enabled, i.created_at, k.name as key_name, k.prefix as key_prefix from prompt_injection i left join api_key k on k.id = i.api_key_id where i.account_id = ${userRow.id} order by (i.model_slug is not null), (i.api_key_id is not null), i.created_at asc`));
+		const injections = rows.map((r) => ({
+			id: r.id,
+			scope: r.model_slug ? 'model' : r.api_key_id ? 'key' : 'account',
+			apiKeyId: r.api_key_id,
+			keyName: r.key_name,
+			keyPrefix: r.key_prefix,
+			modelSlug: r.model_slug,
+			mode: r.mode,
+			content: r.content,
+			enabled: r.enabled,
+			createdAt: iso(r.created_at),
+		}));
+		const keys = rowsOf(await database.execute(sql`select id, name, prefix from api_key where user_id = ${userRow.id} and status = 'active' and revoked_at is null order by created_at asc`));
+		const models = rowsOf(await database.execute(sql`select slug from model where status <> 'disabled' order by slug asc limit 500`));
+		return res.json({ injections, keys, models, modes: INJECTION_MODES });
+	}));
+	app.post('/api/pages/injections/create', wrap(async (req, res) => {
+		const database = needDb(res);
+		if (!database) return;
+		const userRow = await mustAuth(req);
+		const b = okBody(req);
+		const bad = injectionError(b);
+		if (bad) return fail(res, 400, bad);
+		const scope = String(b.scope).trim();
+		const mode = String(b.mode).trim();
+		const content = String(b.content);
+		const enabled = b.enabled === false ? false : true;
+		let apiKeyId = null;
+		if (scope === 'key') {
+			apiKeyId = String(b.apiKeyId).trim();
+			const owned = rowsOf(await database.execute(sql`select id from api_key where id = ${apiKeyId} and user_id = ${userRow.id} limit 1`))[0];
+			if (!owned) return fail(res, 404, 'API key not found.');
+		}
+		const modelSlug = scope === 'model' ? String(b.modelSlug).trim().toLowerCase() : null;
+		const clash = rowsOf(await database.execute(sql`select id from prompt_injection where account_id = ${userRow.id} and coalesce(api_key_id, '') = ${apiKeyId ?? ''} and coalesce(lower(model_slug), '') = ${modelSlug ?? ''} limit 1`))[0];
+		if (clash) return fail(res, 409, 'An injection already exists for that target. Edit it instead.');
+		const id = newId('inj_');
+		await database.execute(sql`insert into prompt_injection (id, account_id, api_key_id, model_slug, mode, content, enabled) values (${id}, ${userRow.id}, ${apiKeyId}, ${modelSlug}, ${mode}, ${content}, ${enabled})`);
+		await audit(database, { actorUserId: userRow.id, action: 'injection.create', resource: 'prompt_injection', resourceId: id, after: { scope, mode, modelSlug, apiKeyId, bytes: Buffer.byteLength(content, 'utf8') } });
+		return res.json({ saved: id });
+	}));
+	app.post('/api/pages/injections/update', wrap(async (req, res) => {
+		const database = needDb(res);
+		if (!database) return;
+		const userRow = await mustAuth(req);
+		const b = okBody(req);
+		const id = String(b.id ?? '').trim();
+		if (!id) return fail(res, 400, 'Missing injection id.');
+		const mode = String(b.mode ?? '').trim();
+		if (!INJECTION_MODES.includes(mode)) return fail(res, 400, 'Mode must be system_prepend, system_append or chat_script.');
+		const content = String(b.content ?? '');
+		if (!content.trim()) return fail(res, 400, 'The injection content is required.');
+		if (Buffer.byteLength(content, 'utf8') > INJECTION_MAX_BYTES) return fail(res, 400, 'The injection is larger than 256 KiB.');
+		const enabled = b.enabled === false ? false : true;
+		// Ownership is on the write, not merely checked by the lookup: the row
+		// could change between the two statements.
+		const updated = rowsOf(await database.execute(sql`update prompt_injection set mode = ${mode}, content = ${content}, enabled = ${enabled}, updated_at = now() where id = ${id} and account_id = ${userRow.id} returning id`));
+		if (!updated.length) return fail(res, 404, 'Injection not found.');
+		await audit(database, { actorUserId: userRow.id, action: 'injection.update', resource: 'prompt_injection', resourceId: id, after: { mode, enabled, bytes: Buffer.byteLength(content, 'utf8') } });
+		return res.json({ saved: id });
+	}));
+	app.post('/api/pages/injections/remove', wrap(async (req, res) => {
+		const database = needDb(res);
+		if (!database) return;
+		const userRow = await mustAuth(req);
+		const id = String(okBody(req).id ?? '').trim();
+		if (!id) return fail(res, 400, 'Missing injection id.');
+		const deleted = rowsOf(await database.execute(sql`delete from prompt_injection where id = ${id} and account_id = ${userRow.id} returning id, mode`));
+		if (!deleted.length) return fail(res, 404, 'Injection not found.');
+		await audit(database, { actorUserId: userRow.id, action: 'injection.delete', resource: 'prompt_injection', resourceId: id, before: { mode: deleted[0].mode } });
+		return res.json({ removed: id });
+	}));
+
+	// ---- combos (account-scoped ordered fallback sequences) ----
+	// The resolver already exists in the data plane (store/combo.go): a combo
+	// name expands into the same candidate walk an alias uses, so every hop is
+	// metered, budget-gated and recorded as its own request_attempt. This is
+	// only the authoring surface.
+	app.get('/api/pages/combos', wrap(async (req, res) => {
+		const database = needDb(res);
+		if (!database) return;
+		const userRow = await mustAuth(req);
+		const comboRows = rowsOf(await database.execute(sql`select id, name, description, enabled, created_at from combo where account_id = ${userRow.id} order by name asc`));
+		let membersByCombo = new Map();
+		if (comboRows.length) {
+			const ids = comboRows.map((c) => c.id);
+			const members = rowsOf(await database.execute(sql`select cm.combo_id, cm.position, m.id as model_id, m.slug, m.status from combo_model cm inner join model m on m.id = cm.model_id where cm.combo_id in (${sql.join(ids, sql`, `)}) order by cm.combo_id asc, cm.position asc`));
+			for (const m of members) {
+				const list = membersByCombo.get(m.combo_id) ?? [];
+				list.push({ modelId: m.model_id, slug: m.slug, status: m.status, position: m.position });
+				membersByCombo.set(m.combo_id, list);
+			}
+		}
+		const combos = comboRows.map((c) => ({ id: c.id, name: c.name, description: c.description, enabled: c.enabled, models: membersByCombo.get(c.id) ?? [] }));
+		const models = rowsOf(await database.execute(sql`select id, slug, name, status, developer from model where status <> 'disabled' order by slug asc`));
+		return res.json({ combos, models });
+	}));
+	app.post('/api/pages/combos/create', wrap(async (req, res) => {
+		const database = needDb(res);
+		if (!database) return;
+		const userRow = await mustAuth(req);
+		const b = okBody(req);
+		const name = String(b.name ?? '').trim();
+		if (!name) return fail(res, 400, 'Combo name is required.');
+		if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,63}$/.test(name)) return fail(res, 400, 'Use letters, digits, dot, dash, slash or colon (max 64).');
+		const targets = (Array.isArray(b.modelIds) ? b.modelIds : []).filter((t) => typeof t === 'string' && t.trim());
+		if (!targets.length) return fail(res, 400, 'Pick at least one model for the combo.');
+		const clash = rowsOf(await database.execute(sql`select id from combo where account_id = ${userRow.id} and name = ${name} limit 1`))[0];
+		if (clash) return fail(res, 409, `A combo named "${name}" already exists.`);
+		const known = rowsOf(await database.execute(sql`select id from model where id in (${sql.join(targets, sql`, `)})`));
+		if (known.length !== targets.length) return fail(res, 400, 'One or more combo models do not exist.');
+		const id = newId('cmb_');
+		await database.execute(sql`insert into combo (id, account_id, name, description, enabled) values (${id}, ${userRow.id}, ${name}, ${String(b.description ?? '').trim() || null}, ${b.enabled === false ? false : true})`);
+		let pos = 1;
+		for (const mid of targets) {
+			await database.execute(sql`insert into combo_model (combo_id, position, model_id) values (${id}, ${pos}, ${mid})`);
+			pos += 1;
+		}
+		await audit(database, { actorUserId: userRow.id, action: 'combo.create', resource: 'combo', resourceId: id, after: { name, hops: targets.length } });
+		return res.json({ created: name, id });
+	}));
+	app.post('/api/pages/combos/update', wrap(async (req, res) => {
+		const database = needDb(res);
+		if (!database) return;
+		const userRow = await mustAuth(req);
+		const b = okBody(req);
+		const id = String(b.id ?? '').trim();
+		if (!id) return fail(res, 400, 'Missing combo id.');
+		const existing = rowsOf(await database.execute(sql`select id, name from combo where id = ${id} and account_id = ${userRow.id} limit 1`))[0];
+		if (!existing) return fail(res, 404, 'Combo not found.');
+		const enabled = b.enabled === false ? false : true;
+		const description = String(b.description ?? '').trim() || null;
+		const targets = (Array.isArray(b.modelIds) ? b.modelIds : []).filter((t) => typeof t === 'string' && t.trim());
+		await database.execute(sql`update combo set description = ${description}, enabled = ${enabled}, updated_at = now() where id = ${id} and account_id = ${userRow.id}`);
+		if (targets.length) {
+			const known = rowsOf(await database.execute(sql`select id from model where id in (${sql.join(targets, sql`, `)})`));
+			if (known.length !== targets.length) return fail(res, 400, 'One or more combo models do not exist.');
+			// Replace-then-insert: position is authored, so the whole list is
+			// rewritten rather than diffed — a diff would leave a hole the
+			// resolver would walk.
+			await database.execute(sql`delete from combo_model where combo_id = ${id}`);
+			let pos = 1;
+			for (const mid of targets) {
+				await database.execute(sql`insert into combo_model (combo_id, position, model_id) values (${id}, ${pos}, ${mid})`);
+				pos += 1;
+			}
+		}
+		await audit(database, { actorUserId: userRow.id, action: 'combo.update', resource: 'combo', resourceId: id, after: { enabled, hops: targets.length || undefined } });
+		return res.json({ saved: id });
+	}));
+	app.post('/api/pages/combos/remove', wrap(async (req, res) => {
+		const database = needDb(res);
+		if (!database) return;
+		const userRow = await mustAuth(req);
+		const id = String(okBody(req).id ?? '').trim();
+		if (!id) return fail(res, 400, 'Missing combo id.');
+		const deleted = rowsOf(await database.execute(sql`delete from combo where id = ${id} and account_id = ${userRow.id} returning name`));
+		if (!deleted.length) return fail(res, 404, 'Combo not found.');
+		await audit(database, { actorUserId: userRow.id, action: 'combo.delete', resource: 'combo', resourceId: id, before: { name: deleted[0].name } });
+		return res.json({ removed: id });
+	}));
+
 	// ---- connect (client onboarding, read-only) ----
 	app.get(['/api/pages/connect', '/api/pages/dashboard/connect'], wrap(async (req, res) => {
 		const database = needDb(res);

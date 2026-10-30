@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -26,6 +27,29 @@ import (
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/store"
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/vk"
 )
+
+// notePickFailure surfaces WHY a pool produced no credential, at most once a
+// minute per process. PROVIDER_UNAVAILABLE alone hides the difference between
+// "every key is dead" and "every key is parked after a 429" — opposite fixes.
+func (h *Handler) notePickFailure(cand *routing.Candidate, err error) {
+	if h == nil || err == nil {
+		return
+	}
+	h.pickWarnMu.Lock()
+	quiet := time.Since(h.pickWarnAt) < time.Minute
+	if !quiet {
+		h.pickWarnAt = time.Now()
+	}
+	h.pickWarnMu.Unlock()
+	if quiet {
+		return
+	}
+	prov, conn := "", ""
+	if cand != nil && cand.Store != nil {
+		prov, conn = cand.Store.ProviderID, cand.Store.ConnectionID
+	}
+	log.Printf("[proxy] pool pick failed provider=%s connection=%s: %v", prov, conn, err)
+}
 
 type Handler struct {
 	store     *store.Store
@@ -55,6 +79,15 @@ type Handler struct {
 	healthViewMu     sync.Mutex
 	healthViewCached map[string]HealthEntry
 	healthViewExp    time.Time
+
+	// pickWarnMu/pickWarnAt rate-limit the pool-pick diagnostic: a depleted pool
+	// fails every request, so an unthrottled log line would be its own outage.
+	pickWarnMu sync.Mutex
+	pickWarnAt time.Time
+
+	// connLim holds per-connection token buckets for upstreams that throttle by
+	// source IP (connlimit.go). Process-local by design.
+	connLim *connLimiter
 
 	// pools caches one rotation Pool per credential target. The pool is the
 	// in-memory source of truth for account state once built, because it is
@@ -105,6 +138,7 @@ func New(st *store.Store, cr *crypt.Crypt, client *http.Client, refresher TokenR
 		limiter:      limits.New(c),
 		vk:           c,
 		breaker:      routing.NewCircuitBreaker(c, nil),
+		connLim:      newConnLimiter(),
 		showCostMeta: strings.EqualFold(os.Getenv("ROUTER_COST_HEADERS"), "on"),
 	}
 }
@@ -131,6 +165,12 @@ func ServeMux(p *Handler, health http.Handler) *http.ServeMux {
 	// the same reason as the chat route above.
 	mux.Handle("POST /v1/messages", http.HandlerFunc(p.ServeMessages))
 	mux.Handle("POST /v1/messages/count_tokens", http.HandlerFunc(p.ServeCountTokens))
+	// The Google Gemini API (/v1beta) as a native surface (gemini.go): the
+	// Google SDKs put the verb in the path segment, so the subtree handler
+	// parses "models/{model}:generateContent" itself. Registered before the
+	// /v1/ catch-all, which does not match /v1beta/ anyway.
+	mux.Handle("GET /v1beta/models", http.HandlerFunc(p.ServeGeminiModels))
+	mux.Handle("/v1beta/models/", http.HandlerFunc(p.ServeGemini))
 	mux.Handle("/v1/", http.HandlerFunc(p.ServeGeneric))
 	return mux
 }
@@ -311,7 +351,7 @@ func (h *Handler) ServeCompletions(w http.ResponseWriter, r *http.Request) {
 		return slug, nil
 	}
 
-	lc, ok := h.begin(w, r, start, "/v1/chat/completions", body, validate, false)
+	lc, ok := h.begin(w, r, start, "/v1/chat/completions", body, validate, "")
 	if !ok {
 		return
 	}

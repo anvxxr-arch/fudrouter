@@ -346,3 +346,22 @@
 /* The provider drawer carries three tables plus two forms, so it needs more
    than the usage drawer's 24rem reading width. */
 .usage-drawer--wide { width: min(48rem, 100vw); }
+
+/* ---- prompt injection ---- */
+/* Same box as the shared Input, but multi-line: an injection is prose (a
+   persona, a rule set, a fake conversation), so it needs a monospace-friendly
+   block that scrolls rather than a one-line field. */
+.ps-textarea {
+  width: 100%;
+  min-height: 8rem;
+  padding: 0.6rem 0.75rem;
+  font: inherit;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  color: var(--fg, inherit);
+  background: var(--surface-2, rgba(127, 127, 127, 0.08));
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.3));
+  border-radius: 0.5rem;
+  resize: vertical;
+}
+.ps-textarea:focus-visible { outline: 2px solid var(--accent, #7c5cff); outline-offset: 1px; }

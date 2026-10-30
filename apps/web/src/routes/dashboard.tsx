@@ -1354,3 +1354,256 @@ export function AlertsPage() {
     </KeysDialog>) : null}
   </Page></ConsoleLayout>);
 }
+
+// -- combos ------------------------------------------------------------------
+// A combo is an authored fallback sequence, not a routing policy: name in, the
+// router walks the hops in order and each hop is metered, budget-gated and
+// logged as its own attempt. The order here is the order that gets stored, which
+// is why hops are built one at a time instead of a multi-select (a multi-select
+// gives the browser's click order, not the operator's).
+type ComboHop = { modelId: string; slug: string; status: string; position: number };
+type ComboRow = { id: string; name: string; description: string | null; enabled: boolean; models: ComboHop[] };
+type ComboModel = { id: string; slug: string; name: string | null; status: string; developer: string | null };
+type CombosData = { combos: ComboRow[]; models: ComboModel[] };
+
+export function CombosPage() {
+  const [tick, setTick] = useState(0);
+  const [err, setErr] = useState<string | null>(null);
+  const [ok, setOk] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [hops, setHops] = useState<ComboModel[]>([]);
+  const [pick, setPick] = useState("");
+  const [deleting, setDeleting] = useState<ComboRow | null>(null);
+  const { data: d, error, loading } = useLoad<CombosData>("/api/pages/combos", tick);
+  const refresh = useCallback(() => setTick((t) => t + 1), []);
+  const combos = d?.combos ?? [];
+  const models = d?.models ?? [];
+  return (<ConsoleLayout><Page title="Combos" lede="Named fallback chains: ask for the combo, get the first hop that answers.">
+    <LoadState loading={loading} error={error} />
+    <div className="ps-note" role="note">
+      <p>Hops are tried in order. Every hop is billed and logged as its own attempt, and failing over does not cost a second admission — the request passed the budget gate once.</p>
+    </div>
+    {err ? <p className="error">{err}</p> : null}
+    {ok ? <p className="ps-ok">{ok}</p> : null}
+    <form className="ps-form" onSubmit={(e) => {
+      e.preventDefault(); setErr(null); setOk(null); setBusy(true);
+      const f = new FormData(e.currentTarget);
+      const name = String(f.get("name") ?? "").trim();
+      apiPost<{ created: string }>("/api/pages/combos/create", {
+        name,
+        description: String(f.get("description") ?? "").trim() || undefined,
+        modelIds: hops.map((h) => h.id),
+      })
+        .then(() => { setOk(`Combo "${name}" created.`); (e.target as HTMLFormElement).reset(); setHops([]); refresh(); })
+        .catch((ex) => setErr(ex instanceof Error ? ex.message : "Create failed"))
+        .finally(() => setBusy(false));
+    }}>
+      <label className="ps-field"><span>Name</span><Input name="name" placeholder="e.g. premium" required /></label>
+      <label className="ps-field"><span>Description</span><Input name="description" placeholder="What this combo is for" /></label>
+      <label className="ps-field"><span>Add hop</span>
+        <select className="select" value={pick} onChange={(e) => setPick(e.target.value)}>
+          <option value="">Pick a model...</option>
+          {models.filter((m) => !hops.some((h) => h.id === m.id)).map((m) => <option key={m.id} value={m.id}>{m.slug}</option>)}
+        </select>
+      </label>
+      <div className="ps-form-actions pr-actions">
+        <Button type="button" variant="secondary" disabled={!pick} onClick={() => {
+          const m = models.find((x) => x.id === pick);
+          if (m) setHops((cur) => [...cur, m]);
+          setPick("");
+        }}>Add to chain</Button>
+      </div>
+      {hops.length > 0 ? (
+        <div className="ps-targets">
+          {hops.map((h, i) => (
+            <span key={h.id} className="ps-target">
+              <code>{i + 1}. {h.slug}</code>
+              <Button type="button" size="sm" variant="ghost" title="Remove hop" onClick={() => setHops((cur) => cur.filter((x) => x.id !== h.id))}>×</Button>
+            </span>
+          ))}
+        </div>
+      ) : <p className="muted">No hops yet — a combo needs at least one.</p>}
+      <div className="ps-form-actions pr-actions">
+        <Button type="submit" variant="primary" disabled={busy || hops.length === 0}>{busy ? "Creating..." : "Create combo"}</Button>
+      </div>
+    </form>
+    {!loading && !error && combos.length === 0 ? (
+      <div className="ps-empty"><p className="muted">No combos yet. Ask for the combo name exactly like a model id.</p></div>
+    ) : null}
+    {combos.length > 0 ? (
+      <Table head={["Name", "Chain (in order)", "State", ""]} rows={combos.map((c) => [
+        <span key="n" className="ps-alias-name">{c.name}{c.description ? <span className="muted">{c.description}</span> : null}</span>,
+        <span key="t" className="ps-targets">{c.models.length > 0 ? c.models.map((t, i) => (<code key={t.modelId} className="ps-target">{i + 1}. {t.slug}</code>)) : <span className="muted">no hops</span>}</span>,
+        <Badge key="e" tone={c.enabled ? "ok" : "warn"}>{c.enabled ? "enabled" : "disabled"}</Badge>,
+        <Button key="d" size="sm" variant="secondary" onClick={() => { setErr(null); setDeleting(c); }}>Delete</Button>,
+      ])} />
+    ) : null}
+    {deleting ? (<KeysDialog title="Delete combo" onClose={() => setDeleting(null)}>
+      <p>Delete <strong>{deleting.name}</strong>? A client asking for this name falls back to a plain model lookup and gets a 404.</p>
+      <div className="row pr-actions">
+        <Button variant="ghost" onClick={() => setDeleting(null)}>Cancel</Button>
+        <Button variant="destructive" onClick={() => {
+          setBusy(true); setErr(null);
+          apiPost<{ removed: string }>("/api/pages/combos/remove", { id: deleting.id })
+            .then(() => { setOk(`Combo "${deleting.name}" deleted.`); setDeleting(null); refresh(); })
+            .catch((ex) => setErr(ex instanceof Error ? ex.message : "Delete failed"))
+            .finally(() => setBusy(false));
+        }}>Delete</Button>
+      </div>
+    </KeysDialog>) : null}
+  </Page></ConsoleLayout>);
+}
+
+// -- prompt injection --------------------------------------------------------
+// Three scopes stack account → key → model, one row each. The ordering is the
+// product: an account persona is the outermost frame, a key rule narrows it, and
+// a model rule lands closest to the conversation (and an append lands after the
+// client's own system messages, so the client's instructions survive).
+type InjectionRow = {
+  id: string; scope: "account" | "key" | "model"; apiKeyId: string | null; keyName: string | null; keyPrefix: string | null;
+  modelSlug: string | null; mode: string; content: string; enabled: boolean; createdAt: string | null;
+};
+type InjectionKey = { id: string; name: string | null; prefix: string };
+type InjectionsData = { injections: InjectionRow[]; keys: InjectionKey[]; models: { slug: string }[]; modes: string[] };
+
+const MODE_LABEL: Record<string, string> = {
+  system_prepend: "System prompt (before client's)",
+  system_append: "System prompt (after client's)",
+  chat_script: "Chat script (fake history)",
+};
+
+export function PromptInjectionPage() {
+  const [tick, setTick] = useState(0);
+  const [err, setErr] = useState<string | null>(null);
+  const [ok, setOk] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [scope, setScope] = useState("account");
+  const [mode, setMode] = useState("system_prepend");
+  const [edit, setEdit] = useState<InjectionRow | null>(null);
+  const [deleting, setDeleting] = useState<InjectionRow | null>(null);
+  const { data: d, error, loading } = useLoad<InjectionsData>("/api/pages/injections", tick);
+  const refresh = useCallback(() => setTick((t) => t + 1), []);
+  const injections = d?.injections ?? [];
+  const keys = d?.keys ?? [];
+  const models = d?.models ?? [];
+  const target = (r: InjectionRow) => r.scope === "account" ? "all traffic" : r.scope === "key" ? `key ${r.keyName ?? r.keyPrefix ?? r.apiKeyId}` : `model ${r.modelSlug}`;
+  return (<ConsoleLayout><Page title="Prompt injection" lede="Text the router adds to every request, per target, before it reaches the model.">
+    <LoadState loading={loading} error={error} />
+    <div className="ps-note" role="note">
+      <p>Injections stack: an account-wide one applies first, then a key's, then a model's — so a model-scoped persona lands closest to the conversation. Applied once per request, and a request that cannot be rewritten is still dispatched untouched: an injection is never a reason a chat fails.</p>
+    </div>
+    {err ? <p className="error">{err}</p> : null}
+    {ok ? <p className="ps-ok">{ok}</p> : null}
+    <form className="ps-form" onSubmit={(e) => {
+      e.preventDefault(); setErr(null); setOk(null); setBusy(true);
+      const f = new FormData(e.currentTarget);
+      apiPost<{ saved: string }>("/api/pages/injections/create", {
+        scope,
+        apiKeyId: scope === "key" ? String(f.get("apiKeyId") ?? "") : undefined,
+        modelSlug: scope === "model" ? String(f.get("modelSlug") ?? "") : undefined,
+        mode,
+        content: String(f.get("content") ?? ""),
+      })
+        .then(() => { setOk("Injection saved."); (e.target as HTMLFormElement).reset(); refresh(); })
+        .catch((ex) => setErr(ex instanceof Error ? ex.message : "Save failed"))
+        .finally(() => setBusy(false));
+    }}>
+      <label className="ps-field"><span>Scope</span>
+        <select className="select" value={scope} onChange={(e) => setScope(e.target.value)}>
+          <option value="account">Account-wide (every key, every model)</option>
+          <option value="key">Per API key</option>
+          <option value="model">Per model</option>
+        </select>
+      </label>
+      {scope === "key" ? (
+        <label className="ps-field"><span>API key</span>
+          <select className="select" name="apiKeyId" required>
+            {keys.map((k) => <option key={k.id} value={k.id}>{k.name ?? "unnamed"} ({k.prefix}…)</option>)}
+          </select>
+        </label>
+      ) : null}
+      {scope === "model" ? (
+        <label className="ps-field"><span>Model slug</span><Input name="modelSlug" list="pi-models" placeholder="e.g. claude-opus-4" required /></label>
+      ) : null}
+      {scope === "model" ? (
+        <datalist id="pi-models">{models.map((m) => <option key={m.slug} value={m.slug} />)}</datalist>
+      ) : null}
+      <label className="ps-field"><span>Mode</span>
+        <select className="select" value={mode} onChange={(e) => setMode(e.target.value)}>
+          {(d?.modes ?? Object.keys(MODE_LABEL)).map((m) => <option key={m} value={m}>{MODE_LABEL[m] ?? m}</option>)}
+        </select>
+      </label>
+      <label className="ps-field"><span>{mode === "chat_script" ? "Script (user: / bot: lines)" : "Content"}</span>
+        <textarea className="ps-textarea" name="content" rows={6} required placeholder={mode === "chat_script" ? "user: who are you?\nbot: I'm ENI." : "You are ..."} />
+      </label>
+      <div className="ps-form-actions pr-actions">
+        <Button type="submit" variant="primary" disabled={busy}>{busy ? "Saving..." : "Save injection"}</Button>
+      </div>
+    </form>
+    {!loading && !error && injections.length === 0 ? (
+      <div className="ps-empty"><p className="muted">No injections. Requests go to the model exactly as your client sent them.</p></div>
+    ) : null}
+    {injections.length > 0 ? (
+      <Table head={["Target", "Mode", "Content", "State", ""]} rows={injections.map((r) => [
+        <code key="t" className="ps-target">{target(r)}</code>,
+        <Badge key="m" tone="info">{MODE_LABEL[r.mode] ?? r.mode}</Badge>,
+        <span key="c" className="muted">{r.content.length > 120 ? `${r.content.slice(0, 120)}…` : r.content}</span>,
+        <Badge key="e" tone={r.enabled ? "ok" : "warn"}>{r.enabled ? "active" : "paused"}</Badge>,
+        <span key="a" className="row">
+          <Button size="sm" variant="secondary" onClick={() => { setErr(null); setEdit(r); }}>Edit</Button>
+          <Button size="sm" variant="secondary" onClick={() => { setBusy(true); setErr(null);
+            apiPost<{ saved: string }>("/api/pages/injections/update", { id: r.id, mode: r.mode, content: r.content, enabled: !r.enabled })
+              .then(() => refresh())
+              .catch((ex) => setErr(ex instanceof Error ? ex.message : "Update failed"))
+              .finally(() => setBusy(false));
+          }}>{r.enabled ? "Pause" : "Resume"}</Button>
+          <Button size="sm" variant="secondary" onClick={() => { setErr(null); setDeleting(r); }}>Delete</Button>
+        </span>,
+      ])} />
+    ) : null}
+    {edit ? (<KeysDialog title={`Edit injection — ${target(edit)}`} onClose={() => setEdit(null)}>
+      <form className="ps-form" onSubmit={(e) => {
+        e.preventDefault(); setBusy(true); setErr(null);
+        const f = new FormData(e.currentTarget);
+        apiPost<{ saved: string }>("/api/pages/injections/update", {
+          id: edit.id,
+          mode: String(f.get("mode") ?? edit.mode),
+          content: String(f.get("content") ?? ""),
+          enabled: f.get("enabled") === "on",
+        })
+          .then(() => { setOk("Injection updated."); setEdit(null); refresh(); })
+          .catch((ex) => setErr(ex instanceof Error ? ex.message : "Update failed"))
+          .finally(() => setBusy(false));
+      }}>
+        <label className="ps-field"><span>Mode</span>
+          <select className="select" name="mode" defaultValue={edit.mode}>
+            {Object.entries(MODE_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        </label>
+        <label className="ps-field"><span>Content</span>
+          <textarea className="ps-textarea" name="content" rows={10} defaultValue={edit.content} required />
+        </label>
+        <label className="ps-field"><span>Enabled</span>
+          <input type="checkbox" name="enabled" defaultChecked={edit.enabled} />
+        </label>
+        <div className="ps-form-actions pr-actions">
+          <Button type="button" variant="ghost" onClick={() => setEdit(null)}>Cancel</Button>
+          <Button type="submit" variant="primary" disabled={busy}>{busy ? "Saving..." : "Save"}</Button>
+        </div>
+      </form>
+    </KeysDialog>) : null}
+    {deleting ? (<KeysDialog title="Delete injection" onClose={() => setDeleting(null)}>
+      <p>Delete the injection for <strong>{target(deleting)}</strong>? Traffic goes back to the model with your client's own prompt only.</p>
+      <div className="row pr-actions">
+        <Button variant="ghost" onClick={() => setDeleting(null)}>Cancel</Button>
+        <Button variant="destructive" onClick={() => {
+          setBusy(true); setErr(null);
+          apiPost<{ removed: string }>("/api/pages/injections/remove", { id: deleting.id })
+            .then(() => { setOk("Injection deleted."); setDeleting(null); refresh(); })
+            .catch((ex) => setErr(ex instanceof Error ? ex.message : "Delete failed"))
+            .finally(() => setBusy(false));
+        }}>Delete</Button>
+      </div>
+    </KeysDialog>) : null}
+  </Page></ConsoleLayout>);
+}

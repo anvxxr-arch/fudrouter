@@ -19,6 +19,7 @@ import (
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/ids"
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/limits"
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/routing"
+	"github.com/anvxxr-arch/fudrouter/backend/go/internal/sourceip"
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/store"
 )
 
@@ -41,6 +42,11 @@ type lifecycle struct {
 	// run on the base slug, and dispatch prepends the unrestricted system
 	// prompt to the upstream body (unrestricted.go).
 	unrestricted bool
+
+	// injections are the operator-authored prompt injections that apply to
+	// this request (prompt_injection table): resolved once at admission,
+	// applied once at dispatch, before the attempt loop (injection.go).
+	injections []store.PromptInjection
 
 	key   *store.APIKeyRow
 	lim   *store.Limits
@@ -76,11 +82,13 @@ type lifecycle struct {
 	rawErr   string // raw upstream text: request_log.error only (spec §8)
 	httpStat int
 
-	// anthropic makes the error envelope the Anthropic shape
-	// ({"type":"error","error":{…}}) instead of the [OI] one — the /v1/messages
-	// surface (anthropic.go) sets it so a rejection is parseable by an
-	// Anthropic client. Success bodies are translated by anthropic.go.
-	anthropic bool
+	// wire selects the error envelope a rejection is written in: "" is the
+	// [OI] shape, "anthropic" is {"type":"error","error":{...}} (the /v1/messages
+	// surface, anthropic.go) and "gemini" is the Google shape
+	// {"error":{"code","message","status"}} (the /v1beta surface, gemini.go).
+	// Only rejections are shaped here — success bodies are translated by the
+	// surface's own file.
+	wire string
 
 	finished bool
 }
@@ -105,8 +113,9 @@ type validateFunc func(body []byte) (slug string, reject *apiError)
 
 // begin runs the admission half of the lifecycle. It answers the client itself
 // on every rejection and returns ok=false there; on success the caller MUST
-// call finish (defer it). `anthropic` shapes rejections like the Anthropic API.
-func (h *Handler) begin(w http.ResponseWriter, r *http.Request, start time.Time, endpoint string, body []byte, validate validateFunc, anthropic bool) (*lifecycle, bool) {
+// call finish (defer it). `wire` shapes rejections like the surface's own API
+// (see the lifecycle.wire comment).
+func (h *Handler) begin(w http.ResponseWriter, r *http.Request, start time.Time, endpoint string, body []byte, validate validateFunc, wire string) (*lifecycle, bool) {
 	lc := &lifecycle{
 		h:         h,
 		r:         r,
@@ -115,7 +124,7 @@ func (h *Handler) begin(w http.ResponseWriter, r *http.Request, start time.Time,
 		requestID: ids.New("req"),
 		endpoint:  endpoint,
 		timing:    map[string]int64{},
-		anthropic: anthropic,
+		wire:      wire,
 	}
 	// The request id is on EVERY response, success or failure (PRD §90), so a
 	// client can correlate an error with its request_log row.
@@ -225,6 +234,15 @@ func (h *Handler) begin(w http.ResponseWriter, r *http.Request, start time.Time,
 			return lc, false
 		}
 		lc.resolved = res
+
+		// Prompt injections (prompt_injection): resolved here, applied once in
+		// dispatch. Cached in Valkey like the routing policy, and fail-open —
+		// a lookup failure dispatches the request unmodified.
+		canonical := ""
+		if len(res.ModelSlugs) > 0 {
+			canonical = res.ModelSlugs[0]
+		}
+		lc.injections = h.cachedInjections(r.Context(), key, lc.requested, canonical)
 
 		// Candidates: capability filter first (spec §5), then constraints and
 		// scoring (spec §9).
@@ -512,7 +530,7 @@ func (lc *lifecycle) reject(code, message, status string, httpStatus int) {
 	lc.setResponseHeaders()
 	lc.w.Header().Set("Content-Type", "application/json")
 	lc.w.WriteHeader(e.Status)
-	if lc.anthropic {
+	if lc.wire == "anthropic" {
 		// The /v1/messages surface answers in the Anthropic error envelope
 		// (anthropic.go), so a rejection is parseable by an Anthropic client.
 		_ = json.NewEncoder(lc.w).Encode(map[string]any{
@@ -521,6 +539,10 @@ func (lc *lifecycle) reject(code, message, status string, httpStatus int) {
 				"type": anthropicErrorType(e.Code), "message": e.Message,
 			},
 		})
+	} else if lc.wire == "gemini" {
+		// The /v1beta surface (gemini.go) rejects in the Google envelope, so a
+		// Gemini SDK raises its own typed error instead of a shape mismatch.
+		_ = json.NewEncoder(lc.w).Encode(geminiErrorBody(e.Code, e.Message))
 	} else {
 		_ = json.NewEncoder(lc.w).Encode(map[string]any{
 			"error": map[string]string{"message": e.Message, "type": e.Type, "code": e.Code},
@@ -673,7 +695,7 @@ func (lc *lifecycle) fail(err error) {
 		status = e.Status
 	}
 	lc.w.WriteHeader(status)
-	if lc.anthropic {
+	if lc.wire == "anthropic" {
 		// The /v1/messages surface answers in the Anthropic error envelope.
 		_ = json.NewEncoder(lc.w).Encode(map[string]any{
 			"type": "error",
@@ -681,6 +703,9 @@ func (lc *lifecycle) fail(err error) {
 				"type": anthropicErrorType(e.Code), "message": e.Message,
 			},
 		})
+	} else if lc.wire == "gemini" {
+		// The /v1beta surface (gemini.go) rejects in the Google envelope.
+		_ = json.NewEncoder(lc.w).Encode(geminiErrorBody(e.Code, e.Message))
 	} else {
 		_ = json.NewEncoder(lc.w).Encode(map[string]any{
 			"error": map[string]string{"message": e.Message, "type": e.Type, "code": e.Code},
@@ -1071,6 +1096,12 @@ func (lc *lifecycle) dispatch(ctx context.Context, upBody []byte, method, rawQue
 	if lc.unrestricted {
 		upBody = injectUnrestricted(upBody)
 	}
+	// Operator injections apply after the unrestricted persona so a
+	// model-scoped prepend lands closest to the conversation; both are applied
+	// once, before the attempt loop, because a retry reuses this body.
+	if len(lc.injections) > 0 {
+		upBody = applyInjections(upBody, lc.injections)
+	}
 
 	attemptFn := func(attemptCtx context.Context, cand *routing.Candidate, next int) []*routing.Attempt {
 		return lc.attempt(attemptCtx, cand, next, upBody, method, rawQuery, upstreamPath)
@@ -1097,14 +1128,28 @@ func (lc *lifecycle) dispatch(ctx context.Context, upBody []byte, method, rawQue
 // enforces the total budget; `n` is the loop's first attempt number.
 func (lc *lifecycle) attempt(ctx context.Context, cand *routing.Candidate, n int, upBody []byte, method, rawQuery, upstreamPath string) []*routing.Attempt {
 	var out []*routing.Attempt
-	for range 8 {
+	// Rotate this candidate's credential accounts ONCE (spec §4), then hand the
+	// remaining attempt budget to the next candidate. Without this a provider
+	// that 429s/402s every account drains MaxAttempts here and the fallback
+	// candidate is never reached (measured: gonka24 draining all 6 attempts at
+	// ~4s each — 25s — while a healthy dahl sat unused).
+	maxTries := 8
+	if t := lc.h.targetFor(cand); t != nil && t.pool != nil {
+		if pn := t.pool.Len(); pn > 0 && pn < maxTries {
+			maxTries = pn
+		}
+	}
+	for i := 0; i < maxTries; i++ {
 		if err := ctx.Err(); err != nil {
 			break
 		}
 		if lc.pol != nil && len(lc.attempts)+len(out) >= lc.pol.MaxAttempts {
 			break
 		}
-		if !lc.deadline.IsZero() && time.Now().Add(estimateFor(cand)).After(lc.deadline) {
+		// Always allow the FIRST try on a candidate even when its p95 estimate
+		// overshoots the deadline (Execute's last-resort pass relies on this);
+		// later tries still respect the deadline.
+		if i > 0 && !lc.deadline.IsZero() && time.Now().Add(estimateFor(cand)).After(lc.deadline) {
 			break // spec §9: never start an attempt that cannot finish
 		}
 		a := lc.exchange(ctx, cand, n+len(out), upBody, method, rawQuery, upstreamPath)
@@ -1145,6 +1190,18 @@ func (lc *lifecycle) exchange(ctx context.Context, cand *routing.Candidate, n in
 		a.LatencyMs = a.FinishedAt.Sub(a.StartedAt).Milliseconds()
 		return a
 	}
+	// Source-IP throttle gate (connlimit.go): an upstream that allows ~2
+	// requests per 5s from one address is not failing, it is full. Skipping the
+	// candidate HERE — before a 429 is ever emitted — keeps the response honest
+	// and leaves the budget for a provider that can actually serve it.
+	if target.rateRPM > 0 && !lc.h.connLim.admitWait(ctx, target.connID,
+		specFor(target.rateRPM, target.rateBurst, target.rateWindowMs), 10*time.Second) {
+		a.ErrorCode, a.Retryable = routing.ErrCodeRateLimited, false
+		a.RawMessage = "connection pacing gate: no local rate token within budget"
+		a.FinishedAt = time.Now()
+		a.LatencyMs = 0
+		return a
+	}
 	pickStart := time.Now()
 	pickCtx, cancel := context.WithTimeout(ctx, pickBudget)
 	picked, err := target.pool.Pick(pickCtx)
@@ -1152,6 +1209,11 @@ func (lc *lifecycle) exchange(ctx context.Context, cand *routing.Candidate, n in
 	// spec §8 timing["queue"]: time spent waiting for a usable upstream account.
 	lc.timing["queue"] += time.Since(pickStart).Milliseconds()
 	if err != nil {
+		// Log it: a PROVIDER_UNAVAILABLE with no diagnostic is indistinguishable
+		// from a provider outage, and the pool's own reason ("all 6,426
+		// account(s) unusable: ...") is the only thing that says whether the
+		// cause is a dead key, a parked key, or a walk that ran out of budget.
+		lc.h.notePickFailure(cand, err)
 		a.ErrorCode, a.Retryable = routing.ErrCodeProviderUnavailable, true
 		a.RawMessage = err.Error()
 		a.FinishedAt = time.Now()
@@ -1168,6 +1230,13 @@ func (lc *lifecycle) exchange(ctx context.Context, cand *routing.Candidate, n in
 	// found" while the same slug called directly worked.
 	upBody = rewriteModelField(upBody, cand.Store.UpstreamModel)
 
+	// Native protocols are not OpenAI-compatible HTTP. Cloudflare AI
+	// Playground answers over an anonymous `cf_agent` WebSocket, so its
+	// exchange is synthesized here and handed back as a normal response.
+	if strings.EqualFold(target.protocol, "cfp") {
+		return lc.exchangeCFP(ctx, cand, a, upBody)
+	}
+
 	upURL := strings.TrimRight(cand.Store.BaseURL, "/") + upstreamPath
 	if rawQuery != "" {
 		upURL += "?" + rawQuery
@@ -1178,32 +1247,104 @@ func (lc *lifecycle) exchange(ctx context.Context, cand *routing.Candidate, n in
 		reqCtx, cancelReq = context.WithTimeout(ctx, nonStreamTimeout)
 		defer cancelReq()
 	}
-	upReq, err := http.NewRequestWithContext(reqCtx, method, upURL, bytes.NewReader(upBody))
-	if err != nil {
-		a.ErrorCode, a.Retryable = routing.ErrCodeInternalError, false
-		a.RawMessage = err.Error()
-		return a
-	}
 	ct := lc.r.Header.Get("Content-Type")
 	if ct == "" {
 		ct = "application/json"
 	}
-	upReq.Header.Set("Content-Type", ct)
-	upReq.Header.Set("Authorization", "Bearer "+picked.Token)
-	for k, v := range target.defaultHeaders {
-		if reservedHeaders[strings.ToLower(k)] {
-			continue
+	// newUpReq rebuilds the upstream request from the still-unconsumed body
+	// bytes. http.Request.Body is a single-use reader, so a rotation retry must
+	// build a NEW request instead of replaying an exhausted one — that mistakes
+	// silently fails every keyless call after its first send.
+	newUpReq := func(c context.Context) (*http.Request, error) {
+		req, rerr := http.NewRequestWithContext(c, method, upURL, bytes.NewReader(upBody))
+		if rerr != nil {
+			return nil, rerr
 		}
-		upReq.Header.Set(k, v)
+		req.Header.Set("Content-Type", ct)
+		// A keyless connection carries a placeholder secret. Sending it would be
+		// worse than sending nothing: anonymous endpoints such as OVHcloud AI
+		// Endpoints answer 403 "authentication failed" to ANY request carrying an
+		// Authorization header, which would park a credential doing its job.
+		if target.authKind != "noauth" {
+			req.Header.Set("Authorization", "Bearer "+picked.Token)
+		}
+		for k, v := range target.defaultHeaders {
+			if reservedHeaders[strings.ToLower(k)] {
+				continue
+			}
+			req.Header.Set(k, v)
+		}
+		return req, nil
 	}
 
-	resp, err := lc.h.client.Do(upReq)
+	// Per-SOURCE-IP rejections are not provider outages.
+	//
+	// Keyless upstreams bill and throttle the ADDRESS, not a credential:
+	// pollinations answers 402 INSUFFICIENT_CREDITS when one /128 is out of x402
+	// credits, OVH answers 429 when one address passes its window. Treating that
+	// as "the provider is dead" parked a placeholder credential (taking 13 OVH
+	// models down), tripped a per-connection breaker, and collapsed a lane able
+	// to serve ~200 rps to 0.5 rps — all from ONE spent address. So: burn that
+	// address, dial from a different /128, and try again.
+	sendAttempts := 1
+	keyless := keylessAuth(target.authKind)
+	if keyless {
+		sendAttempts = 3
+	}
+	var resp *http.Response
+	for attempt := 0; attempt < sendAttempts; attempt++ {
+		attemptCtx, tracker := reqCtx, (*ipTracker)(nil)
+		if keyless {
+			attemptCtx, tracker = withIPTracker(reqCtx)
+		}
+		upReq, rerr := newUpReq(attemptCtx)
+		if rerr != nil {
+			a.ErrorCode, a.Retryable = routing.ErrCodeInternalError, false
+			a.RawMessage = rerr.Error()
+			return a
+		}
+		if keyless {
+			resp, err = rotatingClient().Do(upReq)
+		} else {
+			resp, err = lc.h.client.Do(upReq)
+		}
+		if err != nil {
+			// A transport error is a hard PROVIDER_UNAVAILABLE and currently leaves
+			// no trace anywhere: the response body says "provider unavailable" and
+			// the operator cannot tell a refused socket from a TLS failure or a
+			// pool exhausted by keep-alive limits.
+			lc.h.notePickFailure(cand, err)
+			a.Transport = err
+			a.ErrorCode, a.Retryable = routing.ErrCodeProviderUnavailable, true
+			a.RawMessage = err.Error()
+			a.FinishedAt = time.Now()
+			a.LatencyMs = a.FinishedAt.Sub(a.StartedAt).Milliseconds()
+			return a
+		}
+		success := resp.StatusCode >= 200 && resp.StatusCode < 300
+		perIP := resp.StatusCode == 402 || resp.StatusCode == 429
+		if success || !perIP || attempt == sendAttempts-1 {
+			break
+		}
+		burnFor := 60 * time.Second
+		if resp.StatusCode == 402 {
+			// Out of credits is a budget fact, not a momentary throttle: the same
+			// address will keep answering 402 for a long while.
+			burnFor = 15 * time.Minute
+		}
+		sourceip.Burn(tracker.get(), burnFor)
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 8<<10))
+		_ = resp.Body.Close()
+		// The transport pools sockets: without this the "retry" reuses the very
+		// connection (and source address) that was just rejected.
+		dropIdleConnections()
+		resp = nil
+	}
 	a.FinishedAt = time.Now()
 	a.LatencyMs = a.FinishedAt.Sub(a.StartedAt).Milliseconds()
-	if err != nil {
-		a.Transport = err
+	if resp == nil {
 		a.ErrorCode, a.Retryable = routing.ErrCodeProviderUnavailable, true
-		a.RawMessage = err.Error()
+		a.RawMessage = "upstream rejected every rotated source address"
 		return a
 	}
 	a.HTTPStatus = resp.StatusCode
@@ -1217,6 +1358,12 @@ func (lc *lifecycle) exchange(ctx context.Context, cand *routing.Candidate, n in
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	_ = resp.Body.Close()
 	code, retryable := routing.ClassifyUpstream(resp.StatusCode)
+	// A per-IP budget rejection survived every rotation: another candidate
+	// (a different provider) may still serve this request, so let the router
+	// walk on instead of failing the client here.
+	if keyless && (resp.StatusCode == 402 || resp.StatusCode == 429) {
+		retryable = true
+	}
 	// A 404 from ONE upstream account is not proof the model is gone.
 	// Pools gate models per account — proved on tokenharbor, where
 	// mimo-v2.6-flash:free answers 404 "This model is unavailable right
@@ -1235,11 +1382,19 @@ func (lc *lifecycle) exchange(ctx context.Context, cand *routing.Candidate, n in
 	}
 	a.ErrorCode, a.Retryable = code, retryable
 	a.RawMessage = upstreamMessage(body)
-	if retryable {
+	// A keyless row has no secret to reject and no sibling to rotate to: the
+	// placeholder IS the pool, so MarkFailed empties it (every following request
+	// answers PROVIDER_UNAVAILABLE in microseconds) and a DB cooldown takes the
+	// whole connection off the catalogue for a minute. Neither is true — the
+	// address was spent, and the loop above already rotated away from it.
+	if retryable && !keylessAuth(target.authKind) {
 		// A rejected credential is parked so the next request picks another
 		// (S0 behaviour, spec §5 credential state).
 		target.pool.MarkFailed(picked.Token)
-		if resp.StatusCode == 401 || resp.StatusCode == 403 {
+		// A keyless row has no real secret to reject: a 401/403 here is the
+		// upstream refusing the shape of the request, not a bad credential, so
+		// parking it would take a working provider off the catalogue.
+		if (resp.StatusCode == 401 || resp.StatusCode == 403) && !keylessAuth(target.authKind) {
 			lc.h.parkCredential(a.CredentialID, "auth_failed", 0)
 		} else if resp.StatusCode == 429 {
 			// M-c: no Retry-After is parsed on this plain-429 path, so the

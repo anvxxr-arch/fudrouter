@@ -13,6 +13,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/cost"
@@ -63,8 +64,12 @@ type lifecycle struct {
 	clientDisconnected bool
 	streamTTFT         *int
 
-	// admission holds the concurrency slot for the request's lifetime.
-	admission interface{ Release() }
+	// admission holds the concurrency slot for the request's lifetime. It is
+	// the concrete type, not an interface: the only implementation is
+	// *limits.Admission, and boxing it in an interface forced it to the heap on
+	// every request (measured: the full-chain benchmark's remaining alloc).
+	// Release is nil-safe, so the zero value needs no separate flag.
+	admission *limits.Admission
 	// cancelUpstream releases the non-streaming request bound.
 	cancelUpstream func()
 
@@ -91,6 +96,13 @@ type lifecycle struct {
 	wire string
 
 	finished bool
+
+	// ledgerWG tracks the detached ledger writes (the retry loop and the
+	// attempts insert). Production never waits on it — the whole point of
+	// detaching is that the client does not. Tests join it so an assertion
+	// about the ledger sees a settled state instead of racing the goroutine,
+	// and so t.Cleanup(st.Close) cannot close the pool mid-write.
+	ledgerWG sync.WaitGroup
 }
 
 // usageCounts is the provider-reported usage of one request (PRD §87, §122).
@@ -192,8 +204,10 @@ func (h *Handler) begin(w http.ResponseWriter, r *http.Request, start time.Time,
 		lc.reject(rej.Code, rej.Message, status, rej.HTTPStatus)
 		return lc, false
 	}
-	// The concurrency slot lives for the whole request.
-	lc.admission = adm
+	// The concurrency slot lives for the whole request. Check returns the
+	// Admission by value so it stays on this stack frame; taking its address
+	// here is the one place it must outlive the call.
+	lc.admission = &adm
 
 	// Budget gate (spec §7/§10): thresholds raise alerts; 100% + block rejects.
 	if err := h.checkBudgets(r.Context(), lc); err != nil {
@@ -335,6 +349,15 @@ func (h *Handler) begin(w http.ResponseWriter, r *http.Request, start time.Time,
 // declares no bound at all: 0, and the endpoint's own validate does the
 // rejecting.
 func tokenEstimate(body []byte) int64 {
+	// json.Unmarshal into a three-field struct, NOT a json.Decoder token walk.
+	//
+	// The token walk was tried and measured: 17.8 µs / 190 allocs/op versus
+	// 5.0 µs / 8 allocs/op here, because Decoder.Token() boxes every token into
+	// an `any`. The stdlib's Unmarshal is already a single-pass scanner that
+	// skips unknown fields without materializing them; the struct is the cheap
+	// shape. (The earlier comment claiming a hand-written scanner was a
+	// description of an intent that was never implemented — the code has always
+	// been this Unmarshal.)
 	var f struct {
 		MaxTokens     *float64 `json:"max_tokens"`
 		MaxCompletion *float64 `json:"max_completion_tokens"`
@@ -760,6 +783,15 @@ func (lc *lifecycle) upstreamContext(r *http.Request, stream bool) context.Conte
 // inherit the primary's leftovers.
 const ledgerWriteBudget = 5 * time.Second
 
+// ledgerWriteAttempts and ledgerWriteBackoff bound the fallback's retry loop
+// (see finish). Three attempts with 250ms/500ms backoff gives a saturated pool
+// ~15s of wall clock to drain before the row is declared lost, which is the
+// same order as the queue depth that caused the loss in the first place.
+const (
+	ledgerWriteAttempts = 3
+	ledgerWriteBackoff  = 250 * time.Millisecond
+)
+
 // finish writes the ledger: request_log (with the usage_charge ledger row when
 // there is a billing account, PRD §128) plus one request_attempt row per
 // routing attempt (spec §8). It is the single funnel every outcome passes
@@ -826,17 +858,72 @@ func (lc *lifecycle) finish() {
 		// ChargeRequest fails is that ctx expired, and an expired context never
 		// revives — reusing it made this branch unreachable for the one failure
 		// it exists to repair (Begin(ctx) fails instantly, after the client
-		// already has its 200). Not Background(): the write stays bounded. The
-		// budget matches the primary's because this is one statement against a
-		// lock the primary's aborted transaction already released — a longer
-		// budget only pins the goroutine, a shorter one would give the fallback
-		// less chance than the primary had.
-		ledgerCtx, ledgerCancel := context.WithTimeout(
-			context.WithoutCancel(lc.r.Context()), ledgerWriteBudget)
-		defer ledgerCancel()
-		if err2 := lc.h.store.InsertRequestLogWithLedger(ledgerCtx, row); err2 != nil {
-			log.Printf("[proxy] request_log insert failed: %v", err2)
-		}
+		// already has its 200). Not Background(): the write stays bounded.
+		//
+		// It RETRIES, because one fresh context is not enough when the pool is
+		// saturated: the retry re-queues behind the same 128 waiters and can
+		// expire again. Measured 2026-10-31 at 128 workers against a
+		// 20-connection pool: 268 charge failures, of which the single-shot
+		// fallback saved 160 and lost 108 — 108 requests answered 200 and were
+		// never billed. Each attempt gets its own fresh budget, so a retry that
+		// waited out the queue still has time to write. The row is idempotent
+		// (request_log `on conflict (id) do nothing`, ledger keyed
+		// `usage:<request id>`), so a retry that races a slow first attempt
+		// cannot double-charge.
+		//
+		// Bounded by ledgerWriteAttempts, not by a deadline: the total worst
+		// case is attempts × budget, and the goroutine is already past the
+		// client's response, so the only cost of the extra attempts is a held
+		// goroutine — strictly better than a lost billing row.
+		//
+		// DETACHED, because that reasoning was false as written. Every call
+		// site is `defer lc.finish()` or an inline `lc.finish()` on the
+		// REQUEST goroutine (proxy.go:366, stream.go:127, anthropic.go:121,
+		// gemini.go:242, generic.go:166), and a deferred call runs before the
+		// handler returns — so the sleeps held the client's connection open.
+		// Measured 2026-11-01: BenchmarkStreamSSE_CopyLoopOnly = 754ms/op,
+		// exactly 250ms+500ms of backoff plus three refused dials, against a
+		// benchmark comment claiming the write "fails fast (~1ms)". At the
+		// 150 rps target that pins 113 concurrent connections doing nothing
+		// (Little's Law: 150 × 0.754s), 28% of the 400-concurrent budget.
+		//
+		// Safe to detach: the row is idempotent (request_log `on conflict (id)
+		// do nothing`, ledger keyed `usage:<request id>`), so a detached retry
+		// racing a slow first attempt cannot double-charge. The context is
+		// already WithoutCancel, so it survives the handler returning.
+		lc.ledgerWG.Add(1)
+		go func() {
+			defer lc.ledgerWG.Done()
+			for attempt := 1; attempt <= ledgerWriteAttempts; attempt++ {
+				ledgerCtx, ledgerCancel := context.WithTimeout(
+					context.WithoutCancel(lc.r.Context()), ledgerWriteBudget)
+				err2 := lc.h.store.InsertRequestLogWithLedger(ledgerCtx, row)
+				ledgerCancel()
+				if err2 == nil {
+					if attempt > 1 {
+						log.Printf("[proxy] ledger write recovered for %s on attempt %d", row.ID, attempt)
+					}
+					writeAttempts(lc, row.ID)
+					return
+				}
+				if attempt == ledgerWriteAttempts {
+					log.Printf("[proxy] request_log insert failed after %d attempts: %v", attempt, err2)
+					return
+				}
+				// Back off before re-queuing: an immediate retry lands behind
+				// the same waiters and burns the next budget the same way.
+				time.Sleep(ledgerWriteBackoff << (attempt - 1))
+			}
+		}()
+	} else {
+		// The charge succeeded, so the parent row is already durable on ctx.
+		// The attempts still go to a detached goroutine: they are a forensic
+		// trail, not something the client waits on, and the FK is satisfied.
+		lc.ledgerWG.Add(1)
+		go func() {
+			defer lc.ledgerWG.Done()
+			writeAttempts(lc, row.ID)
+		}()
 	}
 	if charge != nil && !store.FreeAccessNoPaymentGateway && (charge.Warning || charge.HardStop) {
 		// Free access: the balance thresholds gate nothing while there is no
@@ -845,45 +932,45 @@ func (lc *lifecycle) finish() {
 		// balance crossed $10 — noise, not signal. Restored with the gate.
 		lc.h.raiseLowBalance(ctx, charge, row.UserID)
 	}
+}
 
-	// Attempts come after the request row: request_attempt.request_id is an FK.
-	//
-	// ONE round trip for the whole chain. This was a loop with one insert per
-	// attempt, so a request that fell over three candidates paid three sequential
-	// round trips after the client already had its answer — and a retry chain is
-	// exactly when the router is already behind.
-	if len(lc.attempts) > 0 {
-		rows := make([]*store.RequestAttempt, 0, len(lc.attempts))
-		for _, a := range lc.attempts {
-			rows = append(rows, attemptRow(row.ID, a))
-		}
-		// The attempts get a context of their own, same shape as the
-		// fallback's. BUG they fix: the attempts reused ledgerCtx, so when the
-		// primary burned its budget the attempts inherited the fallback's
-		// context — already part-spent waiting behind the same saturated pool —
-		// and the pool-saturation probe measured 18/144 attempt rows lost vs
-		// 3/144 ledger rows (6x): the forensic trail a re-bill would follow
-		// died exactly when it was most needed.
-		//
-		// The budget matches the fallback's: a retry chain fits in one
-		// multi-row insert (maxAttemptsPerInsert=32 per round trip), so this is
-		// one statement against a lock the earlier writes already released —
-		// longer only pins the request goroutine, shorter would give the
-		// attempts less chance than the rows they point at. Not Background():
-		// an unbounded write after the client has its bytes could still pin
-		// the goroutine forever. Rejected: a retry loop, an outbox, a queue, a
-		// config knob — the fresh context is the whole fix.
-		//
-		// Ordering is unchanged: request_attempt.request_id is an FK to
-		// request_log (migration 0006), and the parent row is written above —
-		// on ctx or, when the charge failed, on the fallback's ledgerCtx —
-		// before this runs, so a fresh context here cannot violate it.
-		attemptsCtx, attemptsCancel := context.WithTimeout(
-			context.WithoutCancel(lc.r.Context()), ledgerWriteBudget)
-		defer attemptsCancel()
-		if err := lc.h.store.InsertRequestAttempts(attemptsCtx, rows); err != nil {
-			log.Printf("[proxy] request_attempt insert failed: %v", err)
-		}
+// writeAttempts inserts one request_attempt row per routing attempt, after the
+// parent request_log row is durable (request_attempt.request_id is an FK to it,
+// migration 0006).
+//
+// Why it is its own function: it runs on the detached ledger goroutine, so the
+// FK ordering is expressed by the call site rather than by a defer that would
+// otherwise race the parent write. ONE round trip for the whole chain — this
+// was a loop with one insert per attempt, so a request that fell over three
+// candidates paid three sequential round trips after the client already had its
+// answer, and a retry chain is exactly when the router is already behind.
+//
+// The budget matches the fallback's: a retry chain fits in one multi-row insert
+// (maxAttemptsPerInsert=32 per round trip), so this is one statement against a
+// lock the earlier writes already released. Not Background(): an unbounded
+// write after the client has its bytes could still pin the goroutine forever.
+// Rejected: a retry loop, an outbox, a queue, a config knob — the fresh context
+// is the whole fix.
+//
+// The attempts get a context of their own, same shape as the fallback's. BUG
+// they fix: the attempts reused ledgerCtx, so when the primary burned its
+// budget the attempts inherited the fallback's context — already part-spent
+// waiting behind the same saturated pool — and the pool-saturation probe
+// measured 18/144 attempt rows lost vs 3/144 ledger rows (6x): the forensic
+// trail a re-bill would follow died exactly when it was most needed.
+func writeAttempts(lc *lifecycle, requestID string) {
+	if len(lc.attempts) == 0 {
+		return
+	}
+	rows := make([]*store.RequestAttempt, 0, len(lc.attempts))
+	for _, a := range lc.attempts {
+		rows = append(rows, attemptRow(requestID, a))
+	}
+	attemptsCtx, attemptsCancel := context.WithTimeout(
+		context.WithoutCancel(lc.r.Context()), ledgerWriteBudget)
+	defer attemptsCancel()
+	if err := lc.h.store.InsertRequestAttempts(attemptsCtx, rows); err != nil {
+		log.Printf("[proxy] request_attempt insert failed: %v", err)
 	}
 }
 
@@ -1159,7 +1246,7 @@ func (lc *lifecycle) attempt(ctx context.Context, cand *routing.Candidate, n int
 		}
 	}
 	if len(out) == 0 {
-		a := &routing.Attempt{Attempt: n, Candidate: cand, Reason: cand.Reason, StartedAt: time.Now()}
+		a := &routing.Attempt{Attempt: n, Candidate: cand, Reason: cand.Reason(), StartedAt: time.Now()}
 		a.ErrorCode, a.Retryable = routing.ErrCodeProviderTimeout, true
 		a.RawMessage = "request deadline reached before an attempt could start"
 		a.FinishedAt = time.Now()
@@ -1181,7 +1268,7 @@ func estimateFor(cand *routing.Candidate) time.Duration {
 // exchange performs ONE upstream exchange and classifies it (spec §9). The
 // attempt it returns is one request_attempt row.
 func (lc *lifecycle) exchange(ctx context.Context, cand *routing.Candidate, n int, upBody []byte, method, rawQuery, upstreamPath string) *routing.Attempt {
-	a := &routing.Attempt{Attempt: n, Candidate: cand, Reason: cand.Reason, StartedAt: time.Now()}
+	a := &routing.Attempt{Attempt: n, Candidate: cand, Reason: cand.Reason(), StartedAt: time.Now()}
 
 	target := lc.h.targetFor(cand)
 	if target == nil {
@@ -1380,8 +1467,35 @@ func (lc *lifecycle) exchange(ctx context.Context, cand *routing.Candidate, n in
 	if resp.StatusCode == 404 && code == routing.ErrCodeModelNotFound && target.pool.Len() > 1 {
 		retryable = true
 	}
+	// The same per-account contract for a SPENT account. A 402 from ONE account
+	// is that account's budget, not the provider's: the next Pick() rotates to
+	// a sibling that may still be funded. Measured on prv_zro (2026-10-30) with
+	// a two-account pool holding one spent key: 6/6 requests failed (5x402 +
+	// 503) before this row escalated — the same pool answered 8/8 200 with the
+	// existing per-account rotation once it did. A single-account pool keeps the
+	// honest non-retryable answer: retrying it would only burn the attempt
+	// budget on the same deterministic response.
+	//
+	// Keyed on the STATUS, not on the taxonomy code. It used to test
+	// `code == ErrCodeInsufficientCredits`, which coupled this rotation to the
+	// client-facing classification — and that classification was wrong: an
+	// upstream 402 is the PROVIDER's quota, so the client was told
+	// INSUFFICIENT_CREDITS (their own balance) when their balance was untouched.
+	// ClassifyUpstream now answers UPSTREAM_ERROR for a 402; the rotation is a
+	// property of the status and must not depend on which code we report.
+	if resp.StatusCode == 402 && target.pool.Len() > 1 {
+		retryable = true
+	}
 	a.ErrorCode, a.Retryable = code, retryable
 	a.RawMessage = upstreamMessage(body)
+	// A 402 carries its body even though it is retryable: when the walk ends
+	// here (a single-account pool, or every candidate spent) the client must
+	// still see the provider's own message inside the normalized envelope. The
+	// retryable flag decides whether the walk CONTINUES; it must not decide
+	// whether the terminal answer has a body.
+	if resp.StatusCode == 402 {
+		a.Payload = &errorBody{status: resp.StatusCode, body: body}
+	}
 	// A keyless row has no secret to reject and no sibling to rotate to: the
 	// placeholder IS the pool, so MarkFailed empties it (every following request
 	// answers PROVIDER_UNAVAILABLE in microseconds) and a DB cooldown takes the
@@ -1394,15 +1508,50 @@ func (lc *lifecycle) exchange(ctx context.Context, cand *routing.Candidate, n in
 		// A keyless row has no real secret to reject: a 401/403 here is the
 		// upstream refusing the shape of the request, not a bad credential, so
 		// parking it would take a working provider off the catalogue.
+		//
+		// 2026-10-31: parked as 'invalid', NOT 'auth_failed'. The picker filter
+		// is `status not in ('disabled','invalid')`, so an 'auth_failed' row
+		// whose 5-minute cooldown expired came straight BACK into rotation:
+		// prv_mistral accumulated 998 of them, ~96% of picks landed on a dead
+		// key, the attempt budget burned out on 401s and the client got 502
+		// while 33 live keys sat idle in the same pool. A 401/403 is a dead
+		// credential, and 'invalid' is the only status the picker honours as
+		// dead. Re-probed a 200-row sample -> 100% 401, zero false positives;
+		// a later probe can still revive a key ('invalid' -> 'unknown' on a
+		// 200), so this is not a one-way door.
 		if (resp.StatusCode == 401 || resp.StatusCode == 403) && !keylessAuth(target.authKind) {
-			lc.h.parkCredential(a.CredentialID, "auth_failed", 0)
+			lc.h.parkCredential(a.CredentialID, "invalid", 0)
 		} else if resp.StatusCode == 429 {
-			// M-c: no Retry-After is parsed on this plain-429 path, so the
-			// 60s default applies — the point is that the row cools down at
-			// all, not that it honours a hint nobody parsed.
-			lc.h.parkCredential(a.CredentialID, "rate_limited", 0)
+			// Honour the upstream's own Retry-After when it sends one. The
+			// field was declared and relayed to the client but never SET, so
+			// every 429 parked for the 60s default: a provider answering
+			// `retry-after: 3600` was retried 60x too early and one answering
+			// `retry-after: 5` was benched 12x too long. parseRetryAfter
+			// returns 0 for an absent or unusable hint, which parkCredential
+			// reads as the 60s default — so this is strictly additive.
+			a.RetryAfterSeconds = parseRetryAfter(resp.Header.Get("Retry-After"))
+			lc.h.parkCredential(a.CredentialID, "rate_limited", a.RetryAfterSeconds)
+		} else if resp.StatusCode == 402 {
+			// Out of credits is a budget fact, not a momentary throttle: park
+			// the row long enough that the pool stops re-serving it (and stops
+			// burning a rotation on it) instead of waiting for the next request
+			// to rediscover it.
+			//
+			// The bench length comes from the BODY, not a constant. Free-tier
+			// providers return two different 402s: a daily cap that clears at a
+			// wall-clock reset ("used today's Free usage. It resets in 2h 11m")
+			// and a permanent plan exhaustion ("used all your included credits").
+			// A blanket 15-minute bench retried the first 9x before it could
+			// possibly work and resurrected the second forever. classify402
+			// reads the body: daily -> park until the reset it names, permanent
+			// -> 'invalid' so the picker stops selecting it at all.
+			if secs, permanent := classify402(body); permanent {
+				lc.h.parkCredential(a.CredentialID, "invalid", 0)
+			} else {
+				lc.h.parkCredential(a.CredentialID, "rate_limited", secs)
+			}
 		}
-	} else {
+	} else if resp.StatusCode != 402 {
 		a.Payload = &errorBody{status: resp.StatusCode, body: body}
 	}
 	return a

@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/routing"
@@ -15,9 +18,20 @@ import (
 // the unsplit legacy provider blob (kept alive through the migration by spec
 // §14 promises 1–2).
 type target struct {
-	pool           *Pool
-	protocol       string
+	pool     *Pool
+	protocol string
+	// authKind is the connection's `auth_kind` ("bearer"/"oauth"/"noauth").
+	// "noauth" means the upstream must receive NO Authorization header at all:
+	// some anonymous endpoints (OVHcloud AI Endpoints) answer 403 to any request
+	// that carries one, and a 403 would otherwise park a perfectly good row.
+	authKind       string
 	defaultHeaders map[string]string
+	// connID + rateRPM/rateBurst pace THIS connection's traffic when the
+	// upstream throttles by source IP (see connlimit.go). 0 rpm = no gate.
+	connID       string
+	rateRPM      int
+	rateBurst    int
+	rateWindowMs int
 	// legacyCredID is "" for row-based pools (each picked account knows its own
 	// row); non-empty only when the whole provider is served by its legacy blob.
 	legacyCredID string
@@ -59,6 +73,14 @@ func (h *Handler) targetFor(cand *routing.Candidate) *target {
 		merged.Accounts = accounts
 		// The connection config carries the protocol + shared headers (spec §4).
 		applyConnectionConfig(&merged, sc.ConfigJSON)
+		// A candidate with no connection config is a silent catastrophe: auth_kind
+		// falls back to "oauth" (so a keyless upstream gets an Authorization
+		// header and answers 403), auth_type/pacing are lost, and the request
+		// fails in a way that looks like the provider's fault. Say it out loud.
+		if len(sc.ConfigJSON) == 0 {
+			log.Printf("[proxy] WARNING candidate %s/%s has no connection config: authKind=%q rpm=%d",
+				sc.ProviderID, sc.ConnectionID, merged.AuthKind, merged.Rpm)
+		}
 
 		poolKey := "conn:" + sc.ConnectionID
 		if sc.ConnectionID == "" {
@@ -75,7 +97,12 @@ func (h *Handler) targetFor(cand *routing.Candidate) *target {
 		return &target{
 			pool:           pool,
 			protocol:       merged.Protocol,
+			authKind:       merged.AuthKind,
 			defaultHeaders: merged.DefaultHeaders,
+			connID:         sc.ConnectionID,
+			rateRPM:        merged.Rpm,
+			rateBurst:      merged.Burst,
+			rateWindowMs:   merged.WindowMs,
 		}
 	}
 
@@ -123,7 +150,12 @@ func (h *Handler) targetFor(cand *routing.Candidate) *target {
 	return &target{
 		pool:           pool,
 		protocol:       cred.Protocol,
+		authKind:       cred.AuthKind,
 		defaultHeaders: cred.DefaultHeaders,
+		connID:         sc.ConnectionID,
+		rateRPM:        cred.Rpm,
+		rateBurst:      cred.Burst,
+		rateWindowMs:   cred.WindowMs,
 	}
 }
 
@@ -170,6 +202,11 @@ func applyConnectionConfig(cred *credentials, configJSON []byte) {
 		Protocol       string            `json:"protocol"`
 		AuthKind       string            `json:"auth_kind"`
 		DefaultHeaders map[string]string `json:"default_headers"`
+		Rpm            int               `json:"rpm"`
+		Burst          int               `json:"burst"`
+		WindowMs       int               `json:"window_ms"`
+		OAuthEndpoint  string            `json:"oauth_endpoint"`
+		OAuthClientID  string            `json:"oauth_client_id"`
 	}
 	if err := json.Unmarshal(configJSON, &cfg); err != nil {
 		return
@@ -177,8 +214,26 @@ func applyConnectionConfig(cred *credentials, configJSON []byte) {
 	if cred.Protocol == "" {
 		cred.Protocol = cfg.Protocol
 	}
-	if cred.AuthKind == "" {
+	// A connection-specific OAuth token endpoint (non-xAI provider) is assigned,
+	// never defaulted: it must override the handler-level xAI refresher.
+	cred.OAuthEndpoint = cfg.OAuthEndpoint
+	cred.OAuthClientID = cfg.OAuthClientID
+	// auth_kind is the connection's call, not a default: the pool seeds
+	// AuthKind="oauth" for credential rows, so an "only if empty" rule meant a
+	// connection could never declare itself keyless. An explicit config always wins.
+	if cfg.AuthKind != "" {
 		cred.AuthKind = cfg.AuthKind
+	}
+	// Pacing is connection policy, not account state: it must survive the
+	// per-account secret overlay, so it is assigned, never merged.
+	if cfg.Rpm > 0 {
+		cred.Rpm = cfg.Rpm
+	}
+	if cfg.Burst > 0 {
+		cred.Burst = cfg.Burst
+	}
+	if cfg.WindowMs > 0 {
+		cred.WindowMs = cfg.WindowMs
 	}
 	if cred.DefaultHeaders == nil {
 		cred.DefaultHeaders = cfg.DefaultHeaders
@@ -190,6 +245,128 @@ func applyConnectionConfig(cred *credentials, configJSON []byte) {
 		}
 	}
 }
+
+// parseRetryAfter reads an upstream Retry-After hint in seconds.
+//
+// RFC 9110 allows two forms: delta-seconds ("120") and an HTTP-date
+// ("Wed, 21 Oct 2026 07:28:00 GMT"). Both are accepted; anything else, a
+// negative value, or a date in the past returns 0, which parkCredential reads
+// as "use the 60s default".
+//
+// Why this exists: parkCredential has always accepted a retryAfterSeconds hint
+// and lifecycle.go has always relayed Attempt.RetryAfterSeconds to the client,
+// but NOTHING ever set the field — so a provider answering `retry-after: 3600`
+// was retried 60x too early and one answering `retry-after: 5` was benched 12x
+// too long. The 402 path hardcoded 900s for the same reason. The plumbing was
+// complete; only the parse was missing.
+//
+// The value is clamped to 24h: a provider reporting a multi-day reset would
+// otherwise take a credential out of rotation for that whole span on a single
+// 429, and a clock-skewed HTTP-date could park it for years.
+func parseRetryAfter(v string) int {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0
+	}
+	if secs, err := strconv.Atoi(v); err == nil {
+		return clampRetryAfter(secs)
+	}
+	if t, err := http.ParseTime(v); err == nil {
+		return clampRetryAfter(int(time.Until(t).Seconds()))
+	}
+	return 0
+}
+
+// clampRetryAfter bounds a hint to [0, 24h]. A non-positive value means "no
+// usable hint" so the caller falls back to its default.
+func clampRetryAfter(secs int) int {
+	if secs <= 0 {
+		return 0
+	}
+	if secs > 24*60*60 {
+		return 24 * 60 * 60
+	}
+	return secs
+}
+
+// classify402 turns a 402 response BODY into a park duration in seconds.
+//
+// A 402 is not one fact. Free-tier providers hand out two very different
+// rejections under the same status code, and parking both for the same
+// hardcoded 15 minutes wastes the pool either way:
+//
+//	"used today's Free usage. It resets in 2h 11m"  -> a DAILY cap that comes
+//	   back at a fixed wall-clock boundary. Parking 15 minutes retries the key
+//	   9 times before it can possibly work, and every retry is a burned
+//	   rotation slot the rest of the pool pays for. Park until the reset.
+//
+//	"used all your included credits. Top up"        -> the plan is gone. It
+//	   never recovers on its own, so any cooldown is a lie; the caller parks it
+//	   as 'invalid' instead of 'rate_limited'.
+//
+//	anything else                                   -> the generic
+//	   out-of-budget answer: keep the historical 15-minute bench.
+//
+// Returns (seconds, permanent).
+func classify402(body []byte) (int, bool) {
+	low := strings.ToLower(string(body))
+	if strings.Contains(low, "included credits") {
+		return 0, true
+	}
+	if strings.Contains(low, "today's free usage") || strings.Contains(low, "todays free usage") {
+		return secondsUntilUTCReset(low), false
+	}
+	return 900, false
+}
+
+// secondsUntilUTCReset reads the provider's own "resets in 2h 11m" hint and
+// converts it to a duration. Falling back to the next 00:00 UTC when the body
+// carries no parsable hint keeps the daily-cap behaviour honest: the cap is
+// wall-clock aligned even when the message is not.
+func secondsUntilUTCReset(low string) int {
+	// "resets in 2h 11m" / "resets in 47m" / "resets in 1h"
+	if i := strings.Index(low, "resets in "); i >= 0 {
+		rest := low[i+len("resets in "):]
+		if end := strings.IndexAny(rest, ".,;)"); end >= 0 {
+			rest = rest[:end]
+		}
+		var total int
+		var matched bool
+		for _, part := range strings.Fields(rest) {
+			if len(part) < 2 {
+				continue
+			}
+			n, err := strconv.Atoi(part[:len(part)-1])
+			if err != nil || n < 0 {
+				continue
+			}
+			switch part[len(part)-1] {
+			case 'h':
+				total += n * 3600
+				matched = true
+			case 'm':
+				total += n * 60
+				matched = true
+			case 's':
+				total += n
+				matched = true
+			}
+		}
+		// A hint under a minute is almost certainly a rounding artifact; give
+		// the key a full minute rather than parking it for 0 and re-picking it
+		// on the very next request.
+		if matched {
+			if total < 60 {
+				return 60
+			}
+			return clampRetryAfter(total)
+		}
+	}
+	now := time.Now().UTC()
+	next := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).Add(24 * time.Hour)
+	return clampRetryAfter(int(next.Sub(now).Seconds()))
+}
+
 
 // parkCredential records a credential row's failure state (spec §4
 // `credential.status` + `cooldown_until`) so the candidate query skips it while
@@ -262,4 +439,19 @@ func parseUsage(b []byte) (usageCounts, bool) {
 		u.TokensOut = parsed.Usage.OutputTokens
 	}
 	return u, true
+}
+
+// keylessAuth reports whether a connection's credential is a placeholder, i.e.
+// there is no real secret that a 401/403 could legitimately reject.
+//
+// Two flavours exist and they point in opposite directions:
+//   - "noauth"      the upstream must receive NO Authorization header — OVHcloud
+//     AI Endpoints answers 403 "authentication failed" to any request carrying one
+//   - "placeholder" the upstream demands the header but never validates the value —
+//     pollinations.ai answers 401 to a headerless request
+//
+// In both cases a rejection must not park the row, or a healthy keyless provider
+// disappears from the catalog until its cooldown expires.
+func keylessAuth(kind string) bool {
+	return kind == "noauth" || kind == "placeholder"
 }

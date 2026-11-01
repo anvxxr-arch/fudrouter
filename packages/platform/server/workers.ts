@@ -348,7 +348,8 @@ const providerHealthCheck: JobHandler = async (dbtx, payload) => {
 			providerId: connection.providerId,
 			baseUrl: connection.baseUrl,
 			timeoutMs: connection.timeoutMs,
-			healthStatus: connection.healthStatus
+			healthStatus: connection.healthStatus,
+			config: connection.config
 		})
 		.from(connection)
 		.where(
@@ -359,10 +360,43 @@ const providerHealthCheck: JobHandler = async (dbtx, payload) => {
 			)
 		);
 	for (const c of rows) {
-		const probed = await guardedUpstreamFetch(c.baseUrl, allowPrivateUpstreams(), '/models', {
-			method: 'GET',
-			timeoutMs: Math.min(c.timeoutMs || UPSTREAM_TIMEOUT_MS, UPSTREAM_TIMEOUT_MS)
-		});
+		// Non-HTTP connections (e.g. the Cloudflare Playground `cf_agent`
+		// WebSocket) have no `/models` endpoint to probe, so an HTTP probe
+		// would flag a perfectly working provider as unhealthy and drop it
+		// from the candidate set. Their real liveness signal is a successful
+		// chat exchange, which the router records as provider_model health.
+		const proto = String((c.config as Record<string, unknown> | null)?.protocol ?? 'http');
+		if (proto !== '' && proto !== 'http' && proto !== 'openai') {
+			if (c.healthStatus !== 'healthy') {
+				await dbtx.update(connection).set({ healthStatus: 'healthy', updatedAt: new Date() }).where(eq(connection.id, c.id));
+			}
+			continue;
+		}
+		const cfg = (c.config as Record<string, unknown> | null) ?? {};
+		// Some keyless upstreams are CATCH-ALL: `text.pollinations.ai` answers
+		// `/v1/models` with a chat completion ("I'm not sure what you're looking
+		// for…") instead of a model listing, so the /models probe sees 2xx +
+		// non-JSON and marks a perfectly working provider unhealthy — which
+		// silently deletes it from the catalogue. Those connections declare
+		// `health_probe: "chat"`: liveness is proven by a real 1-token chat call,
+		// which is what traffic actually uses anyway.
+		const probeMode = String(cfg.health_probe ?? 'models');
+		const timeoutMs = Math.min(c.timeoutMs || UPSTREAM_TIMEOUT_MS, UPSTREAM_TIMEOUT_MS);
+		const probed =
+			probeMode === 'chat'
+				? await guardedUpstreamFetch(c.baseUrl, allowPrivateUpstreams(), '/chat/completions', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({
+							messages: [{ role: 'user', content: 'ping' }],
+							max_tokens: 1
+						}),
+						timeoutMs
+					})
+				: await guardedUpstreamFetch(c.baseUrl, allowPrivateUpstreams(), '/models', {
+						method: 'GET',
+						timeoutMs
+					});
 		let status: 'healthy' | 'degraded' | 'unhealthy' = 'unhealthy';
 		let detail: Record<string, unknown> = {};
 		if (probed.ok) {
@@ -372,6 +406,11 @@ const providerHealthCheck: JobHandler = async (dbtx, payload) => {
 				status = 'unhealthy';
 			} else if (code === 429) {
 				status = 'degraded';
+			} else if (probeMode === 'chat') {
+				// A chat probe is authoritative: 2xx means the upstream served a
+				// completion, 4xx means it refused this router's request shape (a
+				// missing key, a disabled model) and the connection is not usable.
+				status = code >= 200 && code < 300 ? 'healthy' : 'unhealthy';
 			} else if (code >= 200 && code < 300 && !looksLikeModelsJSON(bodyText)) {
 				// A 2xx that is not the JSON model listing means base_url answers
 				// with an HTML page (a marketing site or SPA fallback), so the
@@ -381,9 +420,9 @@ const providerHealthCheck: JobHandler = async (dbtx, payload) => {
 			} else {
 				status = 'healthy';
 			}
-			detail = { httpStatus: code };
+			detail = { httpStatus: code, probe: probeMode };
 		} else {
-			detail = { error: probed.message };
+			detail = { error: probed.message, probe: probeMode };
 		}
 		if (status !== c.healthStatus) {
 			await dbtx
@@ -426,13 +465,16 @@ const CREDENTIAL_VALIDATION_BATCH = 250;
  * How long a probe-detected failure withholds a credential from routing.
  *
  * The router's usable predicate is `status not in ('disabled','invalid') and
- * (cooldown_until is null or cooldown_until <= now())` — `auth_failed` is NOT an
- * exclusion on its own, so a failed probe that writes no cooldown leaves the
- * credential fully routable: the pool keeps selecting a key the probe just
- * rejected, eats a 401 on the request, and the next hourly probe re-finds the
- * same dead row. Mirror the data plane's `parkCredential` and set a cooldown;
- * keep it just under the hourly cadence so the next run re-tests rather than the
- * credential being parked forever on one bad probe.
+ * (cooldown_until is null or cooldown_until <= now())`. A revoked key is mapped
+ * to `invalid` (a hard exclusion) rather than `auth_failed`, which is NOT an
+ * exclusion on its own: a failed probe that wrote `auth_failed` left the
+ * credential fully routable, so the pool kept selecting a key the probe had just
+ * rejected, ate a 401 on the request, and the next hourly probe re-found the
+ * same dead row. `invalid` needs no cooldown — the predicate already skips it —
+ * and it stays recoverable, because the probe query carries no status filter.
+ * This cooldown therefore exists for the transient verdict (`rate_limited`)
+ * only; keep it just under the hourly cadence so a throttled key is re-tested
+ * rather than parked forever on one bad probe.
  */
 const CREDENTIAL_PROBE_COOLDOWN_MS = 55 * 60 * 1000;
 
@@ -454,9 +496,11 @@ const credentialValidation: JobHandler = async (dbtx, payload) => {
 			connectionId: credential.connectionId,
 			name: credential.name,
 			secretEnc: credential.secretEnc,
-			status: credential.status
+			status: credential.status,
+			connConfig: connection.config
 		})
 		.from(credential)
+		.leftJoin(connection, eq(connection.id, credential.connectionId))
 		.where(
 			and(
 				payload.credentialId
@@ -481,7 +525,8 @@ const credentialValidation: JobHandler = async (dbtx, payload) => {
 				.select({
 					id: connection.id,
 					baseUrl: connection.baseUrl,
-					timeoutMs: connection.timeoutMs
+					timeoutMs: connection.timeoutMs,
+					config: connection.config
 				})
 				.from(connection)
 				.where(
@@ -516,6 +561,21 @@ const credentialValidation: JobHandler = async (dbtx, payload) => {
 	for (const cred of rows) {
 		const conn = conns.get(cred.connectionId);
 		if (!conn) continue;
+		// A keyless connection carries a placeholder secret, so there is nothing
+		// to validate. Two flavours exist: `noauth` (send no Authorization
+		// header) and `placeholder` (the endpoint demands the header but never
+		// validates it). Probing either one reports `auth_failed` on providers
+		// that gate `/models` but serve chat anonymously (pollinations,
+		// OVHcloud), which parks the credential and silently removes a working
+		// model from the catalogue. Keep it healthy instead.
+		const authKind = String((conn.config as Record<string, unknown> | null)?.auth_kind ?? '');
+		if (authKind === 'noauth' || authKind === 'placeholder') {
+			await dbtx
+				.update(credential)
+				.set({ status: 'healthy', lastValidatedAt: new Date(), lastSuccessAt: new Date(), cooldownUntil: null, updatedAt: new Date() })
+				.where(eq(credential.id, cred.id));
+			continue;
+		}
 		let plain: Credentials;
 		try {
 			plain = decryptCredentials(cred.secretEnc);
@@ -543,7 +603,7 @@ const credentialValidation: JobHandler = async (dbtx, payload) => {
 			headers: headersFor(plain, tokenAt(plain, 0)),
 			timeoutMs: Math.min(conn.timeoutMs || UPSTREAM_TIMEOUT_MS, UPSTREAM_TIMEOUT_MS)
 		});
-		let status: 'healthy' | 'rate_limited' | 'auth_failed' | 'invalid' | 'unknown' = 'unknown';
+		let status: 'healthy' | 'rate_limited' | 'invalid' | 'unknown' = 'unknown';
 		const detail: Record<string, unknown> = {};
 		if (probed.ok) {
 			const code = probed.response.status;
@@ -555,7 +615,15 @@ const credentialValidation: JobHandler = async (dbtx, payload) => {
 					: code === 429
 						? 'rate_limited'
 						: code === 401 || code === 403
-							? 'auth_failed'
+							// 2026-10-31: was 'auth_failed'. The router's usable
+							// predicate is `status not in ('disabled','invalid')`,
+							// so 'auth_failed' is NOT an exclusion: a probe that
+							// parked a revoked key there left it fully routable, the
+							// pool kept picking it, and the request ate the 401.
+							// `invalid` IS the exclusion. Recoverable, not terminal:
+							// the probe query has no status filter, so a later run
+							// that finds the key healthy writes `healthy` again.
+							? 'invalid'
 							: code === 400 || code === 404
 								? 'invalid'
 								: 'unknown';
@@ -577,10 +645,36 @@ const credentialValidation: JobHandler = async (dbtx, payload) => {
 			detail.note = 'access token expired; the data plane refreshes it from refresh_token';
 		}
 		const now = new Date();
+		// A connection whose /models is free but whose inference is metered
+		// answers 200 there no matter how empty the account is: measured
+		// 2026-11-01, a ZRO key that returned 402 "used all your included
+		// credits" on /chat/completions still returned 200 on /models.
+		//
+		// Promoting that 200 to 'healthy' is not a harmless refresh — the
+		// update below also nulls `cooldown_until`, so the worker un-parks a
+		// credential the data plane parked from a real 402. The router re-picks
+		// it on the very next request, eats the 402 again, re-parks it, and the
+		// pool thrashes. 230 rows were un-parked this way in 20 seconds.
+		//
+		// For these connections the free probe carries no budget information, so
+		// it must not overrule a park. It still advances `lastValidatedAt`, which
+		// is what keeps this handler's cursor moving instead of re-selecting the
+		// same rows forever.
+		const budgetMetered =
+			(conn.config as Record<string, unknown> | null)?.budget_metered === true;
+		if (budgetMetered && status === 'healthy' && (cred.status === 'rate_limited' || cred.status === 'invalid')) {
+			await dbtx
+				.update(credential)
+				.set({ lastValidatedAt: now })
+				.where(eq(credential.id, cred.id));
+			continue;
+		}
 		// A failing verdict must actually withhold the credential — see
 		// CREDENTIAL_PROBE_COOLDOWN_MS. Clearing it on a passing verdict also
 		// un-parks a credential the data plane had cooled down.
-		const failing = status === 'auth_failed' || status === 'rate_limited';
+		// 'invalid' is a hard exclusion in the router's usable predicate, so it
+		// needs no cooldown to withhold it; only the transient 429 verdict does.
+		const failing = status === 'rate_limited';
 		await dbtx
 			.update(credential)
 			.set({

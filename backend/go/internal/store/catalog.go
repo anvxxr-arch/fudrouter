@@ -331,6 +331,43 @@ func (s *Store) ResolveModel(ctx context.Context, k *APIKeyRow, name string) (*M
 				where c3.account_id = $2 and c3.name = $1 and c3.enabled
 				  and m3.status = 'active' and $2 <> ''
 			  )
+			union all
+			-- Canonical-slug alias fallback (migration 0026). This additional
+			-- arm answers a bug the model table has carried since the first
+			-- bulk onboard: ONE upstream model minted as SEVERAL canonical rows
+			-- — a provider-prefixed slug (tokenharbor/kimi-k2.6,
+			-- cp/cline-pass/deepseek-v4.1-flash) and a case variant
+			-- (Kimi-K2.6, GLM-5.2) beside the plain one. Each duplicate row
+			-- splits a model's provider fan-out, so an upstream model served by
+			-- N distinct providers ends up depth 1 per row. The alias rows remap
+			-- the OLD names onto the surviving canonical row; nothing is renamed
+			-- and no slug stops working, which is why this is an ADDITIONAL arm
+			-- rather than a change to the literal arm above.
+			--
+			-- b=2 so it sorts AFTER the literal arm, and the not-exists on the
+			-- live slug makes the precedence explicit instead of relying on that
+			-- order alone: a name that is BOTH a live slug and an alias must
+			-- resolve as the slug (client-visible slugs behave exactly as
+			-- before), and a bare OR in one arm could have returned two rows
+			-- for the same name, with the scan loop keeping whichever came last.
+			select 2 as b, 'model' as kind, m3b.id as model_id, m3b.slug as slug, 0 as pos
+			from model_slug_alias sa
+			join model m3b on m3b.id = sa.canonical_model_id
+			where sa.alias = $1 and m3b.status = 'active'
+			  and not exists (select 1 from model ms where ms.slug = $1 and ms.status = 'active')
+			  and not exists (select 1 from model m4 where m4.id = sa.canonical_model_id and m4.slug = $1)
+			  and not exists (
+				select 1 from model_alias a4
+				where a4.enabled and a4.name = $1
+				  and (a4.account_id = $2 or a4.account_id is null)
+			  )
+			  and not exists (
+				select 1 from combo c4
+				join combo_model cm4 on cm4.combo_id = c4.id
+				join model m5 on m5.id = cm4.model_id
+				where c4.account_id = $2 and c4.name = $1 and c4.enabled
+				  and m5.status = 'active' and $2 <> ''
+			  )
 		) x
 		order by b, pos`, name, k.UserID)
 	if err != nil {
@@ -354,6 +391,27 @@ func (s *Store) ResolveModel(ctx context.Context, k *APIKeyRow, name string) (*M
 			res.Kind = "model"
 			res.ModelIDs = []string{mv}
 			res.ModelSlugs = []string{sv}
+			continue
+		}
+		if branch == 2 {
+			// A canonical-slug alias hit: the client sent an OLD name and it
+			// resolved to the row the canonical slug names. Kind stays "model"
+			// on purpose — the alias is an input-name remap, not a new
+			// resolution shape, so routing, pricing, the response header and
+			// the `len(plan.ModelPref.Order) == 0` alias branch in
+			// proxy/lifecycle.go all see exactly what the canonical slug
+			// produces (client-visible slugs keep working as today).
+			//
+			// The SQL already suppresses this arm when the literal arm
+			// matched; the `res.Kind != "model"` guard repeats that precedence
+			// in the loop, so an alias row that shadows a live slug on a
+			// database migrated by hand still cannot overwrite a literal hit,
+			// and two alias rows cannot fight over which one wins.
+			if res.Kind != "model" {
+				res.Kind = "model"
+				res.ModelIDs = []string{mv}
+				res.ModelSlugs = []string{sv}
+			}
 			continue
 		}
 		if branch == -1 {
@@ -398,10 +456,13 @@ func (s *Store) ResolveModel(ctx context.Context, k *APIKeyRow, name string) (*M
 		// fall through to the virtual branch (3)
 	}
 
-	// 3: global virtual. Target set is every active model; the strategy picks
-	// among them (spec §5: "resolved by the router from the active strategy").
+	// 3: global virtual. Target set is every model the request path can
+	// actually attempt; the strategy picks among them (spec §5: "resolved by
+	// the router from the active strategy"). The set is filtered by the
+	// virtual's OWN capability requirement, so `fudrouter/auto` cannot
+	// advertise a model CandidatesBatch will discard (see activeModelIDs).
 	if v, ok := virtualModels[name]; ok {
-		ids, slugs, err := s.activeModelIDs(ctx)
+		ids, slugs, err := s.activeModelIDs(ctx, v.caps)
 		if err != nil {
 			return nil, err
 		}
@@ -457,14 +518,77 @@ func (s *Store) SetChatCapable(ctx context.Context, slug string, chat bool) erro
 	return err
 }
 
-func (s *Store) activeModelIDs(ctx context.Context) ([]string, []string, error) {
+// activeModelIDs is the target set a `[NAME]/*` virtual resolves to: every
+// active model with at least one mapping the request path could actually
+// ATTEMPT.
+//
+// Why the target set is the candidate predicate rather than `status='active'`:
+// the strategy scores this set BEFORE CandidatesBatch filters it, so a model
+// the batch will discard is not merely wasted work — it is a DEAD END the
+// virtual advertises to its own admission loop, and the caller sees a model
+// with zero candidates. MEASURED on the deployed catalogue (2026-11-02, 570
+// rows, 271 active): 38 active models carry an explicit
+// `capabilities->'chat' = false` (image, video, audio and embedding rows), and
+// `fudrouter/auto` — whose only requirement IS chat — listed every one of them.
+// The previous predicate returned 200 rows for `fudrouter/auto` while only 162
+// of them could ever come back with a candidate: 38 dead ends, exactly the
+// chat=false set. `TestVirtualFanOutStillCoversEveryModel` measured the same
+// gap on its fixture as "only 203 of 241 resolved models returned candidates".
+//
+// The rule is the SAME rule the candidate queries apply, in the same statement:
+// CapabilitySatisfied's explicit-`false` elimination (missing key passes — an
+// unenriched row must never black-hole a request) and the
+// provider_model → connection → credential chain, including the legacy
+// `provider.credentials_enc` blob a connection without credential rows still
+// dials through. Evaluating it in SQL rather than filtering the result in Go is
+// deliberate: it keeps the fan-out at ONE query per virtual
+// (virtual_fanout_test.go pins the batch to 1) while removing the dead ends.
+//
+// Capabilities are compared against the EFFECTIVE value — the mapping's
+// capabilities_override merged over the canonical row, `||` with the right
+// operand winning, which is exactly what Candidates assembles in Go. A mapping
+// override of `false` vetoes a canonical `true`, so the override has to be part
+// of this predicate or the target set drifts from the candidate set again.
+func (s *Store) activeModelIDs(ctx context.Context, requiredCaps map[string]bool) ([]string, []string, error) {
+	// The required set rides as one jsonb parameter. `{}` (not `null`) when
+	// nothing is required: jsonb_each is strict, but relying on a strict
+	// function returning no rows is the kind of accident that reads as intent
+	// later. Keys are never interpolated into the SQL text.
+	caps := "{}"
+	if len(requiredCaps) > 0 {
+		if b, err := json.Marshal(requiredCaps); err == nil {
+			caps = string(b)
+		}
+	}
 	rows, err := s.pool.Query(ctx, `
 		select m.id, m.slug from model m
 		where m.status = 'active'
-		  and exists (select 1 from provider_model pm
-		              join provider p on p.id = pm.provider_id
-		              where pm.model_id = m.id and pm.enabled and `+s.providerServableSQL()+`)
-		order by m.slug`)
+		  and exists (
+		      select 1 from provider_model pm
+		      join provider p on p.id = pm.provider_id
+		      left join connection c on c.id = pm.connection_id
+		      where pm.model_id = m.id
+		        and pm.enabled
+		        and pm.status not in ('disabled', 'unavailable')
+		        and (c.id is null or c.enabled)
+		        and (c.id is null or c.health_status is distinct from 'unhealthy')
+		        and not exists (
+		            select 1 from jsonb_each($1::jsonb) as r(k, v)
+		            where v = 'true'::jsonb
+		              and (coalesce(m.capabilities, '{}'::jsonb) || coalesce(pm.capabilities_override, '{}'::jsonb)) -> r.k = 'false'::jsonb
+		        )
+		        and (
+		            coalesce(p.credentials_enc, '') <> ''
+		            or (c.id is not null and exists (
+		                select 1 from credential cr
+		                where cr.connection_id = c.id
+		                  and cr.status not in ('disabled', 'invalid')
+		                  and (cr.cooldown_until is null or cr.cooldown_until <= now())
+		            ))
+		        )
+		        and `+s.providerServableSQL()+`
+		  )
+		order by m.slug`, caps)
 	if err != nil {
 		return nil, nil, err
 	}

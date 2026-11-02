@@ -32,7 +32,7 @@ import postgres from 'postgres';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { encryptCredentials } from '@fudrouter/platform/server/credentials.ts';
 
-function stubServer() {
+function stubServer(mode = 'default') {
 	return new Promise((resolve) => {
 		const server = http.createServer((req, res) => {
 			if (req.url === '/models') {
@@ -49,6 +49,19 @@ function stubServer() {
 					// freemodel.in's shape: the listing is served to anyone, but a
 					// supplied (wrong) key is still rejected. An anonymous 200 here
 					// is NOT proof the endpoint ignores credentials.
+					if (mode === 'gate-eats-bogus') {
+						// The SAME rate gate that throttles real calls also throttles
+						// the invalid-key probe, so "can't tell" is the only honest
+						// reading — it must not be mistaken for "public".
+						res.writeHead(502, { 'content-type': 'text/html' });
+						res.end('<html>502 Bad Gateway</html>');
+					} else {
+						res.writeHead(200, { 'content-type': 'application/json' });
+						res.end(JSON.stringify({ data: [{ id: 'model-1' }] }));
+					}
+				} else if (mode === 'truly-public') {
+					// openrouter/kiraai shape: every request gets 200, so the
+					// authenticated 200 proves nothing.
 					res.writeHead(200, { 'content-type': 'application/json' });
 					res.end(JSON.stringify({ data: [{ id: 'model-1' }] }));
 				} else {
@@ -144,5 +157,61 @@ test('credential_validation keeps an earned healthy verdict through a 5xx probe'
 		server.close();
 		process.env.ALLOW_PRIVATE_UPSTREAMS = prev;
 		await testClient.end({ timeout: 5000 });
+	}
+});
+
+// Runs one credential through the handler against a given stub shape and
+// returns the resulting row. Keeps the two "is this 200 evidence?" cases from
+// repeating 15 lines of fixture SQL each.
+async function probeAgainst(mode, key, credId, connId, provId) {
+	const { JOB_HANDLERS } = await import('@fudrouter/platform/server/workers.ts');
+	const testClient = postgres(process.env.DATABASE_URL);
+	const testDb = drizzle(testClient, { schema: await import('@fudrouter/platform/server/db/schema.ts') });
+	const server = await stubServer(mode);
+	const port = server.address().port;
+	try {
+		await testDb.execute(sql.raw(`insert into provider (id, name, base_url, credentials_enc, status, priority, tier, enabled) values ('${provId}', 'test', 'http://127.0.0.1:${port}', 'x', 'active', 100, 'commercial', true) on conflict (id) do nothing`));
+		await testDb.execute(sql.raw(`insert into connection (id, provider_id, name, slug, base_url, region, auth_type, timeout_ms, priority, enabled, health_status) values ('${connId}', '${provId}', 'test', 'test', 'http://127.0.0.1:${port}', 'us', 'bearer', 30000, 100, true, 'healthy') on conflict (id) do nothing`));
+		await testDb.execute(sql.raw(`insert into credential (id, connection_id, name, secret_enc, status, last_validated_at) values ('${credId}', '${connId}', 'probe', '${encryptCredentials({ api_key: key })}', 'healthy', null)`));
+		await JOB_HANDLERS.credential_validation(testDb, { credentialId: credId });
+		const rows = await testDb.execute(sql.raw(`select status from credential where id = '${credId}'`));
+		return rows[0]?.status;
+	} finally {
+		await testDb.execute(sql.raw(`delete from credential where id = '${credId}'`));
+		await testDb.execute(sql.raw(`delete from connection where id = '${connId}'`));
+		await testDb.execute(sql.raw(`delete from provider where id = '${provId}'`));
+		server.close();
+		await testClient.end({ timeout: 5000 });
+	}
+}
+
+// The gate that throttles real calls also throttles the invalid-key probe, so
+// the check gets a 502 rather than a 401. "Can't tell" must not be read as
+// "public" — that inversion is what demoted the whole freemodel pool.
+test('a throttled invalid-key probe does not make a keyed 200 meaningless', { skip: !process.env.DATABASE_URL || !process.env.CREDENTIALS_MASTER_KEY }, async () => {
+	const prev = process.env.ALLOW_PRIVATE_UPSTREAMS;
+	process.env.ALLOW_PRIVATE_UPSTREAMS = '1';
+	try {
+		assert.equal(
+			await probeAgainst('gate-eats-bogus', 'valid-key-123', 'cred_vb_gate', 'conn_vb', 'prov_vb'),
+			'healthy'
+		);
+	} finally {
+		process.env.ALLOW_PRIVATE_UPSTREAMS = prev;
+	}
+});
+
+// The shape the check was written for: /models answers 200 to everyone, so an
+// authenticated 200 carries no information and must stay 'unknown'.
+test('a genuinely public /models still yields unknown', { skip: !process.env.DATABASE_URL || !process.env.CREDENTIALS_MASTER_KEY }, async () => {
+	const prev = process.env.ALLOW_PRIVATE_UPSTREAMS;
+	process.env.ALLOW_PRIVATE_UPSTREAMS = '1';
+	try {
+		assert.equal(
+			await probeAgainst('truly-public', 'valid-key-123', 'cred_vp_pub', 'conn_vp', 'prov_vp'),
+			'unknown'
+		);
+	} finally {
+		process.env.ALLOW_PRIVATE_UPSTREAMS = prev;
 	}
 });

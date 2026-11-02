@@ -573,10 +573,18 @@ const credentialValidation: JobHandler = async (dbtx, payload) => {
 			});
 			const bogusStatus = bogus.ok ? bogus.response.status : 0;
 			if (bogus.ok) await bogus.response.text().catch(() => '');
-			// 401/403 (or a 4xx rejection) proves the endpoint validates keys, so
-			// an authenticated 200 means something. A 2xx, or a 5xx/no answer that
-			// leaves us unable to tell, keeps the conservative verdict.
-			isPublic = !(bogusStatus >= 400 && bogusStatus < 500);
+			// Only an EXPLICIT 2xx to a wrong key proves the endpoint ignores
+			// credentials. Every other outcome — 401, 5xx, a timeout — leaves the
+			// authenticated 200 meaningful, so keep the verdict.
+			//
+			// "Can't tell" must NOT fall back to public: the bogus probe runs
+			// from the same egress IP as the real one, so an edge rate gate
+			// (freemodel's nginx answers 502 to bursts) hits it too. Reading that
+			// 5xx as "public" demoted a healthy pool — the exact failure this
+			// check exists to prevent, inverted. Erring toward trusting the keyed
+			// 200 is self-correcting: a wrong key still parks on its first real
+			// request, costing one wasted call instead of a whole pool.
+			isPublic = bogusStatus > 0 && bogusStatus < 300;
 		}
 		publicModels.set(conn.id, isPublic);
 		return isPublic;

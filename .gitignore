@@ -47,3 +47,9 @@ bench/
 # Raw model-poll probe results: same rule as scratch/ — the JSONL holds
 # live upstream API responses from every probe run.
 ops/data/
+
+# Credential-pool dumps taken before a repair run. Same rule as ops/data/: the
+# TSV is a snapshot of live credential ids and their cooldown state, which is
+# operational data about the running fleet, not source. It was untracked but
+# NOT ignored, so a `git add -A` would have committed it.
+ops/backups/

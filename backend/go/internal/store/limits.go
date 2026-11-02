@@ -33,6 +33,27 @@ type Limits struct {
 	// the only limits that are supposed to be counted per key.
 	KeyRPM         *int64
 	KeyConcurrency *int64
+
+	// PlatformRPM / PlatformConcurrency are the platform ceiling enforced on
+	// ONE GLOBAL counter (rl:platform:global, conc:platform:global).
+	//
+	// They differ from RPM/Concurrency above on purpose. Those are per-key
+	// minimums: 10,000 rpm each, and with 77 keys the deployment happily admits
+	// 770,000 rpm — a ceiling that only exists on paper. The values here bound
+	// the whole router: 150 rps means 150 rps no matter how many keys exist.
+	//
+	// A nil pointer means "no global gate configured", which keeps a deployment
+	// that never sets platform_hard_limits behaving exactly as before.
+	PlatformRPM         *int64
+	PlatformConcurrency *int64
+
+	// PlatformRPS is the ceiling that actually means "150 rps".
+	//
+	// A per-MINUTE counter cannot express a rate: 9,000 rpm admits all 9,000
+	// requests in the first ten seconds, which measured as 270 rps of real
+	// throughput against a nominal 150 rps ceiling. The rate has to be counted
+	// per second; the minute counter stays as the sustained backstop.
+	PlatformRPS *int64
 }
 
 // The free-tier admission bounds. There is no payment gateway yet, so every
@@ -88,12 +109,12 @@ func (s *Store) EffectiveLimits(ctx context.Context, k *APIKeyRow) (*Limits, err
 	s.hardLimitsMu.RLock()
 	cached, exp := s.hardLimits, s.hardLimitsExp
 	s.hardLimitsMu.RUnlock()
-	var hardRPM, hardConc *int64
+	var hardRPM, hardConc, hardRPS *int64
 	if time.Now().Before(exp) {
 		minInto(&lim.RPM, cached.RPM)
 		minInto(&lim.TPM, cached.TPM)
 		minInto(&lim.Concurrency, cached.Concurrency)
-		hardRPM, hardConc = cached.RPM, cached.Concurrency
+		hardRPM, hardConc, hardRPS = cached.RPM, cached.Concurrency, cached.RPS
 	} else {
 		var raw []byte
 		err := s.pool.QueryRow(ctx,
@@ -101,21 +122,25 @@ func (s *Store) EffectiveLimits(ctx context.Context, k *APIKeyRow) (*Limits, err
 		if err == nil {
 			var hard struct {
 				RPM         *int64 `json:"rpm"`
+				RPS         *int64 `json:"rps"`
 				TPM         *int64 `json:"tpm"`
 				Concurrency *int64 `json:"concurrency"`
 			}
 			if json.Unmarshal(raw, &hard) == nil {
 				s.hardLimitsMu.Lock()
-				s.hardLimits = hardLimitCache{RPM: hard.RPM, TPM: hard.TPM, Concurrency: hard.Concurrency}
+				s.hardLimits = hardLimitCache{RPM: hard.RPM, RPS: hard.RPS, TPM: hard.TPM, Concurrency: hard.Concurrency}
 				s.hardLimitsExp = time.Now().Add(60 * time.Second)
 				s.hardLimitsMu.Unlock()
 				minInto(&lim.RPM, hard.RPM)
 				minInto(&lim.TPM, hard.TPM)
 				minInto(&lim.Concurrency, hard.Concurrency)
-				hardRPM, hardConc = hard.RPM, hard.Concurrency
+				hardRPM, hardConc, hardRPS = hard.RPM, hard.Concurrency, hard.RPS
 			}
 		}
 	}
+
+	lim.PlatformRPM, lim.PlatformConcurrency = hardRPM, hardConc
+	lim.PlatformRPS = hardRPS
 
 	// Scope rows, ordered from least to most specific so the running minimum
 	// can be folded in one pass. The account scope replaced the three hierarchy
@@ -213,14 +238,14 @@ func int64Ptr(v *int) *int64 {
 
 // Budget is a scoped spend budget with its threshold actions (spec §7).
 type Budget struct {
-	ID                string
-	Scope             string // account|api_key
-	ScopeID           string
-	Period            string // daily|weekly|monthly
-	AmountMicro       int64
-	WarnPercent       int
-	CriticalPercent   int
-	ActionAt100       string // notify|restrict|block
+	ID              string
+	Scope           string // account|api_key
+	ScopeID         string
+	Period          string // daily|weekly|monthly
+	AmountMicro     int64
+	WarnPercent     int
+	CriticalPercent int
+	ActionAt100     string // notify|restrict|block
 }
 
 // PeriodStart converts a budget period into the timestamp its spend is counted
@@ -268,4 +293,3 @@ func (s *Store) BudgetsFor(ctx context.Context, k *APIKeyRow) ([]Budget, error) 
 // migration 0019 dropped `environment`: BudgetGateState used to carry it inside
 // the account query, and this function was already noted as dead. It went with
 // the table rather than living on as a query against a dropped table.
-

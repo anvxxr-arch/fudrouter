@@ -167,6 +167,23 @@ func runProbeConfig(t *testing.T, base string, cfg probeConfig, cw *probeLogCoun
 	res := runLoad(t, h, newReq, cfg.workers, cfg.total)
 	elapsed := time.Since(t0)
 
+	// The ledger writes are detached from the request goroutine (finish() must
+	// not hold the client through the retry backoff), so a count taken the
+	// instant the load returns would report the in-flight writes as LOST —
+	// exactly the number this probe exists to measure. Wait for the writes to
+	// settle first: the probe's subject is a row that never lands, not one
+	// that has not landed yet.
+	settleDeadline := time.Now().Add(30 * time.Second)
+	prev := -1
+	for {
+		cur := tests.RequestLogCount(t, base, env.APIKeyID)
+		if cur == prev || time.Now().After(settleDeadline) {
+			break
+		}
+		prev = cur
+		time.Sleep(250 * time.Millisecond)
+	}
+
 	gotLogs := tests.RequestLogCount(t, base, env.APIKeyID) - baseLogs
 	gotLedger, gotDistinct := ledgerRows(t, base, env)
 	gotLedger -= baseLedger

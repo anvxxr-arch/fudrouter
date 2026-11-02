@@ -15,9 +15,9 @@ import (
 // the DB off the hot path, and a MISSING counter must fall back to it (spec §7:
 // "counter loss must never make spending unbounded").
 type fakeSpend struct {
-	mu        sync.Mutex
-	daily     int64
-	monthly   int64
+	mu         sync.Mutex
+	daily      int64
+	monthly    int64
 	dayCalls   int
 	monthCalls int
 }
@@ -88,21 +88,30 @@ func TestRPMFallsBackToTheInProcessLimiter(t *testing.T) {
 	}
 }
 
-// A DEAD Valkey (transport error, not disabled) must fail OPEN (spec §12: a
-// cache outage must not become a customer outage).
-func TestValkeyDownFailsOpen(t *testing.T) {
+// A DEAD Valkey (transport error, not disabled) must degrade to the IN-PROCESS
+// limiter, not to no limit.
+//
+// The old contract was fail-open, justified as "a cache outage must not become a
+// customer outage". Measured on this deployment, that turned a cache wobble into
+// an enforcement outage: at 250 concurrent requests Valkey began timing out, the
+// per-key 5-concurrent cap and the 150 rps platform ceiling both stopped
+// existing, and the router served 270 rps against a 150 rps ceiling. A dead
+// Valkey now means "one process's counters" — still stricter than nothing, and a
+// single-process deployment loses no precision at all.
+func TestValkeyDownDegradesToLocalEnforcement(t *testing.T) {
 	f := vk.NewFake()
 	f.FailAll()
 	l := limits.New(f)
-	lim := &store.Limits{RPM: ptr(int64(1)), Concurrency: ptr(int64(1))}
+	lim := &store.Limits{RPM: ptr(int64(1))}
 	ident := identity("key_open", &fakeSpend{})
 
-	for range 5 {
-		adm, rej := l.Check(context.Background(), ident, lim, 0)
-		if rej != nil {
-			t.Fatalf("a dead Valkey rejected a request: %+v — must fail open", rej)
-		}
-		adm.Release()
+	adm, rej := l.Check(context.Background(), ident, lim, 0)
+	if rej != nil {
+		t.Fatalf("first request rejected on the degraded path: %+v", rej)
+	}
+	adm.Release()
+	if _, rej := l.Check(context.Background(), ident, lim, 0); rej == nil {
+		t.Fatal("second request admitted past rpm=1 while Valkey is down — the in-process fallback is not enforcing")
 	}
 }
 

@@ -151,30 +151,38 @@ test('the auth origin is fixed, never taken from the Host header', { skip: !hasD
 
 // AUTH-1 (memory DoS on the unauthenticated auth surface).
 //
-// index.mjs's app.all('/api/auth/{*path}') runs BEFORE express.json({limit:'1mb'}),
+// index.mjs's app.all('/api/auth/{*path}') runs BEFORE express.json({limit:'32mb'}),
 // so it buffers the raw body itself (better-auth needs the raw stream). It had
 // no size gate, so an unauthenticated client could stream an unlimited body and
 // exhaust server memory. The handler now (a) 413s a declared content-length
-// over 1mb before reading a byte, and (b) stops consuming and destroys the
-// request once a chunked body crosses 1mb mid-stream.
+// over the cap before reading a byte, and (b) stops consuming and destroys the
+// request once a chunked body crosses the cap mid-stream.
 //
 // Both shapes matter: a content-length-only check is bypassed by a chunked
 // body (no content-length header), and a streaming-only check still lets a
 // declared-length body buffer up to its lie. A normal-sized body must keep
 // working, or the fix breaks sign-in/sign-up (better-auth consumes the raw
 // stream) — so the small-body control below runs the same endpoint.
-test('auth rejects a body over 1mb by content-length, before consuming it', { skip: !hasDb && SKIP }, async () => {
+//
+// The cap is 32 MiB (owner rule 18), raised from 1 MiB so a long agent context
+// reaches the router. These payloads must therefore exceed 32 MiB, not 1 MiB:
+// at 2 MiB the body is UNDER the cap, reaches the JSON parser, and the server
+// answers 400 (malformed JSON) instead of 413 — which is what these tests
+// asserted before the cap moved.
+const AUTH_CAP = 32 * 1024 * 1024;
+
+test('auth rejects a body over the cap by content-length, before consuming it', { skip: !hasDb && SKIP }, async () => {
 	const res = await fetch(`${server.baseUrl}/api/auth/sign-in/email`, {
 		method: 'POST',
 		headers: { 'content-type': 'application/json' },
-		// 2MB of padding: over the 1mb cap, and large enough that a server that
-		// buffers it would not answer instantly.
-		body: JSON.stringify({ email, password: 'x'.repeat(2 * 1024 * 1024) })
+		// 2 MiB over the cap: large enough that a server which buffered it
+		// would not answer instantly.
+		body: JSON.stringify({ email, password: 'x'.repeat(AUTH_CAP + 2 * 1024 * 1024) })
 	});
 	assert.equal(res.status, 413, `an over-limit declared body must be 413, got ${res.status}`);
 });
 
-test('auth destroys a chunked body that crosses 1mb mid-stream', { skip: !hasDb && SKIP }, async () => {
+test('auth destroys a chunked body that crosses the cap mid-stream', { skip: !hasDb && SKIP }, async () => {
 	// fetch would set content-length for a buffered body, so this drops to
 	// node:http to send transfer-encoding: chunked (no content-length header).
 	// That is the bypass a content-length-only check cannot catch.
@@ -196,14 +204,15 @@ test('auth destroys a chunked body that crosses 1mb mid-stream', { skip: !hasDb 
 			},
 		);
 		req.on('error', () => resolve({ status: 0, raw: 'client stream error (expected after server destroys)' }));
-		// 4MB in 64KB chunks, well past the 1mb cap. The server stops consuming
-		// and destroys the request; the client may see the 413 or an EPIPE once
-		// its writes hit the closed socket, but it must never see a 200.
+		// 4 MiB past the cap, in 64 KiB chunks. The server stops consuming and
+		// destroys the request; the client may see the 413 or an EPIPE once its
+		// writes hit the closed socket, but it must never see a 200.
+		const total = AUTH_CAP + 4 * 1024 * 1024;
 		const chunk = Buffer.alloc(64 * 1024, 97);
 		let sent = 0;
 		const write = () => {
-			while (sent < 4 * 1024 * 1024) { sent += chunk.length; if (!req.write(chunk)) break; }
-			if (sent < 4 * 1024 * 1024) req.once('drain', write);
+			while (sent < total) { sent += chunk.length; if (!req.write(chunk)) break; }
+			if (sent < total) req.once('drain', write);
 			else req.end();
 		};
 		write();

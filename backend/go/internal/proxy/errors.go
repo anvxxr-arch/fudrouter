@@ -41,7 +41,7 @@ var errTable = map[string]apiError{
 	routing.ErrCodeUnsupportedParam:    {routing.ErrCodeUnsupportedParam, http.StatusBadRequest, "invalid_request_error", "unsupported parameter"},
 	routing.ErrCodeContentRejected:     {routing.ErrCodeContentRejected, http.StatusForbidden, "invalid_request_error", "content rejected"},
 	routing.ErrCodeProviderTimeout:     {routing.ErrCodeProviderTimeout, http.StatusGatewayTimeout, "api_error", "provider timed out"},
-	routing.ErrCodeProviderUnavailable: {routing.ErrCodeProviderUnavailable, http.StatusBadGateway, "api_error", "provider unavailable"},
+	routing.ErrCodeProviderUnavailable: {routing.ErrCodeProviderUnavailable, http.StatusServiceUnavailable, "api_error", "provider unavailable"},
 	routing.ErrCodeCircuitOpen:         {routing.ErrCodeCircuitOpen, http.StatusServiceUnavailable, "api_error", "provider circuit is open"},
 	routing.ErrCodeUpstreamError:       {routing.ErrCodeUpstreamError, http.StatusBadGateway, "api_error", "upstream error"},
 	routing.ErrCodeInternalError:       {routing.ErrCodeInternalError, http.StatusInternalServerError, "api_error", "internal error"},

@@ -454,7 +454,20 @@ export const auth = betterAuth({
 						// j+o+i+n and Discord answered HTTP 400, which killed
 						// sign-in for every user on every hostname.
 						scope: ['guilds.join']
-					}
+					},
+					// Telegram Login (owner rule 11). Telegram is not OAuth2 —
+					// it signs a payload with the bot token — so better-auth's
+					// generic `telegram` provider is used, which verifies the
+					// HMAC against TELEGRAM_BOT_TOKEN. Gated on the token being
+					// present so a deployment without a bot still boots.
+					...(process.env.TELEGRAM_BOT_TOKEN
+						? {
+								telegram: {
+									clientId: process.env.TELEGRAM_BOT_USERNAME ?? '',
+									clientSecret: process.env.TELEGRAM_BOT_TOKEN
+								}
+							}
+						: {})
 				}
 			}
 		: {})
@@ -574,13 +587,14 @@ app.all('/api/auth/{*path}', async (req, res) => {
 				headers.set(k, String(v));
 			}
 		}
-		// AUTH-1: this handler runs BEFORE express.json({limit:'1mb'}), so the
+		// AUTH-1: this handler runs BEFORE express.json({limit:'32mb'}), so the
 		// raw-body buffering below is the only size gate on the auth surface —
 		// and it had none. An unauthenticated client could stream an unbounded
 		// body (declared content-length or chunked) into `chunks` and exhaust
-		// server memory. The cap mirrors express.json's 1mb so the auth surface
-		// is never more permissive than the JSON surfaces behind it.
-		const AUTH_BODY_LIMIT = 1024 * 1024;
+		// server memory. The cap mirrors express.json's 32mb (owner rule 18) so
+		// the auth surface is never more permissive than the JSON surfaces
+		// behind it.
+		const AUTH_BODY_LIMIT = 32 * 1024 * 1024;
 		const declared = Number(req.headers['content-length']);
 		if (Number.isFinite(declared) && declared > AUTH_BODY_LIMIT) {
 			// Declared over-limit: reject before consuming a single byte —
@@ -663,7 +677,10 @@ app.all('/api/auth/{*path}', async (req, res) => {
 	}
 });
 
-app.use(express.json({ limit: '1mb' }));
+// Owner rule 18: max payload 32 MB. The previous 1 MB cap refused a legitimate
+// large prompt (a long agent context) before it reached the router. 32 MiB is
+// the ceiling for every JSON surface; the auth surface below mirrors it.
+app.use(express.json({ limit: '32mb' }));
 // Malformed JSON otherwise reaches Express's default HTML error page (with a
 // stack trace when NODE_ENV is unset). API callers get JSON, never HTML.
 app.use((err, req, res, next) => {

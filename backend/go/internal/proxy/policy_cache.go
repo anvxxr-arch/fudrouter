@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/anvxxr-arch/fudrouter/backend/go/internal/routing"
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/store"
 )
 
@@ -45,4 +46,54 @@ func (h *Handler) cachedRoutingPolicy(ctx context.Context, k *store.APIKeyRow) (
 	}
 	_ = h.vk.SetJSON(ctx, key, p, 30*time.Second) // best-effort: a failed Set never fails the request
 	return p, nil
+}
+
+// breakerConfigKey namespaces the circuit-breaker config cache under the same
+// process database namespace as the routing policy, so two deployments sharing
+// one Valkey cannot answer from each other's rows.
+func (h *Handler) breakerConfigKey() string {
+	return cacheKey(h.cacheNS(), "breaker:v1")
+}
+
+// cachedBreakerConfig wraps Store.CircuitBreakers with a short Valkey TTL, the
+// same shape as cachedRoutingPolicy. A breaker row changes only by operator
+// edit, so 30s of skew is acceptable; a missing/disabled/failing Valkey or a DB
+// error returns nil and the caller keeps its last good config (D4 fail-open).
+func (h *Handler) cachedBreakerConfig(ctx context.Context) map[string]routing.BreakerDefaults {
+	if h.vk == nil || h.store == nil {
+		return nil
+	}
+	key := h.breakerConfigKey()
+	var rows map[string]store.CircuitBreakerConfig
+	if err := h.vk.GetJSON(ctx, key, &rows, 5*time.Second); err == nil {
+		return breakerDefaultsFrom(rows)
+	}
+	// Any miss or error falls through to the DB read below; vk logs transport
+	// errors itself.
+	loaded, err := h.store.CircuitBreakers(ctx)
+	if err != nil {
+		return nil
+	}
+	_ = h.vk.SetJSON(ctx, key, loaded, 30*time.Second) // best-effort: a failed Set never fails the request
+	return breakerDefaultsFrom(loaded)
+}
+
+// breakerDefaultsFrom translates store rows into routing defaults, dropping
+// disabled rows: BreakerDefaults has no Enabled field, so a disabled row would
+// otherwise be applied as if enabled. The map key (Target + ":" + TargetID) is
+// what both Store.CircuitBreakers and CircuitBreaker.config already produce.
+func breakerDefaultsFrom(rows map[string]store.CircuitBreakerConfig) map[string]routing.BreakerDefaults {
+	out := make(map[string]routing.BreakerDefaults, len(rows))
+	for k, c := range rows {
+		if !c.Enabled {
+			continue
+		}
+		out[k] = routing.BreakerDefaults{
+			FailureThreshold: c.FailureThreshold,
+			WindowSeconds:    c.WindowSeconds,
+			OpenMs:           c.OpenMs,
+			HalfOpenProbes:   c.HalfOpenProbes,
+		}
+	}
+	return out
 }

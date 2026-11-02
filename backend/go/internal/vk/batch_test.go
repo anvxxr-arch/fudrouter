@@ -20,6 +20,7 @@ package vk
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 )
@@ -74,5 +75,58 @@ func TestGetJSONManyTransportFailureIsAnError(t *testing.T) {
 	out := map[string]json.RawMessage{}
 	if err := f.GetJSONMany(context.Background(), []string{"x"}, out, 0); err == nil {
 		t.Fatal("transport failure reported as success")
+	}
+}
+
+// The cache-hit tally (owner rule 19: ≥60% of reads served from cache) must
+// count a present key as a hit and an absent key as a miss, and a transport
+// failure as NEITHER — the read never reached the cache, so counting it as a
+// miss would understate the hit rate during a Valkey outage and make the target
+// look unmet for a reason that has nothing to do with cache effectiveness.
+func TestCacheStatsCountHitsAndMisses(t *testing.T) {
+	ctx := context.Background()
+	f := NewFake()
+	if err := f.SetJSON(ctx, "present", 1, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+
+	var v int
+	if err := f.GetJSON(ctx, "present", &v, 0); err != nil {
+		t.Fatalf("hit read: %v", err)
+	}
+	if err := f.GetJSON(ctx, "absent", &v, 0); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("miss read err = %v, want ErrNotFound", err)
+	}
+
+	// A batched read: one present, one absent.
+	out := map[string]json.RawMessage{}
+	if err := f.GetJSONMany(ctx, []string{"present", "absent"}, out, 0); err != nil {
+		t.Fatalf("batched read: %v", err)
+	}
+
+	// A transport failure must not move either counter.
+	f.FailAll()
+	_ = f.GetJSON(ctx, "present", &v, 0)
+
+	got := f.CacheStats()
+	if got.Hits != 2 {
+		t.Errorf("Hits = %d, want 2 (one GetJSON hit + one batched hit)", got.Hits)
+	}
+	if got.Misses != 2 {
+		t.Errorf("Misses = %d, want 2 (one GetJSON miss + one batched miss)", got.Misses)
+	}
+	if rate := got.HitRate(); rate != 0.5 {
+		t.Errorf("HitRate = %v, want 0.5", rate)
+	}
+}
+
+// A zero tally reports a 0 hit rate rather than dividing by zero — the disabled
+// client and a freshly started process both read this before any cache read.
+func TestCacheStatsZeroTally(t *testing.T) {
+	if rate := (CacheStats{}).HitRate(); rate != 0 {
+		t.Errorf("empty HitRate = %v, want 0", rate)
+	}
+	if got := Disabled().CacheStats(); got.Hits != 0 || got.Misses != 0 {
+		t.Errorf("disabled CacheStats = %+v, want zero", got)
 	}
 }

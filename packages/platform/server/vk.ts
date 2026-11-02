@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 // Named import, not default: under `moduleResolution: nodenext` (which models the
 // runtime, plain node ESM) the default import of this CJS module is typed as the
 // namespace, not the constructor. Both bindings exist at runtime; the named one is
@@ -49,6 +50,31 @@ export function vk(): Redis | null {
 	} catch (e) {
 		warnOnce(`disabled: ${(e as Error).message}`);
 		return null;
+	}
+}
+
+/**
+ * Close the shared Valkey client, if one was ever created.
+ *
+ * Why this exists: `vk()` lazily creates a module-level `Redis` whose sockets
+ * keep the Node event loop alive, and nothing owns it. In production the process
+ * is the owner. In a test process it is a hang — `jobs.ts` imports this module,
+ * so any test reaching the job queue leaks the connection and the runner waits
+ * out its full timeout on a test that already passed.
+ *
+ * Idempotent: a second call is a no-op, so a `finally` that runs after a failed
+ * connect does not throw.
+ */
+export async function closeVk(): Promise<void> {
+	if (!client) return;
+	const c = client;
+	client = null;
+	try {
+		await c.quit();
+	} catch {
+		// A client that never connected has nothing to quit; disconnecting is
+		// the only way to release its socket.
+		c.disconnect();
 	}
 }
 
@@ -135,5 +161,47 @@ export async function bumpVersion(table: string): Promise<void> {
 		await c.incr(`ver:${table}`);
 	} catch {
 		warnOnce('version bump failed');
+	}
+}
+
+/**
+ * The router's per-database cache namespace, reproduced exactly.
+ *
+ * The Go data plane derives it as `sha256(host:port/database)[:10]` from its
+ * DATABASE_URL (backend/go/internal/store/store.go cacheNamespaceFor) and
+ * prefixes every Valkey entry with `rt:<ns>:`. The console must spell it
+ * identically to invalidate a router entry — a mismatch would delete nothing
+ * and silently leave a revoked key authenticating for the TTL.
+ *
+ * Credentials are deliberately excluded: the namespace is not a secret and must
+ * never put one in a cache key.
+ */
+export function cacheNamespace(databaseUrl: string): string {
+	try {
+		const u = new URL(databaseUrl);
+		const host = u.hostname;
+		const port = u.port || '5432';
+		const db = decodeURIComponent(u.pathname.replace(/^\//, '')) || 'postgres';
+		return createHash('sha256').update(`${host}:${port}/${db}`).digest('hex').slice(0, 10);
+	} catch {
+		return 'unknown';
+	}
+}
+
+/**
+ * Delete the router's cached API key row for `prefix` (proxy/apikey_cache.go).
+ *
+ * Called on revoke so "revocation takes effect immediately for new requests"
+ * (public.mjs) holds. Best-effort: a Valkey outage must not fail the revoke,
+ * and the router's 30s TTL bounds the window it was always going to be.
+ */
+export async function invalidateApiKeyCache(prefix: string): Promise<void> {
+	const c = vk();
+	if (!c || !prefix) return;
+	const ns = cacheNamespace(process.env.DATABASE_URL ?? '');
+	try {
+		await c.del(`rt:${ns}:apikey:${prefix}`);
+	} catch {
+		warnOnce('api key cache invalidation failed');
 	}
 }

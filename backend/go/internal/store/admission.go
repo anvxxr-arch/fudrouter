@@ -110,10 +110,10 @@ type limitsEntry struct {
 // request path and written on the same miss path, so a single RWMutex costs one
 // uncontended atomic on the hit path and removes any question of lock ordering.
 type admissionCache struct {
-	mu         sync.RWMutex
-	accounts   map[string]accountEntry
-	budgets    map[budgetCacheKey]budgetEntry
-	limits     map[limitsCacheKey]limitsEntry
+	mu       sync.RWMutex
+	accounts map[string]accountEntry
+	budgets  map[budgetCacheKey]budgetEntry
+	limits   map[limitsCacheKey]limitsEntry
 	// ttl overrides the account TTL in tests (export_test.go). Zero means
 	// gateTTL; production never sets it.
 	ttl time.Duration

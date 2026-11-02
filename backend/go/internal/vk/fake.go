@@ -19,10 +19,20 @@ import (
 // Fake is an in-memory vk.Client. Tests use it to drive the limits/routing
 // packages without a Valkey server.
 type Fake struct {
-	mu      sync.Mutex
-	counts  map[string]*fakeWindow
-	json    map[string]string
-	failAll bool
+	mu           sync.Mutex
+	counts       map[string]*fakeWindow
+	json         map[string]string
+	bucketLevels map[string]*fakeBucket
+	failAll      bool
+	// hits/misses mirror the live client's cache tally so a test can assert the
+	// hit rate the same way production reports it.
+	hits   int64
+	misses int64
+}
+
+type fakeBucket struct {
+	tokens float64
+	at     time.Time
 }
 
 type fakeWindow struct {
@@ -74,6 +84,46 @@ func (f *Fake) AllowRate(_ context.Context, key string, limit int, window time.D
 	return w.count <= int64(limit), nil
 }
 
+// AllowBucket mirrors the token bucket closely enough for handler tests: it
+// refills at the configured rate from the last touch and caps at burst, so a
+// test that asks "does the platform rate hold?" sees rate semantics rather than
+// a per-window count.
+func (f *Fake) AllowBucket(_ context.Context, key string, ratePerSec float64, burst int) (bool, error) {
+	if err := f.broken(); err != nil {
+		return true, err // degrade OPEN
+	}
+	if ratePerSec <= 0 {
+		return true, nil
+	}
+	if burst < 1 {
+		burst = 1
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	now := time.Now()
+	levels := f.bucketLevels
+	if levels == nil {
+		levels = map[string]*fakeBucket{}
+		f.bucketLevels = levels
+	}
+	b := levels[key]
+	if b == nil {
+		b = &fakeBucket{tokens: float64(burst), at: now}
+		levels[key] = b
+	}
+	elapsed := now.Sub(b.at).Seconds()
+	b.tokens = b.tokens + elapsed*ratePerSec
+	if b.tokens > float64(burst) {
+		b.tokens = float64(burst)
+	}
+	b.at = now
+	if b.tokens < 1 {
+		return false, nil
+	}
+	b.tokens--
+	return true, nil
+}
+
 func (f *Fake) IncrConc(_ context.Context, key string, ttl time.Duration) (int64, error) {
 	if err := f.broken(); err != nil {
 		return 0, err
@@ -110,8 +160,10 @@ func (f *Fake) GetJSON(_ context.Context, key string, v any, _ time.Duration) er
 	defer f.mu.Unlock()
 	raw, ok := f.json[key]
 	if !ok {
+		f.misses++
 		return ErrNotFound
 	}
+	f.hits++
 	return json.Unmarshal([]byte(raw), v)
 }
 
@@ -124,9 +176,20 @@ func (f *Fake) GetJSONMany(_ context.Context, keys []string, out map[string]json
 	for _, k := range keys {
 		if raw, ok := f.json[k]; ok {
 			out[k] = json.RawMessage(raw)
+			f.hits++
+		} else {
+			f.misses++
 		}
 	}
 	return nil
+}
+
+// CacheStats mirrors the live client's tally so a test can assert the hit rate
+// the same way production reports it.
+func (f *Fake) CacheStats() CacheStats {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return CacheStats{Hits: f.hits, Misses: f.misses}
 }
 
 func (f *Fake) SetJSON(_ context.Context, key string, v any, _ time.Duration) error {
@@ -140,6 +203,20 @@ func (f *Fake) SetJSON(_ context.Context, key string, v any, _ time.Duration) er
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.json[key] = string(buf)
+	return nil
+}
+
+// Del removes a cached entry. It exists because the console invalidates the
+// router's API key cache on revoke (packages/platform/server/vk.ts
+// invalidateApiKeyCache) and the test for that contract must be able to perform
+// the same delete. A missing key is not an error, matching Redis DEL.
+func (f *Fake) Del(_ context.Context, key string) error {
+	if err := f.broken(); err != nil {
+		return err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.json, key)
 	return nil
 }
 

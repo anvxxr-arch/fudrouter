@@ -146,6 +146,38 @@ const REGISTRY = {
       file: '/home/dwizzy/th-bot/th_keys_live.txt',
       rx: /(thk_\S+)/
     }
+  },
+  // Farm: /home/dwizzy/farm/tokenjuice-farmer/tokenjuice_farmer.py -> lines
+  // "email|tj_key|status". Seeded by ops/onboard-tokenjuice.mjs (that script also
+  // writes the provider/connection/model rows); this entry lets the generic merge
+  // re-run the key import too.
+  tokenjuice: {
+    providerId: 'prv_tokenjuice',
+    connectionId: 'con_prv_tokenjuice-default',
+    base: 'https://api.tokenjuice.ai/v1',
+    headers: {},
+    keys: {
+      kind: 'lines',
+      file: `${FARM_DIR}/tokenjuice-farmer/data/tj_keys.txt`,
+      rx: /(tj_[A-Za-z0-9_-]{6,})/,
+      email: /^([^|]+@[^|]+)\|/
+    }
+  },
+  // Zro (zro.moonmath.ai): 1 akun = 1 key AKTIF. Minting key baru PAUSES the
+  // previous one ("the Free plan uses only your newest key"), so the farm file
+  // holds many dead keys per account. Only chat completions tell the truth --
+  // /v1/models is free and answers 200 even for a spent key.
+  zro: {
+    providerId: 'prv_zro',
+    connectionId: 'con_prv_zro-default',
+    base: 'https://zro.moonmath.ai/v1',
+    headers: {},
+    keys: {
+      kind: 'lines',
+      file: `${FARM_DIR}/zro-farm/data/keys.txt`,
+      rx: /(sk-[A-Za-z0-9_-]{10,})/,
+      email: /^([^|]+@[^|]+)\|/
+    }
   }
 };
 

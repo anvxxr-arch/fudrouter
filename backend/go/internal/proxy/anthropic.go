@@ -97,7 +97,7 @@ func (u *oiUsage) counts() usageCounts {
 func (h *Handler) ServeMessages(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 
-	body, err := io.ReadAll(io.LimitReader(r.Body, 10<<20))
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxRequestBytes))
 	if err != nil {
 		writeAnthropicError(w, routing.ErrCodeInvalidRequest, "cannot read body", 0)
 		return
@@ -156,7 +156,7 @@ func (h *Handler) ServeCountTokens(w http.ResponseWriter, r *http.Request) {
 		writeAnthropicError(w, routing.ErrCodeAuthError, err.Error(), 0)
 		return
 	}
-	body, err := io.ReadAll(io.LimitReader(r.Body, 10<<20))
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxRequestBytes))
 	if err != nil {
 		writeAnthropicError(w, routing.ErrCodeInvalidRequest, "cannot read body", 0)
 		return

@@ -86,7 +86,19 @@ type credentials struct {
 	AuthKind       string            `json:"auth_kind"`
 	Protocol       string            `json:"protocol"`
 	DefaultHeaders map[string]string `json:"default_headers"`
-	Accounts       []account         `json:"accounts"`
+	// Per-connection pacing for upstreams that throttle by source IP rather
+	// than by key (see connlimit.go). rpm=0 keeps the gate open.
+	Rpm      int `json:"rpm"`
+	Burst    int `json:"burst"`
+	WindowMs int `json:"window_ms"`
+	// OAuthEndpoint + OAuthClientID let a NON-xAI provider declare its own
+	// refresh_token grant endpoint (e.g. OpenCode Zen's
+	// console.opencode.ai/auth/device/token). Empty OAuthEndpoint means "use the
+	// handler default refresher" (xAI). These live on the connection config so a
+	// static-key provider is unaffected.
+	OAuthEndpoint string    `json:"oauth_endpoint"`
+	OAuthClientID string    `json:"oauth_client_id"`
+	Accounts      []account `json:"accounts"`
 }
 
 // TokenRefresher exchanges a refresh token for a fresh access token.
@@ -162,6 +174,13 @@ func newPool(
 		refresher:      refresher,
 		encrypt:        encrypt,
 		persist:        persist,
+	}
+	// A connection that declares its own OAuth token endpoint (a non-xAI
+	// provider such as OpenCode Zen) overrides the handler default refresher.
+	// The endpoint is admin-supplied config, so it gets the same guarded client
+	// as the xAI default via NewOAuthRefresher — never a bare http.Client.
+	if cred.OAuthEndpoint != "" {
+		p.refresher = NewOAuthRefresher(cred.OAuthEndpoint, cred.OAuthClientID)
 	}
 	for _, a := range cred.Accounts {
 		p.accounts = append(p.accounts, &poolAccount{data: a, expiresAt: parseExpiry(a.Expired), credID: a.CredID})
@@ -548,44 +567,62 @@ func (p *Pool) Accounts() []account {
 	return out
 }
 
-// XAIRefresher performs the RFC 6749 refresh_token grant against xAI.
-//
-// The client_id is the public Grok CLI client — the same one the token's own
-// `aud` claim carries, and the same one the farm used. It is not a secret.
-type XAIRefresher struct {
+// OAuthRefresher performs the RFC 6749 refresh_token grant against an OAuth
+// provider's token endpoint. It is provider-generic: the endpoint + client_id
+// come from the constructor (xAI default, or a connection's oauth_endpoint /
+// oauth_client_id config for e.g. OpenCode Zen's console.opencode.ai). The
+// client carries the same SSRF dial guard as every other outbound client: the
+// endpoint is admin-supplied config, and a spoofed endpoint would receive a
+// live refresh_token grant.
+type OAuthRefresher struct {
 	Client   *http.Client
 	Endpoint string
 	ClientID string
 }
 
-func NewXAIRefresher() *XAIRefresher {
-	return &XAIRefresher{
-		// The endpoint is env-overridable (XAI_TOKEN_ENDPOINT), so it is an
-		// admin-supplied URL like a provider base_url and gets the same dial
-		// guard. Without it this was the one outbound client in the binary with
-		// no netguard: a spoofed endpoint could exfiltrate the refresh_token
-		// grant (a live credential) to loopback or the cloud metadata address.
-		// netguard.DialControl runs after resolution and before connect, so a
-		// rejected target never receives the form body.
-		Client: &http.Client{
-			Timeout:       30 * time.Second,
-			CheckRedirect: guardedRedirectPolicy,
-			Transport: &http.Transport{
-				DialContext: (&net.Dialer{
-					Timeout:   15 * time.Second,
-					KeepAlive: 30 * time.Second,
-					Control:   dialControl(allowPrivateUpstreams()),
-				}).DialContext,
-				ForceAttemptHTTP2:     true,
-				MaxIdleConns:          100,
-				IdleConnTimeout:       90 * time.Second,
-				TLSHandshakeTimeout:   15 * time.Second,
-				ResponseHeaderTimeout: 30 * time.Second,
-			},
+// guardedOAuthClient builds the shared outbound client for token exchanges, with
+// the SSRF dial guard, a redirect guard, and its own dial/tls/idle timeouts.
+func guardedOAuthClient() *http.Client {
+	return &http.Client{
+		Timeout:       30 * time.Second,
+		CheckRedirect: guardedRedirectPolicy,
+		Transport: &http.Transport{
+			DialContext: (&net.Dialer{
+				Timeout:   15 * time.Second,
+				KeepAlive: 30 * time.Second,
+				Control:   dialControl(allowPrivateUpstreams()),
+			}).DialContext,
+			ForceAttemptHTTP2:     true,
+			MaxIdleConns:          100,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   15 * time.Second,
+			ResponseHeaderTimeout: 30 * time.Second,
 		},
-		Endpoint: envOr("XAI_TOKEN_ENDPOINT", "https://auth.x.ai/oauth2/token"),
-		ClientID: envOr("XAI_OAUTH_CLIENT_ID", "b1a00492-073a-47ea-816f-4c329264a828"),
 	}
+}
+
+// NewOAuthRefresher builds a refresher for an explicit endpoint + client_id.
+// Used by poolFor when a connection declares its own OAuth token endpoint (a
+// non-xAI provider), and by NewXAIRefresher for the built-in default.
+func NewOAuthRefresher(endpoint, clientID string) *OAuthRefresher {
+	return &OAuthRefresher{
+		Client:   guardedOAuthClient(),
+		Endpoint: endpoint,
+		ClientID: clientID,
+	}
+}
+
+// NewXAIRefresher is the provider-generic refresher pointed at xAI's defaults.
+// The endpoint/client_id are env-overridable (XAI_TOKEN_ENDPOINT,
+// XAI_OAUTH_CLIENT_ID) because they are admin-supplied URLs like a provider
+// base_url and get the same dial guard.
+func NewXAIRefresher() *OAuthRefresher {
+	return NewOAuthRefresher(
+		envOr("XAI_TOKEN_ENDPOINT", "https://auth.x.ai/oauth2/token"),
+		// The client_id is the public Grok CLI client — the same one the token's
+		// own `aud` claim carries, and the same one the farm used. Not a secret.
+		envOr("XAI_OAUTH_CLIENT_ID", "b1a00492-073a-47ea-816f-4c329264a828"),
+	)
 }
 
 func envOr(name, def string) string {
@@ -595,7 +632,7 @@ func envOr(name, def string) string {
 	return def
 }
 
-func (x *XAIRefresher) Refresh(ctx context.Context, refreshToken string) (string, string, int, error) {
+func (x *OAuthRefresher) Refresh(ctx context.Context, refreshToken string) (string, string, int, error) {
 	form := url.Values{}
 	form.Set("grant_type", "refresh_token")
 	form.Set("refresh_token", refreshToken)

@@ -2,10 +2,10 @@
   "generated_by": "packages/contracts/scripts/extract-routes.mjs",
   "note": "Mechanical extraction of the live HTTP surface. Regenerate with `npm run extract -w @fudrouter/contracts`. A changed hash in `sources` with an unchanged route list means the surface survived an edit; a changed route list means the public API changed and downstream clients/OpenAPI must follow. `line` is RECORDED but deliberately NOT part of the staleness comparison: it is what the OpenAPI entries cite (\"Registered at <file>:<line>\"), so it is kept for a human tracing an operation, while a registration that merely SHIFTED because an unrelated edit added a line above it is not a surface change and must not turn this lock red — a lock that fails on a moved line number teaches people to regenerate it without reading the diff, which is the failure mode a lock exists to prevent. What IS compared is the route set, both directions, and the middleware set.",
   "counts": {
-    "inference": 7,
-    "management": 164,
-    "management_get": 73,
-    "management_post": 90,
+    "inference": 9,
+    "management": 172,
+    "management_get": 75,
+    "management_post": 96,
     "middleware": 13
   },
   "inference": [
@@ -13,6 +13,12 @@
       "method": "*",
       "path": "/v1/",
       "handler": "p.ServeGeneric",
+      "file": "backend/go/internal/proxy/proxy.go"
+    },
+    {
+      "method": "*",
+      "path": "/v1beta/models/",
+      "handler": "p.ServeGemini",
       "file": "backend/go/internal/proxy/proxy.go"
     },
     {
@@ -31,6 +37,12 @@
       "method": "GET",
       "path": "/v1/models/",
       "handler": "p.ServeModel",
+      "file": "backend/go/internal/proxy/proxy.go"
+    },
+    {
+      "method": "GET",
+      "path": "/v1beta/models",
+      "handler": "p.ServeGeminiModels",
       "file": "backend/go/internal/proxy/proxy.go"
     },
     {
@@ -427,9 +439,21 @@
     },
     {
       "method": "GET",
+      "path": "/api/pages/combos",
+      "file": "pages.mjs",
+      "line": 1190
+    },
+    {
+      "method": "GET",
       "path": "/api/pages/dashboard",
       "file": "pages.mjs",
       "line": 217
+    },
+    {
+      "method": "GET",
+      "path": "/api/pages/injections",
+      "file": "pages.mjs",
+      "line": 1107
     },
     {
       "method": "GET",
@@ -997,6 +1021,42 @@
     },
     {
       "method": "POST",
+      "path": "/api/pages/combos/create",
+      "file": "pages.mjs",
+      "line": 1209
+    },
+    {
+      "method": "POST",
+      "path": "/api/pages/combos/remove",
+      "file": "pages.mjs",
+      "line": 1262
+    },
+    {
+      "method": "POST",
+      "path": "/api/pages/combos/update",
+      "file": "pages.mjs",
+      "line": 1233
+    },
+    {
+      "method": "POST",
+      "path": "/api/pages/injections/create",
+      "file": "pages.mjs",
+      "line": 1128
+    },
+    {
+      "method": "POST",
+      "path": "/api/pages/injections/remove",
+      "file": "pages.mjs",
+      "line": 1173
+    },
+    {
+      "method": "POST",
+      "path": "/api/pages/injections/update",
+      "file": "pages.mjs",
+      "line": 1153
+    },
+    {
+      "method": "POST",
       "path": "/api/pages/limits/remove",
       "file": "pages.mjs",
       "line": 743
@@ -1040,7 +1100,7 @@
   ],
   "management_by_prefix": {
     "api/admin": 122,
-    "api/pages": 20,
+    "api/pages": 28,
     "api/models": 3,
     "api/changelog": 2,
     "api/docs": 2,
@@ -1139,10 +1199,10 @@
   "sources": {
     "apps/web/server/admin.mjs": "2f55fd47d582bc7b9521a2172da44561d22bf2e72f4a2aa8550ac78c2361c038",
     "apps/web/server/index.mjs": "569128b5064f589daffd21915ff3317eea38830219bf2f00e6dfdf84fa386824",
-    "apps/web/server/pages.mjs": "b5f137f6140aeb6c011ff56dd991f4c3d56c3254a4fdcc0845cdfb4ee8c63843",
+    "apps/web/server/pages.mjs": "ef530da84286c2867b70600391dc5f6e9ed593225201fbd63b3b8632f995306c",
     "apps/web/server/playground.mjs": "60c2f846256a8a07f99769cbdb3a53ed593d1ca528ea82e64e463ebe212bf60b",
     "apps/web/server/public.mjs": "c2ee82bb63b4b0b70284ae4ad1336c8dcd46234004f5ebf22352c87930322c3e",
     "apps/web/server/rate-limit.mjs": "72545a3d910a086142a322a28938fb01b4f81cff750225afd39915e3203e3bbd",
-    "backend/go/internal/proxy/proxy.go": "c0b3c36de072e603d2863a38812424859c1c153a43767ab37a88edc663b80e4b"
+    "backend/go/internal/proxy/proxy.go": "27f38ed83d6ede9fd5c512d508f1add4bf4260b589f04de41c9fbeda74666908"
   }
 }

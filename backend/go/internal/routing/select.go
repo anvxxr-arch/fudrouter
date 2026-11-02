@@ -83,6 +83,17 @@ type Candidate struct {
 	Availability     float64
 	Capacity         int64 // credential weight / connection capacity hint
 
+	// reliability is the MEASURED success EWMA for this target (reliability.go),
+	// installed by CircuitBreaker.FillReliability on the admission path.
+	//
+	// reliabilityMeasured is not derivable from the value: 0 is a real reading
+	// (a target that failed every observed attempt) while an unmeasured target
+	// must keep its declared Availability. Without the flag "failed everything"
+	// and "never looked at" are the same number, and the worst target in the
+	// catalogue would keep the neutral prior.
+	reliability         float64
+	reliabilityMeasured bool
+
 	// score is the balanced score, computed ONCE per candidate in Select and
 	// read by both the sort comparator and selectReason. It used to be computed
 	// inside the comparator (O(n log n) times) AND again in selectReason (once
@@ -374,9 +385,15 @@ func Select(cands []Candidate, plan Plan) []Candidate {
 			return a.Store.Priority < b.Store.Priority
 		})
 	case StrategyHighestReliability:
+		// The measured EWMA decides when there is one; the declared availability
+		// only breaks ties. Before this the strategy had NO measured input at
+		// all — it sorted on the same declarative claim the balanced score's
+		// reliability term used, so "highest reliability" and "balanced" could
+		// not disagree about reliability by construction.
 		sortBy(out, func(a, b Candidate) bool {
-			if a.Availability != b.Availability {
-				return a.Availability > b.Availability
+			ra, rb := a.reliabilitySignal(), b.reliabilitySignal()
+			if ra != rb {
+				return ra > rb
 			}
 			return a.Store.Priority < b.Store.Priority
 		})
@@ -431,6 +448,26 @@ func Select(cands []Candidate, plan Plan) []Candidate {
 		return candidateHasUsableCredential(a)
 	})
 
+	// A candidate whose MEASURED success EWMA has collapsed sorts behind every
+	// candidate that has not, regardless of strategy — and without waiting for
+	// its breaker to open.
+	//
+	// Why a demotion and not a filter: the same reason the credential partition
+	// above is one. A request that finds nothing else must still be served, and a
+	// target that is merely losing to its siblings is still a target. The
+	// breaker's refusal is the hard stop; this is only ORDER, which is what lets
+	// it act before anyone has decided the target is dead. Without it a strategy
+	// that ranks on price or latency would keep sending traffic to a target the
+	// attempts are already failing.
+	//
+	// It runs for every strategy on purpose. `lowest_cost` would otherwise keep
+	// routing to a free tier that has stopped answering — the identical situation
+	// the credential partition was added for, one step earlier: there the
+	// credentials were spent, here the attempts are failing.
+	stablePartition(out, func(a Candidate) bool {
+		return !a.reliabilityCollapsed()
+	})
+
 	// Model preference is a final tie-order hint across models in the set: a
 	// preferred model's targets sort ahead of an unpreferred model's at equal
 	// standing. Applied as a stable partition on the model slug.
@@ -462,7 +499,7 @@ func balancedScore(c Candidate, w Weights) float64 {
 	}
 	nPrice := normBest(float64(c.totalPrice()), true)
 	nLat := normBest(float64(c.LatencyMs), true)
-	nRel := c.Availability
+	nRel := c.reliabilitySignal()
 	nCap := normBest(float64(c.Capacity), false)
 	return w.Price*nPrice + w.Latency*nLat + w.Reliability*nRel + w.Capacity*nCap
 }
@@ -600,7 +637,10 @@ func selectReason(plan Plan, c Candidate, rank int) string {
 	case StrategyLowestLatency:
 		return fmt.Sprintf("%s #%d: p95 %dms", plan.Strategy, rank+1, c.LatencyMs)
 	case StrategyHighestReliability:
-		return fmt.Sprintf("%s #%d: availability %.2f", plan.Strategy, rank+1, c.Availability)
+		if v, ok := c.Reliability(); ok {
+			return fmt.Sprintf("%s #%d: measured reliability %.2f", plan.Strategy, rank+1, v)
+		}
+		return fmt.Sprintf("%s #%d: availability %.2f (unmeasured)", plan.Strategy, rank+1, c.Availability)
 	case StrategyProviderPriority, StrategyWeighted:
 		return fmt.Sprintf("%s #%d: provider %s priority %d", plan.Strategy, rank+1, c.Store.ProviderName, c.Store.Priority)
 	case StrategyRoundRobin, StrategyRandom:

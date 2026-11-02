@@ -95,9 +95,14 @@ func (h *Handler) FillCandidatePricingForTest(ctx context.Context, merged []rout
 
 // deadStoreDSN points at a port nothing listens on. store.New parses the DSN
 // and builds the pool without dialing, so this costs a fraction of a
-// millisecond and makes finish()'s ledger write fail fast (measured ~1ms)
-// instead of hanging — which is what lets the relay be gated without a
-// database.
+// millisecond and makes finish()'s ledger write fail fast instead of hanging —
+// which is what lets the relay be gated without a database.
+//
+// The write itself fails in ~1ms, but the RETRY around it used to sleep
+// 250ms+500ms on the request goroutine, so the relay benchmark measured 754ms
+// per op. finish() now detaches that retry (lifecycle.go), which is why the
+// relay benchmarks read ~1.5ms. If they ever climb back toward 750ms, the
+// retry has been re-attached to the request goroutine.
 const deadStoreDSN = "postgres://u:p@127.0.0.1:1/stream_ttft_test?pool_min_conns=0"
 
 // relayLifecycle builds the minimum lifecycle a relay loop needs: a writer, a
@@ -156,4 +161,21 @@ func StreamSSEForTest(t *testing.T, w http.ResponseWriter, r *http.Request, body
 func AnthropicStreamSSEForTest(t *testing.T, w http.ResponseWriter, r *http.Request, body io.Reader) {
 	t.Helper()
 	relayLifecycle(t, w, r).anthropicStreamSSE(w, body, "test-model")
+}
+
+// WaitLedgerForTest blocks until the detached ledger writes for this lifecycle
+// have finished.
+//
+// It exists because finish() now detaches the retry loop and the attempts
+// insert so the client's connection is not held through the backoff (measured
+// 754ms/op before, 1.5ms after). A test that asserts on the ledger — or whose
+// t.Cleanup closes the store — must join that work first, or it races the
+// goroutine and sees a half-written state.
+func (lc *lifecycle) WaitLedgerForTest() { lc.ledgerWG.Wait() }
+
+// FinishForTest runs finish() and joins the detached ledger writes, so a test
+// observes the settled ledger state rather than the moment finish() returned.
+func (lc *lifecycle) FinishForTest() {
+	lc.finish()
+	lc.ledgerWG.Wait()
 }

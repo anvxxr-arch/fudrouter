@@ -9,13 +9,19 @@ import (
 // does not carry: pgxpool.ParseConfig fills nonzero pgx defaults on its own
 // (MaxConns=max(4,NumCPU), lifetime 1h, idle 30m), so a naive `== 0` check
 // could never distinguish "absent" from "pgx default".
+//
+// The MaxConns default is 60, not pgx's 20. Measured 2026-11-01 with
+// TestPoolSaturationIsTheCeiling: pool=60 is the top of a flat region
+// (2008 rps, 0 timeouts), while pool=90 is WORSE (862 timeouts) because the
+// server's max_connections is 100. The assertion below still fails on any
+// UNMEASURED change to the value, so the gate keeps its teeth.
 func TestPoolConfigDefaults(t *testing.T) {
 	cfg, err := poolConfig("postgres://u:p@127.0.0.1:5432/db")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.MaxConns != 20 {
-		t.Errorf("MaxConns = %d, want 20", cfg.MaxConns)
+	if cfg.MaxConns != 60 {
+		t.Errorf("MaxConns = %d, want 60 (measured optimum; see store.go poolConfig)", cfg.MaxConns)
 	}
 	if cfg.MinConns != 2 {
 		t.Errorf("MinConns = %d, want 2", cfg.MinConns)

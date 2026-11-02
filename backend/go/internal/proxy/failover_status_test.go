@@ -11,6 +11,7 @@ package proxy_test
 // so the proxy must NOT burn the pool on it.
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -39,13 +40,29 @@ func retryableUpstream(t *testing.T, status int, goodHits *int32) *httptest.Serv
 
 func postGeneric(t *testing.T, dsn, url string, env *tests.Env) int {
 	t.Helper()
+	code, _ := postGenericCode(t, dsn, url, env)
+	return code
+}
+
+// postGenericCode returns the HTTP status AND the normalized error code, so a
+// test can assert what the client is TOLD, not only that it failed. The two are
+// independent: a 502 with INSUFFICIENT_CREDITS would be a lie about whose
+// problem it is.
+func postGenericCode(t *testing.T, dsn, url string, env *tests.Env) (int, string) {
+	t.Helper()
 	p := tests.NewProxy(t, dsn, url)
 	rec := httptest.NewRecorder()
 	body := `{"model":"` + env.Slug + `","input":"hi"}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/embeddings", strings.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+env.Key)
 	p.ServeGeneric(rec, req)
-	return rec.Code
+	var envelope struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &envelope)
+	return rec.Code, envelope.Error.Code
 }
 
 func TestFailsOverOnRetryableStatuses(t *testing.T) {

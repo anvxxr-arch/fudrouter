@@ -16,17 +16,27 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/crypt"
+	"github.com/anvxxr-arch/fudrouter/backend/go/internal/egress"
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/limits"
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/routing"
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/store"
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/vk"
 )
+
+// maxRequestBytes is the inbound body ceiling for every inference surface
+// (owner rule 18: max payload 32 MB). It lives in ONE place because the four
+// handlers that read a request body — ServeCompletions, ServeGeneric, the
+// Anthropic pair and the Gemini pair — each carried their own `10<<20` literal,
+// so raising the cap in one place would have left the others refusing a body
+// the console accepted. The console's express.json limit is the same 32 MiB.
+const maxRequestBytes = 32 << 20
 
 // notePickFailure surfaces WHY a pool produced no credential, at most once a
 // minute per process. PROVIDER_UNAVAILABLE alone hides the difference between
@@ -57,6 +67,11 @@ type Handler struct {
 	client    *http.Client
 	refresher TokenRefresher
 
+	// An identity-scoped transport must survive individual attempts; rebuilding
+	// it per request would erase keep-alive and amplify the existing dial cost.
+	egressOnce    sync.Once
+	egressManager *egress.Manager
+
 	// limiter enforces the spec §7 limit chain (Valkey fast path, S0 in-process
 	// fallback, fail-open on a cache outage).
 	limiter *limits.Limiter
@@ -64,9 +79,18 @@ type Handler struct {
 	// vk is the cache/counter layer (spec §12): budget counters, circuit state.
 	vk vk.Client
 
-	// breaker holds routing circuit state (spec §9); config comes from the
-	// circuit_breaker table and is refreshed with the routing policy.
+	// breaker holds routing circuit state (spec §9); its config is loaded from
+	// the circuit_breaker table lazily on the hot path (refreshBreakerConfig on
+	// a 30s TTL) rather than once at construction.
 	breaker *routing.CircuitBreaker
+
+	// breakerCfgMu guards the in-process breaker-config refresh, and breakerCfg
+	// is the last successfully loaded map. Mirrors Store.hardLimits: the row
+	// changes only by hand, so a TTL bounds the skew without an invalidation
+	// channel.
+	breakerCfgMu sync.Mutex
+	breakerCfg   map[string]routing.BreakerDefaults
+	breakerCfgAt time.Time
 
 	// healthInMem is the process-local fallback for probe results when the
 	// Valkey snapshot is unreadable — see health.go. Fallback, not primary.
@@ -141,6 +165,40 @@ func New(st *store.Store, cr *crypt.Crypt, client *http.Client, refresher TokenR
 		connLim:      newConnLimiter(),
 		showCostMeta: strings.EqualFold(os.Getenv("ROUTER_COST_HEADERS"), "on"),
 	}
+}
+
+// breakerConfigTTL is how long a loaded circuit_breaker table is trusted before
+// the next request refreshes it (D1). 30s: the same skew cachedRoutingPolicy
+// accepts, because both rows change only by operator edit.
+const breakerConfigTTL = 30 * time.Second
+
+// refreshBreakerConfig loads the circuit_breaker table into the breaker on a
+// 30s in-process TTL (D1). New cannot do DB I/O — its signature is pinned by
+// tests and main, and every test construction would otherwise query — so the
+// first request that needs a breaker decision pulls the table and later
+// requests refresh it lazily. Fail-open in the direction that keeps traffic
+// flowing (D4): an unreadable table leaves the last good config, or the
+// defaults the breaker was built with.
+func (h *Handler) refreshBreakerConfig(ctx context.Context) {
+	if h.store == nil || h.vk == nil || h.breaker == nil {
+		return
+	}
+	h.breakerCfgMu.Lock()
+	fresh := time.Since(h.breakerCfgAt) < breakerConfigTTL
+	h.breakerCfgMu.Unlock()
+	if fresh {
+		return
+	}
+
+	cfg := h.cachedBreakerConfig(ctx) // DB/Valkey I/O outside the lock, like Store.hardLimits
+	if cfg == nil {
+		return // keep the last good config (D4)
+	}
+
+	h.breakerCfgMu.Lock()
+	h.breakerCfg, h.breakerCfgAt = cfg, time.Now()
+	h.breakerCfgMu.Unlock()
+	h.breaker.SetConfig(cfg)
 }
 
 // ServeMux returns the complete public route table for these components.
@@ -321,6 +379,57 @@ func (h *Handler) writeErrCode(w http.ResponseWriter, code, message string) {
 	h.writeErr(w, normalize(code, message))
 }
 
+// wroteHeader records whether the handler already committed a status line, so
+// a panic mid-stream does not attempt a second WriteHeader (which net/http
+// logs as "superfluous response.WriteHeader" and which would corrupt the body).
+type wroteHeader struct {
+	http.ResponseWriter
+	wrote bool
+}
+
+func (w *wroteHeader) WriteHeader(code int) {
+	w.wrote = true
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *wroteHeader) Write(b []byte) (int, error) {
+	w.wrote = true
+	return w.ResponseWriter.Write(b)
+}
+
+// RecoverMiddleware turns a handler panic into a taxonomy error instead of a
+// truncated response (F7). A panic propagates to
+// net/http's per-connection recover, which closes the connection and skips the
+// lifecycle's finish() — so the request becomes invisible to billing and the
+// ledger reconciliation. If the handler already committed a header, nothing can
+// un-write it: the client gets the truncated stream and we log the stack.
+//
+// It is wired in cmd/gateway around the whole mux, NOT per-registration inside
+// ServeMux: the contracts route extractor (extract-routes.mjs) textually
+// records each `mux.Handle(...)` handler, so wrapping there would rewrite the
+// frozen routes.json's handler field with a truncated wrapper expression.
+// cmd/gateway/main.go inserts it as the server's Handler, which also covers
+// /health — a panic there becoming a 500 is as honest a signal as a closed
+// connection, and costs nothing.
+//
+// The ledger row itself is NOT recoverable here (the lifecycle is handler-local
+// state); stopping the connection-level failure mode is the whole job.
+func RecoverMiddleware(p *Handler, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ww := &wroteHeader{ResponseWriter: w}
+		defer func() {
+			if rec := recover(); rec != nil {
+				log.Printf("panic serving %s %s (request %s): %v\n%s",
+					r.Method, r.URL.Path, r.Header.Get("x-fudrouter-request-id"), rec, debug.Stack())
+				if !ww.wrote {
+					p.writeErrCode(ww, routing.ErrCodeInternalError, "")
+				}
+			}
+		}()
+		next.ServeHTTP(ww, r)
+	})
+}
+
 // ServeCompletions is the native chat hot path (PRD §85): full lifecycle with
 // streaming, usage capture and billing on every outcome.
 func (h *Handler) ServeCompletions(w http.ResponseWriter, r *http.Request) {
@@ -330,7 +439,7 @@ func (h *Handler) ServeCompletions(w http.ResponseWriter, r *http.Request) {
 	// model string drives routing. Validation runs INSIDE begin, after auth —
 	// an invalid key must be 401 regardless of the body (endpoint-surface
 	// spec §3.1: auth is evaluated before path support).
-	body, err := io.ReadAll(io.LimitReader(r.Body, 10<<20))
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxRequestBytes))
 	if err != nil {
 		h.writeErrCode(w, routing.ErrCodeInvalidRequest, "cannot read body")
 		return

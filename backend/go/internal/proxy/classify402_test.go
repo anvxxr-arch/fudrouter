@@ -136,4 +136,3 @@ func TestClassify402RealCapturedBodies(t *testing.T) {
 		}
 	})
 }
-

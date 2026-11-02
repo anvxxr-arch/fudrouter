@@ -61,19 +61,35 @@ export interface PriceMicro {
 
 export interface CatalogProvider {
   providerName: string;
+  providerSlug: string | null;
+  providerModelId: string | null;
+  region: string | null;
   price: PriceMicro | null;
   status: string;
+  enabled: boolean | null;
   availability: number | null;
+  p50Ms: number | null;
+  p95Ms: number | null;
 }
 
 export interface CatalogModel {
+  id: string;
   slug: string;
   name: string;
+  family: string | null;
   developer: string | null;
+  description: string | null;
   context: number | null;
+  maxOutput: number | null;
+  modality: { type: string } | null;
+  status: string;
+  currency: string;
   price: PriceMicro;
   providers: CatalogProvider[];
   capabilities: Record<string, boolean | null>;
+  p50Ms: number | null;
+  p95Ms: number | null;
+  availability: number | null;
 }
 
 export interface ProviderRow {
@@ -212,6 +228,20 @@ export function formatPricePer1M(value: string | null): string {
 export function formatContext(tokens: number | null): string {
   if (tokens === null) return '—';
   return `${Math.round(tokens / 1000).toLocaleString('en-US')}k`;
+}
+
+/** Compact token count in SEKAI style: 1M, 500K, 393.216 for a max output. */
+export function formatTokens(tokens: number | null): string {
+  if (tokens === null || tokens <= 0) return '—';
+  if (tokens >= 1_000_000) {
+    const m = tokens / 1_000_000;
+    return `${Number.isInteger(m) ? m : m.toFixed(2)}M`;
+  }
+  if (tokens >= 1_000) {
+    const k = tokens / 1_000;
+    return `${Number.isInteger(k) ? k : k.toFixed(1)}k`;
+  }
+  return `${tokens}`;
 }
 
 export function formatMs(ms: number | null): string {

@@ -3,6 +3,8 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { sql } from 'drizzle-orm';
 import { rowsOf, big, num, iso, okBody } from './lib/validate.mjs';
 import { clientIp } from './lib/ip.mjs';
+import { PLANS, PLAN_IDS, planOf, qrisFor, isChannel } from '@fudrouter/platform/server/payments.ts';
+import { invalidateApiKeyCache } from '@fudrouter/platform/server/vk.ts';
 
 // DB-backed dashboard page loads + POST actions for the member dashboard
 // routes. All routes require auth (anon 401).
@@ -323,9 +325,16 @@ export function registerPages(app, ctx) {
 		const id = String(okBody(req).id ?? '').trim();
 		if (!id) return fail(res, 400, 'Missing key id');
 		const r = rowsOf(
-			await database.execute(sql`update api_key set revoked_at = now(), status = 'revoked' where id = ${id} and user_id = ${userRow.id} returning id`)
+			await database.execute(sql`update api_key set revoked_at = now(), status = 'revoked' where id = ${id} and user_id = ${userRow.id} returning id, prefix`)
 		);
 		if (!r.length) return fail(res, 404, 'Key not found');
+		// The router caches the key row in Valkey (proxy/apikey_cache.go) and
+		// public.mjs documents "revocation takes effect immediately for new
+		// requests". The TTL is only a backstop, so the entry must be deleted
+		// here or a revoked key keeps authenticating for up to 30s. Best-effort:
+		// a Valkey outage must not fail the revoke itself, and the TTL bounds
+		// the damage to the window it was always going to be.
+		await invalidateApiKeyCache(r[0].prefix);
 		res.json({ revoked: id });
 	}));
 
@@ -611,6 +620,94 @@ export function registerPages(app, ctx) {
 			await database.execute(sql`select id, type, amount_micro, currency, request_id, description, created_at from credit_ledger where billing_account_id = ${account.id} order by created_at desc, id desc limit 50`)
 		).map((r) => ({ id: r.id, type: r.type, amountMicro: String(r.amount_micro ?? '0'), currency: String(r.currency ?? '').trim(), requestId: r.request_id, description: r.description, createdAt: iso(r.created_at) }));
 		res.json({ rows, currency: String(account.currency ?? 'USD').trim() });
+	}));
+
+	// ---- subscription + payments (owner directive 2026-10-31) ----
+	// The member buys TIME, not tokens. These endpoints expose the plan table,
+	// mint a QRIS payload for a chosen plan, record the member's payment claim,
+	// and let an admin confirm it (which grants the window and publishes the
+	// key). The money rules live in @fudrouter/platform/server/payments.ts so the
+	// bots and this surface cannot disagree about a price.
+	app.get(['/api/pages/subscription', '/api/pages/dashboard/subscription'], wrap(async (req, res) => {
+		const database = needDb(res);
+		if (!database) return;
+		const userRow = await mustAuth(req);
+		const rows = rowsOf(
+			await database.execute(sql`select id, plan, status, starts_at, expires_at, price_idr, payment_id from subscription where account_id = ${userRow.id} order by created_at desc limit 20`)
+		);
+		const live = rows.find((r) => r.status === 'active' && new Date(r.expires_at) > new Date()) ?? null;
+		res.json({
+			plans: PLAN_IDS.map((id) => ({ id, ...PLANS[id] })),
+			current: live ? { id: live.id, plan: live.plan, expiresAt: iso(live.expires_at), priceIdr: Number(live.price_idr) } : null,
+			history: rows.map((r) => ({ id: r.id, plan: r.plan, status: r.status, startsAt: iso(r.starts_at), expiresAt: iso(r.expires_at), priceIdr: Number(r.price_idr) }))
+		});
+	}));
+	app.post(['/api/pages/subscription/checkout', '/api/pages/dashboard/subscription/checkout'], wrap(async (req, res) => {
+		const database = needDb(res);
+		if (!database) return;
+		const userRow = await mustAuth(req);
+		const b = okBody(req);
+		const plan = String(b.plan ?? '').trim();
+		const channel = String(b.channel ?? 'web').trim();
+		const p = planOf(plan);
+		if (!p) return fail(res, 400, 'Unknown plan.');
+		if (!isChannel(channel)) return fail(res, 400, 'Unknown payment channel.');
+		const qris = qrisFor(p.priceIdr);
+		if (!qris) return fail(res, 500, 'Could not build a payment code.');
+		const gatewayRef = `qris_${channel}_${Date.now()}_${randomBytes(4).toString('hex')}`;
+		await database.execute(
+			sql`insert into payment (id, account_id, channel, gateway_ref, gateway, plan, amount_idr, status)
+				values (${newId('pay')}, ${userRow.id}, ${channel}, ${gatewayRef}, 'qris', ${plan}, ${p.priceIdr}, 'pending')`
+		);
+		await audit(database, { actorId: userRow.id, action: 'payment.create', resource: 'payment', resourceId: gatewayRef, meta: { plan, channel, amountIdr: p.priceIdr } });
+		res.json({ gatewayRef, qris, amountIdr: p.priceIdr, plan, label: p.label });
+	}));
+	app.post(['/api/pages/subscription/claim', '/api/pages/dashboard/subscription/claim'], wrap(async (req, res) => {
+		const database = needDb(res);
+		if (!database) return;
+		const userRow = await mustAuth(req);
+		const b = okBody(req);
+		const gatewayRef = String(b.gatewayRef ?? '').trim();
+		const proofUrl = String(b.proofUrl ?? '').trim();
+		if (!gatewayRef) return fail(res, 400, 'Missing payment reference.');
+		const rows = rowsOf(
+			await database.execute(sql`select id, plan, amount_idr, status from payment where gateway_ref = ${gatewayRef} and account_id = ${userRow.id} limit 1`)
+		);
+		if (!rows.length) return fail(res, 404, 'Payment not found.');
+		await database.execute(
+			sql`update payment set status = 'claimed', raw = ${JSON.stringify({ proofUrl })}::jsonb, updated_at = now() where id = ${rows[0].id}`
+		);
+		await audit(database, { actorId: userRow.id, action: 'payment.claim', resource: 'payment', resourceId: gatewayRef, meta: { proofUrl } });
+		res.json({ claimed: true });
+	}));
+	app.get(['/api/pages/subscription/payments', '/api/pages/dashboard/subscription/payments'], wrap(async (req, res) => {
+		const database = needDb(res);
+		if (!database) return;
+		const userRow = await mustAuth(req);
+		const rows = rowsOf(
+			await database.execute(sql`select id, channel, gateway_ref, plan, amount_idr, status, created_at from payment where account_id = ${userRow.id} order by created_at desc limit 50`)
+		);
+		res.json({ rows: rows.map((r) => ({ id: r.id, channel: r.channel, gatewayRef: r.gateway_ref, plan: r.plan, amountIdr: Number(r.amount_idr), status: r.status, createdAt: iso(r.created_at) })) });
+	}));
+	// ---- warnings (owner rule 16) ----
+	app.get(['/api/pages/warnings', '/api/pages/dashboard/warnings'], wrap(async (req, res) => {
+		const database = needDb(res);
+		if (!database) return;
+		const userRow = await mustAuth(req);
+		const rows = rowsOf(
+			await database.execute(sql`select id, kind, severity, message, delivered, acknowledged_at, created_at from member_warning where account_id = ${userRow.id} order by created_at desc limit 50`)
+		);
+		res.json({ rows: rows.map((r) => ({ id: r.id, kind: r.kind, severity: r.severity, message: r.message, delivered: r.delivered ?? [], acknowledgedAt: iso(r.acknowledged_at), createdAt: iso(r.created_at) })) });
+	}));
+	// ---- key IPs (owner rule 14) ----
+	app.get(['/api/pages/keys/ips', '/api/pages/dashboard/keys/ips'], wrap(async (req, res) => {
+		const database = needDb(res);
+		if (!database) return;
+		const userRow = await mustAuth(req);
+		const rows = rowsOf(
+			await database.execute(sql`select i.ip::text as ip, i.first_seen_at, i.last_seen_at from api_key_ip i join api_key k on k.id = i.api_key_id where k.user_id = ${userRow.id} order by i.first_seen_at`)
+		);
+		res.json({ rows: rows.map((r) => ({ ip: r.ip, firstSeenAt: iso(r.first_seen_at), lastSeenAt: iso(r.last_seen_at) })), max: 3 });
 	}));
 
 	// ---- account ----

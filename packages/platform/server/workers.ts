@@ -336,10 +336,53 @@ function looksLikeModelsJSON(body: string): boolean {
 }
 
 /**
+ * Ceiling for ONE health probe, in ms.
+ *
+ * Deliberately NOT `UPSTREAM_TIMEOUT_MS` (15s). That is a per-REQUEST budget
+ * for the hot path; clamping a liveness probe to it manufactures the very
+ * timeouts this handler then misreads as "unreachable". Measured 2026-11-02 on
+ * freemodel.in: 33 successful `GET /models` reads had p50 = 2.6s, p90 = 13.5s,
+ * p95 = 19.9s, max = 21.7s — a 15s clamp timed out 3 of 33 healthy probes.
+ * 60s keeps ~3x headroom over the observed maximum while still bounding one
+ * connection's share of the 5-minute sweep.
+ */
+const HEALTH_PROBE_TIMEOUT_MS = 60_000;
+
+/**
+ * How many times one health probe is retried before its outcome is accepted.
+ *
+ * A single probe is a coin flip against an upstream with a rate-gating edge:
+ * measured 7 of 40 freemodel.in `/models` reads answered 502 while the pool was
+ * 178/183 healthy and serving. One such 502 used to write `unhealthy` and
+ * delete all 46 of that provider's slugs from the catalogue (below).
+ */
+const HEALTH_PROBE_ATTEMPTS = 3;
+
+/** Beat between health-probe attempts — an edge gate needs a moment to clear. */
+const HEALTH_PROBE_RETRY_MS = 2_000;
+
+/** Local sleep; the worker loop's helper lives inside its own closure. */
+const sleepMs = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
  * `provider_health_check`: probe each enabled connection's `base_url` (SSRF
  * guarded, PRD §121) and refresh `connection.health_status`, writing a
  * `system_event` ONLY on transition — a probe that keeps failing must not
  * manufacture an event per run.
+ *
+ * Reachability only: an outcome that reached no HTTP verdict (transport
+ * failure, 5xx from an edge gate) must NOT be written as `unhealthy`. The
+ * catalogue gate excludes unhealthy CONNECTIONS outright
+ * (`c.health_status is distinct from 'unhealthy'`, internal/store/catalog.go),
+ * so over-reporting here does not merely mislabel a row — it silently
+ * unpublishes every model the connection serves. Measured 2026-11-02: two
+ * isolated 502s (19:06 and 19:17 UTC) each removed all 46 freemodel slugs from
+ * `https://fudrouter.my.id/v1/models` (163 → 122) while the pool held 178/183
+ * healthy credentials and was serving real traffic.
+ *
+ * Real death still unpublishes, through the credential path: a dead provider's
+ * keys fail `credential_validation`, go `invalid`, and the catalogue's
+ * live-credential check drops the models. That is evidence; a flap is not.
  */
 const providerHealthCheck: JobHandler = async (dbtx, payload) => {
 	const rows = await dbtx
@@ -381,48 +424,87 @@ const providerHealthCheck: JobHandler = async (dbtx, payload) => {
 		// `health_probe: "chat"`: liveness is proven by a real 1-token chat call,
 		// which is what traffic actually uses anyway.
 		const probeMode = String(cfg.health_probe ?? 'models');
-		const timeoutMs = Math.min(c.timeoutMs || UPSTREAM_TIMEOUT_MS, UPSTREAM_TIMEOUT_MS);
-		const probed =
-			probeMode === 'chat'
-				? await guardedUpstreamFetch(c.baseUrl, allowPrivateUpstreams(), '/chat/completions', {
-						method: 'POST',
-						headers: { 'Content-Type': 'application/json' },
-						body: JSON.stringify({
-							messages: [{ role: 'user', content: 'ping' }],
-							max_tokens: 1
-						}),
-						timeoutMs
-					})
-				: await guardedUpstreamFetch(c.baseUrl, allowPrivateUpstreams(), '/models', {
-						method: 'GET',
-						timeoutMs
-					});
+		// One probe is a coin flip against a rate-gating edge (measured 7/40
+		// 502s), so a failing outcome is retried before it is believed. Only
+		// the LAST attempt's verdict is acted on.
+		let probed = null as Awaited<ReturnType<typeof guardedUpstreamFetch>> | null;
+		for (let attempt = 1; attempt <= HEALTH_PROBE_ATTEMPTS; attempt++) {
+			probed =
+				probeMode === 'chat'
+					? await guardedUpstreamFetch(c.baseUrl, allowPrivateUpstreams(), '/chat/completions', {
+							method: 'POST',
+							headers: { 'Content-Type': 'application/json' },
+							body: JSON.stringify({
+								messages: [{ role: 'user', content: 'ping' }],
+								max_tokens: 1
+							}),
+							timeoutMs: HEALTH_PROBE_TIMEOUT_MS
+						})
+					: await guardedUpstreamFetch(c.baseUrl, allowPrivateUpstreams(), '/models', {
+							method: 'GET',
+							timeoutMs: HEALTH_PROBE_TIMEOUT_MS
+						});
+			// A verdict only exists once the upstream answered. Stop on the
+			// first real answer; keep retrying while it is indeterminate
+			// (transport failure, or a 5xx from an edge gate that is not the
+			// upstream speaking).
+			const answered = probed.ok && probed.response.status < 500;
+			if (answered || attempt === HEALTH_PROBE_ATTEMPTS) {
+				if (probed.ok && !answered) await probed.response.text().catch(() => '');
+				break;
+			}
+			if (probed.ok) await probed.response.text().catch(() => '');
+			await sleepMs(HEALTH_PROBE_RETRY_MS);
+		}
+		if (probed === null) continue;
 		let status: 'healthy' | 'degraded' | 'unhealthy' = 'unhealthy';
 		let detail: Record<string, unknown> = {};
+		let reachedUpstream = false;
 		if (probed.ok) {
 			const code = probed.response.status;
 			const bodyText = await probed.response.text().catch(() => '');
+			// 5xx is not this upstream speaking — it is a gate (nginx, CF,
+			// an LB) refusing the probe. Nothing was learned about liveness,
+			// so this attempt is not a verdict; `reachedUpstream` stays false
+			// and the transition below is skipped.
 			if (code >= 500) {
-				status = 'unhealthy';
+				detail = { httpStatus: code, probe: probeMode, note: 'edge 5xx, not the upstream' };
 			} else if (code === 429) {
+				reachedUpstream = true;
 				status = 'degraded';
+				detail = { httpStatus: code, probe: probeMode };
 			} else if (probeMode === 'chat') {
 				// A chat probe is authoritative: 2xx means the upstream served a
 				// completion, 4xx means it refused this router's request shape (a
 				// missing key, a disabled model) and the connection is not usable.
+				reachedUpstream = true;
 				status = code >= 200 && code < 300 ? 'healthy' : 'unhealthy';
+				detail = { httpStatus: code, probe: probeMode };
 			} else if (code >= 200 && code < 300 && !looksLikeModelsJSON(bodyText)) {
 				// A 2xx that is not the JSON model listing means base_url answers
 				// with an HTML page (a marketing site or SPA fallback), so the
 				// chat call cannot work either. Unhealthy keeps it out of the
 				// candidate set instead of burning fallback attempts on it.
+				reachedUpstream = true;
 				status = 'unhealthy';
+				detail = { httpStatus: code, probe: probeMode };
 			} else {
+				reachedUpstream = true;
 				status = 'healthy';
+				detail = { httpStatus: code, probe: probeMode };
 			}
-			detail = { httpStatus: code, probe: probeMode };
 		} else {
-			detail = { error: probed.message, probe: probeMode };
+			detail = { error: probed.message, probe: probeMode, attempts: HEALTH_PROBE_ATTEMPTS };
+		}
+		if (!reachedUpstream) {
+			// No verdict: the upstream never answered. Keep the last known
+			// health — do NOT write 'unhealthy', which would unpublish every
+			// model on this connection. Only refresh the row's timestamp.
+			await dbtx
+				.update(connection)
+				.set({ updatedAt: new Date() })
+				.where(eq(connection.id, c.id));
+			continue;
 		}
 		if (status !== c.healthStatus) {
 			await dbtx

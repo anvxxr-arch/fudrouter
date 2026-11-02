@@ -28,12 +28,21 @@ import (
 // admissionQueries is what the router's model-resolution step costs for a
 // virtual name: resolve, then fetch every model's candidates the way
 // lifecycle.begin does.
-func admissionQueries(t *testing.T, s *store.Store, tr *store.CounterTracer, key *store.APIKeyRow, name string) (int, int) {
+func admissionQueries(t *testing.T, s *store.Store, tr *store.CounterTracer, key *store.APIKeyRow, name string, seededIDs ...string) (int, int) {
 	t.Helper()
 	ctx := context.Background()
 	res, err := s.ResolveModel(ctx, key, name)
 	if err != nil {
 		t.Fatalf("ResolveModel(%s): %v", name, err)
+	}
+	resolved := map[string]bool{}
+	for _, id := range res.ModelIDs {
+		resolved[id] = true
+	}
+	for _, id := range seededIDs {
+		if !resolved[id] {
+			t.Fatalf("virtual omitted seeded model %s", id)
+		}
 	}
 	tr.Reset()
 	if _, err := s.CandidatesBatch(ctx, res.ModelIDs, res.RequiredCapabilities); err != nil {
@@ -51,15 +60,19 @@ func TestVirtualFanOutIsConstant(t *testing.T) {
 	// Grow the catalogue 10x and require the same cost. Each seeded model is
 	// routable (SeedModels inserts the provider_model mapping), so the virtual
 	// name's candidate set really does grow.
-	tests.SeedModels(t, dsn, env, 20)
-	smallQ, smallN := admissionQueries(t, s, tr, key, "fudrouter/auto")
-	tests.SeedModels(t, dsn, env, 200)
-	bigQ, bigN := admissionQueries(t, s, tr, key, "fudrouter/auto")
+	smallIDs := tests.SeedModels(t, dsn, env, 20)
+	smallQ, smallN := admissionQueries(t, s, tr, key, "fudrouter/auto", smallIDs...)
+	bigIDs := append(smallIDs, tests.SeedModels(t, dsn, env, 200)...)
+	bigQ, bigN := admissionQueries(t, s, tr, key, "fudrouter/auto", bigIDs...)
 
 	t.Logf("virtual candidate fetch: %d queries for %d models, %d queries for %d models",
 		smallQ, smallN, bigQ, bigN)
-	if bigN < smallN*5 {
-		t.Fatalf("fixture did not grow: %d models then %d", smallN, bigN)
+	// The loaded catalogue made the old whole-DB ratio read 184 -> 384 and
+	// fail despite the fixture growing 20 -> 220. Count the seeded targets
+	// (each verified above), not unrelated catalogue rows or other packages'
+	// temporary fixtures. Both query counts still cover the ENTIRE catalogue.
+	if len(bigIDs) < len(smallIDs)*5 {
+		t.Fatalf("fixture did not grow: %d seeded models then %d", len(smallIDs), len(bigIDs))
 	}
 	if smallQ != bigQ {
 		t.Fatalf("candidate fetch scales with the catalogue: %d -> %d queries", smallQ, bigQ)
@@ -120,6 +133,7 @@ func TestVirtualFanOutStillCoversEveryModel(t *testing.T) {
 	if routable != len(res.ModelIDs) {
 		t.Errorf("only %d of %d resolved models returned candidates", routable, len(res.ModelIDs))
 	}
+	t.Logf("virtual coverage: %d/%d resolved models returned candidates in %d query", routable, len(res.ModelIDs), tr.Count())
 	if routable < 40 {
 		t.Fatalf("fixture is too small to be meaningful: %d routable", routable)
 	}

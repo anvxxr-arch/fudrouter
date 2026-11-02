@@ -246,9 +246,9 @@ var virtualModels = map[string]struct {
 
 // ResolveModel maps a request's `model` string onto a model set.
 //
-// Alias resolution order (spec §5): account alias → global virtual → literal
-// `model.slug`. First match wins. The project and workspace levels this used to
-// walk were collapsed into the account by migration 0019.
+// Alias resolution order (spec §5): account combo → account/global alias →
+// global virtual → canonical identity/literal slug. First match wins. The project
+// and workspace levels this used to walk were collapsed into the account by 0019.
 func (s *Store) ResolveModel(ctx context.Context, k *APIKeyRow, name string) (*ModelResolution, error) {
 	name = strings.TrimSpace(name)
 	res := &ModelResolution{Requested: name}
@@ -316,8 +316,15 @@ func (s *Store) ResolveModel(ctx context.Context, k *APIKeyRow, name string) (*M
 			-- guards on the SAME predicates the earlier arms used, so a name
 			-- that is also a model.slug still resolves as the combo or alias
 			-- (spec §5 precedence is unchanged).
-			select 1 as b, 'model' as kind, m2.id as model_id, m2.slug as slug, 0 as pos
+			-- A live old spelling must use the identity too: 0026's missing-row
+			-- fallback left duplicate provider sets isolated (152/159 rows at depth 1).
+			-- The source row stays put for catalogue compatibility and billing.
+			select 1 as b, 'model' as kind, coalesce(canonical.id, m2.id) as model_id,
+			       coalesce(canonical.slug, m2.slug) as slug, 0 as pos
 			from model m2
+			left join model_slug_alias identity on identity.alias = m2.slug
+			left join model canonical on canonical.id = identity.canonical_model_id
+			  and canonical.status = 'active'
 			where m2.slug = $1 and m2.status = 'active'
 			  and not exists (
 				select 1 from model_alias a2
@@ -330,6 +337,28 @@ func (s *Store) ResolveModel(ctx context.Context, k *APIKeyRow, name string) (*M
 				join model m3 on m3.id = cm3.model_id
 				where c3.account_id = $2 and c3.name = $1 and c3.enabled
 				  and m3.status = 'active' and $2 <> ''
+			  )
+			union all
+			-- An old name also survives if its row is later retired or removed.
+			-- Keep the same combo/account guards as the live arm; the missing
+			-- live-row guard prevents two resolutions for one input spelling.
+			select 2 as b, 'model' as kind, m3b.id as model_id, m3b.slug as slug, 0 as pos
+			from model_slug_alias sa
+			join model m3b on m3b.id = sa.canonical_model_id
+			where sa.alias = $1 and m3b.status = 'active'
+			  and not exists (select 1 from model ms where ms.slug = $1 and ms.status = 'active')
+			  and not exists (select 1 from model m4 where m4.id = sa.canonical_model_id and m4.slug = $1)
+			  and not exists (
+				select 1 from model_alias a4
+				where a4.enabled and a4.name = $1
+				  and (a4.account_id = $2 or a4.account_id is null)
+			  )
+			  and not exists (
+				select 1 from combo c4
+				join combo_model cm4 on cm4.combo_id = c4.id
+				join model m5 on m5.id = cm4.model_id
+				where c4.account_id = $2 and c4.name = $1 and c4.enabled
+				  and m5.status = 'active' and $2 <> ''
 			  )
 		) x
 		order by b, pos`, name, k.UserID)
@@ -349,8 +378,8 @@ func (s *Store) ResolveModel(ctx context.Context, k *APIKeyRow, name string) (*M
 			return nil, err
 		}
 		found = true
-		if branch == 1 {
-			// The literal branch is authoritative and single-row.
+		if branch == 1 || branch == 2 {
+			// Identity remapping is still one model, not an ordered target alias.
 			res.Kind = "model"
 			res.ModelIDs = []string{mv}
 			res.ModelSlugs = []string{sv}
@@ -398,10 +427,13 @@ func (s *Store) ResolveModel(ctx context.Context, k *APIKeyRow, name string) (*M
 		// fall through to the virtual branch (3)
 	}
 
-	// 3: global virtual. Target set is every active model; the strategy picks
-	// among them (spec §5: "resolved by the router from the active strategy").
+	// 3: global virtual. Target set is every model the request path can
+	// actually attempt; the strategy picks among them (spec §5: "resolved by
+	// the router from the active strategy"). The set is filtered by the
+	// virtual's OWN capability requirement, so `fudrouter/auto` cannot
+	// advertise a model CandidatesBatch will discard (see activeModelIDs).
 	if v, ok := virtualModels[name]; ok {
-		ids, slugs, err := s.activeModelIDs(ctx)
+		ids, slugs, err := s.activeModelIDs(ctx, v.caps)
 		if err != nil {
 			return nil, err
 		}
@@ -457,14 +489,87 @@ func (s *Store) SetChatCapable(ctx context.Context, slug string, chat bool) erro
 	return err
 }
 
-func (s *Store) activeModelIDs(ctx context.Context) ([]string, []string, error) {
+// activeModelIDs is the target set a `[NAME]/*` virtual resolves to: every
+// active model with at least one mapping the request path could actually
+// ATTEMPT.
+//
+// Why the target set is the candidate predicate rather than `status='active'`:
+// the strategy scores this set BEFORE CandidatesBatch filters it, so a model
+// the batch will discard is not merely wasted work — it is a DEAD END the
+// virtual advertises to its own admission loop, and the caller sees a model
+// with zero candidates. MEASURED on the deployed catalogue (2026-11-02, 570
+// rows, 271 active): 38 active models carry an explicit
+// `capabilities->'chat' = false` (image, video, audio and embedding rows), and
+// `fudrouter/auto` — whose only requirement IS chat — listed every one of them.
+// The previous predicate returned 200 rows for `fudrouter/auto` while only 162
+// of them could ever come back with a candidate: 38 dead ends, exactly the
+// chat=false set. `TestVirtualFanOutStillCoversEveryModel` measured the same
+// gap on its fixture as "only 203 of 241 resolved models returned candidates".
+//
+// The rule is the SAME rule the candidate queries apply, in the same statement:
+// CapabilitySatisfied's explicit-`false` elimination (missing key passes — an
+// unenriched row must never black-hole a request) and the
+// provider_model → connection → credential chain, including the legacy
+// `provider.credentials_enc` blob a connection without credential rows still
+// dials through. Evaluating it in SQL rather than filtering the result in Go is
+// deliberate: it keeps the fan-out at ONE query per virtual
+// (virtual_fanout_test.go pins the batch to 1) while removing the dead ends.
+//
+// Capabilities are compared against the EFFECTIVE value — the mapping's
+// capabilities_override merged over the canonical row, `||` with the right
+// operand winning, which is exactly what Candidates assembles in Go. A mapping
+// override of `false` vetoes a canonical `true`, so the override has to be part
+// of this predicate or the target set drifts from the candidate set again.
+//
+// DISTINCT is over the routing identity, not the stored spelling. Otherwise the
+// same model remains several virtual targets and its providers stay partitioned.
+// Capability checks still use each mapping's original model row, like the batch:
+// an alias must not erase a provider's explicit capability veto.
+func (s *Store) activeModelIDs(ctx context.Context, requiredCaps map[string]bool) ([]string, []string, error) {
+	// The required set rides as one jsonb parameter. `{}` (not `null`) when
+	// nothing is required: jsonb_each is strict, but relying on a strict
+	// function returning no rows is the kind of accident that reads as intent
+	// later. Keys are never interpolated into the SQL text.
+	caps := "{}"
+	if len(requiredCaps) > 0 {
+		if b, err := json.Marshal(requiredCaps); err == nil {
+			caps = string(b)
+		}
+	}
 	rows, err := s.pool.Query(ctx, `
-		select m.id, m.slug from model m
+		select distinct coalesce(canonical.id, m.id) as id,
+		       coalesce(canonical.slug, m.slug) as slug
+		from model m
+		left join model_slug_alias identity on identity.alias = m.slug
+		left join model canonical on canonical.id = identity.canonical_model_id
+		  and canonical.status = 'active'
 		where m.status = 'active'
-		  and exists (select 1 from provider_model pm
-		              join provider p on p.id = pm.provider_id
-		              where pm.model_id = m.id and pm.enabled and `+s.providerServableSQL()+`)
-		order by m.slug`)
+		  and exists (
+		      select 1 from provider_model pm
+		      join provider p on p.id = pm.provider_id
+		      left join connection c on c.id = pm.connection_id
+		      where pm.model_id = m.id
+		        and pm.enabled
+		        and pm.status not in ('disabled', 'unavailable')
+		        and (c.id is null or c.enabled)
+		        and (c.id is null or c.health_status is distinct from 'unhealthy')
+		        and not exists (
+		            select 1 from jsonb_each($1::jsonb) as r(k, v)
+		            where v = 'true'::jsonb
+		              and (coalesce(m.capabilities, '{}'::jsonb) || coalesce(pm.capabilities_override, '{}'::jsonb)) -> r.k = 'false'::jsonb
+		        )
+		        and (
+		            coalesce(p.credentials_enc, '') <> ''
+		            or (c.id is not null and exists (
+		                select 1 from credential cr
+		                where cr.connection_id = c.id
+		                  and cr.status not in ('disabled', 'invalid')
+		                  and (cr.cooldown_until is null or cr.cooldown_until <= now())
+		            ))
+		        )
+		        and `+s.providerServableSQL()+`
+		  )
+		order by slug`, caps)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -490,9 +595,12 @@ func (s *Store) activeModelIDs(ctx context.Context) ([]string, []string, error) 
 // eliminates only an explicit `false` — a missing/unknown key is not a claim,
 // so an unenriched catalog can never black-hole a request.
 type Candidate struct {
+	// The mapping's original model row owns its capabilities and price history.
+	// CandidatesBatch keys the union by the requested identity separately; using
+	// that identity here would silently re-price an aliased provider.
 	ModelID          string
 	ModelSlug        string
-	ProviderModelID  string // provider_model.id (pmdl_…) — the entity id
+	ProviderModelID  string // provider_model.id (pmdl_...) — the entity id
 	UpstreamModel    string // provider_model.provider_model_id: the name sent upstream
 	ProviderID       string
 	ProviderName     string
@@ -560,14 +668,27 @@ type Credential struct {
 // A model with no routable target is ABSENT from the map rather than present as
 // an empty slice, which mirrors Candidates returning ErrNotFound: the caller
 // skips the same models either way.
+//
+// A canonical identity owns the UNION of its live source rows. The map key stays
+// the requested id (including old ids held by account aliases/combos), but every
+// Candidate retains its original model/mapping/upstream fields for billing and
+// dispatch. This adds fan-out without re-keying any historical row.
 func (s *Store) CandidatesBatch(ctx context.Context, modelIDs []string, requiredCaps map[string]bool) (map[string][]Candidate, error) {
 	out := map[string][]Candidate{}
 	if len(modelIDs) == 0 {
 		return out, nil
 	}
 	rows, err := s.pool.Query(ctx, `
+		with requested as (
+			select r.id as requested_model_id, coalesce(canonical.id, r.id) as canonical_model_id
+			from model r
+			left join model_slug_alias identity on identity.alias = r.slug
+			left join model canonical on canonical.id = identity.canonical_model_id
+			  and canonical.status = 'active'
+			where r.id = any($1) and r.status = 'active'
+		)
 		select * from (
-			select m.id as model_id, m.slug, pm.id, pm.provider_model_id,
+			select r.requested_model_id, m.id as model_id, m.slug, pm.id, pm.provider_model_id,
 			       p.id, p.name, coalesce(p.slug, ''), p.tier, p.priority,
 			       c.id, c.base_url, c.auth_type, c.timeout_ms, c.config::text,
 			       coalesce(c.egress_mode, 'ipv6_rotate'), coalesce(c.sticky_ttl_seconds, 3600),
@@ -578,8 +699,12 @@ func (s *Store) CandidatesBatch(ctx context.Context, modelIDs []string, required
 			       coalesce(pm.context_override, m.context, 0),
 			       coalesce(p.credentials_enc, ''),
 			       coalesce(creds.items, '[]'::json),
-			       row_number() over (partition by m.id order by p.priority asc, pm.id) as rn
+			       row_number() over (partition by r.requested_model_id order by p.priority asc, pm.id) as rn
 			from model m
+			left join model_slug_alias identity on identity.alias = m.slug
+			left join model canonical on canonical.id = identity.canonical_model_id
+			  and canonical.status = 'active'
+			join requested r on r.canonical_model_id = coalesce(canonical.id, m.id)
 			join provider_model pm on pm.model_id = m.id
 			join provider p on p.id = pm.provider_id
 			left join connection c on c.id = pm.connection_id
@@ -593,8 +718,7 @@ func (s *Store) CandidatesBatch(ctx context.Context, modelIDs []string, required
 				  and cr.status not in ('disabled', 'invalid')
 				  and (cr.cooldown_until is null or cr.cooldown_until <= now())
 			) creds on true
-			where m.id = any($1)
-			  and m.status = 'active'
+			where m.status = 'active'
 			  and pm.enabled
 			  and pm.status not in ('disabled', 'unavailable')
 			  and (c.id is null or c.enabled)
@@ -603,7 +727,7 @@ func (s *Store) CandidatesBatch(ctx context.Context, modelIDs []string, required
 		) ranked
 		-- Ordered across the whole set so the map is built in one pass and every
 		-- model's slice comes out in its own rank order.
-		order by model_id, rn`, modelIDs)
+		order by requested_model_id, rn`, modelIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -611,13 +735,14 @@ func (s *Store) CandidatesBatch(ctx context.Context, modelIDs []string, required
 
 	for rows.Next() {
 		var c Candidate
+		var requestedID string
 		var overrideJSON, capsJSON, credsJSON []byte
 		var baseURL *string
 		var authType *string
 		var timeoutMs *int
 		var connID *string
 		var rn int
-		if err := rows.Scan(&c.ModelID, &c.ModelSlug, &c.ProviderModelID, &c.UpstreamModel,
+		if err := rows.Scan(&requestedID, &c.ModelID, &c.ModelSlug, &c.ProviderModelID, &c.UpstreamModel,
 			&c.ProviderID, &c.ProviderName, &c.ProviderSlug, &c.ProviderTier, &c.Priority,
 			&connID, &baseURL, &authType, &timeoutMs, &c.ConfigJSON,
 			&c.EgressMode, &c.StickyTTLSeconds, &c.ProxyURL,
@@ -659,7 +784,7 @@ func (s *Store) CandidatesBatch(ctx context.Context, modelIDs []string, required
 		if len(c.Credentials) == 0 && c.LegacyBlob == "" {
 			continue
 		}
-		out[c.ModelID] = append(out[c.ModelID], c)
+		out[requestedID] = append(out[requestedID], c)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -681,103 +806,13 @@ func (s *Store) CandidatesBatch(ctx context.Context, modelIDs []string, required
 // several credentials would otherwise multiply the candidate row, and one with
 // none would disappear instead of staying reachable through its legacy blob.
 func (s *Store) Candidates(ctx context.Context, modelID string, requiredCaps map[string]bool) ([]Candidate, error) {
-	rows, err := s.pool.Query(ctx, `
-		select m.id, m.slug, pm.id, pm.provider_model_id,
-		       p.id, p.name, coalesce(p.slug, ''), p.tier, p.priority,
-		       c.id, c.base_url, c.auth_type, c.timeout_ms, c.config::text,
-		       coalesce(c.egress_mode, 'ipv6_rotate'), coalesce(c.sticky_ttl_seconds, 3600),
-		       coalesce(c.proxy_url, ''),
-		       coalesce(c.region, ''), coalesce(c.health_status, 'unknown'),
-		       coalesce(pm.capabilities_override, '{}'::jsonb),
-		       m.capabilities,
-		       coalesce(pm.context_override, m.context, 0),
-		       coalesce(p.credentials_enc, ''),
-		       coalesce(creds.items, '[]'::json)
-		from model m
-		join provider_model pm on pm.model_id = m.id
-		join provider p on p.id = pm.provider_id
-		left join connection c on c.id = pm.connection_id
-		left join lateral (
-			select json_agg(json_build_object(
-			           'id', cr.id, 'name', cr.name, 'secret_enc', cr.secret_enc,
-			           'status', cr.status, 'weight', cr.weight, 'priority', cr.priority
-			       ) order by cr.priority asc, cr.weight desc, cr.id) as items
-			from credential cr
-			where cr.connection_id = c.id
-			  and cr.status not in ('disabled', 'invalid')
-			  and (cr.cooldown_until is null or cr.cooldown_until <= now())
-		) creds on true
-		where m.id = $1
-		  and m.status = 'active'
-		  and pm.enabled
-		  and pm.status not in ('disabled', 'unavailable')
-		  and (c.id is null or c.enabled)
-		  and (c.id is null or c.health_status is distinct from 'unhealthy')
-		  and `+s.providerServableSQL()+`
-		order by p.priority asc, pm.id`, modelID)
+	// Share the identity join and capability/credential scan with the batch;
+	// separate implementations made it possible to fix only one admission path.
+	byModel, err := s.CandidatesBatch(ctx, []string{modelID}, requiredCaps)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	var out []Candidate
-	for rows.Next() {
-		var c Candidate
-		var overrideJSON, capsJSON, credsJSON []byte
-		var baseURL *string
-		var authType *string
-		var timeoutMs *int
-		var connID *string
-		if err := rows.Scan(&c.ModelID, &c.ModelSlug, &c.ProviderModelID, &c.UpstreamModel,
-			&c.ProviderID, &c.ProviderName, &c.ProviderSlug, &c.ProviderTier, &c.Priority,
-			&connID, &baseURL, &authType, &timeoutMs, &c.ConfigJSON,
-			&c.EgressMode, &c.StickyTTLSeconds, &c.ProxyURL,
-			&c.Region, &c.HealthStatus,
-			&overrideJSON, &capsJSON, &c.Context, &c.LegacyBlob, &credsJSON,
-		); err != nil {
-			return nil, err
-		}
-		if connID != nil {
-			c.ConnectionID = *connID
-		}
-		if baseURL != nil {
-			c.BaseURL = *baseURL
-		}
-		if authType != nil {
-			c.AuthType = *authType
-		}
-		if timeoutMs != nil {
-			c.TimeoutMs = *timeoutMs
-		}
-		if err := json.Unmarshal(credsJSON, &c.Credentials); err != nil {
-			return nil, err
-		}
-		// Effective capabilities = canonical, overridden per key by the mapping
-		// (spec §5). An override key replaces the canonical claim entirely, so
-		// `false` can veto even a canonical `true`.
-		c.Capabilities = map[string]any{}
-		_ = json.Unmarshal(capsJSON, &c.Capabilities)
-		var override map[string]any
-		_ = json.Unmarshal(overrideJSON, &override)
-		for k, v := range override {
-			c.Capabilities[k] = v
-		}
-		if !CapabilitySatisfied(c.Capabilities, requiredCaps) {
-			continue
-		}
-		// Per-candidate prices are filled by the caller through cachedPricing
-		// (proxy): the request's own billing snapshot in buildRow still resolves
-		// and freezes its price at request time.
-		// A connection with no usable credential row and no legacy blob cannot be
-		// attempted at all — drop it rather than fail later on every request.
-		if len(c.Credentials) == 0 && c.LegacyBlob == "" {
-			continue
-		}
-		out = append(out, c)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
+	out := byModel[modelID]
 	if len(out) == 0 {
 		return nil, ErrNotFound
 	}

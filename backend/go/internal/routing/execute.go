@@ -190,6 +190,18 @@ func Execute(ctx context.Context, ordered []Candidate, plan Plan, deadline time.
 				cb.Result(ctx, &cand, a.ErrorCode == "")
 			}
 
+			// 4. Measured reliability (spec §30's reliability signal, which had
+			// no measured input before this). Unlike the breaker above, this
+			// DOES count a 429 — see reliability.go — and it is folded on this
+			// goroutine, after the attempt, so it cannot delay the exchange it
+			// is describing. A code the EWMA refuses to observe (a refusal, or
+			// one account's per-model gate) is skipped rather than scored.
+			if cb != nil {
+				if outcome, observed := ReliabilityOutcome(a.ErrorCode); observed {
+					cb.Observe(ctx, &cand, outcome)
+				}
+			}
+
 			if a.ErrorCode == "" {
 				res.Winner = a
 				res.FallbackUsed = candidatesTried > 1

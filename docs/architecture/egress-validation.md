@@ -9,7 +9,7 @@ also passed the anonymous 100-fresh-socket case and 429/402/403 burn rotations.
 A separate credentialed integration case's explicit `sourceip.Burn` changed the
 next source, rather than relying on keep-alive to look sticky.
 
-Migration readback returned `0026_connection_egress` and
+Migration readback returned `0027_connection_egress` and
 `ipv6_rotate | 3600 | NULL | 26`: all 26 existing connections retained the default.
 
 ## Verification boundaries
@@ -176,7 +176,7 @@ subagent, cron job, or Hermes memory/configuration change was performed.
 - `backend/go/internal/sourceip/sourceip.go`
 - `backend/go/internal/store/catalog.go`
 - `backend/go/internal/store/egress_test.go`
-- `backend/go/migrations/0026_connection_egress.sql`
+- `backend/go/migrations/0027_connection_egress.sql`
 - `docs/architecture/egress-policy.md`
 - `docs/architecture/egress-validation.md`
 - `packages/platform/server/db/schema.ts`

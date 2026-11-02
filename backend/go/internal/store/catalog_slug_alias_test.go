@@ -41,7 +41,7 @@ import (
 
 // slugAliasMigrationPath is the migration this file pins, relative to the
 // package directory (`go test` runs each test binary from its own package dir).
-const slugAliasMigrationPath = "../../migrations/0027_model_identity_backfill.sql"
+const slugAliasMigrationPath = "../../migrations/0028_model_identity_backfill.sql"
 
 // TestVirtualAutoTargetsAreAllRoutable is the headline contract of this
 // workstream: every model `fudrouter/auto` advertises must have at least one

@@ -1,6 +1,6 @@
 # Per-connection inference egress
 
-Migration: `backend/go/migrations/0026_connection_egress.sql`, applied only through
+Migration: `backend/go/migrations/0027_connection_egress.sql`, applied only through
 `ops/migrate.sh`. Policy is read by both `Candidates` and `CandidatesBatch` and
 carried separately from decrypted account secrets. No management route or public
 API contract changes. Configure connection rows through existing operator SQL;

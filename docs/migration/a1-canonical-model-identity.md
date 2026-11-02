@@ -33,7 +33,7 @@ Replacing it with a text-alias primary key would break that existing feature and
 its foreign keys. The identity layer therefore uses **model_slug_alias**, with
 `alias text primary key` and `canonical_model_id references model(id)`.
 
-0027 is the next free migration after the already-present 0026. Its forward
+0028 is the next free migration after the already-present 0026. Its forward
 backfill, and the matching fresh-install backfill in 0026, recognise case variants
 and actual provider namespaces whose entire remaining plain slug already exists.
 InferHub's nested prefixes are scoped to InferHub. Unknown namespaces are not

@@ -54,6 +54,16 @@ layout choices:
 `infra/containers/` is free to move (no host binding) and is the only part of
 Target A's `infra/{containers,deploy,scripts}` that is safe to take now.
 
+3. **`backend/go/cmd/*` ops probes are part of the authorized tree** (Target A names
+   only `cmd/{api,gateway,migrate}`). The following commands are real `main`
+   packages used from `ops/` and the host: `blobshape`, `cfpprobe`, `credcanary`,
+   `credshape`, `farmplan`, `limprobe`, `poolcount`, `poolrebuild`, `rotprobe`.
+   They import the gateway's internal packages, so `cmd/<name>` is their only legal
+   home. `ops/verify/structure.sh` `GO_CMDS` is their registry; a new command that
+   lands under `cmd/` must be added there in the same commit or Typecheck fails.
+   (Merge `276c1f2` registered them; the farm suite added `farmplan` and the
+   egress/canonical-identity work added the rest.)
+
 ## Evidence
 
 - Owner selection 2026-10-11; `docs/migration/2026-10-10-migration-map.md` §1 A-vs-B table; `ops/verify/structure.sh`; ADR-0001:3, ADR-0002, ADR-0003, ADR-0004:42, gap register §C/E, baseline §5.

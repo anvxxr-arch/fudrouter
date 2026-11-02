@@ -32,7 +32,7 @@ APPS=( web workers scheduler )
 # credrepair/upchat are ops probes, not data-plane commands; they sit here
 # because they import the gateway's internal packages (cmd/<name> is the only
 # module-local import root). Their permanent home is an unresolved ADR question.
-GO_CMDS=( gateway credrepair upchat )
+GO_CMDS=( gateway credrepair upchat blobshape cfpprobe credcanary credshape farmplan limprobe poolcount poolrebuild rotprobe )
 
 fails=0
 say() { printf '%s\n' "$*"; }

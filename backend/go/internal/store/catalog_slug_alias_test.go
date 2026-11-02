@@ -1,6 +1,6 @@
 package store_test
 
-// Canonical model identity (migration 0026) and the two defects it exists to
+// Canonical model identity (migrations 0026/0027) and the two defects it exists to
 // close. Both were MEASURED on the real catalogue loaded into this test
 // database (26 providers, 570 models, 523 provider_model rows, 74242
 // credentials), not synthesised.
@@ -13,14 +13,13 @@ package store_test
 // (`model.id -> provider_model -> provider`) gives each row only ITS OWN
 // providers. An upstream model reachable through four providers becomes four
 // depth-1 rows instead of one depth-4 model, and the attempt walker has nothing
-// to fail over to when the first provider is down. 118 of the 570 rows belong
-// to a family of two or more.
+// to fail over to when the first provider is down. 260 of the 570 rows sit in
+// one of the 74 multi-row families (186 aliases collapse onto 384 identities).
 //
 // WHY nothing is renamed: those prefixed and mixed-case strings are in the
 // wild, and `request_log.model_id` still references the rows. The identity is
-// recorded as an ADDITIONAL resolution arm that only fires when the literal arm
-// MISSES, so a client-visible slug resolves to exactly the row it resolves to
-// today.
+// recorded separately, so live old slugs can resolve to one identity without
+// deleting the rows that request_log and the price history still reference.
 //
 // The table is `model_slug_alias`, deliberately NOT `model_alias` — that name
 // belongs to a DIFFERENT feature that already exists (0006): a
@@ -31,6 +30,8 @@ package store_test
 import (
 	"context"
 	"os"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/store"
@@ -40,7 +41,7 @@ import (
 
 // slugAliasMigrationPath is the migration this file pins, relative to the
 // package directory (`go test` runs each test binary from its own package dir).
-const slugAliasMigrationPath = "../../migrations/0026_model_slug_alias.sql"
+const slugAliasMigrationPath = "../../migrations/0027_model_identity_backfill.sql"
 
 // TestVirtualAutoTargetsAreAllRoutable is the headline contract of this
 // workstream: every model `fudrouter/auto` advertises must have at least one
@@ -52,7 +53,7 @@ const slugAliasMigrationPath = "../../migrations/0026_model_slug_alias.sql"
 // end the virtual advertises to its own admission loop. Measured before the
 // fix: 38 active models carry an explicit `capabilities->'chat' = false` (image,
 // video, audio and embedding rows) and `fudrouter/auto`, whose only requirement
-// IS chat, listed every one of them, so 41 of its 200 targets could never come
+// IS chat, listed every one of them, so 38 of its 200 targets could never come
 // back with a candidate. An empty `CandidatesBatch` slice for an advertised
 // model is that dead end made visible.
 func TestVirtualAutoTargetsAreAllRoutable(t *testing.T) {
@@ -106,15 +107,9 @@ func TestVirtualAutoTargetsAreAllRoutable(t *testing.T) {
 	}
 }
 
-// TestModelSlugAliasBackfillAndRouting pins both halves of migration 0026:
-// the backfill picks the right survivor, and an OLD prefixed slug still routes
-// after the duplicate row it used to name is gone.
-//
-// WHY the duplicate must be deleted to observe the alias arm: the literal arm
-// wins on a live slug (deliberate — client-visible slugs behave exactly as
-// today), so while the prefixed row exists the alias for it is never consulted.
-// The alias is what keeps the name alive once an operator merges the duplicate
-// away, which is the whole point of the identity table.
+// A live duplicate must already resolve canonically: requiring its deletion
+// first made 0026 a dormant fallback rather than a routing identity. Also pin
+// the missing-row fallback, so an old name survives later catalogue cleanup.
 func TestModelSlugAliasBackfillAndRouting(t *testing.T) {
 	dsn := tests.RequireDB(t)
 	env := tests.SeedEnv(t, dsn, "http://127.0.0.1:1")
@@ -124,12 +119,12 @@ func TestModelSlugAliasBackfillAndRouting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close(ctx)
+	t.Cleanup(func() { conn.Close(context.Background()) })
 
 	// A provider-prefixed duplicate of the SAME upstream model: the leaf is
 	// already a slug of its own, which is what makes the family unambiguous and
 	// is the only prefixed shape the backfill collapses.
-	dupSlug := "vendorA/" + env.Slug
+	dupSlug := strings.TrimPrefix(env.ProviderID, "prv_") + "/" + env.Slug
 	dupID := "mdl_dupslug_" + tests.RandChars(8)
 	if _, err := conn.Exec(ctx, `
 		insert into model (id, provider_id, name, slug, context, input_price, output_price, status)
@@ -138,11 +133,12 @@ func TestModelSlugAliasBackfillAndRouting(t *testing.T) {
 		t.Fatalf("seed duplicate model: %v", err)
 	}
 	t.Cleanup(func() {
-		// Belt and braces: the assertion below deletes it, and this covers an
-		// early Fatal. The alias row cascades off the CANONICAL row, so it is
-		// removed by the alias cleanup instead.
-		_, _ = conn.Exec(context.Background(), `delete from model where id = $1`, dupID)
-		_, _ = conn.Exec(context.Background(), `delete from model_slug_alias where alias = $1`, dupSlug)
+		if _, err := conn.Exec(context.Background(), `delete from model where id = $1`, dupID); err != nil {
+			t.Errorf("duplicate fixture teardown: %v", err)
+		}
+		if _, err := conn.Exec(context.Background(), `delete from model_slug_alias where alias = $1`, dupSlug); err != nil {
+			t.Errorf("alias fixture teardown: %v", err)
+		}
 	})
 
 	// Run the migration ITSELF, so this test fails if the file's backfill and
@@ -161,9 +157,8 @@ func TestModelSlugAliasBackfillAndRouting(t *testing.T) {
 		t.Fatalf("alias %s -> %s, want the plain seeded row %s", dupSlug, canonical, env.ModelID)
 	}
 
-	// While the prefixed row is live, the literal arm owns the name (unchanged
-	// client-visible behaviour) — this is the promise the migration must not
-	// break.
+	// The old input remains valid while its row is live, but now reaches the
+	// canonical provider set instead of isolating the duplicate's mappings.
 	s, err := store.New(ctx, dsn)
 	if err != nil {
 		t.Fatal(err)
@@ -175,8 +170,8 @@ func TestModelSlugAliasBackfillAndRouting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%s (live slug): %v", dupSlug, err)
 	}
-	if len(lit.ModelIDs) != 1 || lit.ModelIDs[0] != dupID {
-		t.Fatalf("%s resolved to %v, want the live row %s — the literal arm must win", dupSlug, lit.ModelIDs, dupID)
+	if len(lit.ModelIDs) != 1 || lit.ModelIDs[0] != env.ModelID {
+		t.Fatalf("%s resolved to %v, want canonical %s while the old row remains", dupSlug, lit.ModelIDs, env.ModelID)
 	}
 
 	// Merge the duplicate away: this is the state the alias exists for.
@@ -218,20 +213,40 @@ func TestModelSlugAliasBackfillAndRouting(t *testing.T) {
 // existing table, would break that.
 func TestModelSlugAliasMigrationIsIdempotent(t *testing.T) {
 	dsn := tests.RequireDB(t)
+	env := tests.SeedEnv(t, dsn, "http://127.0.0.1:1")
 	ctx := context.Background()
 
 	conn, err := pgx.Connect(ctx, dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close(ctx)
+	t.Cleanup(func() { conn.Close(context.Background()) })
 
-	before := countSlugAliases(t, conn)
+	dupID := "mdl_idempotent_" + tests.RandChars(8)
+	dupSlug := strings.TrimPrefix(env.ProviderID, "prv_") + "/" + env.Slug
+	if _, err := conn.Exec(ctx, `
+		insert into model (id, provider_id, name, slug, input_price, output_price, status)
+		values ($1,$2,'Alias idempotence',$3,0,0,'active')`, dupID, env.ProviderID, dupSlug); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if _, err := conn.Exec(context.Background(), `delete from model where id = $1`, dupID); err != nil {
+			t.Errorf("alias idempotence teardown: %v", err)
+		}
+	})
+
+	// Take the baseline AFTER the first backfill: a fixture that creates no
+	// binding would let even an empty migration satisfy a count assertion.
+	runSlugAliasMigration(t, conn)
+	before := slugAliasBindings(t, conn)
+	if before[dupSlug] != env.ModelID {
+		t.Fatalf("first backfill did not bind %s to %s", dupSlug, env.ModelID)
+	}
 	runSlugAliasMigration(t, conn)
 	runSlugAliasMigration(t, conn)
-	after := countSlugAliases(t, conn)
-	if after != before {
-		t.Errorf("running the migration twice changed the alias row count: %d -> %d", before, after)
+	after := slugAliasBindings(t, conn)
+	if !reflect.DeepEqual(after, before) {
+		t.Errorf("repeated backfill changed identity bindings: before %v, after %v", before, after)
 	}
 }
 
@@ -249,13 +264,25 @@ func runSlugAliasMigration(t *testing.T, conn *pgx.Conn) {
 	}
 }
 
-func countSlugAliases(t *testing.T, conn *pgx.Conn) int {
+func slugAliasBindings(t *testing.T, conn *pgx.Conn) map[string]string {
 	t.Helper()
-	var n int
-	if err := conn.QueryRow(context.Background(), `select count(*) from model_slug_alias`).Scan(&n); err != nil {
-		t.Fatalf("count model_slug_alias: %v", err)
+	rows, err := conn.Query(context.Background(), `select alias, canonical_model_id from model_slug_alias order by alias`)
+	if err != nil {
+		t.Fatal(err)
 	}
-	return n
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var alias, id string
+		if err := rows.Scan(&alias, &id); err != nil {
+			t.Fatal(err)
+		}
+		out[alias] = id
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return out
 }
 
 // seedNonChatModel hangs an explicitly non-chat model off the seeded provider's

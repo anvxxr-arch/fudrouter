@@ -109,6 +109,13 @@ func TestFallbackLedgerWriteUsesLiveContext(t *testing.T) {
 
 	lc.finish()
 
+	// The attempts insert now runs on a detached goroutine (finish() must not
+	// hold the client's connection through the ledger retry backoff), so the
+	// third dial is not guaranteed to have happened when finish() returns.
+	// Join it: the property under test — the attempts write gets a LIVE
+	// context — is unchanged, only its timing moved off the request goroutine.
+	lc.WaitLedgerForTest()
+
 	if got := accepts.Load(); got < 3 {
 		t.Fatalf("expected 3 dials (primary, fallback, attempts), got %d: "+
 			"a recovery write reused an expired context", got)

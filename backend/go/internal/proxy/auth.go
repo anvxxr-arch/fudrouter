@@ -39,7 +39,7 @@ func (h *Handler) authenticate(r *http.Request) (*store.APIKeyRow, error) {
 	if !ok {
 		return nil, h.authFail(r, errors.New("malformed api key"))
 	}
-	row, err := h.store.LookupAPIKey(r.Context(), k.Prefix)
+	row, err := h.cachedAPIKeyRow(r.Context(), k.Prefix)
 	if err != nil {
 		if errors.Is(err, store.ErrKeyInactive) {
 			return nil, h.authFail(r, errors.New("api key is disabled or revoked"))

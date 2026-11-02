@@ -25,16 +25,25 @@ type pinger interface {
 	Ping(ctx context.Context) error
 }
 
-// newHealthHandler reports service identity AND database readiness. The data
-// plane must be independently identifiable so the control plane can tell it
-// apart from the web app in health checks and logs — and it must be *honest*:
-// the router can serve nothing without the database, so a DB-down state is a
-// 503, not a 200. Before this the handler hardcoded {"ok":true}, so an uptime
-// monitor saw a healthy router that 500'd every /v1 call.
+// cacheReporter is the cache-hit tally the health body reports (owner rule 19:
+// the cache must serve ≥60% of reads). It is an interface, not a concrete
+// *vk.live, so the handler stays testable without a Valkey server — and so a
+// nil client (no cache configured) is a valid, zero-reporting configuration.
+type cacheReporter interface {
+	CacheStats() vk.CacheStats
+}
+
+// newHealthHandler reports service identity, database readiness, and the
+// process's cache-hit rate. The data plane must be independently identifiable
+// so the control plane can tell it apart from the web app in health checks and
+// logs — and it must be *honest*: the router can serve nothing without the
+// database, so a DB-down state is a 503, not a 200. Before this the handler
+// hardcoded {"ok":true}, so an uptime monitor saw a healthy router that 500'd
+// every /v1 call.
 //
 // The failure body is deliberately generic: /health is unauthenticated, so the
 // underlying DB error is logged, never returned.
-func newHealthHandler(db pinger) http.Handler {
+func newHealthHandler(db pinger, cache cacheReporter) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
@@ -49,10 +58,22 @@ func newHealthHandler(db pinger) http.Handler {
 			})
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		body := map[string]any{
 			"ok":      true,
 			"service": serviceName,
-		})
+		}
+		// The cache tally is reported only when a cache is configured: a nil
+		// client means "no cache layer", and a 0% hit rate there would read as
+		// a failing cache rather than an absent one.
+		if cache != nil {
+			s := cache.CacheStats()
+			body["cache"] = map[string]any{
+				"hits":     s.Hits,
+				"misses":   s.Misses,
+				"hit_rate": s.HitRate(),
+			}
+		}
+		_ = json.NewEncoder(w).Encode(body)
 	})
 }
 
@@ -63,8 +84,8 @@ func newHealthHandler(db pinger) http.Handler {
 // adding a route, renaming one, or letting an exact pattern drift into the `/v1/`
 // catch-all changed the API surface silently. See proxy.ServeMux for why the
 // catch-all makes that worth pinning.
-func newMux(p *proxy.Handler, db pinger) *http.ServeMux {
-	return proxy.ServeMux(p, newHealthHandler(db))
+func newMux(p *proxy.Handler, db pinger, cache cacheReporter) *http.ServeMux {
+	return proxy.ServeMux(p, newHealthHandler(db, cache))
 }
 
 func main() {
@@ -103,14 +124,20 @@ func main() {
 	// lives and dies with main exactly like the pools.
 	p.StartHealthSweeper(ctx)
 
-	mux := newMux(p, st)
+	mux := newMux(p, st, c)
 
+	// RecoverMiddleware wraps the whole mux so a hot-path panic becomes a taxonomy
+	// 500 (and a logged stack) instead of a closed connection and a lost
+	// request_log row (F7). It lives here, not in ServeMux, because the contracts
+	// route extractor records each mux.Handle handler verbatim and wrapping there
+	// would rewrite the frozen routes.json (see RecoverMiddleware).
+	//
 	// ReadHeaderTimeout bounds the header phase (Slowloris); Read/WriteTimeout
 	// stay 0 because a streaming completion legitimately runs for minutes. The
 	// previous bare ListenAndServe left the header phase unbounded entirely.
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           mux,
+		Handler:           proxy.RecoverMiddleware(p, mux),
 		ReadHeaderTimeout: 15 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}

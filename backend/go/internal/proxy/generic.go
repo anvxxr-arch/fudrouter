@@ -56,7 +56,7 @@ func (h *Handler) ServeGeneric(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	path := r.URL.Path
 
-	body, err := io.ReadAll(io.LimitReader(r.Body, 10<<20))
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxRequestBytes))
 	if err != nil {
 		h.writeErrCode(w, "INVALID_REQUEST", "cannot read body")
 		return

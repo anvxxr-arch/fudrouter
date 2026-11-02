@@ -17,46 +17,56 @@ interface Tier {
 }
 
 // One plain const so the marketing copy is auditable in one place. Every
-// number here is a plan price, not a token allowance: the free tier's model
-// list is whatever the gateway's free-tier pool serves, and quoting a token
-// count we cannot back with data would be a promise the ledger can't keep.
+// number here is a SUBSCRIPTION price (owner directive 2026-10-31): the member
+// buys time, not tokens. The five plans and their prices are the same five the
+// platform's `payments.ts` plan table and the migration's CHECK constraint
+// pin — a price shown here that the checkout does not charge would be a lie.
 const TIERS: Tier[] = [
   {
-    name: 'Free',
-    price: '$0',
-    period: 'forever',
-    blurb: 'Free-tier models, metered per token.',
-    features: ['Free-tier models', '1 API key', 'Community support'],
-    cta: 'Start free',
+    name: '1 Day',
+    price: 'Rp 5.000',
+    period: '1 day',
+    blurb: 'A single day of access.',
+    features: ['All models', '1 API key', 'Up to 3 IPs', '5 concurrent requests'],
+    cta: 'Buy 1 day',
     to: '/login',
   },
   {
-    name: 'Pro',
-    price: '$20',
-    period: 'per month',
-    blurb: 'Every model, with fallback routing.',
-    features: ['All models', '10 API keys', 'Fallback routing', 'Email support'],
-    cta: 'Get Pro',
+    name: '3 Days',
+    price: 'Rp 12.000',
+    period: '3 days',
+    blurb: 'A long weekend of access.',
+    features: ['All models', '1 API key', 'Up to 3 IPs', '5 concurrent requests'],
+    cta: 'Buy 3 days',
+    to: '/login',
+  },
+  {
+    name: '7 Days',
+    price: 'Rp 30.000',
+    period: '7 days',
+    blurb: 'A full week, the most popular plan.',
+    features: ['All models', '1 API key', 'Up to 3 IPs', '5 concurrent requests'],
+    cta: 'Buy 7 days',
     to: '/login',
     highlight: true,
   },
   {
-    name: 'Team',
-    price: '$99',
-    period: 'per month',
-    blurb: 'For teams that need an audit trail.',
-    features: ['Audit log', 'Priority support'],
-    cta: 'Get Team',
+    name: '14 Days',
+    price: 'Rp 50.000',
+    period: '14 days',
+    blurb: 'Two weeks of access.',
+    features: ['All models', '1 API key', 'Up to 3 IPs', '5 concurrent requests'],
+    cta: 'Buy 14 days',
     to: '/login',
   },
   {
-    name: 'Enterprise',
-    price: 'Custom',
-    period: 'annual',
-    blurb: 'Your provider credentials, your terms.',
-    features: ['Dedicated provider credentials', 'SSO', 'NET-30 invoicing'],
-    cta: 'Read the docs',
-    to: '/docs',
+    name: '28 Days',
+    price: 'Rp 90.000',
+    period: '28 days',
+    blurb: 'A full month, the best value.',
+    features: ['All models', '1 API key', 'Up to 3 IPs', '5 concurrent requests'],
+    cta: 'Buy 28 days',
+    to: '/login',
   },
 ];
 
@@ -65,36 +75,36 @@ const TIERS: Tier[] = [
 // links there directly.
 const FAQ: { q: string; a: string }[] = [
   {
-    q: 'Do unused credits expire?',
-    a: 'No. Credits you top up stay on your balance until you spend them, however long that takes.',
+    q: 'How do I pay?',
+    a: 'Pick a plan and pay the QRIS code shown at checkout. Send the payment proof back, and an admin confirms it — your API key is published the moment it is confirmed.',
   },
   {
-    q: 'What happens when my balance hits zero?',
-    a: 'The request is refused with HTTP 402 (INSUFFICIENT_CREDITS) before it reaches a provider. There is no overage and no negative balance — top up and retry.',
+    q: 'How long does confirmation take?',
+    a: 'An admin is notified on Discord and Telegram the moment you claim a payment. Confirmation is manual, so it depends on the admin being online — usually minutes.',
   },
   {
-    q: 'How is each request billed?',
-    a: 'Every request writes one credit_ledger row when it finishes, with an idempotency key so a retry cannot double-charge. The row records the tokens actually used, not an estimate.',
+    q: 'What happens when my subscription expires?',
+    a: 'Your key stops serving requests. You have a 24-hour grace window to renew before the key is restricted; renewing any time restores access immediately.',
   },
   {
-    q: 'What do the price columns mean?',
-    a: 'Input is the per-1M-token rate for prompt tokens, cached input is the discounted rate for prompt tokens the provider has already seen, and output is the rate for tokens the model generates. All three are normalized to micro-dollars per 1M tokens.',
+    q: 'How many API keys can I have?',
+    a: 'Exactly one. Each member has a single key, so there is nothing to juggle and nothing to leak twice.',
   },
   {
-    q: 'Why is cached input cheaper?',
-    a: 'Providers charge less for prompt tokens they have already processed, so the router passes that discount through at the same rate it receives it.',
+    q: 'How many IPs can use my key?',
+    a: 'Up to three. The first three addresses your key is used from are remembered; a fourth is refused. This is what stops a leaked key from being shared around.',
   },
   {
-    q: 'What is in the free tier?',
-    a: 'The models the gateway serves from its free provider pool, one API key, and community support. Usage is metered the same way as paid tiers — per token, from your balance.',
+    q: 'How many requests can run at once?',
+    a: 'Five concurrent requests per key. Each request can stream up to 150 tokens per second from the upstream.',
   },
   {
-    q: 'Can prices change?',
-    a: 'Yes. Model prices track the upstream providers and can change. The table on this page always shows the current rates; a request is billed at the rate in effect when it runs.',
+    q: 'Do you offer refunds?',
+    a: 'No. A subscription is a prepaid window of time; once it is confirmed it is not refundable. Confirm the plan before you pay.',
   },
   {
-    q: 'Do you offer invoices or refunds?',
-    a: 'Not yet. There is no invoice or refund flow implemented — billing today is prepaid credits only. Enterprise plans are quoted individually with NET-30 terms.',
+    q: 'Can I stack plans?',
+    a: 'Yes. Buying a second plan while one is active extends your access — the windows add up.',
   },
 ];
 
@@ -248,7 +258,7 @@ export function PricingPage() {
     <Reveal>
       <div className="stack">
         <h1>Pricing</h1>
-        <p className="lede muted">Pay for what you use. Credits never expire. No per-seat fees.</p>
+        <p className="lede muted">Buy time, not tokens. One API key, every model, no per-request metering.</p>
 
         <section aria-labelledby="pricing-plans">
           <h2 id="pricing-plans">Plans</h2>
@@ -279,17 +289,17 @@ export function PricingPage() {
         </section>
 
         <section aria-labelledby="pricing-credits">
-          <h2 id="pricing-credits">How credits work</h2>
+          <h2 id="pricing-credits">How subscriptions work</h2>
           <div className="pricing-credits">
             <ol className="pricing-steps">
               <li>
-                <strong>Top up.</strong> Add credits to your balance from the billing page. Credits never expire — an unused balance is not a liability.
+                <strong>Pick a plan.</strong> Choose one of the five windows above. The price is the whole cost — there is no per-token charge on top.
               </li>
               <li>
-                <strong>Every request writes a ledger row.</strong> When a request finishes, one <code>credit_ledger</code> row records the tokens actually used, with an idempotency key so a retry cannot double-charge.
+                <strong>Pay by QRIS.</strong> Checkout shows a QRIS code for the exact amount. Pay it, then send the payment proof back.
               </li>
               <li>
-                <strong>Zero balance returns 402.</strong> When the balance is exhausted the request is refused with HTTP 402 <code>INSUFFICIENT_CREDITS</code> at admission, before it reaches a provider. There is no overage charge — a request at a zero balance is refused before it reaches a provider.
+                <strong>An admin confirms it.</strong> The admin is notified on Discord and Telegram with your proof. On confirmation your API key is published and your window starts.
               </li>
             </ol>
             <FlowDiagram />

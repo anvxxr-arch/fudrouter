@@ -236,6 +236,80 @@ func TestLoadLedgerStaysExactlyOnce(t *testing.T) {
 	}
 }
 
+// TestLoadLedgerSurvivesPoolOversubscription is the regression gate for the
+// lost-billing-row bug found 2026-10-31.
+//
+// TestLoadLedgerStaysExactlyOnce runs 12 workers against the default
+// 20-connection pool — headroom, so the write queue never grows past the 5s
+// write budget and the bug is invisible. This test drives concurrency well
+// ABOVE the pool size, which is the condition that loses rows: measured at 128
+// workers, 106 of 2000 requests answered 200 and were never billed (both
+// request_log and usage_charge short by 106, distinct idempotency keys matching
+// the rows that did land, so nothing was double-charged — it was simply lost).
+//
+// The fix is the fallback's retry loop in finish(): one fresh context re-queued
+// behind the same waiters and expired again, so 160 of 268 charge failures were
+// saved and 108 were not. Retrying with backoff recovers all of them.
+//
+// The pool is pinned small (4) rather than left at 20 so the oversubscription
+// is 32x at 128 workers and the test does not need a 4-minute run to build the
+// queue. Only the POOL sees pool_max_conns: pgxpool.ParseConfig deletes it from
+// RuntimeParams, so the pool's connections never send it to Postgres, while a
+// bare pgx.Connect (SeedEnv, RequestLogCount, ledgerRows) would FATAL on it.
+func TestLoadLedgerSurvivesPoolOversubscription(t *testing.T) {
+	dsn := tests.RequireDB(t)
+	up := loadUpstream(t)
+	env := tests.SeedEnv(t, dsn, up.URL)
+
+	// The pool is left at its default (20) rather than pinned small: the loss
+	// is a function of QUEUE DEPTH against the write budget, and a tiny pool
+	// makes the primary fail more often while the single-shot fallback still
+	// saves every row (measured: pool=4 at 128 workers, 42 charge failures, 0
+	// rows lost). The default pool is what reproduced it.
+	h := tests.NewProxy(t, dsn, up.URL)
+	newReq := func() *http.Request { return newLoadRequest(t, env.Key, env.Slug) }
+
+	seedAccountRateLimit(t, dsn, env.UserID, 100000, 10000)
+	warmUp(t, h, newReq, 8)
+
+	const total = 2000
+	const workers = 128
+	baseLogs := tests.RequestLogCount(t, dsn, env.APIKeyID)
+	baseLedger, baseDistinct := ledgerRows(t, dsn, env)
+
+	res := runLoad(t, h, newReq, workers, total)
+	if res.ok != total {
+		t.Fatalf("%d of %d requests succeeded", res.ok, total)
+	}
+
+	// The writes run after the client's 200, so poll until the queue drains
+	// rather than reading once and racing the tail.
+	deadline := time.Now().Add(60 * time.Second)
+	var logs, rows, distinct int
+	for {
+		logs = tests.RequestLogCount(t, dsn, env.APIKeyID) - baseLogs
+		rows, distinct = ledgerRows(t, dsn, env)
+		rows -= baseLedger
+		distinct -= baseDistinct
+		if logs >= total || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+
+	if logs != total {
+		t.Errorf("request_log grew by %d, want exactly %d — %d request(s) answered 200 and were never billed",
+			logs, total, total-logs)
+	}
+	if rows != total {
+		t.Errorf("usage_charge grew by %d, want exactly %d — %d request(s) were served without a ledger row",
+			rows, total, total-rows)
+	}
+	if distinct != rows {
+		t.Errorf("usage_charge idempotency keys = %d distinct for %d rows — a key collided", distinct, rows)
+	}
+}
+
 // TestLoadSustained is the throughput half: the same harness at a scale that
 // takes long enough for the numbers to mean something.
 //
@@ -252,6 +326,15 @@ func TestLoadSustained(t *testing.T) {
 	env := tests.SeedEnv(t, dsn, up.URL)
 	h := tests.NewProxy(t, dsn, up.URL)
 	newReq := func() *http.Request { return newLoadRequest(t, env.Key, env.Slug) }
+
+	// Raise the account limits before measuring. Without this the run falls back
+	// to the free-tier default (75 rpm / 3 concurrent) and answers 429 to almost
+	// every request — measured 2026-10-31: 1874 of 2000 rejected at 1 worker,
+	// 2000 of 2000 at 4 and 16. That measures the RATE LIMITER, not the router's
+	// capacity, which is what this test exists to report. The values match the
+	// platform ceiling so the two do not fold into each other.
+	seedAccountRateLimit(t, dsn, env.UserID, 10000, 1000)
+
 	warmUp(t, h, newReq, 8)
 
 	// Sweep concurrency: a single number hides the knee, and the knee is where

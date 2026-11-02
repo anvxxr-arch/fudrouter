@@ -41,6 +41,8 @@ const INFERENCE_PATH_MAP = {
   'POST /v1/chat/completions': '/v1/chat/completions',
   'POST /v1/messages': '/v1/messages',
   'POST /v1/messages/count_tokens': '/v1/messages/count_tokens',
+  'GET /v1beta/models': '/v1beta/models',
+  '* /v1beta/models/': '/v1beta/models/{model}', // ServeMux prefix; serves the :verb forms
   '* /v1/': '/v1/{path}', // registered with no method
 };
 

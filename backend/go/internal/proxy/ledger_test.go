@@ -223,7 +223,7 @@ func TestFailoverRecordsTwoAttemptsAndFallback(t *testing.T) {
 	if !log.FallbackUsed {
 		t.Error("fallback_used = false after a 429-then-200 failover (spec §8)")
 	}
-	attempts := tests.AttemptRecs(t, dsn, log.ID)
+	attempts := tests.AttemptRecsEventually(t, dsn, log.ID, 2)
 	if len(attempts) != 2 {
 		t.Fatalf("request_attempt rows = %d, want exactly one per exchange (spec §8)", len(attempts))
 	}

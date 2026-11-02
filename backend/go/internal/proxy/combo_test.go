@@ -21,6 +21,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/ids"
 	"github.com/anvxxr-arch/fudrouter/backend/go/tests"
@@ -125,10 +126,20 @@ func TestComboFallsThroughAndChargesOnce(t *testing.T) {
 	}
 
 	// Every hop is recorded — that is what a ledger buys over a retry loop.
+	// Polled: the attempts insert is detached from the request goroutine
+	// (finish() must not hold the client through the ledger retry backoff), so
+	// the rows land shortly after the response, not before it.
 	var attempts int
-	if err := conn.QueryRow(ctx,
-		`select count(distinct attempt) from request_attempt where request_id = $1`, reqID).Scan(&attempts); err != nil {
-		t.Fatal(err)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if err := conn.QueryRow(ctx,
+			`select count(distinct attempt) from request_attempt where request_id = $1`, reqID).Scan(&attempts); err != nil {
+			t.Fatal(err)
+		}
+		if attempts >= 2 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 	if attempts < 2 {
 		t.Fatalf("request_attempt rows = %d, want >= 2 (the combo did not walk past the first member)", attempts)

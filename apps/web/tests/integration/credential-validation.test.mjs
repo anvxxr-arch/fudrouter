@@ -9,8 +9,10 @@
 // that knob in its own test body (the `allowPrivateUpstreams()` seam in
 // publish-env.ts:35) so the probe actually reaches the stub, and asserts the
 // two verdicts that matter: `healthy` (no cooldown) for a valid key,
-// `auth_failed` (+55min cooldown) for a wrong one, with `lastValidatedAt`
-// advancing on both.
+// `invalid` for a wrong one — the router's usable predicate excludes `invalid`
+// outright, so no cooldown is needed to withhold it (the old `auth_failed`
+// verdict was NOT an exclusion, which is why it needed a 55min park) — with
+// `lastValidatedAt` advancing on both.
 //
 // Fixture SQL uses `sql.raw` with interpolated strings, not Date params: a Date
 // nested inside a `sql` fragment gets an indeterminate parameter type (42P18) —
@@ -34,7 +36,19 @@ function stubServer() {
 	return new Promise((resolve) => {
 		const server = http.createServer((req, res) => {
 			if (req.url === '/models') {
-				if ((req.headers.authorization || '') === 'Bearer valid-key-123') {
+				const auth = req.headers.authorization || '';
+				if (auth === 'Bearer valid-key-123') {
+					res.writeHead(200, { 'content-type': 'application/json' });
+					res.end(JSON.stringify({ data: [{ id: 'model-1' }] }));
+				} else if (auth === 'Bearer gate-502-key') {
+					// An edge rate gate answering 5xx. The probe reached no auth
+					// check, so it learned nothing about the key.
+					res.writeHead(502, { 'content-type': 'text/html' });
+					res.end('<html>502 Bad Gateway</html>');
+				} else if (auth === '') {
+					// freemodel.in's shape: the listing is served to anyone, but a
+					// supplied (wrong) key is still rejected. An anonymous 200 here
+					// is NOT proof the endpoint ignores credentials.
 					res.writeHead(200, { 'content-type': 'application/json' });
 					res.end(JSON.stringify({ data: [{ id: 'model-1' }] }));
 				} else {
@@ -50,7 +64,7 @@ function stubServer() {
 	});
 }
 
-test('credential_validation writes healthy and auth_failed verdicts', { skip: !process.env.DATABASE_URL || !process.env.CREDENTIALS_MASTER_KEY }, async () => {
+test('credential_validation writes healthy and invalid verdicts', { skip: !process.env.DATABASE_URL || !process.env.CREDENTIALS_MASTER_KEY }, async () => {
 	const { JOB_HANDLERS } = await import('@fudrouter/platform/server/workers.ts');
 	const prev = process.env.ALLOW_PRIVATE_UPSTREAMS;
 	process.env.ALLOW_PRIVATE_UPSTREAMS = '1';
@@ -76,13 +90,57 @@ test('credential_validation writes healthy and auth_failed verdicts', { skip: !p
 		assert.equal(byId.cred_vt_valid.status, 'healthy');
 		assert.ok(byId.cred_vt_valid.last_validated_at, 'valid row must advance the cursor');
 		assert.equal(byId.cred_vt_valid.cooldown_until, null);
-		assert.equal(byId.cred_vt_invalid.status, 'auth_failed');
+		assert.equal(byId.cred_vt_invalid.status, 'invalid');
 		assert.ok(byId.cred_vt_invalid.last_validated_at, 'invalid row must advance the cursor');
-		assert.ok(byId.cred_vt_invalid.cooldown_until, 'auth_failed must park the credential');
+		// `invalid` is a hard exclusion in the router's usable predicate
+		// (`status not in ('disabled','invalid')`), so the row is withheld
+		// without a cooldown — the cooldown exists for `rate_limited` only.
+		assert.equal(byId.cred_vt_invalid.cooldown_until, null, 'an excluded status needs no cooldown');
+		const usableRows = await testDb.execute(sql.raw(`select (status not in ('disabled','invalid'))::int as u from credential where id = 'cred_vt_invalid'`));
+		assert.equal(usableRows[0].u, 0, 'the router predicate must skip a revoked credential');
 	} finally {
 		await testDb.execute(sql.raw(`delete from credential where id like 'cred_vt%'`));
 		await testDb.execute(sql.raw(`delete from connection where id = 'conn_vt'`));
 		await testDb.execute(sql.raw(`delete from provider where id = 'prov_vt'`));
+		server.close();
+		process.env.ALLOW_PRIVATE_UPSTREAMS = prev;
+		await testClient.end({ timeout: 5000 });
+	}
+});
+
+// A 5xx from the probe path must not demote a credential the data plane has
+// already proven works. poolrebuild refreshes the legacy provider blob from
+// `status = 'healthy'` rows only, so demoting to 'unknown' does not just look
+// wrong in the console — it removes the row from the on-demand pool until the
+// next passing probe. freemodel.in's nginx gate answers 502 to a burst of
+// probes, which demoted 19 fresh rows in three minutes on 2026-11-02.
+test('credential_validation keeps an earned healthy verdict through a 5xx probe', { skip: !process.env.DATABASE_URL || !process.env.CREDENTIALS_MASTER_KEY }, async () => {
+	const { JOB_HANDLERS } = await import('@fudrouter/platform/server/workers.ts');
+	const prev = process.env.ALLOW_PRIVATE_UPSTREAMS;
+	process.env.ALLOW_PRIVATE_UPSTREAMS = '1';
+	const testClient = postgres(process.env.DATABASE_URL);
+	const testDb = drizzle(testClient, { schema: await import('@fudrouter/platform/server/db/schema.ts') });
+	const server = await stubServer();
+	const port = server.address().port;
+	try {
+		await testDb.execute(sql.raw(`delete from credential where id like 'cred_vg%'`));
+		await testDb.execute(sql.raw(`delete from connection where id = 'conn_vg'`));
+		await testDb.execute(sql.raw(`delete from provider where id = 'prov_vg'`));
+		await testDb.execute(sql.raw(`insert into provider (id, name, base_url, credentials_enc, status, priority, tier, enabled) values ('prov_vg', 'test', 'http://127.0.0.1:${port}', 'x', 'active', 100, 'commercial', true) on conflict (id) do nothing`));
+		await testDb.execute(sql.raw(`insert into connection (id, provider_id, name, slug, base_url, region, auth_type, timeout_ms, priority, enabled, health_status) values ('conn_vg', 'prov_vg', 'test', 'test', 'http://127.0.0.1:${port}', 'us', 'bearer', 30000, 100, true, 'healthy') on conflict (id) do nothing`));
+		const gateEnc = encryptCredentials({ api_key: 'gate-502-key' });
+		await testDb.execute(sql.raw(`insert into credential (id, connection_id, name, secret_enc, status, last_validated_at) values ('cred_vg_gate', 'conn_vg', 'gate', '${gateEnc}', 'healthy', null)`));
+
+		await JOB_HANDLERS.credential_validation(testDb, { credentialId: 'cred_vg_gate' });
+
+		const rows = await testDb.execute(sql.raw(`select status, last_validated_at, cooldown_until from credential where id = 'cred_vg_gate'`));
+		assert.equal(rows[0].status, 'healthy', 'a 5xx probe must not demote an earned healthy verdict');
+		assert.equal(rows[0].cooldown_until, null, 'an indeterminate probe must not park the row');
+		assert.ok(rows[0].last_validated_at, 'the cursor must still advance, or the batch re-probes this row forever');
+	} finally {
+		await testDb.execute(sql.raw(`delete from credential where id like 'cred_vg%'`));
+		await testDb.execute(sql.raw(`delete from connection where id = 'conn_vg'`));
+		await testDb.execute(sql.raw(`delete from provider where id = 'prov_vg'`));
 		server.close();
 		process.env.ALLOW_PRIVATE_UPSTREAMS = prev;
 		await testClient.end({ timeout: 5000 });

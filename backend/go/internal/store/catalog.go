@@ -500,7 +500,7 @@ type Candidate struct {
 	ProviderTier    string
 	Region          string
 	HealthStatus    string // connection.health_status (spec §4 vocabulary)
-	Priority        int // provider.priority, lower wins ties
+	Priority        int    // provider.priority, lower wins ties
 	ConnectionID    string
 	BaseURL         string
 	AuthType        string

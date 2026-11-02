@@ -367,7 +367,6 @@ func secondsUntilUTCReset(low string) int {
 	return clampRetryAfter(int(next.Sub(now).Seconds()))
 }
 
-
 // parkCredential records a credential row's failure state (spec §4
 // `credential.status` + `cooldown_until`) so the candidate query skips it while
 // it is unusable. Best-effort: a failure here never fails a request. An empty
@@ -401,6 +400,47 @@ func (h *Handler) parkCredential(credID, status string, retryAfterSeconds int) {
 	if err := h.store.UpdateCredentialState(ctx, credID, status, cooldown); err != nil {
 		log.Printf("[proxy] credential state update failed for %s: %v", credID, err)
 	}
+}
+
+// reviveCredential is the missing half of parkCredential: a 2xx is proof the
+// credential works right now, which is exactly the claim 'invalid' makes. F3:
+// a transient 401 parked the credential 'invalid' with cooldown_until NULL, and
+// the ONLY revival was the hourly credential_validation fan-out — up to an hour
+// of silently lost capacity. The data plane already knows the credential works
+// (it just served the 200) and now records it.
+//
+// Detached in a goroutine, UNLIKE parkCredential, which blocks its caller.
+// parkCredential runs on the error path — the request is already failing and
+// about to walk to another candidate — so a 5s write there costs nothing. This
+// runs on the SUCCESS path, where the response is about to be written; a
+// synchronous write would add a DB round trip to every 200.
+func (h *Handler) reviveCredential(credID string) {
+	if credID == "" || h.store == nil {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(context.Background()), 5*time.Second)
+		defer cancel()
+		if err := h.store.MarkCredentialHealthy(ctx, credID); err != nil {
+			log.Printf("[proxy] credential revive failed for %s: %v", credID, err)
+		}
+	}()
+}
+
+// credentialStatus reports the status the candidate query loaded for credID, or
+// "" when the credential is not on this candidate. The pool is built from the
+// candidate's credential rows (targetFor sets acct.CredID = c.ID), so the
+// account that served is on this list in the normal case.
+func credentialStatus(cand *routing.Candidate, credID string) string {
+	if cand == nil || cand.Store == nil || credID == "" {
+		return ""
+	}
+	for _, c := range cand.Store.Credentials {
+		if c.ID == credID {
+			return c.Status
+		}
+	}
+	return ""
 }
 
 // parseUsage pulls the provider's reported usage out of a JSON response,

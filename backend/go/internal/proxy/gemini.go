@@ -39,12 +39,12 @@ import (
 // translates. Unknown fields (safetySettings, cachedContent, thinkingConfig…)
 // are ignored rather than rejected, so a client that sends more still works.
 type geminiRequest struct {
-	Contents          []geminiContent  `json:"contents"`
-	SystemInstruction *geminiContent   `json:"systemInstruction"`
-	SystemInstruction2 *geminiContent  `json:"system_instruction"` // v1 spelling
-	GenerationConfig  *geminiGenConfig `json:"generationConfig"`
-	Tools             []geminiTool     `json:"tools"`
-	ToolConfig        json.RawMessage  `json:"toolConfig"`
+	Contents           []geminiContent  `json:"contents"`
+	SystemInstruction  *geminiContent   `json:"systemInstruction"`
+	SystemInstruction2 *geminiContent   `json:"system_instruction"` // v1 spelling
+	GenerationConfig   *geminiGenConfig `json:"generationConfig"`
+	Tools              []geminiTool     `json:"tools"`
+	ToolConfig         json.RawMessage  `json:"toolConfig"`
 }
 
 type geminiContent struct {
@@ -219,7 +219,7 @@ func geminiModelObject(slug string, m map[string]any) map[string]any {
 func (h *Handler) serveGeminiGenerate(w http.ResponseWriter, r *http.Request, model string, stream bool) {
 	start := time.Now()
 
-	body, err := io.ReadAll(io.LimitReader(r.Body, 10<<20))
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxRequestBytes))
 	if err != nil {
 		writeGeminiError(w, routing.ErrCodeInvalidRequest, "cannot read body", 0)
 		return
@@ -272,7 +272,7 @@ func (h *Handler) serveGeminiCountTokens(w http.ResponseWriter, r *http.Request,
 		writeGeminiError(w, routing.ErrCodeAuthError, err.Error(), 0)
 		return
 	}
-	body, err := io.ReadAll(io.LimitReader(r.Body, 10<<20))
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxRequestBytes))
 	if err != nil {
 		writeGeminiError(w, routing.ErrCodeInvalidRequest, "cannot read body", 0)
 		return
@@ -417,13 +417,13 @@ func geminiContentToOpenAI(c geminiContent) ([]any, *apiError) {
 				mime = "image/png"
 			}
 			images = append(images, map[string]any{
-				"type": "image_url",
+				"type":      "image_url",
 				"image_url": map[string]any{"url": "data:" + mime + ";base64," + blob.Data},
 			})
 		}
 		if p.FileData != nil && p.FileData.FileURI != "" {
 			images = append(images, map[string]any{
-				"type": "image_url",
+				"type":      "image_url",
 				"image_url": map[string]any{"url": p.FileData.FileURI},
 			})
 		}

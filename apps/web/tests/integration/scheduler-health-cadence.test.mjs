@@ -106,5 +106,15 @@ test('a tighter cadence makes provider_health_check due sooner', { skip: SKIP },
 		await db.execute(sql.raw(`delete from job where type = 'provider_health_check'`));
 		await db.execute(sql.raw(`delete from job where status in ('pending','running')`));
 		await client.end({ timeout: 5 });
+		// `scheduler.ts` imports the platform's module-level pool, which this
+		// test never created and cannot reach through its own client. Without
+		// this the pool's sockets keep the event loop alive and the runner
+		// waits out its full timeout on a test that already passed (measured:
+		// body 474 ms, process 45 s). `jobs.ts` reaches the Valkey singleton
+		// the same way, so both need closing.
+		const { closeDb } = await import('@fudrouter/platform/server/db/index.ts');
+		const { closeVk } = await import('@fudrouter/platform/server/vk.ts');
+		await closeDb();
+		await closeVk();
 	}
 });

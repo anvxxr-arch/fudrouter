@@ -12,13 +12,13 @@ import (
 // BillingAccount is the user account's prepaid credit account (spec §10).
 // Keyed by user since migration 0019 removed the workspace it used to hang off.
 type BillingAccount struct {
-	ID                      string
-	UserID                  string
-	Currency                string
-	Status                  string
-	WarningThresholdMicro   int64
-	HardStopThresholdMicro  int64
-	BalanceMicro            int64 // cache of SUM(credit_ledger.amount_micro)
+	ID                     string
+	UserID                 string
+	Currency               string
+	Status                 string
+	WarningThresholdMicro  int64
+	HardStopThresholdMicro int64
+	BalanceMicro           int64 // cache of SUM(credit_ledger.amount_micro)
 }
 
 // ErrInsufficientCredits is returned when an account is at or under its hard
@@ -103,7 +103,7 @@ func (s *Store) BudgetGateState(ctx context.Context, userID string) (*BillingAcc
 // raise low-balance alerts (spec §10: 70%/90% → alert_event + system_event) and
 // gate the NEXT request at the hard stop.
 type ChargeResult struct {
-	Charged          bool  // false when the idempotency key already existed
+	Charged          bool // false when the idempotency key already existed
 	BillingAccountID string
 	BalanceMicro     int64
 	Warning          bool // balance below warning_threshold_micro
@@ -192,9 +192,9 @@ func (s *Store) ChargeRequest(ctx context.Context, r *RequestLog) (*ChargeResult
 	// name its consumer can read (an unreferenced data-modifying CTE in the same
 	// statement still runs exactly once — see the ledger idempotency note below).
 	var (
-		accountID                                           *string
-		warningThreshold, hardStop, balance                 *int64
-		charged                                             *bool
+		accountID                           *string
+		warningThreshold, hardStop, balance *int64
+		charged                             *bool
 	)
 	err := s.pool.QueryRow(ctx, `
 		with rl as (

@@ -36,8 +36,8 @@ type KeyPolicy struct {
 // depending on which console build wrote them, so they parse leniently: a
 // mistyped number must never silently drop a spend cap.
 type legacyLimits struct {
-	RPM             *flexibleInt   `json:"rpm"`
-	MonthlyCostMicro *flexibleInt  `json:"monthly_cost_micro"`
+	RPM              *flexibleInt `json:"rpm"`
+	MonthlyCostMicro *flexibleInt `json:"monthly_cost_micro"`
 }
 
 // flexibleInt accepts 1, "1" or 1.0 and reports the integer value.
@@ -61,13 +61,13 @@ func (f *flexibleInt) UnmarshalJSON(b []byte) error {
 // used to resolve was removed in migration 0019, and `user_id` (NOT NULL since
 // 0000) was always the real owner.
 type APIKeyRow struct {
-	ID      string
-	UserID  string
-	KeyHash string
-	Status  string // active|disabled|revoked (spec §3)
+	ID        string
+	UserID    string
+	KeyHash   string
+	Status    string // active|disabled|revoked (spec §3)
 	RevokedAt *time.Time
 	ExpiresAt *time.Time
-	Policy  KeyPolicy
+	Policy    KeyPolicy
 }
 
 // Auth errors. The proxy maps these to 401 responses with the OpenAI error body
@@ -109,19 +109,32 @@ func (s *Store) LookupAPIKey(ctx context.Context, prefix string) (*APIKeyRow, er
 	}
 	mergeLegacyLimits(&row.Policy, limitsJSON)
 
-	// Status gate (spec §3): the status column is authoritative once migration
-	// 0008 moves the vocabulary; the legacy revoked_at column must keep working
-	// for keys written before it existed.
-	if row.Status == "disabled" || row.Status == "revoked" {
-		return nil, ErrKeyInactive
-	}
-	if row.RevokedAt != nil {
-		return nil, ErrKeyInactive
-	}
-	if row.ExpiresAt != nil && !row.ExpiresAt.After(time.Now()) {
-		return nil, ErrKeyExpired
+	if err := row.Gate(time.Now()); err != nil {
+		return nil, err
 	}
 	return row, nil
+}
+
+// Gate applies the status/expiry rules (spec §3) to a row. It is a method, not
+// inline code in LookupAPIKey, because the proxy's key cache re-applies it to a
+// CACHED row: a key that expired while its row sat in Valkey must not
+// authenticate, and the two paths must not be able to disagree about what
+// "inactive" means.
+//
+// The status column is authoritative once migration 0008 moves the vocabulary;
+// the legacy revoked_at column must keep working for keys written before it
+// existed.
+func (r *APIKeyRow) Gate(now time.Time) error {
+	if r.Status == "disabled" || r.Status == "revoked" {
+		return ErrKeyInactive
+	}
+	if r.RevokedAt != nil {
+		return ErrKeyInactive
+	}
+	if r.ExpiresAt != nil && !r.ExpiresAt.After(now) {
+		return ErrKeyExpired
+	}
+	return nil
 }
 
 // mergeLegacyLimits fills policy fields the policy leaves unset from the S0

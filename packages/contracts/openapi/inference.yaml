@@ -117,6 +117,69 @@ paths:
                       type: invalid_request_error
                       code: MODEL_NOT_FOUND
 
+  /v1beta/models:
+    get:
+      operationId: listGeminiModels
+      tags: [catalogue]
+      summary: List the published catalogue in the Gemini shape
+      security: []
+      description: |
+        The Google Gemini API surface (`gemini.go`), so a client built on the
+        Google SDKs — `google-generativeai`, `@google/genai`, Gemini CLI — can
+        point its base URL at the router unchanged. Unauthenticated for the same
+        reason `/v1/models` is: the catalogue is already public at `/models` and
+        `/pricing`, so a key would hide nothing.
+
+        The shape is Gemini's, not [OI]'s: a top-level `models` array of
+        `GeminiModelObject`, not `{object, data}`.
+      responses:
+        "200":
+          description: The published catalogue.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GeminiModelList" }
+        "500":
+          $ref: "#/components/responses/Error"
+
+  /v1beta/models/{model}:
+    get:
+      operationId: getGeminiModel
+      tags: [catalogue]
+      summary: One catalogue object by slug, in the Gemini shape
+      security: []
+      description: |
+        Note on the route table: this is registered as the `/v1beta/models/`
+        **prefix** pattern, and the same handler parses the verb out of the path
+        segment — Gemini puts the verb in the path (`models/<slug>:generateContent`)
+        rather than in a separate route. The prefix therefore also serves:
+
+          - `POST /v1beta/models/{model}:generateContent` — buffered answer
+          - `POST /v1beta/models/{model}:streamGenerateContent` — SSE answer
+          - `POST /v1beta/models/{model}:countTokens` — token estimate
+
+        Those three are billed and logged exactly like `/v1/chat/completions`
+        (the Gemini body is translated to an [OI] chat request and back); they
+        are described here rather than as separate paths because the contract
+        maps one Go route to one documented path. An unimplemented verb answers
+        404 in the Google error envelope.
+      parameters:
+        - name: model
+          in: path
+          required: true
+          schema: { type: string }
+          description: Model slug, e.g. `gemini-2.5-pro`.
+      responses:
+        "200":
+          description: The catalogue object in the Gemini shape.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GeminiModelObject" }
+        "404":
+          description: Unknown **or** unpublished slug (indistinguishable).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GeminiErrorEnvelope" }
+
   /v1/chat/completions:
     post:
       operationId: createChatCompletion
@@ -343,6 +406,65 @@ components:
             output: "10000000"
             currency: USD
             unit: micro-units per 1M tokens
+
+    GeminiModelList:
+      type: object
+      required: [models]
+      properties:
+        models:
+          type: array
+          items: { $ref: "#/components/schemas/GeminiModelObject" }
+
+    GeminiModelObject:
+      type: object
+      description: |
+        The Gemini catalogue shape, mapped from the [OI] model object by
+        `geminiModelObject`. `name` carries the `models/` prefix Gemini requires;
+        `inputTokenLimit`/`outputTokenLimit` are omitted when the source row has
+        no context/output bound.
+      required: [name, displayName, description, supportedGenerationMethods]
+      properties:
+        name:
+          type: string
+          description: "`models/<slug>` — the Gemini resource name."
+        displayName: { type: string }
+        description: { type: string }
+        supportedGenerationMethods:
+          type: array
+          items: { type: string }
+          description: Always `[generateContent, streamGenerateContent, countTokens]`.
+        inputTokenLimit: { type: integer }
+        outputTokenLimit: { type: integer }
+      examples:
+        - name: models/gemini-2.5-pro
+          displayName: Gemini 2.5 Pro
+          description: ""
+          supportedGenerationMethods: [generateContent, streamGenerateContent, countTokens]
+          inputTokenLimit: 1048576
+          outputTokenLimit: 65536
+
+    GeminiErrorEnvelope:
+      type: object
+      description: |
+        The Google error envelope (`geminiErrorBody`), not the [OI] one. `code`
+        is the numeric HTTP status repeated in the body; `status` is the Google
+        RPC string the platform taxonomy maps onto (`geminiStatus`).
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, status]
+          properties:
+            code: { type: integer }
+            message: { type: string }
+            status: { type: string }
+      examples:
+        modelNotFound:
+          value:
+            error:
+              code: 404
+              message: "model not found: does-not-exist"
+              status: NOT_FOUND
 
     ChatCompletionRequest:
       type: object

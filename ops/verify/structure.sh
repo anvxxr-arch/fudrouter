@@ -29,7 +29,10 @@ ALLOWED_FILES=( .env.console.example .gitignore AGENTS.md DESIGN.md README.md
 # plane moved to backend/go (Target A, ADR-0006) and is checked separately.
 APPS=( web workers scheduler )
 # backend/go is the Go module; its command lives in cmd/<name>.
-GO_CMDS=( gateway )
+# credrepair/upchat are ops probes, not data-plane commands; they sit here
+# because they import the gateway's internal packages (cmd/<name> is the only
+# module-local import root). Their permanent home is an unresolved ADR question.
+GO_CMDS=( gateway credrepair upchat )
 
 fails=0
 say() { printf '%s\n' "$*"; }

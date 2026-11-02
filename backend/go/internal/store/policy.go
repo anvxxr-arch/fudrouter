@@ -12,14 +12,14 @@ import (
 
 // RoutingPolicy is the routing configuration in force for a request (spec §9).
 type RoutingPolicy struct {
-	ID                 string
-	AccountID          string
-	Name               string
-	Strategy           string // balanced|lowest_cost|lowest_latency|highest_reliability|provider_priority|weighted|round_robin|random|smart
-	Enabled            bool
-	MaxAttempts        int
-	RequestTimeoutMs   int
-	FallbackEnabled    bool
+	ID                  string
+	AccountID           string
+	Name                string
+	Strategy            string // balanced|lowest_cost|lowest_latency|highest_reliability|provider_priority|weighted|round_robin|random|smart
+	Enabled             bool
+	MaxAttempts         int
+	RequestTimeoutMs    int
+	FallbackEnabled     bool
 	ProviderPreferences map[string]any
 	ModelPreferences    map[string]any
 	Constraints         map[string]any
@@ -30,15 +30,15 @@ type RoutingPolicy struct {
 // nor `system_setting['default_routing_policy']` names one.
 func DefaultRoutingPolicy() *RoutingPolicy {
 	return &RoutingPolicy{
-		ID:               "rte_default",
-		Name:             "Platform Default",
-		Strategy:         "balanced",
-		Enabled:          true,
-		MaxAttempts:      2,
-		RequestTimeoutMs: 30000,
-		FallbackEnabled:  true,
-		Weights:          map[string]any{"price": 0.25, "latency": 0.25, "reliability": 0.25, "capacity": 0.25},
-		Constraints:      map[string]any{},
+		ID:                  "rte_default",
+		Name:                "Platform Default",
+		Strategy:            "balanced",
+		Enabled:             true,
+		MaxAttempts:         2,
+		RequestTimeoutMs:    30000,
+		FallbackEnabled:     true,
+		Weights:             map[string]any{"price": 0.25, "latency": 0.25, "reliability": 0.25, "capacity": 0.25},
+		Constraints:         map[string]any{},
 		ProviderPreferences: map[string]any{},
 		ModelPreferences:    map[string]any{},
 	}

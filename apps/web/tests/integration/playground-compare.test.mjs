@@ -214,9 +214,17 @@ function holdModel() {
 }
 
 test('a client disconnect mid-run aborts the upstream calls and reclaims every key', { skip: !hasDb && SKIP }, async () => {
-	// Scope the assertion to keys minted BY THIS RUN: the throwaway DB may
-	// carry leftovers from earlier invocations, and reclaim deletes rows.
-	const [{ n: before }] = await sql`select count(*)::int as n from api_key where policy->>'playground' = 'true'`;
+	// Scope the assertion to keys minted BY THIS RUN. A global count is not
+	// enough: node:test runs the tests in a file CONCURRENTLY, and five tests
+	// in this file call compare(), so a sibling's freshly-minted keys land in
+	// the window between the two counts and read as a leak. Measured: this test
+	// passes 3/3 in isolation and fails 2/2 inside the suite with "2 leaked".
+	//
+	// `created_at` is the discriminator the name is not: pgMintRunKey names
+	// every key `[playground] <ISO seconds>Z`, so concurrent runs collide on
+	// the same name. The window is opened just before the request and the
+	// assertion is that nothing created inside it outlives the disconnect.
+	const windowStart = new Date(Date.now() - 1000).toISOString();
 
 	// Both models hold their streams open, so neither run can complete on its
 	// own: the only way the keys get reclaimed is the disconnect path.
@@ -237,16 +245,24 @@ test('a client disconnect mid-run aborts the upstream calls and reclaims every k
 	client.abort();
 	reader.cancel().catch(() => undefined);
 
-	// Give the server time to observe the close, abort both fetches, and run
-	// the per-model reclaims in settle()'s finally.
-	await new Promise((r) => setTimeout(r, 600));
-
-	// A leak means this run's keys survive, so the count grows. A DECREASE is a
-	// leftover from an earlier run being reclaimed inside this window, which is
-	// cleanup, not a leak — asserting exact equality made the gate fail on a
-	// green run. `<=` is the invariant: no key minted here outlives its client.
-	const [{ n: after }] = await sql`select count(*)::int as n from api_key where policy->>'playground' = 'true'`;
-	assert.ok(after <= before, `every minted run key must be reclaimed after a client disconnect, ${after - before} leaked`);
+	// Poll for the reclaim rather than sleeping a fixed interval. The reclaim
+	// is fire-and-forget (`void run.reclaim()` in the close handler), so its
+	// completion is not ordered against anything the test can await — a fixed
+	// 600ms wait passed in isolation and failed under suite load, where the
+	// event loop is busier. The invariant is "no key minted here outlives its
+	// client", not "the reclaim finishes within 600ms".
+	const leakedNow = async () => {
+		const [{ n }] = await sql`
+			select count(*)::int as n from api_key
+			where policy->>'playground' = 'true' and created_at >= ${windowStart}`;
+		return n;
+	};
+	let leaked = await leakedNow();
+	for (let i = 0; i < 40 && leaked > 0; i++) {
+		await new Promise((r) => setTimeout(r, 100));
+		leaked = await leakedNow();
+	}
+	assert.equal(leaked, 0, `every minted run key must be reclaimed after a client disconnect, ${leaked} leaked`);
 
 	// An aborted run emits no metrics frame: the client is gone, so an
 	// UPSTREAM_ERROR frame would be a lie about a deliberate disconnect.

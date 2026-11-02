@@ -80,7 +80,7 @@ func TestInjectUnrestrictedKeepsCallerSystemMessage(t *testing.T) {
 func TestInjectUnrestrictedPassThrough(t *testing.T) {
 	for _, bad := range []string{
 		`not json`,
-		`{"model":"x"}`,              // no messages
+		`{"model":"x"}`, // no messages
 		`{"messages":"not-an-array"}`,
 		`{"messages":[]}`, // empty
 	} {

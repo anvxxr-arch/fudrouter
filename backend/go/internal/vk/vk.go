@@ -27,6 +27,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	valkey "github.com/valkey-io/valkey-go"
@@ -52,6 +53,16 @@ var ErrDisabled = errors.New("vk: disabled (VALKEY_URL not set)")
 //   - Lua returns the script's replies as []any (string/int64/nil/[]any).
 type Client interface {
 	AllowRate(ctx context.Context, key string, limit int, window time.Duration) (ok bool, err error)
+	// AllowBucket is the RATE form of AllowRate: a token bucket refilled at
+	// ratePerSec with `burst` capacity.
+	//
+	// Fixed windows cannot express a rate. A 1-second window with limit=150
+	// admits 150 requests at 0.99s and another 150 at 1.01s, and it refuses a
+	// client that is pacing itself at exactly 150 rps whenever the window
+	// boundary drifts under it (measured: 1.5% refusals at a perfectly paced
+	// 150 rps). A bucket admits 150 rps sustained and tolerates `burst` worth of
+	// scheduling jitter without ever exceeding the configured rate on average.
+	AllowBucket(ctx context.Context, key string, ratePerSec float64, burst int) (ok bool, err error)
 	IncrConc(ctx context.Context, key string, ttl time.Duration) (int64, error)
 	DecrConc(ctx context.Context, key string) error
 	GetJSON(ctx context.Context, key string, v any, ttl time.Duration) error
@@ -82,6 +93,11 @@ type Client interface {
 	// ReplaceBuckets overwrites every key with one value and TTL in ONE round
 	// trip — the re-seed path after a cache miss.
 	ReplaceBuckets(ctx context.Context, keys []string, value int64, ttl time.Duration) error
+	// CacheStats reports the process's cache-read hit/miss tally (owner rule
+	// 19: the cache must serve ≥60% of reads). It is on the interface because
+	// the health endpoint reads it through the same Client the caches use, so
+	// the number cannot drift from the reads it counts.
+	CacheStats() CacheStats
 }
 
 // EnvURL is the environment variable both planes read (spec §12).
@@ -119,6 +135,9 @@ type disabled struct{}
 func (disabled) AllowRate(context.Context, string, int, time.Duration) (bool, error) {
 	return true, ErrDisabled
 }
+func (disabled) AllowBucket(context.Context, string, float64, int) (bool, error) {
+	return true, ErrDisabled
+}
 func (disabled) IncrConc(context.Context, string, time.Duration) (int64, error) {
 	return 0, ErrDisabled
 }
@@ -139,10 +158,45 @@ func (disabled) GetJSONMany(context.Context, []string, map[string]json.RawMessag
 	return ErrDisabled
 }
 
+// CacheStats is zero for the disabled client: it never reads a cache, so it has
+// no hits and no misses. A zero tally reports a 0 hit rate, which is honest —
+// there is no cache to hit.
+func (disabled) CacheStats() CacheStats { return CacheStats{} }
+
 // live is the valkey-go-backed client. Every command failure is (a) propagated
 // to the caller, which degrades open, and (b) logged at most once per minute.
 type live struct {
 	c valkey.Client
+
+	// Cache-hit counters (owner rule 19: the cache must serve ≥60% of reads).
+	// They live here, on the one client every cache read goes through, so the
+	// rate is measured in one place rather than re-derived per call site. A
+	// GetJSON that returns a value is a hit; ErrNotFound is a miss; a transport
+	// error is neither (the read did not reach the cache).
+	hits   atomic.Int64
+	misses atomic.Int64
+}
+
+// CacheStats is the hit/miss tally for the process's cache reads.
+type CacheStats struct {
+	Hits   int64
+	Misses int64
+}
+
+// HitRate is hits / (hits + misses), or 0 when nothing has been read. The
+// owner's target is ≥0.60.
+func (s CacheStats) HitRate() float64 {
+	total := s.Hits + s.Misses
+	if total == 0 {
+		return 0
+	}
+	return float64(s.Hits) / float64(total)
+}
+
+// CacheStats returns the process's cache-read tally. It is read by the health
+// endpoint and by tests; the counters are atomic so it is safe under load.
+func (l *live) CacheStats() CacheStats {
+	return CacheStats{Hits: l.hits.Load(), Misses: l.misses.Load()}
 }
 
 // allowRateScript is a fixed-window counter: INCR, arm the window's TTL on the
@@ -156,6 +210,31 @@ var allowRateScript = valkey.NewLuaScript(`
 local c = redis.call('INCR', KEYS[1])
 if c == 1 then redis.call('PEXPIRE', KEYS[1], ARGV[1]) end
 return c
+`)
+
+// allowBucketScript is a token bucket: tokens refill at ARGV[1]/s up to ARGV[2],
+// one request costs one token. TIME comes from the server so every router
+// instance shares one clock. State is a hash {t = tokens, ts = ms}.
+var allowBucketScript = valkey.NewLuaScript(`
+local rate = tonumber(ARGV[1])
+local burst = tonumber(ARGV[2])
+local t = redis.call('TIME')
+local now = tonumber(t[1]) * 1000 + math.floor(tonumber(t[2]) / 1000)
+local st = redis.call('HMGET', KEYS[1], 'tok', 'ts')
+local tokens = tonumber(st[1])
+local ts = tonumber(st[2])
+if tokens == nil then tokens = burst; ts = now end
+local elapsed = now - ts
+if elapsed < 0 then elapsed = 0 end
+tokens = math.min(burst, tokens + (elapsed / 1000.0) * rate)
+local allowed = 0
+if tokens >= 1 then
+  tokens = tokens - 1
+  allowed = 1
+end
+redis.call('HSET', KEYS[1], 'tok', tokens, 'ts', now)
+redis.call('PEXPIRE', KEYS[1], 5000)
+return allowed
 `)
 
 var incrConcScript = valkey.NewLuaScript(`
@@ -260,6 +339,29 @@ func (l *live) AllowRate(ctx context.Context, key string, limit int, window time
 	return count <= int64(limit), nil
 }
 
+// AllowBucket implements the token bucket in ONE Lua call. Server TIME is used
+// rather than the caller's clock: the router and Valkey are different processes
+// and a skewed local clock would let a bucket refill faster or slower than the
+// configured rate.
+func (l *live) AllowBucket(ctx context.Context, key string, ratePerSec float64, burst int) (bool, error) {
+	if ratePerSec <= 0 {
+		return true, nil // unlimited
+	}
+	if burst < 1 {
+		burst = 1
+	}
+	res := allowBucketScript.Exec(ctx, l.c, []string{key},
+		[]string{fmt.Sprintf("%.6f", ratePerSec), fmt.Sprint(burst)})
+	if err := l.errOf(res.Error(), "AllowBucket "+key); err != nil {
+		return true, err // degrade OPEN; the Limiter falls back in-process
+	}
+	n, err := res.AsInt64()
+	if err != nil {
+		return true, l.errOf(err, "AllowBucket "+key)
+	}
+	return n == 1, nil
+}
+
 func (l *live) IncrConc(ctx context.Context, key string, ttl time.Duration) (int64, error) {
 	res := incrConcScript.Exec(ctx, l.c, []string{key}, []string{formatMs(ttl)})
 	if err := l.errOf(res.Error(), "IncrConc "+key); err != nil {
@@ -290,11 +392,18 @@ func (l *live) GetJSON(ctx context.Context, key string, v any, ttl time.Duration
 	}
 	s, err := res.ToString()
 	if err != nil {
-		return l.errOf(err, "GetJSON "+key)
+		// A miss is a normal cache miss; a transport error is neither a hit nor
+		// a miss (the read never reached the cache), so only ErrNotFound counts.
+		mapped := l.errOf(err, "GetJSON "+key)
+		if errors.Is(mapped, ErrNotFound) {
+			l.misses.Add(1)
+		}
+		return mapped
 	}
 	if err := json.Unmarshal([]byte(s), v); err != nil {
 		return fmt.Errorf("vk: unmarshal %s: %w", key, err)
 	}
+	l.hits.Add(1)
 	return nil
 }
 
@@ -333,9 +442,11 @@ func (l *live) GetJSONMany(ctx context.Context, keys []string, out map[string]js
 	}
 	for i, s := range vals {
 		if s == "" {
+			l.misses.Add(1)
 			continue // missing key: nil in the reply, mapped to "" by the client
 		}
 		out[keys[i]] = json.RawMessage(s)
+		l.hits.Add(1)
 	}
 	return nil
 }

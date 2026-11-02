@@ -49,7 +49,7 @@ func TestUserScopedConcurrencyCountsAcrossKeysOfOneUser(t *testing.T) {
 		if rej != nil {
 			t.Fatalf("first two slots must pass: %+v", rej)
 		}
-		adms = append(adms, adm)
+		adms = append(adms, &adm)
 	}
 	if _, rej := l.Check(t.Context(), &limits.APIKeyIdentity{KeyID: "k3", UserID: "user-a"}, lim, 0); rej == nil {
 		t.Fatal("third concurrent request of the account must be refused")

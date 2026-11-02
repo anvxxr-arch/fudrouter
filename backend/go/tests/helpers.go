@@ -897,6 +897,33 @@ type AttemptRec struct {
 // that a 429-then-200 failover recorded two attempts (spec §8).
 func AttemptRecs(t *testing.T, dsn, requestID string) []AttemptRec {
 	t.Helper()
+	return attemptRecs(t, dsn, requestID)
+}
+
+// AttemptRecsEventually polls until the request has `want` attempt rows, or the
+// deadline expires, then returns whatever is there.
+//
+// Why it exists: finish() detaches the attempts insert so the client's
+// connection is not held through the ledger retry backoff (measured 754ms/op
+// before, 1.5ms after). The ledger is therefore eventually consistent with
+// respect to the response — a test that asserts on request_attempt immediately
+// after ServeCompletions returns races the goroutine and sees zero rows. This
+// helper waits for the write instead of pinning the old synchronous timing.
+func AttemptRecsEventually(t *testing.T, dsn, requestID string, want int) []AttemptRec {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	var out []AttemptRec
+	for {
+		out = attemptRecs(t, dsn, requestID)
+		if len(out) >= want || time.Now().After(deadline) {
+			return out
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func attemptRecs(t *testing.T, dsn, requestID string) []AttemptRec {
+	t.Helper()
 	ctx := context.Background()
 	conn, err := pgx.Connect(ctx, dsn)
 	if err != nil {

@@ -70,6 +70,7 @@ type Store struct {
 // invalidation channel.
 type hardLimitCache struct {
 	RPM         *int64
+	RPS         *int64
 	TPM         *int64
 	Concurrency *int64
 }
@@ -165,7 +166,28 @@ func poolConfig(dsn string) (*pgxpool.Config, error) {
 		return nil, err
 	}
 	if !hasMax {
-		cfg.MaxConns = 20
+		// 60, not 20. Measured 2026-11-01 with TestPoolSaturationIsTheCeiling,
+		// which drives the same single-statement write ChargeRequest reduces to,
+		// at 128 workers, against pools that differ only in MaxConns:
+		//
+		//	pool=20  828 / 819 rps   0 timeouts
+		//	pool=40 1507 / 1596 rps  0 timeouts
+		//	pool=60 2008 / 2436 rps  0 timeouts   <- optimum
+		//	pool=90  683 / 2146 rps  862 / 230 timeouts
+		//
+		// 20 was the binding constraint on the whole router: the sustained-load
+		// harness collapsed from 252 rps at 16 workers to 25 rps at 64, logging
+		// "charge failed: context deadline exceeded", because 128 writers queued
+		// 108-deep for a connection and blew the 5s ledgerWriteBudget waiting.
+		// The queue, not the query, was the cost — ChargeRequest is already one
+		// statement (billing.go:171-193).
+		//
+		// 60 is the top of the flat region, not the largest value that works.
+		// 90 is WORSE and unstable: the server's max_connections is 100, so a
+		// 90-connection pool leaves nothing for the console, the workers, the
+		// scheduler or psql, and the probe measured 862 timeouts there. The
+		// ceiling is the server's, so the default must stay well under it.
+		cfg.MaxConns = 60
 	}
 	if !hasMin {
 		// Clamp the default floor to an explicit small MaxConns: a DSN with
@@ -277,5 +299,17 @@ func (s *Store) UpdateCredentialState(ctx context.Context, credentialID, status 
 		                         then now() else last_error_at end,
 		    updated_at = now()
 		where id = $1`, credentialID, status, cooldownUntil)
+	return err
+}
+
+// MarkCredentialHealthy clears a parked credential after a 2xx proved it works.
+// One statement, no read-modify-write: the caller already knows the credential
+// served this request, so there is nothing to check first.
+func (s *Store) MarkCredentialHealthy(ctx context.Context, credentialID string) error {
+	_, err := s.pool.Exec(ctx, `
+		update credential
+		set status = 'healthy', cooldown_until = null,
+		    last_success_at = now(), updated_at = now()
+		where id = $1`, credentialID)
 	return err
 }

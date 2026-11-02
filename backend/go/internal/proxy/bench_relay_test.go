@@ -20,6 +20,11 @@ package proxy_test
 // so the benchmark measures the relay plus one fail-fast ledger attempt per
 // op — the same shape a real request pays.
 //
+// The ledger RETRY is detached from the request goroutine (lifecycle.go), so
+// the 250ms+500ms backoff does not appear here. Before that fix these
+// benchmarks read 754ms/op — the backoff, not the relay. A regression that
+// re-attaches the retry shows up as ~750ms/op again.
+//
 // The upstream is a real httptest.Server, not a bytes.Reader handed straight
 // to the relay: the relays read a *real* response body over a real socket, so
 // the measured cost includes the bufio.Scanner chunking the network actually

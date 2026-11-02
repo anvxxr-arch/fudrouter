@@ -4,10 +4,12 @@ import (
 	"context"
 	"net"
 	"net/http"
-	"strings"
+	"net/http/httptrace"
 	"sync"
 	"time"
 
+	"github.com/anvxxr-arch/fudrouter/backend/go/internal/egress"
+	"github.com/anvxxr-arch/fudrouter/backend/go/internal/netguard"
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/sourceip"
 )
 
@@ -28,10 +30,10 @@ var (
 // on what "a dead upstream" means. A var, not a const, so a test can shorten it.
 var rotatingHeaderTimeout = 120 * time.Second
 
-// ipTracker records which local source address the LAST dial for one request
-// bound. http.Transport passes the request context to DialContext, so a tracker
-// carried in the context is filled in by the dial itself — no guessing, no
-// second lookup that could disagree with the socket that actually connected.
+// ipTracker records the socket actually selected by http.Transport. Dial-only
+// attribution missed every keep-alive reuse (measured by the two-request test:
+// the second tracker was nil) and could report a losing Happy-Eyeballs dial.
+// GotConn covers both a new socket and reuse, so a burn retires the real source.
 type ipTracker struct {
 	mu sync.Mutex
 	ip net.IP
@@ -42,7 +44,7 @@ func (t *ipTracker) set(ip net.IP) {
 		return
 	}
 	t.mu.Lock()
-	t.ip = ip
+	t.ip = append(net.IP(nil), ip...)
 	t.mu.Unlock()
 }
 
@@ -52,7 +54,7 @@ func (t *ipTracker) get() net.IP {
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return t.ip
+	return append(net.IP(nil), t.ip...)
 }
 
 type trackerKey struct{}
@@ -60,7 +62,20 @@ type trackerKey struct{}
 // withIPTracker returns a context whose dials report their source address.
 func withIPTracker(ctx context.Context) (context.Context, *ipTracker) {
 	t := &ipTracker{}
-	return context.WithValue(ctx, trackerKey{}, t), t
+	ctx = context.WithValue(ctx, trackerKey{}, t)
+	ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+		GotConn: func(info httptrace.GotConnInfo) {
+			if local, ok := info.Conn.LocalAddr().(*net.TCPAddr); ok {
+				t.set(local.IP)
+			}
+		},
+	})
+	return ctx, t
+}
+
+func (h *Handler) prepareEgress(policy egress.Policy, credentialID string) (*egress.Route, error) {
+	h.egressOnce.Do(func() { h.egressManager = egress.New(h.client) })
+	return h.egressManager.Prepare(policy, credentialID)
 }
 
 // dropIdleConnections forces the next attempt to open a new socket, which is the
@@ -89,23 +104,14 @@ func dropIdleConnections() {
 func rotatingClient() *http.Client {
 	rotOnce.Do(func() {
 		tr := http.DefaultTransport.(*http.Transport).Clone()
+		// An inherited HTTP_PROXY would guard/bind the proxy socket, not the
+		// provider. Only the explicit, target-pinning pool policy may use one.
+		tr.Proxy = nil
 		tr.ResponseHeaderTimeout = rotatingHeaderTimeout
 		tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-			d := &net.Dialer{Timeout: 20 * time.Second, KeepAlive: 30 * time.Second}
-			if ip := sourceip.Pick(); ip != nil && strings.HasPrefix(network, "tcp") {
-				bound := *d
-				bound.LocalAddr = &net.TCPAddr{IP: ip}
-				conn, err := bound.DialContext(ctx, network, addr)
-				if err == nil {
-					if t, ok := ctx.Value(trackerKey{}).(*ipTracker); ok {
-						t.set(ip)
-					}
-					return conn, nil
-				}
-			}
-			return d.DialContext(ctx, network, addr)
+			return egress.DialSource(ctx, network, addr, sourceip.Pick(), true)
 		}
-		rotClient = &http.Client{Transport: tr}
+		rotClient = &http.Client{Transport: tr, CheckRedirect: netguard.RedirectPolicy}
 	})
 	return rotClient
 }

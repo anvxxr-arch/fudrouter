@@ -12,13 +12,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/cfp"
+	"github.com/anvxxr-arch/fudrouter/backend/go/internal/egress"
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/routing"
+	"github.com/anvxxr-arch/fudrouter/backend/go/internal/sourceip"
 )
 
 var cfpSeq uint64
@@ -32,7 +35,7 @@ type cfpClientRequest struct {
 // exchangeCFP performs the completion over the playground WS agent and returns
 // an Attempt carrying either a synthesized OpenAI response (2xx) or a
 // classified error.
-func (lc *lifecycle) exchangeCFP(ctx context.Context, cand *routing.Candidate, a *routing.Attempt, upBody []byte) *routing.Attempt {
+func (lc *lifecycle) exchangeCFP(ctx context.Context, cand *routing.Candidate, a *routing.Attempt, upBody []byte, target *target) *routing.Attempt {
 	var creq cfpClientRequest
 	if err := json.Unmarshal(upBody, &creq); err != nil {
 		a.ErrorCode, a.Retryable = routing.ErrCodeInvalidRequest, false
@@ -47,6 +50,27 @@ func (lc *lifecycle) exchangeCFP(ctx context.Context, cand *routing.Candidate, a
 	reqID := fmt.Sprintf("chatcmpl-cfp-%d-%d", time.Now().Unix(), atomic.AddUint64(&cfpSeq, 1))
 	created := time.Now().Unix()
 	opt := cfp.Options{Model: model, Messages: creq.Messages, Temperature: creq.Temperature}
+	var route *egress.Route
+	opt.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		var err error
+		// Prepare on EACH WS retry, after the previous rejection burned its
+		// identity; preparing once would pin all three retries to the bad source.
+		route, err = lc.h.prepareEgress(target.egress, a.CredentialID)
+		if err != nil {
+			return nil, err
+		}
+		if route == nil {
+			return egress.DialSource(ctx, network, address, sourceip.Pick(), true)
+		}
+		return route.DialContext(ctx, network, address)
+	}
+	opt.OnReject = func(actualIP net.IP, status int) {
+		if route != nil {
+			route.Reject(actualIP, status)
+		} else {
+			sourceip.Burn(actualIP, egress.BurnDuration(status))
+		}
+	}
 
 	if !lc.stream {
 		res, err := cfpChatWithRetry(ctx, opt, nil)
@@ -126,9 +150,8 @@ func (lc *lifecycle) exchangeCFP(ctx context.Context, cand *routing.Candidate, a
 				"choices": []any{map[string]any{"index": 0, "delta": map[string]any{key: d}, "finish_reason": nil}},
 			})
 		}
-		res, err := cfpChatWithRetry(ctx, cfp.Options{
-			Model: model, Messages: creq.Messages, Temperature: creq.Temperature, OnDelta: delta,
-		}, func() bool { return started.Load() })
+		opt.OnDelta = delta
+		res, err := cfpChatWithRetry(ctx, opt, func() bool { return started.Load() })
 		if err != nil {
 			if !started.Load() {
 				markReady(err)

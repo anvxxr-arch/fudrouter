@@ -32,6 +32,7 @@ import (
 	"github.com/gorilla/websocket"
 	utls "github.com/refraction-networking/utls"
 
+	"github.com/anvxxr-arch/fudrouter/backend/go/internal/egress"
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/sourceip"
 )
 
@@ -134,6 +135,10 @@ type Options struct {
 	Temperature float64
 	// OnDelta receives streamed fragments. kind is "text" or "reasoning".
 	OnDelta func(kind, delta string)
+	// The router supplies the SAME connection policy as HTTP; a native WS
+	// path must not silently keep rotating when its connection opts into sticky.
+	DialContext func(context.Context, string, string) (net.Conn, error)
+	OnReject    func(actualIP net.IP, status int)
 }
 
 // Result is the aggregated completion.
@@ -170,12 +175,8 @@ func newUUID() string {
 // Cloudflare rate-limits concurrent playground sessions per source IP, so a
 // single address stalls once ~a dozen sockets are in flight; rotating the /128
 // per connection turns that wall into a non-issue.
-func dialTLS(ctx context.Context) (net.Conn, error) {
-	d := &net.Dialer{Timeout: 20 * time.Second}
-	if ip := sourceip.Pick(); ip != nil {
-		d.LocalAddr = &net.TCPAddr{IP: ip}
-	}
-	raw, err := d.DialContext(ctx, "tcp", wsHost)
+func dialTLS(ctx context.Context, dial func(context.Context, string, string) (net.Conn, error)) (net.Conn, error) {
+	raw, err := dial(ctx, "tcp", wsHost)
 	if err != nil {
 		return nil, err
 	}
@@ -210,7 +211,7 @@ func uptreamModel(model string) string {
 }
 
 // Chat runs one completion over a fresh playground session.
-func Chat(ctx context.Context, opt Options) (*Result, error) {
+func Chat(ctx context.Context, opt Options) (result *Result, chatErr error) {
 	model := strings.TrimSpace(opt.Model)
 	if model == "" {
 		return nil, &Error{Status: 400, Msg: "cfp: model is required"}
@@ -223,18 +224,43 @@ func Chat(ctx context.Context, opt Options) (*Result, error) {
 	room := "playground-" + strings.ReplaceAll(newUUID(), "-", "")[:25]
 	url := "ws://" + "playground.ai.cloudflare.com" + wsPath + room + "?_pk=" + newUUID()
 
+	var actualIP net.IP
+	rawDial := func(ctx context.Context, network, address string) (net.Conn, error) {
+		var conn net.Conn
+		var err error
+		if opt.DialContext != nil {
+			conn, err = opt.DialContext(ctx, network, address)
+		} else {
+			conn, err = egress.DialSource(ctx, network, address, sourceip.Pick(), true)
+		}
+		if err == nil {
+			if local, ok := conn.LocalAddr().(*net.TCPAddr); ok {
+				actualIP = append(net.IP(nil), local.IP...)
+			}
+		}
+		return conn, err
+	}
+	defer func() {
+		rejectSource(opt, actualIP, chatErr)
+	}()
+
 	dialer := websocket.Dialer{
 		HandshakeTimeout: 25 * time.Second,
 		NetDialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return dialTLS(ctx)
+			return dialTLS(ctx, rawDial)
 		},
 	}
 	hdr := map[string][]string{"User-Agent": {userAgent}, "Origin": {wsOrigin}}
 	ws, resp, err := dialer.DialContext(ctx, url, hdr)
 	if err != nil {
 		status := 502
-		if resp != nil && resp.StatusCode == 429 {
-			status = 429
+		if resp != nil {
+			if egress.BurnDuration(resp.StatusCode) > 0 {
+				status = resp.StatusCode
+			}
+			if resp.Body != nil {
+				_ = resp.Body.Close()
+			}
 		}
 		return nil, &Error{Status: status, Msg: fmt.Sprintf("cfp: ws upgrade failed: %v", err)}
 	}
@@ -380,6 +406,19 @@ func Chat(ctx context.Context, opt Options) (*Result, error) {
 			if ev.MessageMetadata.FinishReason != "" {
 				res.Finish = ev.MessageMetadata.FinishReason
 			}
+		}
+	}
+}
+
+// A rejection must retire the address that actually completed the dial, not a
+// fresh Pick; pool routes instead use the callback to retire a remote session.
+func rejectSource(opt Options, actualIP net.IP, err error) {
+	var rejection *Error
+	if errors.As(err, &rejection) && egress.BurnDuration(rejection.Status) > 0 {
+		if opt.OnReject != nil {
+			opt.OnReject(actualIP, rejection.Status)
+		} else {
+			sourceip.Burn(actualIP, egress.BurnDuration(rejection.Status))
 		}
 	}
 }

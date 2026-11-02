@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/crypt"
+	"github.com/anvxxr-arch/fudrouter/backend/go/internal/egress"
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/limits"
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/routing"
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/store"
@@ -65,6 +66,11 @@ type Handler struct {
 	crypt     *crypt.Crypt
 	client    *http.Client
 	refresher TokenRefresher
+
+	// An identity-scoped transport must survive individual attempts; rebuilding
+	// it per request would erase keep-alive and amplify the existing dial cost.
+	egressOnce    sync.Once
+	egressManager *egress.Manager
 
 	// limiter enforces the spec §7 limit chain (Valkey fast path, S0 in-process
 	// fallback, fail-open on a cache outage).

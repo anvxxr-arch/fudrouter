@@ -24,6 +24,7 @@ import (
 var (
 	mu       sync.Mutex
 	ips      []net.IP
+	assigned map[string]struct{}
 	loaded   time.Time
 	disabled = false
 	// burned holds addresses that a provider has just rejected (402 credits,
@@ -38,11 +39,16 @@ const refreshEvery = time.Minute
 // Pick returns a random local global IPv6 address, or nil when rotation is off
 // (SOURCE_ROTATE=0) or the host has no global IPv6 assigned.
 func Pick() net.IP {
+	mu.Lock()
+	defer mu.Unlock()
 	if disabled || os.Getenv("SOURCE_ROTATE") == "0" {
 		return nil
 	}
-	mu.Lock()
-	defer mu.Unlock()
+	refreshLocked()
+	return pickLocked()
+}
+
+func refreshLocked() {
 	if len(ips) == 0 || time.Since(loaded) > refreshEvery {
 		var found []net.IP
 		if addrs, err := net.InterfaceAddrs(); err == nil {
@@ -58,7 +64,16 @@ func Pick() net.IP {
 			}
 		}
 		ips, loaded = found, time.Now()
+		// This host has 1,027 assigned addresses in its routed /64. A sticky
+		// hit needs membership, not a scan of that whole list on every request.
+		assigned = make(map[string]struct{}, len(found))
+		for _, ip := range found {
+			assigned[ip.String()] = struct{}{}
+		}
 	}
+}
+
+func pickLocked() net.IP {
 	if len(ips) == 0 {
 		return nil
 	}
@@ -80,9 +95,41 @@ func Pick() net.IP {
 	}
 	buf := make([]byte, 8)
 	if _, err := rand.Read(buf); err != nil {
-		return usable[0]
+		return append(net.IP(nil), usable[0]...)
 	}
-	return usable[binary.BigEndian.Uint64(buf)%uint64(len(usable))]
+	return append(net.IP(nil), usable[binary.BigEndian.Uint64(buf)%uint64(len(usable))]...)
+}
+
+// Usable checks the SAME burn table and assigned-address snapshot as Pick. An
+// affinity must not survive a 429 just because its own TTL has not elapsed, or
+// bind a /128 that the minute-by-minute address refresher has removed.
+func Usable(ip net.IP) bool {
+	mu.Lock()
+	defer mu.Unlock()
+	if ip == nil || disabled || os.Getenv("SOURCE_ROTATE") == "0" {
+		return false
+	}
+	refreshLocked()
+	key := ip.String()
+	if until, ok := burned[key]; ok && time.Now().Before(until) {
+		return false
+	}
+	_, ok := assigned[key]
+	return ok
+}
+
+// Fixed deliberately ignores burns and SOURCE_ROTATE: direct policy must not
+// silently turn a refusal into another identity. The caller retains this first
+// assigned /128 for its lifetime; an operator can instead pin an explicit IPv4
+// or IPv6 source through ROUTER_DIRECT_SOURCE_IP.
+func Fixed() net.IP {
+	mu.Lock()
+	defer mu.Unlock()
+	refreshLocked()
+	if len(ips) == 0 {
+		return nil
+	}
+	return append(net.IP(nil), ips[0]...)
 }
 
 // Burn parks one source address for d. Called when an upstream answers with a

@@ -221,6 +221,10 @@ func (h *Handler) begin(w http.ResponseWriter, r *http.Request, start time.Time,
 	if err != nil {
 		pol = store.DefaultRoutingPolicy()
 	}
+	// Breaker config is lazy (D1): the first request pulls the circuit_breaker
+	// table into the breaker; later requests refresh it on the in-process TTL.
+	// Fail-open — an unreadable table keeps the last good config (D4).
+	h.refreshBreakerConfig(r.Context())
 	strategyOverride := ""
 	// The strategy header lets a caller override the stored routing policy's
 	// strategy, so it is off by default and must be opted into with
@@ -1131,10 +1135,34 @@ func attemptRow(requestID string, a *routing.Attempt) *store.RequestAttempt {
 // there was no single place that could have recorded it.
 //
 // The 50MiB bound is unchanged; it is the ceiling all three call sites used.
+// isEventStream reports whether an upstream response is an SSE stream. The
+// sniff must never drain one: the body is the client's live answer, and reading
+// it here would consume the bytes before they are relayed.
+func isEventStream(resp *http.Response) bool {
+	return resp != nil && strings.Contains(resp.Header.Get("Content-Type"), "event-stream")
+}
+
 func (lc *lifecycle) readUpstreamBody(resp *http.Response) ([]byte, error) {
 	start := time.Now()
-	defer func() { lc.timing["generation"] = time.Since(start).Milliseconds() }()
+	defer func() { lc.timing["generation"] = lc.timing["generation"] + time.Since(start).Milliseconds() }()
 	return io.ReadAll(io.LimitReader(resp.Body, 50<<20))
+}
+
+// readUpstreamBodyBounded is readUpstreamBody with a hard ceiling: a timer
+// CLOSES the body when genericTimeout fires, which is the only lever that stops
+// a stalled read without cancelling a context the response depends on.
+//
+// It exists because the 2xx error-envelope sniff runs inside exchange(), BEFORE
+// any surface arms its own body-read bound. The request context does not save
+// the read either: on the generic surface it is the CLIENT's own connection,
+// which a stalled upstream never ends. Without this, serving `HTTP 200` and then
+// never sending the body parked the handler indefinitely — measured:
+// TestGenericBodyReadIsBounded saw ServeGeneric outlive a 500ms bound by 20s+
+// once the sniff began draining the body that early.
+func (lc *lifecycle) readUpstreamBodyBounded(resp *http.Response) ([]byte, error) {
+	t := time.AfterFunc(genericTimeout, func() { _ = resp.Body.Close() })
+	defer t.Stop()
+	return lc.readUpstreamBody(resp)
 }
 
 // serveBuffered relays a buffered upstream body and records the outcome.
@@ -1190,8 +1218,8 @@ func (lc *lifecycle) dispatch(ctx context.Context, upBody []byte, method, rawQue
 		upBody = applyInjections(upBody, lc.injections)
 	}
 
-	attemptFn := func(attemptCtx context.Context, cand *routing.Candidate, next int) []*routing.Attempt {
-		return lc.attempt(attemptCtx, cand, next, upBody, method, rawQuery, upstreamPath)
+	attemptFn := func(attemptCtx context.Context, cand *routing.Candidate, next, budget int) []*routing.Attempt {
+		return lc.attempt(attemptCtx, cand, next, budget, upBody, method, rawQuery, upstreamPath)
 	}
 	res := routing.Execute(ctx, lc.cands, *lc.pol, lc.deadline, lc.h.breaker, attemptFn)
 	lc.attempts = res.Attempts
@@ -1213,7 +1241,7 @@ func (lc *lifecycle) dispatch(ctx context.Context, upBody []byte, method, rawQue
 // attempt (spec §8) until one succeeds, the attempt budget runs out, or the
 // failure is request-shaped (spec §9). routing.Execute renumbers the rows and
 // enforces the total budget; `n` is the loop's first attempt number.
-func (lc *lifecycle) attempt(ctx context.Context, cand *routing.Candidate, n int, upBody []byte, method, rawQuery, upstreamPath string) []*routing.Attempt {
+func (lc *lifecycle) attempt(ctx context.Context, cand *routing.Candidate, n, budget int, upBody []byte, method, rawQuery, upstreamPath string) []*routing.Attempt {
 	var out []*routing.Attempt
 	// Rotate this candidate's credential accounts ONCE (spec §4), then hand the
 	// remaining attempt budget to the next candidate. Without this a provider
@@ -1225,6 +1253,14 @@ func (lc *lifecycle) attempt(ctx context.Context, cand *routing.Candidate, n int
 		if pn := t.pool.Len(); pn > 0 && pn < maxTries {
 			maxTries = pn
 		}
+	}
+	// The budget Execute computed for THIS candidate: it already subtracted one
+	// attempt per still-viable candidate behind this one, so a pool deeper than
+	// the walk's whole MaxAttempts (8 zro accounts vs max_attempts=6) can no
+	// longer starve the fallback. pool.Len() alone was not enough — it is the
+	// smaller ceil only when the pool is smaller than the reserve.
+	if budget > 0 && budget < maxTries {
+		maxTries = budget
 	}
 	for i := 0; i < maxTries; i++ {
 		if err := ctx.Err(); err != nil {
@@ -1436,6 +1472,97 @@ func (lc *lifecycle) exchange(ctx context.Context, cand *routing.Candidate, n in
 	}
 	a.HTTPStatus = resp.StatusCode
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		// A 2xx is NOT automatically a completion. Some upstreams answer a
+		// throttled/exhausted account with HTTP 200 and an error envelope in
+		// the body — tokenharbor.ai, proved live 2026-11-02:
+		// 200 {"error":{"message":"Per-minute rate limit reached","code":
+		// "rate_limit_exceeded"}}. Trusting the status alone made every one of
+		// those a terminal SUCCESS: the walk stopped, so no failover ran; the
+		// ledger recorded status='success'; and the client was handed the
+		// refusal as if it were an answer. The body is sniffed BEFORE the
+		// success is recorded, so an envelope becomes a retryable attempt and
+		// the walk moves to a funded sibling.
+		//
+		// Only a buffered NON-stream response can be sniffed: a stream's answer
+		// is an SSE body the upstream has not produced yet (its refusals
+		// surface mid-stream), and reading it here would consume the very bytes
+		// the client is waiting for.
+		//
+		// The check must be on the RESPONSE too, not just lc.stream: lc.stream is
+		// derived from the client's request (its body's `stream` flag, or a
+		// request Content-Type of event-stream), while the generic surface
+		// additionally promotes to streaming when the UPSTREAM answers
+		// text/event-stream — a decision it only makes after dispatch, below.
+		// A client that asked for JSON but hit an upstream that streams anyway
+		// therefore looks non-stream here, and sniffing it drained the live
+		// stream: measured, TestGenericEventStreamIsNotTruncated saw the client
+		// get application/json (an empty buffered answer) instead of the 12
+		// events the upstream sent. Skipping on either signal is correct —
+		// neither surface buffers a response it means to stream.
+		if !lc.stream && !isEventStream(resp) && !strings.EqualFold(target.protocol, "cfp") {
+			body, rerr := lc.readUpstreamBodyBounded(resp)
+			_ = resp.Body.Close()
+			if rerr != nil {
+				// The 2xx headers arrived but its body did not: a torn
+				// connection, not an answer. Retryable — Pick() rotates.
+				a.ErrorCode, a.Retryable = routing.ErrCodeUpstreamError, true
+				a.RawMessage = "read upstream body: " + rerr.Error()
+				return a
+			}
+			if code, isEnv := routing.ErrorEnvelope(body); isEnv {
+				ecode, retryable := routing.ClassifyErrorCode(code, body)
+				a.ErrorCode, a.Retryable = ecode, retryable
+				a.RawMessage = upstreamMessage(body)
+				// A per-account 2xx refusal is THIS account's throttle: with a
+				// sibling key the next Pick() may succeed. A single-account pool
+				// keeps the honest terminal answer — retrying it would only burn
+				// the budget on the same deterministic reply.
+				if ecode == routing.ErrCodeRateLimited && target.pool != nil && target.pool.Len() > 1 {
+					a.Retryable = true
+				}
+				if !a.Retryable {
+					// Terminal: leave Payload nil. The walk surfaces this
+					// attempt as the last failure and dispatch returns an
+					// error, so fail() answers the client with the normalized
+					// envelope built from this attempt's ErrorCode — the same
+					// path a non-retryable non-2xx body takes. The raw envelope
+					// is NOT relayed: the router never relays a provider body
+					// on a failure path (writing the already-read body again
+					// would also close an exhausted reader).
+					return a
+				}
+				// Park the throttled key for the pool's short cooldown. Guarded
+				// on keyless exactly like the non-2xx path below: a keyless row
+				// has no secret to reject and no sibling to rotate to, so
+				// MarkFailed would empty the only "account" the row has.
+				if !keylessAuth(target.authKind) {
+					target.pool.MarkFailed(picked.Token)
+				}
+				return a
+			}
+			// A genuine completion: hand the read body back through a
+			// response-shaped payload so the buffered surfaces (they consume
+			// *http.Response and read .Body) keep working unchanged.
+			resp = &http.Response{
+				StatusCode: resp.StatusCode,
+				Header:     resp.Header,
+				Body:       io.NopCloser(bytes.NewReader(body)),
+			}
+		}
+		// A 2xx proves this credential works right now; record it (F3, see
+		// reviveCredential) so a transient-401 park does not cost up to an hour
+		// of capacity while the hourly probe is still a fan-out away.
+		//
+		// Gated on the row's status (R3): an already-healthy row is the common
+		// case, and rewriting it on every 200 adds a DB round trip per success
+		// for nothing — measured under 32x pool oversubscription, the
+		// unconditional write starved the ledger's own writes (load_test.go).
+		// Only a row that is NOT healthy (parked 'invalid', a 'rate_limited'
+		// whose cooldown lapsed) needs the flip.
+		if a.CredentialID != "" && !keylessAuth(target.authKind) &&
+			credentialStatus(cand, a.CredentialID) != "healthy" {
+			lc.h.reviveCredential(a.CredentialID)
+		}
 		a.Payload = resp
 		return a
 	}

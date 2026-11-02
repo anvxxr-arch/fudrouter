@@ -15,12 +15,12 @@ import (
 func build(model, providerID, providerName string, priority int, input, output, latency int64, avail float64) Candidate {
 	c := Candidate{
 		Store: &store.Candidate{
-			ModelID:    "mdl_" + model,
-			ModelSlug:  model,
-			ProviderID: providerID,
+			ModelID:      "mdl_" + model,
+			ModelSlug:    model,
+			ProviderID:   providerID,
 			ProviderName: providerName,
 			ProviderSlug: providerName,
-			Priority:   priority,
+			Priority:     priority,
 		},
 		PriceInputMicro:  input,
 		PriceOutputMicro: output,
@@ -168,10 +168,10 @@ func TestCapabilityFilterRule(t *testing.T) {
 // both contracts, and the distinction decides fallback.
 func TestClassifyRetryable(t *testing.T) {
 	cases := []struct {
-		code    string
-		status  int
-		transp  bool
-		want    bool
+		code   string
+		status int
+		transp bool
+		want   bool
 	}{
 		{ErrCodeRateLimited, 429, false, true},
 		{ErrCodeProviderTimeout, 504, false, true},
@@ -211,6 +211,7 @@ func TestClassifyUpstream(t *testing.T) {
 	}{
 		{429, ErrCodeRateLimited, true},
 		{503, ErrCodeProviderUnavailable, true},
+		{502, ErrCodeUpstreamError, true},
 		{504, ErrCodeProviderTimeout, true},
 		{500, ErrCodeUpstreamError, true},
 		{401, ErrCodeUpstreamError, true},
@@ -218,7 +219,13 @@ func TestClassifyUpstream(t *testing.T) {
 		{400, ErrCodeInvalidRequest, false},
 		{404, ErrCodeModelNotFound, false},
 		{413, ErrCodeContextTooLong, false},
-		{402, ErrCodeInsufficientCredits, false},
+		// An upstream 402 is the PROVIDER's quota, not the customer's balance.
+		// It must NOT surface as INSUFFICIENT_CREDITS (PRD §129 reserves that
+		// for the router's own budget gate) — measured live 2026-10-31: zro
+		// answered 402 "You've used today's Free usage" and the client was told
+		// to top up. UPSTREAM_ERROR is the honest code; retryable so the walk
+		// can reach a provider that can serve.
+		{402, ErrCodeUpstreamError, true},
 	}
 	for _, tc := range cases {
 		code, retry := ClassifyUpstream(tc.status)
@@ -235,7 +242,7 @@ func TestExecuteFallsBackOn429AndRecordsAttempts(t *testing.T) {
 		build("m", "prv_b", "goodco", 2, 100, 100, 100, 0.9),
 	}
 	var seen []string
-	fn := func(_ context.Context, cand *Candidate, _ int) []*Attempt {
+	fn := func(_ context.Context, cand *Candidate, _ int, _ int) []*Attempt {
 		seen = append(seen, cand.Store.ProviderName)
 		if cand.Store.ProviderName == "badco" {
 			return []*Attempt{{HTTPStatus: 429, ErrorCode: ErrCodeRateLimited, Retryable: true}}
@@ -269,7 +276,7 @@ func TestExecuteDoesNotRetryClientErrors(t *testing.T) {
 		build("m", "prv_b", "second", 2, 1, 1, 1, 1),
 	}
 	calls := 0
-	fn := func(_ context.Context, _ *Candidate, _ int) []*Attempt {
+	fn := func(_ context.Context, _ *Candidate, _ int, _ int) []*Attempt {
 		calls++
 		return []*Attempt{{HTTPStatus: 400, ErrorCode: ErrCodeInvalidRequest}}
 	}
@@ -292,7 +299,7 @@ func TestExecuteHonoursTheRequestDeadline(t *testing.T) {
 	// A candidate whose p95 is 500ms cannot finish inside a deadline 10ms away.
 	slow := build("m", "prv_a", "slowco", 1, 1, 1, 500, 1)
 	calls := 0
-	fn := func(_ context.Context, _ *Candidate, _ int) []*Attempt {
+	fn := func(_ context.Context, _ *Candidate, _ int, _ int) []*Attempt {
 		calls++
 		return []*Attempt{{Payload: "ok"}}
 	}
@@ -321,7 +328,7 @@ func TestExecuteRespectsFallbackDisabled(t *testing.T) {
 		build("m", "prv_b", "second", 2, 1, 1, 1, 1),
 	}
 	calls := 0
-	fn := func(_ context.Context, _ *Candidate, _ int) []*Attempt {
+	fn := func(_ context.Context, _ *Candidate, _ int, _ int) []*Attempt {
 		calls++
 		return []*Attempt{{HTTPStatus: 503, ErrorCode: ErrCodeProviderUnavailable}}
 	}
@@ -347,7 +354,7 @@ func TestExecuteCircuitOpenRefusesAndRecords(t *testing.T) {
 	cands[1].Store.ConnectionID = "con_live"
 
 	// Trip it with a failing attempt first.
-	fn := func(_ context.Context, cand *Candidate, _ int) []*Attempt {
+	fn := func(_ context.Context, cand *Candidate, _ int, _ int) []*Attempt {
 		if cand.Store.ConnectionID == "con_dead" {
 			return []*Attempt{{HTTPStatus: 503, ErrorCode: ErrCodeProviderUnavailable}}
 		}
@@ -391,7 +398,7 @@ func TestExecuteCircuitOpenDoesNotConsumeMaxAttempts(t *testing.T) {
 	cands[2].Store.ConnectionID = "con_live"
 
 	// Trip both circuits with one failing attempt each.
-	fail := func(_ context.Context, cand *Candidate, _ int) []*Attempt {
+	fail := func(_ context.Context, cand *Candidate, _ int, _ int) []*Attempt {
 		return []*Attempt{{HTTPStatus: 503, ErrorCode: ErrCodeProviderUnavailable}}
 	}
 	_ = Execute(context.Background(), []Candidate{cands[0]}, Plan{Strategy: StrategyProviderPriority, MaxAttempts: 1}, time.Time{}, cb, fail)
@@ -399,7 +406,7 @@ func TestExecuteCircuitOpenDoesNotConsumeMaxAttempts(t *testing.T) {
 
 	// maxAttempts=1: both refusals are recorded, and the ONE real attempt
 	// still lands on the healthy candidate.
-	fn := func(_ context.Context, cand *Candidate, _ int) []*Attempt {
+	fn := func(_ context.Context, cand *Candidate, _ int, _ int) []*Attempt {
 		if cand.Store.ConnectionID == "con_live" {
 			return []*Attempt{{Payload: "ok"}}
 		}
@@ -430,7 +437,7 @@ func TestExecuteRateLimitedDoesNotTripBreaker(t *testing.T) {
 		"connection:con_busy": {FailureThreshold: 2, WindowSeconds: 60, OpenMs: 60_000, HalfOpenProbes: 1},
 	})
 	cands[0].Store.ConnectionID = "con_busy"
-	throttled := func(_ context.Context, _ *Candidate, _ int) []*Attempt {
+	throttled := func(_ context.Context, _ *Candidate, _ int, _ int) []*Attempt {
 		return []*Attempt{{HTTPStatus: 429, ErrorCode: ErrCodeRateLimited}}
 	}
 	plan := Plan{Strategy: StrategyProviderPriority, MaxAttempts: 1}
@@ -460,6 +467,157 @@ func TestCircuitBreakerDegradesClosedWhenValkeyIsDown(t *testing.T) {
 	}
 }
 
+// A candidate pool DEEPER than the whole walk budget must not eat the fallback.
+//
+// Measured live: prv_zro exposes 8 accounts while rte_default.max_attempts=6, so
+// the first candidate's inner credential loop spent all six slots on dead 402s
+// and the walk ended with "every candidate failed" while candidate #2 was
+// serving 200s one slot away. Execute now metres the per-candidate budget: it
+// reserves one attempt for each viable candidate still ahead, so the first
+// candidate is capped at (budget - reserve) and the healthy one always gets a
+// turn. `budget` is the contract the AttemptFn must honour.
+func TestExecuteReservesBudgetForFallbackCandidates(t *testing.T) {
+	cands := []Candidate{
+		build("m", "prv_a", "deadco", 1, 1, 1, 1, 1),
+		build("m", "prv_b", "goodco", 2, 1, 1, 1, 1),
+	}
+	var seen []string
+	fn := func(_ context.Context, cand *Candidate, _ int, budget int) []*Attempt {
+		seen = append(seen, cand.Store.ProviderName)
+		// A deep, all-dead pool: spend the whole budget it was handed.
+		if cand.Store.ProviderName == "deadco" {
+			out := make([]*Attempt, 0, budget)
+			for range budget {
+				out = append(out, &Attempt{HTTPStatus: 402, ErrorCode: ErrCodeInsufficientCredits, Retryable: true})
+			}
+			return out
+		}
+		return []*Attempt{{Payload: "ok"}}
+	}
+	res := Execute(context.Background(), cands, Plan{Strategy: StrategyProviderPriority, MaxAttempts: 6, FallbackEnabled: true}, time.Time{}, nil, fn)
+
+	if res.Winner == nil {
+		t.Fatalf("no winner: the fallback candidate was starved — attempts seen %v", seen)
+	}
+	if res.Winner.Candidate.Store.ProviderName != "goodco" {
+		t.Errorf("winner = %s, want goodco", res.Winner.Candidate.Store.ProviderName)
+	}
+	if equal(seen, []string{"deadco", "goodco"}) != true {
+		t.Errorf("attempt order = %v, want deadco then goodco", seen)
+	}
+	// 6 total budget, 1 reserved for goodco → deadco may spend at most 5.
+	deadco := 0
+	for _, a := range res.Attempts {
+		if a.Candidate != nil && a.Candidate.Store.ProviderName == "deadco" {
+			deadco++
+		}
+	}
+	if deadco >= 6 {
+		t.Errorf("deadco spent %d attempts of a 6-slot budget — it must leave one for the fallback", deadco)
+	}
+}
+
+// A multi-hop combo: every candidate behind the first is viable, so the first
+// hop must not consume the whole walk even when its own pool is deep.
+func TestExecuteBudgetReserveAcrossThreeHops(t *testing.T) {
+	cands := []Candidate{
+		build("m", "prv_a", "hop1", 1, 1, 1, 1, 1),
+		build("m", "prv_b", "hop2", 2, 1, 1, 1, 1),
+		build("m", "prv_c", "hop3", 3, 1, 1, 1, 1),
+	}
+	var seen []string
+	fn := func(_ context.Context, cand *Candidate, _ int, budget int) []*Attempt {
+		seen = append(seen, cand.Store.ProviderName)
+		if cand.Store.ProviderName == "hop3" {
+			return []*Attempt{{Payload: "ok"}}
+		}
+		out := make([]*Attempt, 0, budget)
+		for range budget {
+			out = append(out, &Attempt{HTTPStatus: 429, ErrorCode: ErrCodeRateLimited, Retryable: true})
+		}
+		return out
+	}
+	res := Execute(context.Background(), cands, Plan{Strategy: StrategyProviderPriority, MaxAttempts: 3, FallbackEnabled: true}, time.Time{}, nil, fn)
+	if res.Winner == nil || res.Winner.Candidate.Store.ProviderName != "hop3" {
+		t.Fatalf("winner = %+v, want hop3 — reserve must keep the last hop reachable (seen %v)", res.Winner, seen)
+	}
+	if equal(seen, []string{"hop1", "hop2", "hop3"}) != true {
+		t.Errorf("attempt order = %v, want hop1 hop2 hop3", seen)
+	}
+}
+
+// F1 (HA hardening): the breaker's config map used to be wired in New with nil
+// and never written again, so an operator's circuit_breaker row changed
+// nothing. SetConfig must replace it, and the replacement must be visible to
+// the very next decision.
+func TestSetConfigReplacesBreakerDefaults(t *testing.T) {
+	cb := NewCircuitBreaker(vk.NewFake(), nil)
+	cand := build("m", "prv_a", "co", 1, 1, 1, 1, 1)
+	cand.Store.ConnectionID = "con_x"
+
+	// Default threshold is 5: one failure must NOT open it.
+	cb.Result(context.Background(), &cand, false)
+	if !cb.Allow(context.Background(), &cand) {
+		t.Fatal("one failure tripped the default(5) breaker")
+	}
+
+	// An operator row sets threshold 1: the next failure now opens it.
+	cb.SetConfig(map[string]BreakerDefaults{
+		"connection:con_x": {FailureThreshold: 1, WindowSeconds: 60, OpenMs: 60_000, HalfOpenProbes: 1},
+	})
+	cb.Result(context.Background(), &cand, false)
+	if cb.Allow(context.Background(), &cand) {
+		t.Fatal("SetConfig-backed threshold 1 did not open after a failure")
+	}
+}
+
+// F2 (HA hardening): the breaker window must be a real window, not a lifetime
+// failure count. Four in-window failures below a threshold of 5 stay closed;
+// the fifth opens. Four failures OLDER than the window (seeded directly) must
+// not count, so the next fresh failure is the first, not the fifth.
+func TestCircuitBreakerWindowSlides(t *testing.T) {
+	cfg := map[string]BreakerDefaults{
+		"connection:con_x": {FailureThreshold: 5, WindowSeconds: 60, OpenMs: 60_000, HalfOpenProbes: 1},
+	}
+	newCand := func() Candidate {
+		c := build("m", "prv_a", "co", 1, 1, 1, 1, 1)
+		c.Store.ConnectionID = "con_x"
+		return c
+	}
+
+	t.Run("in-window failures open at threshold", func(t *testing.T) {
+		cb := NewCircuitBreaker(vk.NewFake(), cfg)
+		cand := newCand()
+		for range 4 {
+			cb.Result(context.Background(), &cand, false)
+			if !cb.Allow(context.Background(), &cand) {
+				t.Fatal("four in-window failures (<5) opened the breaker")
+			}
+		}
+		cb.Result(context.Background(), &cand, false)
+		if cb.Allow(context.Background(), &cand) {
+			t.Fatal("the fifth in-window failure did not open the threshold-5 breaker")
+		}
+	})
+
+	t.Run("out-of-window failures are pruned", func(t *testing.T) {
+		f := vk.NewFake()
+		cb := NewCircuitBreaker(f, cfg)
+		cand := newCand()
+		// Seed FOUR failures from three windows ago: none may count now.
+		old := time.Now().Add(-3 * time.Minute).UnixMilli()
+		st := circuitState{State: CircuitClosed, Failures: []int64{old, old, old, old}}
+		if err := f.SetJSON(context.Background(), circuitKey("connection", "con_x"), st, 0); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+		// One fresh failure: the pruned window holds ONE, not five.
+		cb.Result(context.Background(), &cand, false)
+		if !cb.Allow(context.Background(), &cand) {
+			t.Fatal("4 out-of-window + 1 in-window failures opened the 5-threshold breaker — the window is not sliding")
+		}
+	})
+}
+
 func TestNormalizeStrategy(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"lowest_cost", StrategyLowestCost},
@@ -479,14 +637,17 @@ func TestNormalizeStrategy(t *testing.T) {
 }
 
 // The reasons written to request_attempt must explain the decision (spec §8).
+// The reason is built lazily by Reason() so a route does not allocate a string
+// per candidate it never attempts; this pins that the method still explains the
+// decision for the candidate that wins.
 func TestSelectStampsReasons(t *testing.T) {
 	cands := []Candidate{build("m", "prv_a", "co", 1, 100, 100, 100, 0.9)}
 	got := Select(cands, Plan{Strategy: StrategyLowestCost, Weights: DefaultWeights()})
-	if got[0].Reason == "" {
+	if got[0].Reason() == "" {
 		t.Error("select must stamp a reason on every candidate")
 	}
-	if !strings.Contains(got[0].Reason, "lowest_cost") {
-		t.Errorf("reason %q should name the strategy", got[0].Reason)
+	if !strings.Contains(got[0].Reason(), "lowest_cost") {
+		t.Errorf("reason %q should name the strategy", got[0].Reason())
 	}
 }
 

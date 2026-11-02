@@ -30,15 +30,15 @@ import (
 // Strategy names (PRD §30). `smart` is `balanced` unless the smart_routing
 // feature flag is on (its learned signals are P2 and not in this tree).
 const (
-	StrategyBalanced          = "balanced"
-	StrategyLowestCost        = "lowest_cost"
-	StrategyLowestLatency     = "lowest_latency"
+	StrategyBalanced           = "balanced"
+	StrategyLowestCost         = "lowest_cost"
+	StrategyLowestLatency      = "lowest_latency"
 	StrategyHighestReliability = "highest_reliability"
-	StrategyProviderPriority  = "provider_priority"
-	StrategyWeighted          = "weighted"
-	StrategyRoundRobin        = "round_robin"
-	StrategyRandom            = "random"
-	StrategySmart             = "smart"
+	StrategyProviderPriority   = "provider_priority"
+	StrategyWeighted           = "weighted"
+	StrategyRoundRobin         = "round_robin"
+	StrategyRandom             = "random"
+	StrategySmart              = "smart"
 )
 
 // NormalizeStrategy maps a request's strategy override (or policy strategy)
@@ -75,9 +75,6 @@ func StrategyBalendedAlias(bool) string { return StrategyBalanced }
 // row, all picked through the connection's pool).
 type Candidate struct {
 	Store *store.Candidate
-	// Reason is written into request_attempt.reason for whichever attempt uses
-	// this candidate (spec §8).
-	Reason string
 
 	// Signals, defaults filled by LoadSignals.
 	PriceInputMicro  int64 // micro-units per 1M tokens (cost.Price scale)
@@ -85,6 +82,39 @@ type Candidate struct {
 	LatencyMs        int64 // p95 estimate; neutral when unmeasured
 	Availability     float64
 	Capacity         int64 // credential weight / connection capacity hint
+
+	// score is the balanced score, computed ONCE per candidate in Select and
+	// read by both the sort comparator and selectReason. It used to be computed
+	// inside the comparator (O(n log n) times) AND again in selectReason (once
+	// per candidate), so a 64-candidate route ran balancedScore ~450 times
+	// instead of 64 — each call doing three math.Log10. Unexported because it
+	// is an internal memo, not part of the candidate's identity.
+	score float64
+
+	// reasonRank and reasonPlan are the inputs to the reason string, stored so
+	// the string is built LAZILY by Reason(). Building it eagerly in Select
+	// allocated a fmt.Sprintf per candidate — measured at 96% of all objects
+	// allocated on a 64-candidate route — while only the candidate that is
+	// actually attempted ever has its reason persisted (spec §8 writes
+	// request_attempt.reason, and only attempted candidates get a row).
+	//
+	// reasonPlan is a POINTER: Plan is a large struct (constraints + two
+	// preference lists + weights), and copying it into every candidate grew the
+	// candidate slice from 15 KB to 38 KB per 64-candidate route. One plan is
+	// shared by every candidate in a Select call, so a pointer is both smaller
+	// and truthful.
+	reasonRank int
+	reasonPlan *Plan
+}
+
+// Reason returns why this candidate won its slot (spec §8), built on demand.
+// The string is only materialized when an attempt is recorded, so a route that
+// tries one of 64 candidates pays for one string, not 64.
+func (c Candidate) Reason() string {
+	if c.reasonPlan == nil {
+		return ""
+	}
+	return selectReason(*c.reasonPlan, c, c.reasonRank)
 }
 
 // NeutralSignal values are used when a target has no measurement yet. They must
@@ -151,6 +181,79 @@ func (c *Candidate) LoadSignals() {
 			c.Capacity = neutralCapacity
 		}
 	}
+
+	// Health must be a function of the CREDENTIALS, not the connection row.
+	//
+	// Measured 2026-11-02: prv-zro held rank #1 (score 0.631, above
+	// prv-tokenharbor's 0.623) while all 486 of its credentials were spent —
+	// 462 rate_limited in cooldown until ~00:00, 24 invalid — and
+	// prv-tokenharbor held 6413 healthy. Every request then burned 5 of its 6
+	// attempts on zro (402 per attempt, ~250ms each) and reached the provider
+	// that could actually serve as the LAST resort, which is exactly the
+	// latency and the near-miss the attempt-budget reserve was built to avoid.
+	// The connection's health_status said "healthy": it describes the
+	// connection, and a connection whose every credential was just throttled
+	// is not healthy, it is a corpse with a pulse.
+	//
+	// A capacity of 0 is the signal the ordering pass reads as "no work left
+	// here" (see the hoist in Order), so exhaustion parks the candidate behind
+	// every provider that still has usable credentials. It is deliberately NOT
+	// a filter: a request that finds nothing else must still be served, and a
+	// candidate whose LAST credential is selectable keeps its capacity.
+	n := countUsableCredentials(sc.Credentials)
+	if n == 0 && len(sc.Credentials) > 0 {
+		c.Capacity = 0
+		c.Availability = 0
+	} else {
+		// Scale the health claim by the fraction of credentials that are
+		// actually pickable. A provider with 1 usable credential out of 900
+		// must not outrank one with 6413 healthy purely because its connection
+		// row says "healthy"; the fraction is what the attempt will feel.
+		if len(sc.Credentials) > 0 {
+			frac := float64(n) / float64(len(sc.Credentials))
+			if frac < c.Availability {
+				c.Availability = frac
+			}
+		}
+	}
+}
+
+// Credential statuses that mean "this secret can be tried right now". The
+// candidate query already excludes 'disabled'/'invalid' rows, but the ordering
+// must not assume the query is the only producer: a status the pool can never
+// pick (in cooldown, or already proven invalid) must not buy a candidate rank.
+// 'unknown' is included on purpose — a credential the pool has not exercised
+// yet is not a claim of failure.
+func credentialPickable(status string) bool {
+	switch status {
+	case "rate_limited", "cooling", "disabled", "invalid", "dead", "expired":
+		return false
+	default:
+		return true
+	}
+}
+
+// countUsableCredentials returns how many credentials in the slice could be
+// picked by Pool.Pick right now.
+func countUsableCredentials(creds []store.Credential) int {
+	n := 0
+	for _, cr := range creds {
+		if credentialPickable(cr.Status) {
+			n++
+		}
+	}
+	return n
+}
+
+// candidateHasUsableCredential reports whether the candidate can serve a
+// request at all. A candidate with no credential rows at all is NOT demoted:
+// that is the legacy blob shape (or a static api_key), and LoadSignals has no
+// per-credential evidence to condemn it with — a missing claim is not a claim.
+func candidateHasUsableCredential(c Candidate) bool {
+	if len(c.Store.Credentials) == 0 {
+		return true
+	}
+	return countUsableCredentials(c.Store.Credentials) > 0
 }
 
 // Constraints is spec §9 `constraints`. Missing keys constrain nothing (a
@@ -176,10 +279,10 @@ type Preferences struct {
 // Weights is spec §9 `weights` for the balanced score: price, latency,
 // reliability, capacity.
 type Weights struct {
-	Price      float64
-	Latency    float64
+	Price       float64
+	Latency     float64
 	Reliability float64
-	Capacity   float64
+	Capacity    float64
 }
 
 // DefaultWeights mirrors the seeded `rte_default` policy (0007).
@@ -292,10 +395,17 @@ func Select(cands []Candidate, plan Plan) []Candidate {
 	case StrategyRandom:
 		rand.Shuffle(len(out), func(i, j int) { out[i], out[j] = out[j], out[i] })
 	default: // balanced (and smart's current behaviour)
+		// Compute each candidate's score ONCE, then sort on the memo. The
+		// comparator used to call balancedScore on both operands for every
+		// comparison, so the same candidate was scored O(log n) times; the
+		// memo makes it exactly once, and selectReason reads the same value
+		// instead of recomputing it a second time.
+		for i := range out {
+			out[i].score = balancedScore(out[i], plan.Weights)
+		}
 		sortBy(out, func(a, b Candidate) bool {
-			sa, sb := balancedScore(a, plan.Weights), balancedScore(b, plan.Weights)
-			if sa != sb {
-				return sa > sb
+			if a.score != b.score {
+				return a.score > b.score
 			}
 			// A preference list breaks score ties before raw provider priority.
 			oa, ob := prefRank(plan.ProviderPref, a), prefRank(plan.ProviderPref, b)
@@ -306,6 +416,21 @@ func Select(cands []Candidate, plan Plan) []Candidate {
 		})
 	}
 
+	// A candidate with no usable credential sorts behind every candidate that
+	// has one, regardless of strategy. This is a stable partition, so it
+	// cannot reorder the survivors among themselves — it only demotes the
+	// exhausted.
+	//
+	// Why it must be here and not only in the score: `lowest_cost` ranks on
+	// price, and an exhausted free-tier farm is priced 0, so it would win
+	// every route on price alone while being unable to serve a single
+	// request. Measured 2026-11-02: prv-zro (all 486 credentials spent,
+	// priced 0) was that farm, and each request burned 5 of its 6 attempts
+	// there before reaching a provider that could answer.
+	stablePartition(out, func(a Candidate) bool {
+		return candidateHasUsableCredential(a)
+	})
+
 	// Model preference is a final tie-order hint across models in the set: a
 	// preferred model's targets sort ahead of an unpreferred model's at equal
 	// standing. Applied as a stable partition on the model slug.
@@ -315,8 +440,12 @@ func Select(cands []Candidate, plan Plan) []Candidate {
 		})
 	}
 
+	// Store the reason inputs, not the string: Reason() builds it on demand so
+	// a 64-candidate route does not allocate 64 fmt.Sprintf results it will
+	// never persist. The plan is shared by pointer, not copied per candidate.
 	for i := range out {
-		out[i].Reason = selectReason(plan, out[i], i)
+		out[i].reasonRank = i
+		out[i].reasonPlan = &plan
 	}
 	return out
 }
@@ -478,7 +607,7 @@ func selectReason(plan Plan, c Candidate, rank int) string {
 		return fmt.Sprintf("%s #%d: provider %s", plan.Strategy, rank+1, c.Store.ProviderName)
 	default:
 		return fmt.Sprintf("balanced #%d: score %.3f (price %d, p95 %dms, avail %.2f)",
-			rank+1, balancedScore(c, plan.Weights), c.totalPrice(), c.LatencyMs, c.Availability)
+			rank+1, c.score, c.totalPrice(), c.LatencyMs, c.Availability)
 	}
 }
 

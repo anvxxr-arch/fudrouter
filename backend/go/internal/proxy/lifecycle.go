@@ -322,6 +322,13 @@ func (h *Handler) begin(w http.ResponseWriter, r *http.Request, start time.Time,
 				"provider_error", http.StatusNotFound)
 			return lc, false
 		}
+		// Measured reliability for the whole set, in the same one-round-trip
+		// shape as the pricing fill above. It must run BEFORE Select: the
+		// selector's reliability term and its collapsed-target demotion both
+		// read the values this installs, and a miss leaves a candidate on its
+		// declared availability (a Valkey outage degrades to ranking without
+		// measurement, never to ranking on zeroes).
+		lc.h.breaker.FillReliability(r.Context(), merged)
 		lc.cands = routing.Select(merged, plan)
 	}
 	lc.timing["routing"] = time.Since(routeStart).Milliseconds()

@@ -539,8 +539,16 @@ const credentialValidation: JobHandler = async (dbtx, payload) => {
 	// Memoised per connection, because a 2xx from /models is not evidence on its
 	// own: some providers serve it publicly (openrouter, kiraai), so the same 200
 	// comes back for a valid key, an invalid key, and no key at all. Asking once
-	// per connection per run keeps the verdict honest for the price of one extra
-	// request, instead of one extra request per credential.
+	// per connection per run keeps the verdict honest for two extra requests,
+	// instead of one extra request per credential.
+	//
+	// An anonymous 200 alone does NOT mean "public". freemodel.in answers 200 to
+	// an unauthenticated /models and 401 to a bogus key — so the header IS being
+	// validated and a 200 with a real key is real evidence. Treating anonymity
+	// as proof of publicity demoted the whole freemodel pool to 'unknown' on
+	// every pass. The question worth asking is "does this endpoint reject a
+	// wrong key?", so ask it with a deliberately invalid credential: only if
+	// THAT also gets a 2xx is the 200 meaningless.
 	const publicModels = new Map<string, boolean>();
 	const servesModelsAnonymously = async (conn: {
 		id: string;
@@ -549,12 +557,27 @@ const credentialValidation: JobHandler = async (dbtx, payload) => {
 	}) => {
 		const cached = publicModels.get(conn.id);
 		if (cached !== undefined) return cached;
+		const timeoutMs = Math.min(conn.timeoutMs || UPSTREAM_TIMEOUT_MS, UPSTREAM_TIMEOUT_MS);
 		const anon = await guardedUpstreamFetch(conn.baseUrl, allowPrivateUpstreams(), '/models', {
 			method: 'GET',
-			timeoutMs: Math.min(conn.timeoutMs || UPSTREAM_TIMEOUT_MS, UPSTREAM_TIMEOUT_MS)
+			timeoutMs
 		});
-		const isPublic = anon.ok && anon.response.status < 300;
+		const anonOk = anon.ok && anon.response.status < 300;
 		if (anon.ok) await anon.response.text().catch(() => '');
+		let isPublic = false;
+		if (anonOk) {
+			const bogus = await guardedUpstreamFetch(conn.baseUrl, allowPrivateUpstreams(), '/models', {
+				method: 'GET',
+				headers: { Authorization: 'Bearer fudrouter-probe-invalid-key' },
+				timeoutMs
+			});
+			const bogusStatus = bogus.ok ? bogus.response.status : 0;
+			if (bogus.ok) await bogus.response.text().catch(() => '');
+			// 401/403 (or a 4xx rejection) proves the endpoint validates keys, so
+			// an authenticated 200 means something. A 2xx, or a 5xx/no answer that
+			// leaves us unable to tell, keeps the conservative verdict.
+			isPublic = !(bogusStatus >= 400 && bogusStatus < 500);
+		}
 		publicModels.set(conn.id, isPublic);
 		return isPublic;
 	};
@@ -645,6 +668,24 @@ const credentialValidation: JobHandler = async (dbtx, payload) => {
 			detail.note = 'access token expired; the data plane refreshes it from refresh_token';
 		}
 		const now = new Date();
+		// A 5xx or a transport failure is not a verdict on the credential — the
+		// probe never reached the auth check, so it learned nothing. Treating it
+		// as 'unknown' and WRITING that over 'healthy' is information loss, and
+		// it is not free: poolrebuild refreshes the legacy provider blob from
+		// `status = 'healthy'` rows only, so every demoted row silently leaves
+		// the on-demand pool. Measured 2026-11-02: freemodel.in fronts an nginx
+		// rate gate that answers 502 to a burst of probes, and one hourly pass
+		// rewrote 19 freshly onboarded healthy rows as 'unknown' in three
+		// minutes. Keep the verdict the data plane already earned; advancing
+		// `lastValidatedAt` is all this run is entitled to.
+		const indeterminate = !probed.ok || probed.response.status >= 500;
+		if (indeterminate && cred.status === 'healthy') {
+			await dbtx
+				.update(credential)
+				.set({ lastValidatedAt: now })
+				.where(eq(credential.id, cred.id));
+			continue;
+		}
 		// A connection whose /models is free but whose inference is metered
 		// answers 200 there no matter how empty the account is: measured
 		// 2026-11-01, a ZRO key that returned 402 "used all your included

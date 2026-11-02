@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/cost"
+	"github.com/anvxxr-arch/fudrouter/backend/go/internal/egress"
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/ids"
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/limits"
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/routing"
@@ -1357,7 +1358,7 @@ func (lc *lifecycle) exchange(ctx context.Context, cand *routing.Candidate, n in
 	// Playground answers over an anonymous `cf_agent` WebSocket, so its
 	// exchange is synthesized here and handed back as a normal response.
 	if strings.EqualFold(target.protocol, "cfp") {
-		return lc.exchangeCFP(ctx, cand, a, upBody)
+		return lc.exchangeCFP(ctx, cand, a, upBody, target)
 	}
 
 	upURL := strings.TrimRight(cand.Store.BaseURL, "/") + upstreamPath
@@ -1411,13 +1412,24 @@ func (lc *lifecycle) exchange(ctx context.Context, cand *routing.Candidate, n in
 	// address, dial from a different /128, and try again.
 	sendAttempts := 1
 	keyless := keylessAuth(target.authKind)
-	if keyless {
+	if keyless && target.egress.Mode != egress.Direct {
 		sendAttempts = 3
 	}
 	var resp *http.Response
+	var route *egress.Route
+	var tracker *ipTracker
 	for attempt := 0; attempt < sendAttempts; attempt++ {
-		attemptCtx, tracker := reqCtx, (*ipTracker)(nil)
-		if keyless {
+		route, err = lc.h.prepareEgress(target.egress, picked.CredID)
+		if err != nil {
+			a.ErrorCode, a.Retryable = routing.ErrCodeProviderUnavailable, true
+			a.RawMessage = err.Error()
+			a.FinishedAt = time.Now()
+			a.LatencyMs = a.FinishedAt.Sub(a.StartedAt).Milliseconds()
+			return a
+		}
+		attemptCtx := reqCtx
+		tracker = nil
+		if keyless || route != nil {
 			attemptCtx, tracker = withIPTracker(reqCtx)
 		}
 		upReq, rerr := newUpReq(attemptCtx)
@@ -1426,7 +1438,9 @@ func (lc *lifecycle) exchange(ctx context.Context, cand *routing.Candidate, n in
 			a.RawMessage = rerr.Error()
 			return a
 		}
-		if keyless {
+		if route != nil {
+			resp, err = route.Client.Do(upReq)
+		} else if keyless {
 			resp, err = rotatingClient().Do(upReq)
 		} else {
 			resp, err = lc.h.client.Do(upReq)
@@ -1446,16 +1460,20 @@ func (lc *lifecycle) exchange(ctx context.Context, cand *routing.Candidate, n in
 		}
 		success := resp.StatusCode >= 200 && resp.StatusCode < 300
 		perIP := resp.StatusCode == 402 || resp.StatusCode == 429
+		// Retire even the LAST rejected source. The old last-attempt break
+		// skipped Burn, so the next request could inherit precisely the address
+		// that exhausted this request's three anonymous retries.
+		if route != nil {
+			route.Reject(tracker.get(), resp.StatusCode)
+		} else if keyless && perIP {
+			sourceip.Burn(tracker.get(), egress.BurnDuration(resp.StatusCode))
+			// On the last attempt classification below closes Body; dropping
+			// idle sockets before that would miss the socket it returns.
+			defer dropIdleConnections()
+		}
 		if success || !perIP || attempt == sendAttempts-1 {
 			break
 		}
-		burnFor := 60 * time.Second
-		if resp.StatusCode == 402 {
-			// Out of credits is a budget fact, not a momentary throttle: the same
-			// address will keep answering 402 for a long while.
-			burnFor = 15 * time.Minute
-		}
-		sourceip.Burn(tracker.get(), burnFor)
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 8<<10))
 		_ = resp.Body.Close()
 		// The transport pools sockets: without this the "retry" reuses the very
@@ -1513,6 +1531,13 @@ func (lc *lifecycle) exchange(ctx context.Context, cand *routing.Candidate, n in
 				ecode, retryable := routing.ClassifyErrorCode(code, body)
 				a.ErrorCode, a.Retryable = ecode, retryable
 				a.RawMessage = upstreamMessage(body)
+				// A provider returning its 429 as HTTP 200 must not retain an
+				// explicitly sticky identity just because the envelope is buffered.
+				if route != nil && ecode == routing.ErrCodeRateLimited {
+					route.Reject(tracker.get(), http.StatusTooManyRequests)
+				} else if route != nil && (ecode == routing.ErrCodeAuthError || ecode == routing.ErrCodeAuthorization) {
+					route.Reject(tracker.get(), http.StatusForbidden)
+				}
 				// A per-account 2xx refusal is THIS account's throttle: with a
 				// sibling key the next Pick() may succeed. A single-account pool
 				// keeps the honest terminal answer — retrying it would only burn

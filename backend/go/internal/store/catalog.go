@@ -490,24 +490,27 @@ func (s *Store) activeModelIDs(ctx context.Context) ([]string, []string, error) 
 // eliminates only an explicit `false` — a missing/unknown key is not a claim,
 // so an unenriched catalog can never black-hole a request.
 type Candidate struct {
-	ModelID         string
-	ModelSlug       string
-	ProviderModelID string // provider_model.id (pmdl_…) — the entity id
-	UpstreamModel   string // provider_model.provider_model_id: the name sent upstream
-	ProviderID      string
-	ProviderName    string
-	ProviderSlug    string
-	ProviderTier    string
-	Region          string
-	HealthStatus    string // connection.health_status (spec §4 vocabulary)
-	Priority        int    // provider.priority, lower wins ties
-	ConnectionID    string
-	BaseURL         string
-	AuthType        string
-	TimeoutMs       int
-	ConfigJSON      []byte // connection.config: {protocol, default_headers, auth_kind}
-	Capabilities    map[string]any
-	Context         int
+	ModelID          string
+	ModelSlug        string
+	ProviderModelID  string // provider_model.id (pmdl_…) — the entity id
+	UpstreamModel    string // provider_model.provider_model_id: the name sent upstream
+	ProviderID       string
+	ProviderName     string
+	ProviderSlug     string
+	ProviderTier     string
+	Region           string
+	HealthStatus     string // connection.health_status (spec §4 vocabulary)
+	Priority         int    // provider.priority, lower wins ties
+	ConnectionID     string
+	BaseURL          string
+	AuthType         string
+	TimeoutMs        int
+	ConfigJSON       []byte // connection.config: {protocol, default_headers, auth_kind}
+	EgressMode       string
+	StickyTTLSeconds int
+	ProxyURL         string
+	Capabilities     map[string]any
+	Context          int
 	// Credentials are the usable secrets for this connection, best first.
 	Credentials []Credential
 	// Price is the effective price at query time (spec §6 resolution: specific
@@ -567,6 +570,8 @@ func (s *Store) CandidatesBatch(ctx context.Context, modelIDs []string, required
 			select m.id as model_id, m.slug, pm.id, pm.provider_model_id,
 			       p.id, p.name, coalesce(p.slug, ''), p.tier, p.priority,
 			       c.id, c.base_url, c.auth_type, c.timeout_ms, c.config::text,
+			       coalesce(c.egress_mode, 'ipv6_rotate'), coalesce(c.sticky_ttl_seconds, 3600),
+			       coalesce(c.proxy_url, ''),
 			       coalesce(c.region, ''), coalesce(c.health_status, 'unknown'),
 			       coalesce(pm.capabilities_override, '{}'::jsonb),
 			       m.capabilities,
@@ -615,6 +620,7 @@ func (s *Store) CandidatesBatch(ctx context.Context, modelIDs []string, required
 		if err := rows.Scan(&c.ModelID, &c.ModelSlug, &c.ProviderModelID, &c.UpstreamModel,
 			&c.ProviderID, &c.ProviderName, &c.ProviderSlug, &c.ProviderTier, &c.Priority,
 			&connID, &baseURL, &authType, &timeoutMs, &c.ConfigJSON,
+			&c.EgressMode, &c.StickyTTLSeconds, &c.ProxyURL,
 			&c.Region, &c.HealthStatus,
 			&overrideJSON, &capsJSON, &c.Context, &c.LegacyBlob, &credsJSON, &rn,
 		); err != nil {
@@ -679,6 +685,8 @@ func (s *Store) Candidates(ctx context.Context, modelID string, requiredCaps map
 		select m.id, m.slug, pm.id, pm.provider_model_id,
 		       p.id, p.name, coalesce(p.slug, ''), p.tier, p.priority,
 		       c.id, c.base_url, c.auth_type, c.timeout_ms, c.config::text,
+		       coalesce(c.egress_mode, 'ipv6_rotate'), coalesce(c.sticky_ttl_seconds, 3600),
+		       coalesce(c.proxy_url, ''),
 		       coalesce(c.region, ''), coalesce(c.health_status, 'unknown'),
 		       coalesce(pm.capabilities_override, '{}'::jsonb),
 		       m.capabilities,
@@ -723,6 +731,7 @@ func (s *Store) Candidates(ctx context.Context, modelID string, requiredCaps map
 		if err := rows.Scan(&c.ModelID, &c.ModelSlug, &c.ProviderModelID, &c.UpstreamModel,
 			&c.ProviderID, &c.ProviderName, &c.ProviderSlug, &c.ProviderTier, &c.Priority,
 			&connID, &baseURL, &authType, &timeoutMs, &c.ConfigJSON,
+			&c.EgressMode, &c.StickyTTLSeconds, &c.ProxyURL,
 			&c.Region, &c.HealthStatus,
 			&overrideJSON, &capsJSON, &c.Context, &c.LegacyBlob, &credsJSON,
 		); err != nil {

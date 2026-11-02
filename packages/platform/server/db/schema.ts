@@ -248,6 +248,14 @@ export const connection = pgTable(
 		baseUrl: text('base_url').notNull(),
 		region: text('region'),
 		authType: text('auth_type').notNull().default('bearer'),
+		// Anonymous providers need per-IP capacity, but credentialed providers
+		// should not see one account on hundreds of addresses/minute. Opt-in only.
+		egressMode: text('egress_mode')
+			.$type<'direct' | 'ipv6_rotate' | 'sticky_own' | 'pool'>()
+			.notNull()
+			.default('ipv6_rotate'),
+		stickyTtlSeconds: integer('sticky_ttl_seconds').notNull().default(3600),
+		proxyUrl: text('proxy_url'),
 		timeoutMs: integer('timeout_ms').notNull().default(120000),
 		priority: integer('priority').notNull().default(100),
 		enabled: boolean('enabled').notNull().default(true),

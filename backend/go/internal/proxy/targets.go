@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anvxxr-arch/fudrouter/backend/go/internal/egress"
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/routing"
 )
 
@@ -20,6 +21,7 @@ import (
 type target struct {
 	pool     *Pool
 	protocol string
+	egress   egress.Policy
 	// authKind is the connection's `auth_kind` ("bearer"/"oauth"/"noauth").
 	// "noauth" means the upstream must receive NO Authorization header at all:
 	// some anonymous endpoints (OVHcloud AI Endpoints) answer 403 to any request
@@ -96,6 +98,7 @@ func (h *Handler) targetFor(cand *routing.Candidate) *target {
 		})
 		return &target{
 			pool:           pool,
+			egress:         egress.Policy{Mode: sc.EgressMode, StickyTTLSeconds: sc.StickyTTLSeconds, ProxyURL: sc.ProxyURL},
 			protocol:       merged.Protocol,
 			authKind:       merged.AuthKind,
 			defaultHeaders: merged.DefaultHeaders,
@@ -149,6 +152,7 @@ func (h *Handler) targetFor(cand *routing.Candidate) *target {
 	pool := h.poolFor("prov:"+sc.ProviderID, cred, persist, load)
 	return &target{
 		pool:           pool,
+		egress:         egress.Policy{Mode: sc.EgressMode, StickyTTLSeconds: sc.StickyTTLSeconds, ProxyURL: sc.ProxyURL},
 		protocol:       cred.Protocol,
 		authKind:       cred.AuthKind,
 		defaultHeaders: cred.DefaultHeaders,

@@ -1604,6 +1604,19 @@ func (lc *lifecycle) exchange(ctx context.Context, cand *routing.Candidate, n in
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	_ = resp.Body.Close()
 	code, retryable := routing.ClassifyUpstream(resp.StatusCode)
+	// An upstream that cannot DESERIALIZE a body is reporting its own parser's
+	// defect, not a malformed client request: ServeCompletions already parsed
+	// this body as JSON before dispatch, and a captured copy of exactly these
+	// bytes (2026-11-03, prv_tokenjuice) contained no duplicate keys at all
+	// while the upstream claimed `duplicate field reasoning_content`. A
+	// non-retryable INVALID_REQUEST therefore fails the client for a provider
+	// bug a sibling candidate would serve — so walk on instead. Bounded by the
+	// normal attempt budget; if every candidate rejects it the client still
+	// gets the same honest 400.
+	if resp.StatusCode == http.StatusBadRequest &&
+		(bytes.Contains(body, []byte("deserialize")) || bytes.Contains(body, []byte("duplicate field"))) {
+		retryable = true
+	}
 	// A per-IP budget rejection survived every rotation: another candidate
 	// (a different provider) may still serve this request, so let the router
 	// walk on instead of failing the client here.

@@ -63,6 +63,20 @@ const PRIORITY = Number(process.env.FM_PRIORITY ?? 155);
 const PROBE_CONC = Number(process.env.FM_PROBE_CONCURRENCY ?? 8);
 const PROBE_ROUNDS = Number(process.env.FM_PROBE_ROUNDS ?? 2);
 const NO_REVIVE = process.env.FM_NO_REVIVE === '1';
+// Sharding: `connections` (default 3) connection rows so no single row carries
+// the whole 10k pool. `CandidatesBatch` returns every usable credential of a
+// connection in one json_agg on EVERY request (measured: ~4.1 MB of JSON at
+// 10k rows of realistic shape, 53 ms DB-side), so a monolithic pool is a
+// throughput ceiling. A connection per shard keeps each json_agg small and the
+// pool reload cheap.
+//
+// SPLIT_AT defaults to 0 / SHARDS to 3, i.e. shard ALWAYS. The old default
+// (split only past 1e6 keys) was dead code: the sync loop hands the onboarder
+// just the delta (a few dozen keys), so a batch-size test can never fire and
+// fresh keys silently pile back into shard 0. Placement is deterministic
+// (see shardOf), so unconditional sharding is idempotent.
+const SPLIT_AT = Number(process.env.FM_SPLIT_AT ?? 0);
+const SHARDS = Math.max(1, Number(process.env.FM_SHARDS ?? 3));
 
 const STATUS_ENV = (process.env.FM_PROVIDER_STATUS ?? '').trim();
 const VALID_STATUS = ['active', 'dev', 'operational', 'degraded', 'disabled', 'maintenance', 'outage'];
@@ -167,23 +181,58 @@ async function probeQuota(key) {
 }
 
 async function fetchUpstreamModels(key) {
-  const res = await fetch(`${BASE_URL}/models`, {
-    headers: { Authorization: `Bearer ${key}` },
-    signal: AbortSignal.timeout(40_000)
-  });
-  if (!res.ok) throw new Error(`upstream /models -> HTTP ${res.status}`);
-  const body = JSON.parse(await res.text());
-  const rows = Array.isArray(body?.data) ? body.data : [];
+  // GET /models is NOT a health signal on this target: the nginx edge answers
+  // 502 to bursts while chat/completions serves fine, and a single 502 here
+  // used to abort the whole import (measured: 34/34 keys passed the quota
+  // probe, then "upstream /models -> HTTP 502", rc=1, zero rows written).
+  // Retry the edge before treating the catalogue as unavailable.
+  let lastErr;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      const res = await fetch(`${BASE_URL}/models`, {
+        headers: { Authorization: `Bearer ${key}` },
+        signal: AbortSignal.timeout(40_000)
+      });
+      if (!res.ok) throw new Error(`upstream /models -> HTTP ${res.status}`);
+      const body = JSON.parse(await res.text());
+      const rows = Array.isArray(body?.data) ? body.data : [];
+      return rows
+        .map((m) => ({
+          slug: String(m?.id ?? '').trim(),
+          name: String(m?.name ?? m?.display_name ?? m?.id ?? '').trim(),
+          context: Number(m?.context_window ?? 0) || null,
+          description: String(m?.description ?? '').trim(),
+          caps: Array.isArray(m?.capabilities) ? m.capabilities.map(String) : [],
+          inputs: Array.isArray(m?.input_modalities) && m.input_modalities.length
+            ? m.input_modalities.map(String)
+            : ['text']
+        }))
+        .filter((m) => m.slug !== '');
+    } catch (e) {
+      lastErr = e;
+      await new Promise((r) => setTimeout(r, 5_000 * (attempt + 1)));
+    }
+  }
+  throw lastErr;
+}
+
+// Fallback catalogue: the models this provider is ALREADY mapped to. The
+// catalog import reuses existing model rows anyway, so a transient /models
+// outage must not block new credentials from joining a live pool.
+async function fetchMappedModels(sql) {
+  const rows = await sql`
+    select distinct pm.provider_model_id as slug
+    from provider_model pm
+    join model m on m.id = pm.model_id
+    where pm.provider_id = ${PROVIDER_ID} and m.status = 'active'`;
   return rows
-    .map((m) => ({
-      slug: String(m?.id ?? '').trim(),
-      name: String(m?.name ?? m?.display_name ?? m?.id ?? '').trim(),
-      context: Number(m?.context_window ?? 0) || null,
-      description: String(m?.description ?? '').trim(),
-      caps: Array.isArray(m?.capabilities) ? m.capabilities.map(String) : [],
-      inputs: Array.isArray(m?.input_modalities) && m.input_modalities.length
-        ? m.input_modalities.map(String)
-        : ['text']
+    .map((r) => ({
+      slug: String(r.slug ?? '').trim(),
+      name: String(r.slug ?? '').trim(),
+      context: null,
+      description: '',
+      caps: [],
+      inputs: ['text']
     }))
     .filter((m) => m.slug !== '');
 }
@@ -227,8 +276,15 @@ async function main() {
     // Import healthy + unknown (both authenticated); cooldown keys are parked.
     const live = [...healthy, ...unknown];
 
-    const models = await fetchUpstreamModels(live[0].key);
-    console.log(`upstream models advertised: ${models.length}`);
+    let models;
+    try {
+      models = await fetchUpstreamModels(live[0].key);
+      console.log(`upstream models advertised: ${models.length}`);
+    } catch (e) {
+      console.log(`upstream /models unavailable (${e.message}) — falling back to the models already mapped to ${PROVIDER_ID}`);
+      models = await fetchMappedModels(sql);
+      console.log(`mapped models reused: ${models.length}`);
+    }
 
     if (DRY) {
       console.log(`--dry-run: no writes. would import ${live.length} routable + ${cooldown.length} parked + ${dead.length} invalid`);
@@ -250,6 +306,24 @@ async function main() {
     });
 
     const adopted = [];
+    // Declared outside the transaction: the report below counts credentials
+    // across every shard, and a const inside the tx callback is out of scope.
+    const connRows = [];
+    // Shard count is decided by the TOTAL pool, not by this import's batch:
+    // the sync loop feeds the onboarder only the delta (a few dozen keys), so a
+    // batch-size check would never trigger the split and all 10k credentials
+    // would pile into one connection row.
+    const shardPrefix = `${CONNECTION_ID}-s`;
+    const [existing] = await sql`
+      select count(*)::int n from credential
+      where connection_id = ${CONNECTION_ID} or connection_id like ${shardPrefix + '%'}`;
+    const poolSize = existing.n + live.length;
+    const shardCount = poolSize >= SPLIT_AT ? SHARDS : 1;
+    // Deterministic placement: `credId` is `cred_freemodel_` + the first 16 hex
+    // of sha256(key), so hashing the ID's first byte and hashing the key's first
+    // byte are the same decision — and deriving it from the ID means a rebalance
+    // can be pure SQL (no decrypt, no network).
+    const shardOf = (id) => parseInt(id.slice(15, 17), 16) % shardCount;
     await sql.begin(async (tx) => {
       // --- 1. provider -----------------------------------------------------
       await tx`
@@ -267,36 +341,45 @@ async function main() {
           updated_at = now()${STATUS_ENV ? tx`, status = ${STATUS_ENV}` : tx``}`;
 
       // --- 2. connection ---------------------------------------------------
-      await tx`
-        insert into connection (id, provider_id, name, slug, base_url, auth_type, enabled, priority, config)
-        values (${CONNECTION_ID}, ${PROVIDER_ID}, ${PROVIDER_NAME}, 'default', ${BASE_URL},
-                'bearer', true, ${PRIORITY},
-                ${tx.json({ auth_kind: 'apikey', default_headers: {}, budget_metered: true })})
-        on conflict (id) do update set
-          base_url = excluded.base_url, config = excluded.config, enabled = true, updated_at = now()`;
+      // One row per shard when the pool is large enough to need splitting.
+      const connCount = shardCount;
+      for (let s = 0; s < connCount; s += 1) {
+        const cid = s === 0 ? CONNECTION_ID : `${CONNECTION_ID}-s${s + 1}`;
+        connRows.push(cid);
+        await tx`
+          insert into connection (id, provider_id, name, slug, base_url, auth_type, enabled, priority, config)
+          values (${cid}, ${PROVIDER_ID}, ${s === 0 ? PROVIDER_NAME : `${PROVIDER_NAME} shard ${s + 1}`}, ${s === 0 ? 'default' : `shard-${s + 1}`}, ${BASE_URL},
+                  'bearer', true, ${PRIORITY},
+                  ${tx.json({ auth_kind: 'apikey', default_headers: {}, budget_metered: true })})
+          on conflict (id) do update set
+            base_url = excluded.base_url, config = excluded.config, enabled = true, updated_at = now()`;
+      }
+      console.log(`connections: ${connRows.length} (${connRows.join(', ')})`);
 
       // --- 3. credentials --------------------------------------------------
       let newCreds = 0;
       let refreshed = 0;
+      const connFor = (id) => connRows[shardOf(id)];
       for (const k of live) {
         const id = credId(k.key);
         // 'healthy' is load-bearing: poolrebuild carries ONLY status='healthy'
         // rows into provider.credentials_enc, so a row left 'unknown' silently
         // vanishes from routing.
-        const meta = { source: 'freemodel.in', quota_check: k.status };
+        const meta = { source: 'freemodel.in', quota_check: k.status, shard: connFor(id) };
         if (k.remaining != null) meta.remaining_tokens = k.remaining;
         if (k.note) meta.note = k.note;
         const r = await tx`
           insert into credential (id, connection_id, name, secret_enc, status, metadata)
-          values (${id}, ${CONNECTION_ID}, ${id}, ${encryptJson({ api_key: k.key })}, 'healthy', ${tx.json(meta)})
+          values (${id}, ${connFor(id)}, ${id}, ${encryptJson({ api_key: k.key })}, 'healthy', ${tx.json(meta)})
           on conflict (id) do update set
+            connection_id = excluded.connection_id,
             secret_enc = excluded.secret_enc, status = 'healthy',
             cooldown_until = null, metadata = excluded.metadata, updated_at = now()
           returning (xmax = 0) as inserted`;
         if (r.length > 0 && r[0].inserted) newCreds += 1;
         else refreshed += 1;
       }
-      console.log(`credentials: ${newCreds} new, ${refreshed} refreshed`);
+      console.log(`credentials: ${newCreds} new, ${refreshed} refreshed across ${connRows.length} connection(s)`);
 
       // A spent month is temporary: park the row instead of discarding the key.
       if (cooldown.length) {
@@ -304,9 +387,9 @@ async function main() {
           const id = credId(k.key);
           await tx`
             insert into credential (id, connection_id, name, secret_enc, status, cooldown_until, metadata)
-            values (${id}, ${CONNECTION_ID}, ${id}, ${encryptJson({ api_key: k.key })}, 'cooldown',
+            values (${id}, ${connFor(id)}, ${id}, ${encryptJson({ api_key: k.key })}, 'cooldown',
                     now() + interval '30 days',
-                    ${tx.json({ source: 'freemodel.in', quota_check: 'cooldown', note: k.note })})
+                    ${tx.json({ source: 'freemodel.in', quota_check: 'cooldown', note: k.note, shard: connFor(id) })})
             on conflict (id) do update set
               secret_enc = excluded.secret_enc, status = 'cooldown',
               cooldown_until = now() + interval '30 days',
@@ -363,15 +446,22 @@ async function main() {
           }
         }
 
-        await tx`
-          insert into provider_model (id, model_id, provider_id, connection_id, provider_model_id, enabled, status)
-          values (${'pmdl_fm_' + modelId}, ${modelId}, ${PROVIDER_ID}, ${CONNECTION_ID}, ${m.slug}, true, 'available')
-          on conflict (id) do update set
-            provider_model_id = excluded.provider_model_id,
-            connection_id = excluded.connection_id,
-            enabled = true,
-            status = 'available',
-            updated_at = now()`;
+        // Fan the model out across EVERY shard: the candidate query joins
+        // provider_model → connection, so a model mapped to one connection can
+        // only reach that connection's credentials. Mapping it per shard is what
+        // makes the whole split pool reachable.
+        for (let s = 0; s < connRows.length; s += 1) {
+          const pmID = s === 0 ? `pmdl_fm_${modelId}` : `pmdl_fm_${modelId}_s${s + 1}`;
+          await tx`
+            insert into provider_model (id, model_id, provider_id, connection_id, provider_model_id, enabled, status)
+            values (${pmID}, ${modelId}, ${PROVIDER_ID}, ${connRows[s]}, ${m.slug}, true, 'available')
+            on conflict (id) do update set
+              provider_model_id = excluded.provider_model_id,
+              connection_id = excluded.connection_id,
+              enabled = true,
+              status = 'available',
+              updated_at = now()`;
+        }
         mapped += 1;
       }
       console.log(`models: ${newModels} new, ${reused} reused${revived ? `, ${revived} revived from inactive` : ''}, ${mapped} mapped`);
@@ -389,7 +479,7 @@ async function main() {
              count(*) filter (where status = 'healthy')::int healthy,
              count(*) filter (where status = 'cooldown')::int cooldown,
              count(*) filter (where status = 'invalid')::int inv
-      from credential where connection_id = ${CONNECTION_ID}`;
+      from credential where connection_id = any (${sql.array(connRows)})`;
     const [mm] = await sql`select count(*)::int n from provider_model where provider_id = ${PROVIDER_ID}`;
     const [cat] = await sql`
       select count(*)::int n from model m

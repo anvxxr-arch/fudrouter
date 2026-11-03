@@ -1701,8 +1701,21 @@ func (lc *lifecycle) exchange(ctx context.Context, cand *routing.Candidate, n in
 			// `retry-after: 5` was benched 12x too long. parseRetryAfter
 			// returns 0 for an absent or unusable hint, which parkCredential
 			// reads as the 60s default — so this is strictly additive.
-			a.RetryAfterSeconds = parseRetryAfter(resp.Header.Get("Retry-After"))
-			lc.h.parkCredential(a.CredentialID, "rate_limited", a.RetryAfterSeconds)
+			//
+			// 2026-11-03: an exhausted BALANCE also arrives as 429 here
+			// ("Token balance exhausted... insufficient credit balance"), and
+			// a throttle bench is a lie for it: the row came back every 60s
+			// and burned 51 attempts in an hour (measured) while fresh keys
+			// in the same pool went unused. A 429 whose BODY says the balance
+			// is gone is the same permanent fact classify402 handles for 402s,
+			// so it takes the same 'invalid' exit. The markers are specific
+			// billing strings; a bare retry-after throttle is untouched.
+			if permanentQuotaFailure(body) {
+				lc.h.parkCredential(a.CredentialID, "invalid", 0)
+			} else {
+				a.RetryAfterSeconds = parseRetryAfter(resp.Header.Get("Retry-After"))
+				lc.h.parkCredential(a.CredentialID, "rate_limited", a.RetryAfterSeconds)
+			}
 		} else if resp.StatusCode == 402 {
 			// Out of credits is a budget fact, not a momentary throttle: park
 			// the row long enough that the pool stops re-serving it (and stops

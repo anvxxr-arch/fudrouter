@@ -313,14 +313,45 @@ func clampRetryAfter(secs int) int {
 //
 // Returns (seconds, permanent).
 func classify402(body []byte) (int, bool) {
-	low := strings.ToLower(string(body))
-	if strings.Contains(low, "included credits") {
+	// A permanent balance fact is permanent at ANY status code. freemodel.in
+	// reports it as 429, other providers as 402; sharing the classifier keeps
+	// the two paths from disagreeing (measured: this function used to answer
+	// (900, false) — a 15-minute bench — for a drained balance, so the row
+	// came back after the bench and failed again).
+	if permanentQuotaFailure(body) {
 		return 0, true
 	}
+	low := strings.ToLower(string(body))
 	if strings.Contains(low, "today's free usage") || strings.Contains(low, "todays free usage") {
 		return secondsUntilUTCReset(low), false
 	}
 	return 900, false
+}
+
+// permanentQuotaFailure reports whether a non-2xx body describes a balance that
+// cannot recover on its own, whatever status code the provider wrapped it in.
+//
+// freemodel.in answers an exhausted free-tier balance with HTTP 429 and
+// "Token balance exhausted. You have 0 tokens remaining and insufficient
+// credit balance." That is a permanent fact about the account, but 429
+// classifies as a per-account THROTTLE, so the row was parked 'rate_limited'
+// for the 60s default and came straight back into rotation: measured 51
+// attempts in one hour returning 429 while 146 freshly-imported credentials in
+// the same pool recorded zero uses. classify402 already makes this judgement
+// for providers that use 402; this is the same call for those that use 429.
+func permanentQuotaFailure(body []byte) bool {
+	low := strings.ToLower(string(body))
+	for _, marker := range []string{
+		"insufficient credit balance",
+		"token balance exhausted",
+		"0 tokens remaining",
+		"included credits",
+	} {
+		if strings.Contains(low, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // secondsUntilUTCReset reads the provider's own "resets in 2h 11m" hint and

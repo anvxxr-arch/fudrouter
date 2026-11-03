@@ -468,7 +468,7 @@ export function PlaygroundPage2() {
               ))}
             </div>
             {runs?.some((r) => r.metrics) ? (
-              <div className="table-wrap">
+              <div className="table-wrap" tabIndex={0} role="region" aria-label="Run metrics">
                 <table className="fr">
                   <thead>
                     <tr>

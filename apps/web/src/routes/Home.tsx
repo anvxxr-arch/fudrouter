@@ -287,6 +287,10 @@ export function HomePage() {
           </div>
         ) : null}
       </Reveal>
+      {/* The pillars grid is the first section after the hero `h1`; without this
+          heading its cards open at `h3`, which axe flags as a heading-order skip
+          (h1→h3). Visually hidden -- the cards already carry the message. */}
+      <h2 className="sr-only">Why FUDRouter</h2>
       <div className="grid3">
           {PILLARS.map((p, i) => (
             <Reveal key={p.title} className="card" delay={i * 90}>

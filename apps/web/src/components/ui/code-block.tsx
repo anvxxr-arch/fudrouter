@@ -72,7 +72,11 @@ export function CodeBlock({ code, name }: { code: string; name: string }) {
         </button>
       </figcaption>
       <div className="code-block-frame">
-        <pre ref={preRef}><code>{code}</code></pre>
+        {/* The sample pans horizontally on a phone; a touchscreen gets there by
+            dragging, but a keyboard cannot reach a scrollport with no focusable
+            descendant, so axe `scrollable-region-focusable` flagged this `pre`
+            (1 node on `/`). tabIndex makes it a keyboard stop; the label names it. */}
+        <pre ref={preRef} tabIndex={0} aria-label={`Code sample: ${name}`}><code>{code}</code></pre>
       </div>
     </figure>
   );

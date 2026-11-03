@@ -84,9 +84,9 @@ export function StatusPage() {
 
       <section aria-labelledby="status-components">
         <h2 id="status-components">Components</h2>
-        <div className="table-wrap">
-          <Table
-            head={['Component', 'Status', 'Derived from']}
+        <Table
+          scrollLabel="Component health"
+          head={['Component', 'Status', 'Derived from']}
             rows={components.map((c) => [
               <span key="c">
                 <strong>{c.label}</strong>
@@ -101,7 +101,6 @@ export function StatusPage() {
               </span>,
             ])}
           />
-        </div>
       </section>
 
       <section aria-labelledby="status-incidents">
@@ -116,9 +115,9 @@ export function StatusPage() {
         ) : incidents.length === 0 ? (
           <p className="muted">No incidents recorded.</p>
         ) : (
-          <div className="table-wrap">
-            <Table
-              head={['Incident', 'Severity', 'Status', 'Started']}
+          <Table
+            scrollLabel="Recent incidents"
+            head={['Incident', 'Severity', 'Status', 'Started']}
               rows={incidents.map((i) => [
                 <span key="t">
                   <strong>{i.title}</strong>
@@ -132,15 +131,14 @@ export function StatusPage() {
                 </span>,
               ])}
             />
-          </div>
         )}
       </section>
 
       <section aria-labelledby="status-probe">
         <h2 id="status-probe">Data plane probe</h2>
-        <div className="table-wrap">
-          <Table
-            head={['Check', 'Result']}
+        <Table
+          scrollLabel="Data plane probe results"
+          head={['Check', 'Result']}
             rows={[
               [
                 <span key="r">Reachability</span>,
@@ -174,7 +172,6 @@ export function StatusPage() {
               ],
             ]}
           />
-        </div>
       </section>
 
       {dbErrorRequestId && (

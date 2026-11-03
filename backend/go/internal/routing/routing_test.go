@@ -293,6 +293,35 @@ func TestExecuteDoesNotRetryClientErrors(t *testing.T) {
 	}
 }
 
+// A 400 the proxy has PROVEN is the upstream's own parser defect — the body it
+// rejected parsed clean, so a sibling candidate can serve it — carries
+// retryable=true on the attempt. The walk must then move on instead of
+// treating INVALID_REQUEST as unfixable. The contrast with
+// TestExecuteDoesNotRetryClientErrors is exactly the attempt flag: same code,
+// same status, opposite decision.
+func TestExecuteRetriesUpstreamRejectedBody(t *testing.T) {
+	cands := []Candidate{
+		build("m", "prv_a", "badco", 1, 100, 100, 100, 0.9),
+		build("m", "prv_b", "goodco", 2, 100, 100, 100, 0.9),
+	}
+	var seen []string
+	fn := func(_ context.Context, cand *Candidate, _ int, _ int) []*Attempt {
+		seen = append(seen, cand.Store.ProviderName)
+		if cand.Store.ProviderName == "badco" {
+			return []*Attempt{{HTTPStatus: 400, ErrorCode: ErrCodeInvalidRequest, Retryable: true}}
+		}
+		return []*Attempt{{Payload: "ok"}}
+	}
+	res := Execute(context.Background(), cands, Plan{Strategy: StrategyProviderPriority, MaxAttempts: 2, FallbackEnabled: true}, time.Time{}, nil, fn)
+
+	if res.Winner == nil {
+		t.Fatal("no winner: a proven-upstream 400 must not stop the walk")
+	}
+	if equal(seen, []string{"badco", "goodco"}) != true {
+		t.Errorf("attempt order = %v, want [badco goodco]", seen)
+	}
+}
+
 // The DEADLINE is absolute (spec §9): an attempt is never STARTED that cannot
 // finish inside request_timeout_ms.
 func TestExecuteHonoursTheRequestDeadline(t *testing.T) {

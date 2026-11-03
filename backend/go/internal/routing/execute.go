@@ -210,7 +210,17 @@ func Execute(ctx context.Context, ordered []Candidate, plan Plan, deadline time.
 			res.LastErrorCode = a.ErrorCode
 			res.LastStatus = a.HTTPStatus
 
-			if !ClassifyRetryable(a.ErrorCode, a.HTTPStatus, a.Transport != nil) {
+			// An attempt may override the code-based verdict when the proxy
+			// proved the failure is the UPSTREAM's, not the request's: a 400
+			// reporting `Failed to deserialize ... duplicate field X` was
+			// measured against a byte-exact capture of the body we sent, which
+			// parsed clean with zero duplicate keys — the client's request was
+			// valid JSON (the proxy had already parsed it) and a sibling
+			// candidate can serve it. The code stays INVALID_REQUEST for the
+			// client-facing answer, but the walk must not stop on it. This is a
+			// strict OR: a false ClassifyRetryable plus a true attempt flag
+			// retries, and it never suppresses a retry ClassifyRetryable wanted.
+			if !ClassifyRetryable(a.ErrorCode, a.HTTPStatus, a.Transport != nil) && !a.Retryable {
 				res.FallbackUsed = candidatesTried > 1
 				return res // request-shaped: no other target can fix it
 			}

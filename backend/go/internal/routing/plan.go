@@ -43,6 +43,34 @@ func PlanFromRoutingPolicy(p *store.RoutingPolicy, requestStrategy string, smart
 	return plan
 }
 
+// ResolveStrategy picks the strategy a request runs under, given the plan's
+// policy-derived strategy, an explicit request override, and the strategy a
+// virtual model advertises for itself (store.ModelResolution.StrategyHint).
+//
+// Precedence, highest first:
+//
+//  1. requestOverride — an operator opted in with
+//     ROUTER_ALLOW_STRATEGY_HEADER=on and named a strategy for this caller.
+//     Explicit beats implicit: a client that asked for a strategy must not be
+//     silently overruled by the NAME it happens to be calling.
+//  2. virtualHint — the virtual's own contract. `fudrouter/fast` advertising
+//     lowest_latency and then running `balanced` is a name that lies.
+//  3. policyStrategy — the stored routing policy, i.e. the default when no one
+//     above asked for anything.
+//
+// Every path runs through NormalizeStrategy, so an unknown value degrades to
+// the policy strategy instead of failing the request (same rule as a typo in
+// the header: the policy still applies).
+func ResolveStrategy(policyStrategy, requestOverride, virtualHint string) string {
+	if s := strings.TrimSpace(requestOverride); s != "" {
+		return NormalizeStrategy(s, policyStrategy, false)
+	}
+	if s := strings.TrimSpace(virtualHint); s != "" {
+		return NormalizeStrategy(s, policyStrategy, false)
+	}
+	return NormalizeStrategy("", policyStrategy, false)
+}
+
 // parseConstraints reads spec §9's keys. The form omits empty values, so each
 // key is independently optional.
 func parseConstraints(m map[string]any) Constraints {

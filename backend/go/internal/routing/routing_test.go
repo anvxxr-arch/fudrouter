@@ -665,6 +665,43 @@ func TestNormalizeStrategy(t *testing.T) {
 	}
 }
 
+// A virtual model's advertised strategy must actually be applied, and the
+// precedence between a caller's explicit override, the virtual's hint and the
+// stored policy must be total. Before ResolveStrategy existed the hint was dead
+// code: store.ResolveModel set ModelResolution.StrategyHint on every virtual and
+// NOTHING read it, so fudrouter/fast (lowest_latency), /cheap (lowest_cost) and
+// /reliable (highest_reliability) all silently ran the policy's `balanced`.
+func TestResolveStrategyPrecedence(t *testing.T) {
+	cases := []struct {
+		name            string
+		policy, req, hi string
+		want            string
+	}{
+		// The hint must win over the stored policy — this is the bug fix.
+		{"hint over policy", StrategyBalanced, "", StrategyLowestLatency, StrategyLowestLatency},
+		{"hint over policy, cost", StrategyBalanced, "", StrategyLowestCost, StrategyLowestCost},
+		{"hint over policy, reliability", StrategyBalanced, "", StrategyHighestReliability, StrategyHighestReliability},
+		// An explicit request override outranks the name being called.
+		{"request over hint", StrategyBalanced, StrategyLowestCost, StrategyLowestLatency, StrategyLowestCost},
+		// No hint at all: the policy stands (a literal slug request).
+		{"policy when nothing asked", StrategyRoundRobin, "", "", StrategyRoundRobin},
+		{"policy is normalized too", "", "", "", StrategyBalanced},
+		// A typo in either slot degrades to the policy, never fails the request.
+		{"unknown hint falls back", StrategyProviderPriority, "", "nonsense", StrategyProviderPriority},
+		{"unknown request falls back", StrategyProviderPriority, "nonsense", "", StrategyProviderPriority},
+		// Whitespace is not a choice.
+		{"blank request is not an override", StrategyBalanced, "   ", StrategyLowestCost, StrategyLowestCost},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ResolveStrategy(tc.policy, tc.req, tc.hi); got != tc.want {
+				t.Errorf("ResolveStrategy(policy=%q, req=%q, hint=%q) = %q, want %q",
+					tc.policy, tc.req, tc.hi, got, tc.want)
+			}
+		})
+	}
+}
+
 // The reasons written to request_attempt must explain the decision (spec §8).
 // The reason is built lazily by Reason() so a route does not allocate a string
 // per candidate it never attempts; this pins that the method still explains the

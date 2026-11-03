@@ -254,6 +254,25 @@ func (h *Handler) begin(w http.ResponseWriter, r *http.Request, start time.Time,
 		}
 		lc.resolved = res
 
+		// A virtual model carries its OWN strategy (store/catalog.go's
+		// virtualModels: fudrouter/fast → lowest_latency, fudrouter/cheap →
+		// lowest_cost, fudrouter/reliable → highest_reliability, ...). It is
+		// applied HERE, after resolution, because the hint does not exist until
+		// the name has been resolved — every check above runs on `slug`, which
+		// only ResolveModel turns into a kind and a target set.
+		//
+		// Before this the hint was dead code: `res.StrategyHint` was set on
+		// every virtual and read by NOTHING, so fudrouter/fast, /cheap and
+		// /reliable all silently ran the policy's `balanced`. A name whose
+		// advertised behaviour is a lie is worse than one that does not exist.
+		//
+		// Precedence (see routing.ResolveStrategy):
+		// opt-in header override → the virtual's own hint → the stored policy,
+		// which the plan already carries. Reassigning lc.pol is what makes the
+		// decision visible to Execute and to the ledger's recorded strategy.
+		plan.Strategy = routing.ResolveStrategy(plan.Strategy, strategyOverride, res.StrategyHint)
+		lc.pol = &plan
+
 		// Prompt injections (prompt_injection): resolved here, applied once in
 		// dispatch. Cached in Valkey like the routing policy, and fail-open —
 		// a lookup failure dispatches the request unmodified.

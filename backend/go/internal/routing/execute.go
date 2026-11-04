@@ -579,11 +579,11 @@ func (b *CircuitBreaker) Allow(ctx context.Context, cand *Candidate) bool {
 	if err != nil {
 		return true // Valkey down → closed (PRD §150)
 	}
-	cfg := b.config(target, id)
 	now := time.Now()
 
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	cfg := b.config(target, id)
 	switch st.State {
 	case CircuitOpen:
 		if now.Sub(time.UnixMilli(st.OpenedAtMs)) >= time.Duration(cfg.OpenMs)*time.Millisecond {
@@ -616,10 +616,10 @@ func (b *CircuitBreaker) Result(ctx context.Context, cand *Candidate, success bo
 		return
 	}
 	key := circuitKey(target, id)
-	cfg := b.config(target, id)
 
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	cfg := b.config(target, id)
 	st, err := b.load(ctx, key)
 	if err != nil {
 		return // state is advisory; never fail the request for it
@@ -683,6 +683,11 @@ func (b *CircuitBreaker) SetConfig(cfg map[string]BreakerDefaults) {
 // take the lock itself — that would deadlock. SetConfig writes b.cfg under the
 // same lock, and this read is serialized against that write by the caller's
 // already-held lock.
+//
+// Callers MUST call this with b.mu held and BEFORE the first use of its return
+// value. Result used to read it above the Lock, which -race flagged as a real
+// data race against SetConfig on the hot path (one refreshBreakerConfig per
+// request via begin() vs every in-flight Result).
 func (b *CircuitBreaker) config(target, id string) BreakerDefaults {
 	if c, ok := b.cfg[target+":"+id]; ok && c.FailureThreshold > 0 {
 		return c

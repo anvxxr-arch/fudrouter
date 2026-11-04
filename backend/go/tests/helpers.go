@@ -156,18 +156,21 @@ func SecretHash(s string) string { return secretHash(s) }
 // second seeder that drifts from this one.
 func SeedEnv(t testing.TB, dsn, upstreamBaseURL string) *Env {
 	t.Helper()
-	return SeedEnvFull(t, dsn, upstreamBaseURL, "active", nil)
+	return SeedEnvFull(t, dsn, upstreamBaseURL, "operational", nil)
 }
 
 // SeedEnvWithHeaders is SeedEnv plus extra `default_headers` inside the
 // encrypted credential blob (upstream requirements that are not auth).
 func SeedEnvWithHeaders(t *testing.T, dsn, upstreamBaseURL string, extraHeaders map[string]string) *Env {
 	t.Helper()
-	return SeedEnvFull(t, dsn, upstreamBaseURL, "active", extraHeaders)
+	return SeedEnvFull(t, dsn, upstreamBaseURL, "operational", extraHeaders)
 }
 
-// SeedEnvWithStatus controls provider.status — e.g. 'dev', which the data plane
-// must hide unless ROUTER_ALLOW_DEV_PROVIDERS is set (spec §1).
+// SeedEnvWithStatus controls provider tier/status. The special value 'dev'
+// seeds a `tier='dev'` provider (the data plane must hide it unless
+// ROUTER_ALLOW_DEV_PROVIDERS is set — spec §1). Any other value is passed
+// through as provider.status; the schema-fresh vocabulary is
+// 'operational'|'degraded'|'disabled'|'maintenance'|'outage' (PRD §52).
 func SeedEnvWithStatus(t *testing.T, dsn, upstreamBaseURL, status string, extraHeaders map[string]string) *Env {
 	t.Helper()
 	return SeedEnvFull(t, dsn, upstreamBaseURL, status, extraHeaders)
@@ -245,10 +248,24 @@ func seedEnvCred(t testing.TB, dsn, upstreamBaseURL, status string, extraCred ma
 	pid := ids.New("prv")
 	slug := "t_" + randChars(6)
 	mid := ids.New("mdl")
+	// Provider status follows the POST-0010 vocabulary (PRD §52): the S0
+	// `'active'|'dev'` status set was replaced by `tier` + the
+	// `'operational'|'degraded'|'disabled'|'maintenance'|'outage'` status set.
+	// seedEnvCred receives the caller's `tier` and derives a servable status
+	// so test seeds keep working on a fully-migrated schema. A `tier='dev'`
+	// provider is still routable here (status='operational'), exactly like the
+	// legacy `status='dev'` provider was — the data-plane predicate
+	// (providerServableSQLFor) gates on tier, not on this status.
+	tier := "commercial"
+	statusVal := status
+	if status == "dev" {
+		tier = "dev"
+		statusVal = "operational"
+	}
 	_, err = conn.Exec(ctx, `
-		insert into provider (id, name, base_url, credentials_enc, status, priority, created_at)
-		values ($1, $2, $3, $4, $5, 100, now())`,
-		pid, "test-provider-"+slug, upstreamBaseURL, enc, status)
+		insert into provider (id, name, base_url, credentials_enc, status, tier, priority, created_at)
+		values ($1, $2, $3, $4, $5, $6, 100, now())`,
+		pid, "test-provider-"+slug, upstreamBaseURL, enc, statusVal, tier)
 	if err != nil {
 		t.Fatalf("seed provider: %v", err)
 	}
@@ -746,7 +763,7 @@ func SeedEnvAccounts(t testing.TB, dsn, upstreamBaseURL string, tokens []string)
 			"expired":       "2099-01-01T00:00:00Z",
 		})
 	}
-	return seedEnvCred(t, dsn, upstreamBaseURL, "active", map[string]any{
+	return seedEnvCred(t, dsn, upstreamBaseURL, "operational", map[string]any{
 		"api_key":  tokens[0],
 		"accounts": accts,
 	})

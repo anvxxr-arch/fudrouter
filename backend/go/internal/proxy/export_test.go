@@ -179,3 +179,27 @@ func (lc *lifecycle) FinishForTest() {
 	lc.finish()
 	lc.ledgerWG.Wait()
 }
+
+// LedgerWriterCapSizeForTest reports the concurrent detached-writer cap of this
+// handler, so a test can assert it is sized from the pool rather than left at a
+// package default.
+func (h *Handler) LedgerWriterCapSizeForTest() int { return cap(h.ledgerWriters) }
+
+// LedgerWritersShedForTest reports how many rows the writer cap has abandoned.
+// A non-zero value is the signal that the cap — not the queue — is what is
+// costing money, so a test that saturates the cap must see it move.
+func (h *Handler) LedgerWritersShedForTest() int64 { return h.ledgerWritersShed.Load() }
+
+// SetLedgerWriterCapForTest re-sizes the cap and the slot-wait window, so a
+// capacity test can saturate it with a handful of writers and reach the shed
+// path in milliseconds instead of waiting out ledgerWriteDeadline. It clears
+// the shed counter.
+func (h *Handler) SetLedgerWriterCapForTest(size int, wait time.Duration) {
+	h.ledgerWriters = make(chan struct{}, size)
+	h.ledgerWriterWait = wait
+	h.ledgerWritersShed.Store(0)
+}
+
+// LedgerWriterCapSize derives the cap from a pool size (exposed for a unit test
+// of the arithmetic, which needs no database).
+func LedgerWriterCapSize(maxConns int32) int { return ledgerWriterCapSize(maxConns) }

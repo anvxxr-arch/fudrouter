@@ -125,6 +125,17 @@ func testQueryTracer() pgx.QueryTracer {
 // different settings is a wrong answer, not a stale one.
 func (s *Store) DevProvidersAllowed() bool { return s.allowDevProviders }
 
+// MaxConns reports the pool's configured connection ceiling. Callers that want
+// to reserve a few connections for request-path work (the detached ledger
+// retry loop does) need the real number, not a hardcoded guess: the DSN can
+// set pool_max_conns, so the project default is only the fallback.
+func (s *Store) MaxConns() int32 {
+	if s == nil || s.pool == nil {
+		return 0
+	}
+	return s.pool.Config().MaxConns
+}
+
 // CacheNamespace is the per-database prefix for Valkey entries (see cacheNS).
 func (s *Store) CacheNamespace() string { return s.cacheNS }
 

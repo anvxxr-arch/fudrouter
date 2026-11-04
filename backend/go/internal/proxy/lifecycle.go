@@ -23,6 +23,7 @@ import (
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/routing"
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/sourceip"
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/store"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // lifecycle carries ONE request through PRD §85: authenticate → limits →
@@ -808,20 +809,134 @@ func (lc *lifecycle) upstreamContext(r *http.Request, stream bool) context.Conte
 	return ctx
 }
 
-// ledgerWriteBudget bounds the primary charge and the recovery writes that
-// follow it (the fallback ledger insert, the attempts insert). Each recovery
-// write builds a fresh context (an expired one never revives), so it cannot
-// inherit the primary's leftovers.
+// ledgerWriteBudget bounds ONE attempt: the primary charge, and each retry of
+// the fallback ledger insert. Each attempt builds a fresh context (an expired
+// one never revives), so it cannot inherit the primary's leftovers.
+//
+// Retries use ledgerWriteRetryBudget instead (1s). One budget for both was the
+// v1 mistake: a retry is a BACKGROUND attempt whose only job is to be cheap
+// enough to repeat, so the moment it is worth retrying — the queue is deep —
+// every second it holds a connection is a second a request-path query spends
+// queued behind it. Measured: at 5s per attempt the pool was 100% occupied for
+// 60+ consecutive seconds; at 1s the same rows still land, but the loop
+// releases its slots ~5x more often, so an inter-attempt gap is always coming.
 const ledgerWriteBudget = 5 * time.Second
 
-// ledgerWriteAttempts and ledgerWriteBackoff bound the fallback's retry loop
-// (see finish). Three attempts with 250ms/500ms backoff gives a saturated pool
-// ~15s of wall clock to drain before the row is declared lost, which is the
-// same order as the queue depth that caused the loss in the first place.
+// ledgerWriteRetryBudget bounds ONE retry attempt of the fallback loop.
+const ledgerWriteRetryBudget = 1 * time.Second
+
+// ledgerWriteDeadline bounds the fallback's retry loop as a WHOLE (see finish).
+//
+// It used to be a fixed count (ledgerWriteAttempts = 3, ~15s of wall clock),
+// which made the loss a function of queue depth: once the queue took longer
+// than 3 attempts, the row was dropped, and whether a given run reached that
+// depth depended on the machine. Measured on one commit: 0, 2, 5 and 6 rows
+// lost out of 2000 across four runs of the same test. A fixed count cannot be
+// "wide enough" because the queue has no fixed size.
+//
+// A deadline is the queue-depth argument in the only form that terminates:
+// keep retrying until the queue drains, give up only when the row is
+// demonstrably un-writable. The write is detached from the client (see the
+// DETACHED note below), so the client latency never sees it. The row is
+// idempotent (`request_log on conflict (id) do nothing`, ledger keyed
+// `usage:<id>`), so extra attempts can never double-charge.
+//
+// COST, corrected. v1 justified this deadline with "the cost of a long deadline
+// is one held goroutine, which is strictly cheaper than a lost billing row."
+// The goroutine count is right (measured: 1.0 per pending row) and it is the
+// wrong unit. Each attempt also HOLDS A POOL CONNECTION for its whole budget,
+// and the pool is shared with auth, key lookup, rate limiting and every other
+// read on the request path. Per lost-charge row that was 3x5s=15s of occupancy
+// before, ~28x5s=140s after — 9x, unbounded, since the loop ends only when the
+// queue drains. Serial A/B holding the billing_account row lock, 60 writers,
+// pool 60, sampling pg_stat_activity for wait_event_type='Lock': the old code
+// freed the pool at t=18s (blocked 60 -> 0, goroutines 70 -> 10); the v1 code
+// held 60/60 blocked for the whole minute. That turns a billing-loss bug into
+// a billing-loss-plus-outage risk. The three limits below are the fix: a 1s
+// retry budget, a backoff well under it, and a writer cap that keeps most of
+// the pool for request-path traffic.
+const ledgerWriteDeadline = 5 * time.Minute
+
+// ledgerWriteBackoff is the first retry's sleep; it doubles per attempt up to
+// ledgerWriteBackoffMax. The cap matters more than the base now that the loop
+// is bounded by a deadline: without it, exponential backoff spends the whole
+// deadline asleep instead of re-queuing behind the drain.
+//
+// The cap MUST stay well under ledgerWriteRetryBudget or a cycle costs
+// budget+backoff: at 5s+5s a single futile cycle ate a sixth of the deadline
+// and re-queued only ~5x per minute, which is exactly the sampling pattern that
+// kept the pool saturated. 1s backoff against a 1s attempt re-queues ~2x as
+// often for the same wall clock.
 const (
-	ledgerWriteAttempts = 3
-	ledgerWriteBackoff  = 250 * time.Millisecond
+	ledgerWriteBackoff    = 250 * time.Millisecond
+	ledgerWriteBackoffMax = 1 * time.Second
 )
+
+// ledgerWriterFraction sizes the concurrent-writer cap as a fraction of the
+// pool: a thundering herd must never be able to occupy every connection.
+//
+// 2 leaves half the pool (30 of 60) for request-path work while still draining
+// a saturated backlog. It is chosen from measurement, not taste: at 10 (cap 6)
+// the drain rate throttled the ledger — a 2000-request run against a 60-pool
+// produced 1335 failed charges and the retry loop recovered only ~3 rows/s, so
+// 655 rows were still queued when the run ended. The cap must bound OCCUPANCY
+// per attempt without becoming the bottleneck for the rows themselves.
+const ledgerWriterFraction = 2
+
+// ledgerWriterCapSize derives the concurrent detached-writer cap from the pool.
+// A pool too small to divide still gets one writer: a cap of zero would shed
+// every billing row under saturation, which is worse than the contention it
+// prevents.
+func ledgerWriterCapSize(maxConns int32) int {
+	if n := int(maxConns) / ledgerWriterFraction; n > 1 {
+		return n
+	}
+	return 1
+}
+
+// acquireLedgerSlot takes one of the bounded detached-writer slots, waiting at
+// most ledgerWriterWait. It returns ok=false only when the row must be shed.
+//
+// Two shapes are wrong here, and both were tried:
+//
+//   - Non-blocking (`select {…default: shed}`) sheds every row the instant the
+//     cap is warm. Under pool contention every request fails its primary charge
+//     at once, so the whole backlog competes for the same few slots: measured
+//     1097 of 2000 rows dropped — the fix re-created the loss it exists to
+//     remove.
+//   - Holding the slot for the WHOLE retry loop throttles billing throughput to
+//     cap/cycle. The slot is then held through the backoff sleep, where it buys
+//     nothing: the writer is asleep, not using a connection. Measured with a
+//     6-slot cap held across the loop: still 209 of 2000 rows waiting on a slot
+//     when the run ended.
+//
+// So the slot is per-ATTEMPT: taken for the duration of one insert, released
+// before the backoff. Waiting costs no pool connection (the writer parks in the
+// channel, it does not hold a connection), so waiting is nearly free and
+// shedding is the expensive branch.
+//
+// A nil channel means no cap was configured (tests and alternate constructors
+// build a bare Handler). A money path fails OPEN on that: a nil channel would
+// otherwise fall to default and shed every row, which is the worst outcome
+// available.
+func (h *Handler) acquireLedgerSlot(parent context.Context) (release func(), ok bool) {
+	noop := func() {}
+	if h.ledgerWriters == nil {
+		return noop, true
+	}
+	wait := h.ledgerWriterWait
+	if wait <= 0 {
+		wait = ledgerWriteDeadline
+	}
+	waitCtx, cancel := context.WithTimeout(parent, wait)
+	defer cancel()
+	select {
+	case h.ledgerWriters <- struct{}{}:
+		return func() { <-h.ledgerWriters }, true
+	case <-waitCtx.Done():
+		return noop, false
+	}
+}
 
 // finish writes the ledger: request_log (with the usage_charge ledger row when
 // there is a billing account, PRD §128) plus one request_attempt row per
@@ -902,10 +1017,14 @@ func (lc *lifecycle) finish() {
 		// `usage:<request id>`), so a retry that races a slow first attempt
 		// cannot double-charge.
 		//
-		// Bounded by ledgerWriteAttempts, not by a deadline: the total worst
-		// case is attempts × budget, and the goroutine is already past the
-		// client's response, so the only cost of the extra attempts is a held
-		// goroutine — strictly better than a lost billing row.
+		// Bounded by ledgerWriteDeadline, not by an attempt count: a fixed
+		// count made the loss a function of queue depth, and the queue has no
+		// fixed size. The goroutine is already past the client's response.
+		//
+		// What the extra attempts cost is CONNECTION-SECONDS, not goroutines
+		// (see the COST note on ledgerWriteDeadline): each attempt holds a pool
+		// connection for its whole budget, and the pool is shared with the
+		// request path. Hence the 1s retry budget and the writer cap below.
 		//
 		// DETACHED, because that reasoning was false as written. Every call
 		// site is `defer lc.finish()` or an inline `lc.finish()` on the
@@ -925,11 +1044,38 @@ func (lc *lifecycle) finish() {
 		lc.ledgerWG.Add(1)
 		go func() {
 			defer lc.ledgerWG.Done()
-			for attempt := 1; attempt <= ledgerWriteAttempts; attempt++ {
+
+			// Bound OCCUPANCY, not rows: at most cap detached writers are inside
+			// the retry loop at once. See acquireLedgerSlot for the two wrong
+			// shapes (non-blocking shed, whole-loop hold) and why the slot is
+			// per-attempt.
+			//
+			// A charge that failed for a reason draining cannot fix (constraint
+			// violation, bad column) will produce the SAME error on the fallback
+			// statement, so one attempt is the whole budget: retrying it would
+			// hold a connection for five minutes to re-learn the same thing.
+			hardFailure := !isRetryableChargeErr(err)
+			window := ledgerWriteDeadline
+			if hardFailure {
+				window = ledgerWriteRetryBudget
+			}
+			deadline := time.Now().Add(window)
+			backoff := ledgerWriteBackoff
+			for attempt := 1; ; attempt++ {
+				releaseSlot, acquired := lc.h.acquireLedgerSlot(lc.r.Context())
+				if !acquired {
+					n := lc.h.ledgerWritersShed.Add(1)
+					log.Printf("[proxy] ledger write for %s shed after %v waiting for a slot: "+
+						"%d/%d writers busy (total shed %d) — ROW LOST, raise pool size",
+						row.ID, lc.h.ledgerWriterWait, len(lc.h.ledgerWriters),
+						cap(lc.h.ledgerWriters), n)
+					return
+				}
 				ledgerCtx, ledgerCancel := context.WithTimeout(
-					context.WithoutCancel(lc.r.Context()), ledgerWriteBudget)
+					context.WithoutCancel(lc.r.Context()), ledgerWriteRetryBudget)
 				err2 := lc.h.store.InsertRequestLogWithLedger(ledgerCtx, row)
 				ledgerCancel()
+				releaseSlot()
 				if err2 == nil {
 					if attempt > 1 {
 						log.Printf("[proxy] ledger write recovered for %s on attempt %d", row.ID, attempt)
@@ -937,13 +1083,28 @@ func (lc *lifecycle) finish() {
 					writeAttempts(lc, row.ID)
 					return
 				}
-				if attempt == ledgerWriteAttempts {
-					log.Printf("[proxy] request_log insert failed after %d attempts: %v", attempt, err2)
+				// Out of time, or the write failed for a reason a retry cannot
+				// fix (a constraint violation re-queues identically forever).
+				// A deadline failure is the queue being deep, which IS
+				// retryable; anything else is not.
+				remaining := time.Until(deadline)
+				if hardFailure || remaining <= 0 || !isRetryableLedgerErr(err2) {
+					if hardFailure {
+						log.Printf("[proxy] ledger write for %s abandoned: charge failure is not "+
+							"retryable (%v), fallback hit %v after %d attempt(s) — ROW LOST",
+							row.ID, err, err2, attempt)
+					} else {
+						log.Printf("[proxy] request_log insert failed after %d attempts: %v", attempt, err2)
+					}
 					return
 				}
 				// Back off before re-queuing: an immediate retry lands behind
 				// the same waiters and burns the next budget the same way.
-				time.Sleep(ledgerWriteBackoff << (attempt - 1))
+				// Sleep no longer than the deadline allows, so the final
+				// attempt still has time to acquire a connection.
+				sleep := min(backoff, remaining)
+				time.Sleep(sleep)
+				backoff = min(backoff*2, ledgerWriteBackoffMax)
 			}
 		}()
 	} else {
@@ -989,6 +1150,67 @@ func (lc *lifecycle) finish() {
 // waiting behind the same saturated pool — and the pool-saturation probe
 // measured 18/144 attempt rows lost vs 3/144 ledger rows (6x): the forensic
 // trail a re-bill would follow died exactly when it was most needed.
+
+// retryableSQLErrors are the SQLSTATEs a drain can fix. Everything else is a
+// bug in the row or the schema: re-queuing it produces the identical error.
+//
+// Matched on the typed code, never on the error text. v1 searched the message
+// for substrings like "40001", which classifies a row whose VALUE happens to
+// contain those digits as retryable — a false positive that holds a connection
+// for the whole deadline. `errors.As` on *pgconn.PgError reads the field the
+// server actually sent.
+var retryableSQLErrors = map[string]bool{
+	"53300": true, // too_many_connections
+	"40001": true, // serialization_failure
+	"40P01": true, // deadlock_detected
+	"57P01": true, // admin_shutdown
+	"08006": true, // connection_failure
+	"08003": true, // connection_does_not_exist
+	"57014": true, // query_canceled (statement_timeout)
+}
+
+// transientNetErrs are the pre-connection failures, where no SQLSTATE exists.
+var transientNetErrs = []string{
+	"connection refused",
+	"connection reset",
+	"broken pipe",
+	"i/o timeout",
+	"connection closed",
+}
+
+// isRetryableErr reports whether a failed write is worth re-queuing: the queue
+// was deep (context expiry), the server was momentarily out of slots or in a
+// serialization conflict, or the connection died before the statement ran.
+func isRetryableErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return true
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return retryableSQLErrors[pgErr.Code]
+	}
+	msg := err.Error()
+	for _, s := range transientNetErrs {
+		if strings.Contains(msg, s) {
+			return true
+		}
+	}
+	return false
+}
+
+// isRetryableLedgerErr applies the same rule to a fallback insert failure.
+func isRetryableLedgerErr(err error) bool { return isRetryableErr(err) }
+
+// isRetryableChargeErr answers the question the fallback loop actually needs:
+// can a DRAIN fix the reason the primary charge failed? If not, the fallback
+// statement will fail the same way, so there is no point retrying it for five
+// minutes. This is what turns "retry until the deadline" into a bounded cost
+// for rows that are simply wrong.
+func isRetryableChargeErr(err error) bool { return isRetryableErr(err) }
+
 func writeAttempts(lc *lifecycle, requestID string) {
 	if len(lc.attempts) == 0 {
 		return

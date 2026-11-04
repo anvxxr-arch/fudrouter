@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/crypt"
@@ -122,6 +123,31 @@ type Handler struct {
 	// off: pricing is not disclosed per-request unless explicitly enabled.
 	showCostMeta bool
 
+	// ledgerWriters bounds how many detached ledger writers may be inside the
+	// retry loop at once, so "retry until it lands" cannot become "occupy the
+	// pool". Sized from the store's pool in New (pool/fraction, min 1), so a
+	// thundering herd can never take every connection away from the request
+	// path. A row that cannot get a slot is shed and COUNTED
+	// (ledgerWritersShed), never queued — a shed row is a money row, so the
+	// count is the signal that the cap, not the queue, is losing revenue.
+	//
+	// A struct{} channel rather than a weighted semaphore on purpose: the
+	// operation is "try once, else shed", which a non-blocking send + default
+	// does exactly, with no extra dependency in the hot path.
+	ledgerWriters chan struct{}
+
+	// ledgerWritersShed counts rows abandoned because ledgerWriters was full.
+	// Observability here is log-based (the deployment exposes no metrics
+	// registry), so this is surfaced by the shed log line and asserted by
+	// tests.
+	ledgerWritersShed atomic.Int64
+
+	// ledgerWriterWait bounds how long a detached writer waits for a slot in
+	// ledgerWriters. It is a field rather than the ledgerWriteDeadline constant
+	// so a test can exercise the shed path in milliseconds instead of waiting
+	// five minutes for it. Zero means the constant.
+	ledgerWriterWait time.Duration
+
 	// renderCache holds the fully rendered GET /v1/models body. Measured on the
 	// deployed box the endpoint was CPU-bound at ~3.08 ms/request (~1000-1140
 	// req/s on 4 cores) while /health on the same listener did ~8300 req/s:
@@ -154,16 +180,24 @@ func New(st *store.Store, cr *crypt.Crypt, client *http.Client, refresher TokenR
 	// Read once at construction (main calls New once): the reload window for
 	// credential pools. Tests set poolReloadAfter directly and are unaffected.
 	poolReloadAfter = time.Duration(poolReloadSeconds()) * time.Second
+	var poolConns int32
+	if st != nil {
+		poolConns = st.MaxConns()
+	}
+	capSize := ledgerWriterCapSize(poolConns)
+	log.Printf("[proxy] ledger writer cap = %d (pool %d, fraction %d)",
+		capSize, poolConns, ledgerWriterFraction)
 	return &Handler{
-		store:        st,
-		crypt:        cr,
-		client:       client,
-		refresher:    refresher,
-		limiter:      limits.New(c),
-		vk:           c,
-		breaker:      routing.NewCircuitBreaker(c, nil),
-		connLim:      newConnLimiter(),
-		showCostMeta: strings.EqualFold(os.Getenv("ROUTER_COST_HEADERS"), "on"),
+		store:         st,
+		crypt:         cr,
+		client:        client,
+		refresher:     refresher,
+		limiter:       limits.New(c),
+		vk:            c,
+		breaker:       routing.NewCircuitBreaker(c, nil),
+		connLim:       newConnLimiter(),
+		showCostMeta:  strings.EqualFold(os.Getenv("ROUTER_COST_HEADERS"), "on"),
+		ledgerWriters: make(chan struct{}, capSize),
 	}
 }
 

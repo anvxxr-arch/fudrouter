@@ -284,7 +284,13 @@ func TestLoadLedgerSurvivesPoolOversubscription(t *testing.T) {
 
 	// The writes run after the client's 200, so poll until the queue drains
 	// rather than reading once and racing the tail.
-	deadline := time.Now().Add(60 * time.Second)
+	//
+	// The deadline must exceed the SERVE time, not just the drain: serving 2000
+	// requests at ~20 rps already takes ~100s, so a 60s window expired while
+	// rows were still in flight and the test then tore the store down on top of
+	// its own detached writers (`closed pool`). The failure was the poll
+	// budget, not a lost row.
+	deadline := time.Now().Add(240 * time.Second)
 	var logs, rows, distinct int
 	for {
 		logs = tests.RequestLogCount(t, dsn, env.APIKeyID) - baseLogs

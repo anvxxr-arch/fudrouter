@@ -183,7 +183,7 @@ func TestComboWithNoActiveMembersIsNotRouted(t *testing.T) {
 	}
 	defer conn.Close(ctx)
 	if _, err := conn.Exec(ctx,
-		`update model set status = 'inactive' where id = $1`, second.ModelID); err != nil {
+		`update model set status = 'disabled' where id = $1`, second.ModelID); err != nil {
 		t.Fatal(err)
 	}
 	seedCombo(t, dsn, env.UserID, "dead", []string{second.ModelID})

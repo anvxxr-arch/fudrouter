@@ -9,11 +9,11 @@ import (
 )
 
 // Spec §1 forbids shipping a personal-OAuth provider layer, so non-commercial
-// providers are onboarded with `tier = 'dev'` / `status = 'dev'`. This pins the
-// enforcement: the exclusion must be a predicate in the data plane, not a
-// promise in a comment. The same predicate gates /v1/models (PublishedModel)
-// and routing (Candidates), so one mutation covers the catalogue and the hot
-// path together.
+// providers are onboarded with `tier = 'dev'` (post-0010 vocabulary; legacy
+// rows used `status = 'dev'`). This pins the enforcement: the exclusion must
+// be a predicate in the data plane, not a promise in a comment. The same
+// predicate gates /v1/models (PublishedModel) and routing (Candidates), so one
+// mutation covers the catalogue and the hot path together.
 func TestDevProvidersAreHiddenUnlessOptedIn(t *testing.T) {
 	dsn := tests.RequireDB(t)
 	env := tests.SeedEnvWithStatus(t, dsn, "http://127.0.0.1:1", "dev", nil)

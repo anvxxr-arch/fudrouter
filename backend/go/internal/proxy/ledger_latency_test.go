@@ -3,7 +3,7 @@ package proxy_test
 // The ledger retry loop must not hold the client's connection.
 //
 // Why this test exists: finish() retries a failed ledger write three times with
-// 250ms/500ms backoff (lifecycle.go ledgerWriteAttempts/ledgerWriteBackoff). The
+// 250ms/1s backoff (lifecycle.go ledgerWriteBackoff/ledgerWriteBackoffMax). The
 // comment justifying that loop says "the goroutine is already past the client's
 // response, so the only cost of the extra attempts is a held goroutine" — but
 // every call site is `defer lc.finish()` or an inline `lc.finish()` on the
@@ -19,6 +19,11 @@ package proxy_test
 // This test pins the client-visible property, not the implementation: a request
 // whose ledger write fails must still return promptly. It fails on the old code
 // (754ms) and passes once the retry is detached.
+//
+// What it does NOT pin: how long a retry holds a POOL CONNECTION. That is a
+// separate cost dimension, bounded by ledgerWriteRetryBudget and
+// ledgerWriterCap, and measured by TestLedgerWriteSurvivesLongLockWait and
+// TestLedgerWriteCapShedsRatherThanSaturate.
 
 import (
 	"bytes"
@@ -54,7 +59,8 @@ func TestLedgerRetryDoesNotBlockClient(t *testing.T) {
 	if elapsed > budget {
 		t.Fatalf("client waited %v for a response whose ledger write failed; "+
 			"want < %v. The retry loop is sleeping on the request goroutine "+
-			"(ledgerWriteAttempts x ledgerWriteBackoff = 750ms).", elapsed, budget)
+			"(the fallback backs off up to ledgerWriteBackoffMax per attempt "+
+			"inside ledgerWriteDeadline).", elapsed, budget)
 	}
 }
 

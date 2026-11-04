@@ -77,6 +77,14 @@ const MARK = 'conn_hc';
  * memoised nothing path is not shared.
  */
 async function runHealthCheck(testDb, baseUrl, healthStatus) {
+	// system_event is keyed by resource_id, and the tear-downs below delete the
+	// connection and provider but NOT the events they emitted. A fixed MARK
+	// therefore accumulated `provider.degraded` rows across runs, and the
+	// `count(*) = 0` assertion in the edge-5xx case passed only against a virgin
+	// database: the second run on the same DSN found the first run's event and
+	// failed. Clear the slate here so every case starts from zero regardless of
+	// what the previous run left behind.
+	await testDb.execute(sql.raw(`delete from system_event where resource_id = '${MARK}'`));
 	await testDb.execute(sql.raw(`delete from connection where id = '${MARK}'`));
 	await testDb.execute(sql.raw(`delete from provider where id = 'prov_hc'`));
 	await testDb.execute(sql.raw(`insert into provider (id, name, base_url, credentials_enc, status, priority, tier, enabled) values ('prov_hc', 'hc-test', '${baseUrl}', 'x', 'active', 100, 'commercial', true) on conflict (id) do nothing`));
@@ -105,6 +113,7 @@ test('provider_health_check: an edge 5xx is not a verdict', { skip: SKIP }, asyn
 		const events = await testDb.execute(sql.raw(`select count(*)::int as n from system_event where resource_id = '${MARK}'`));
 		assert.equal(events[0].n, 0, 'a flap must not manufacture a transition event');
 	} finally {
+		await testDb.execute(sql.raw(`delete from system_event where resource_id = '${MARK}'`));
 		await testDb.execute(sql.raw(`delete from connection where id = '${MARK}'`));
 		await testDb.execute(sql.raw(`delete from provider where id = 'prov_hc'`));
 		server.close();
@@ -125,6 +134,7 @@ test('provider_health_check: a retry recovers the verdict from a flapping gate',
 		const status = await runHealthCheck(testDb, `http://127.0.0.1:${server.address().port}`, 'healthy');
 		assert.equal(status, 'healthy', 'the retry must find the 200 behind the flap');
 	} finally {
+		await testDb.execute(sql.raw(`delete from system_event where resource_id = '${MARK}'`));
 		await testDb.execute(sql.raw(`delete from connection where id = '${MARK}'`));
 		await testDb.execute(sql.raw(`delete from provider where id = 'prov_hc'`));
 		server.close();
@@ -148,6 +158,7 @@ test('provider_health_check: an HTML 200 is still a real unhealthy verdict', { s
 		const status = await runHealthCheck(testDb, `http://127.0.0.1:${server.address().port}`, 'healthy');
 		assert.equal(status, 'unhealthy', 'a 2xx that is not the model listing is a real verdict');
 	} finally {
+		await testDb.execute(sql.raw(`delete from system_event where resource_id = '${MARK}'`));
 		await testDb.execute(sql.raw(`delete from connection where id = '${MARK}'`));
 		await testDb.execute(sql.raw(`delete from provider where id = 'prov_hc'`));
 		server.close();
@@ -168,6 +179,7 @@ test('provider_health_check: an unreachable upstream is not a verdict either', {
 		const status = await runHealthCheck(testDb, 'http://127.0.0.1:1', 'healthy');
 		assert.equal(status, 'healthy', 'a refused connection must not unpublish the provider');
 	} finally {
+		await testDb.execute(sql.raw(`delete from system_event where resource_id = '${MARK}'`));
 		await testDb.execute(sql.raw(`delete from connection where id = '${MARK}'`));
 		await testDb.execute(sql.raw(`delete from provider where id = 'prov_hc'`));
 		process.env.ALLOW_PRIVATE_UPSTREAMS = prev;

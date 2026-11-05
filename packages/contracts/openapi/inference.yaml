@@ -394,6 +394,13 @@ components:
           properties:
             input: { type: string, description: Price per 1M input tokens. }
             output: { type: string, description: Price per 1M output tokens. }
+            cache_read:
+              type: string
+              description: >
+                Price per 1M cached input tokens. Always present: when no cached
+                rate is configured the biller charges cached input at the input
+                rate (`BillablePrices`), so the catalogue publishes that same
+                resolved rate instead of a NULL the client would have to guess.
             currency: { type: string }
             unit: { const: micro-units per 1M tokens }
       examples:
@@ -404,6 +411,7 @@ components:
           pricing:
             input: "2500000"
             output: "10000000"
+            cache_read: "2500000"
             currency: USD
             unit: micro-units per 1M tokens
 

@@ -189,16 +189,25 @@ func (h *Handler) ServeModel(w http.ResponseWriter, r *http.Request) {
 // endpoints (endpoint-surface §7 acceptance: "/v1/models/{model} returns the
 // same fields /v1/models returns, for one slug").
 func modelObject(m store.ModelInfo) map[string]any {
+	pricing := map[string]any{
+		"input":    m.InputPrice,
+		"output":   m.OutputPrice,
+		"currency": m.Currency,
+		"unit":     "micro-units per 1M tokens",
+	}
+	// Cached input is priced explicitly because the biller charges it: `BillablePrices`
+	// resolves a NULL cached rate to the INPUT rate, so a client reading only `input`/
+	// `output` cannot tell what a cached prompt costs and leaves the whole request
+	// unpriced (cached input is most of the traffic). Publishing the same fallback the
+	// invoice uses keeps catalogue and bill in agreement; the stored NULL stays NULL in
+	// the pricing snapshot (PRD §122 keeps that distinction), it is only the published
+	// rate that is resolved.
+	pricing["cache_read"] = m.InputPrice
 	return map[string]any{
 		"id":       m.Slug,
 		"object":   "model",
 		"owned_by": m.OwnedBy,
 		"context":  m.Context,
-		"pricing": map[string]any{
-			"input":    m.InputPrice,
-			"output":   m.OutputPrice,
-			"currency": m.Currency,
-			"unit":     "micro-units per 1M tokens",
-		},
+		"pricing":  pricing,
 	}
 }

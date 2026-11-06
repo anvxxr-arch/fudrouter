@@ -1123,10 +1123,16 @@ body { overflow-x: clip; }
 .doc-sidebar { position: sticky; top: var(--space-lg); align-self: start; display: grid; gap: var(--space-md); }
 .doc-sidebar ul { list-style: none; margin: var(--space-xs) 0 0; padding: 0; display: grid; gap: var(--space-xs); }
 .doc-sidebar a.current { color: var(--color-text); font-weight: 600; }
+/* TOC anchors rendered 21px tall -- under the 24px minimum target (WCAG 2.5.8).
+   inline-flex + min-height grows the hit box while the text stays put. */
+.doc-sidebar a { display: inline-flex; align-items: center; min-height: 24px; }
 /* Same measure problem as .grid3: 15rem put four cards on a 1052px row, so
    card copy was set at 23 characters per line. 17rem gives three columns. */
 .cat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr)); gap: var(--space-md); }
 .cat-card { display: grid; gap: var(--space-xs); padding: var(--space-md); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); }
+/* The <summary> disclosure measured 23.5px tall -- under the 24px minimum
+   target (WCAG 2.5.8). Inline prose links in the legal pages are exempt. */
+.card summary { display: inline-flex; align-items: center; min-height: 24px; cursor: pointer; }
 .doc-pager { display: flex; justify-content: space-between; margin-top: var(--space-xl); border-top: 1px solid var(--color-border); padding-top: var(--space-md); }
 @media (max-width: 720px) { .doc-layout { grid-template-columns: minmax(0, 1fr); } }
 
@@ -1140,15 +1146,38 @@ p.muted:not(.lede) { max-width: 30rem; }
 .meta { color: var(--color-text-muted); font-size: var(--text-caption); }
 .fr-divider { display: flex; align-items: center; gap: var(--space-md); color: var(--color-text-muted); font-size: var(--text-caption); }
 /* ---- pricing page ---- */
-.pricing-tiers { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-md); align-items: stretch; }
-@media (max-width: 900px) { .pricing-tiers { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 560px) { .pricing-tiers { grid-template-columns: minmax(0, 1fr); } }
-.pricing-tier { position: relative; display: flex; flex-direction: column; gap: var(--space-sm); padding: var(--space-card); border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); }
-.pricing-tier--pro { border-color: var(--warning); }
-.pricing-tier-badge { position: absolute; top: calc(var(--space-sm) * -1); right: var(--space-md); padding: 2px var(--space-sm); border-radius: var(--radius-pill); background: var(--warning); color: var(--color-bg); font-size: var(--text-caption); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+/* Five plans, laid out in rows of three then two. Flex (not grid) so a wrapped
+   last row centres itself instead of leaving an orphan card stranded at the
+   left edge. flex-basis of 20rem is what forces the 3+2 split: five cards of
+   that width never fit one row, and every card still has room for its price. */
+.pricing-tiers { display: flex; flex-wrap: wrap; justify-content: center; align-items: stretch; gap: var(--space-md); }
+.pricing-tier { flex: 1 1 20rem; max-width: 22rem; min-width: 0; position: relative; display: flex; flex-direction: column; gap: var(--space-sm); padding: var(--space-card); border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); }
+/* Five cards never divide evenly into rows of 4 or 2, so each step picks a
+   count that leaves a balanced remainder: 5 -> 3+2 -> 2+2+1 -> 1. Flex-basis is
+   the row share, not a fixed width, so cards still stretch to fill the row. */
+@media (max-width: 1120px) { .pricing-tier { flex: 0 1 calc((100% - 2 * var(--space-md)) / 3); } }
+@media (max-width: 620px) { .pricing-tier { flex: 0 1 calc((100% - var(--space-md)) / 2); } }
+@media (max-width: 420px) { .pricing-tier { flex: 1 1 100%; max-width: none; } }
+.pricing-tier--pro { border-color: var(--primary); }
+.pricing-tier-badge { position: absolute; top: 0; left: 50%; transform: translate(-50%, -50%); padding: 2px var(--space-sm); border-radius: var(--radius-pill); background: var(--primary); color: var(--on-primary); font-size: var(--text-caption); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap; }
 .pricing-tier h3 { margin: 0; }
-.pricing-tier-price { margin: 0; font-size: var(--text-stat); font-weight: 600; letter-spacing: -0.01em; }
-.pricing-tier-price .muted { font-size: var(--text-sm); font-weight: 400; }
+/* Price and period share a line when there is room, but the five-plan row
+   squeezes each card to ~200px, where `Rp 90.000` plus `28 days` cannot fit and
+   the period split mid-token. Stacking them keeps the block a fixed two lines
+   at every width, so the price never wraps and the per-day figure below never
+   drifts. */
+.pricing-tier-price { margin: 0; display: flex; flex-direction: column; gap: 2px; font-size: var(--text-stat); font-weight: 600; letter-spacing: -0.01em; line-height: 1.1; }
+.pricing-tier-price .pricing-tier-period { font-size: var(--text-caption); font-weight: 400; line-height: 1.2; letter-spacing: 0.01em; color: var(--color-text-muted); }
+/* Per-day figure: the only honest way to compare five differently-priced
+   windows. Without it the 7-day plan looks cheaper than it is per day than the
+   3-day plan, and the reader has to do the division themselves. */
+.pricing-tier-perday { margin: 0; font-size: var(--text-caption); color: var(--color-text-muted); }
+.pricing-tier-perday .num { color: var(--color-text); }
+/* The blurbs differ in length ("A single day of access." wraps, "A full
+   weekend of access." does not), which pushed the feature checklists to two
+   different heights and made the row look broken. Reserve two lines so every
+   card's list starts on the same baseline regardless of copy length. */
+.pricing-tier-blurb { margin: 0; min-height: calc(2 * 1.5em); }
 .pricing-features { margin: var(--space-sm) 0 var(--space-md); padding: 0; list-style: none; display: grid; gap: var(--space-xs); font-size: var(--text-sm); }
 .pricing-features li { display: flex; align-items: flex-start; gap: var(--space-sm); }
 .pricing-check { flex: none; margin-top: 3px; color: var(--color-success); }
@@ -1166,7 +1195,7 @@ p.muted:not(.lede) { max-width: 30rem; }
 @media (max-width: 800px) { .pricing-calc { grid-template-columns: minmax(0, 1fr); } }
 .pricing-calc-controls { display: grid; gap: var(--space-md); align-content: start; }
 .pricing-calc-controls label { display: grid; gap: var(--space-xs); }
-.pricing-calc-controls input[type='range'] { width: 100%; accent-color: var(--primary); }
+.pricing-calc-controls input[type='range'] { width: 100%; min-height: 24px; accent-color: var(--primary); }
 .pricing-calc-results { display: grid; gap: var(--space-md); align-content: start; }
 .pricing-calc-results > div { display: grid; gap: 2px; padding: var(--space-md); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
 .pricing-calc-results .num { font-size: var(--text-stat); font-weight: 600; }
@@ -1178,6 +1207,10 @@ p.muted:not(.lede) { max-width: 30rem; }
 .pricing-faq { display: grid; gap: var(--space-sm); max-width: var(--measure-box); }
 .pricing-faq details { border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
 .pricing-faq summary { padding: var(--space-sm) var(--space-md); cursor: pointer; font-weight: 600; }
+/* A paragraph whose sole child is a link renders a 21px-tall target (the
+   line box), which fails the 24px minimum (WCAG 2.5.8). Paragraphs that mix
+   prose and links are exempt, so scope to the link-only case. */
+p:has(> a:only-child) > a { display: inline-flex; align-items: center; min-height: 24px; }
 .pricing-faq details[open] summary { border-bottom: 1px solid var(--color-border); }
 .pricing-faq details p { margin: 0; padding: var(--space-sm) var(--space-md); color: var(--color-text-muted); font-size: var(--text-sm); }
 .pricing-cta { padding-top: var(--space-lg); border-top: 1px solid var(--color-border); }

@@ -89,7 +89,10 @@ footer.foot { align-items: flex-start; }
 .foot-col { display: grid; gap: var(--space-sm); align-content: start; }
 .foot-col > .fr-label { margin: 0; }
 .foot-col ul { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--space-xs); }
-.foot-col a { color: var(--color-text-muted); }
+/* 18px-tall inline links failed the 24px minimum target size (WCAG 2.5.8).
+   inline-flex + min-height grows the hit area without moving the text, so the
+   column rhythm only loosens by the pixels the target needed. */
+.foot-col a { display: inline-flex; align-items: center; min-height: 24px; color: var(--color-text-muted); }
 .foot-col a:hover { color: var(--color-text); text-decoration: underline; }
 
 /* ---- motion & feedback ------------------------------------------------ */

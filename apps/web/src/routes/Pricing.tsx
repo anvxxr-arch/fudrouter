@@ -5,8 +5,21 @@ import { Button } from '../components/ui/button';
 import { Table } from '../components/ui/table';
 import { api, formatContext, formatPricePer1M, priceMicro } from '../lib/api';
 
+// Derive the per-day figure from the displayed price string instead of adding a
+// second hard-coded number per plan: one price, one source, nothing to drift.
+// `Rp 30.000` + 7 days -> `Rp 4.286`, rounded to whole rupiah like the rest of
+// the page. Returns an empty string for a malformed price so the row collapses
+// rather than printing `NaN`.
+function formatPerDay(price: string, days: number): string {
+  const digits = price.replace(/[^\d]/g, '');
+  if (!digits || !days) return '';
+  const per = Math.round(parseInt(digits, 10) / days);
+  return 'Rp ' + per.toLocaleString('id-ID');
+}
+
 interface Tier {
   name: string;
+  days: number;
   price: string;
   period: string;
   blurb: string;
@@ -24,6 +37,7 @@ interface Tier {
 const TIERS: Tier[] = [
   {
     name: '1 Day',
+    days: 1,
     price: 'Rp 5.000',
     period: '1 day',
     blurb: 'A single day of access.',
@@ -33,6 +47,7 @@ const TIERS: Tier[] = [
   },
   {
     name: '3 Days',
+    days: 3,
     price: 'Rp 12.000',
     period: '3 days',
     blurb: 'A long weekend of access.',
@@ -42,6 +57,7 @@ const TIERS: Tier[] = [
   },
   {
     name: '7 Days',
+    days: 7,
     price: 'Rp 30.000',
     period: '7 days',
     blurb: 'A full week, the most popular plan.',
@@ -52,6 +68,7 @@ const TIERS: Tier[] = [
   },
   {
     name: '14 Days',
+    days: 14,
     price: 'Rp 50.000',
     period: '14 days',
     blurb: 'Two weeks of access.',
@@ -61,6 +78,7 @@ const TIERS: Tier[] = [
   },
   {
     name: '28 Days',
+    days: 28,
     price: 'Rp 90.000',
     period: '28 days',
     blurb: 'A full month, the best value.',
@@ -268,9 +286,13 @@ export function PricingPage() {
                 {t.highlight ? <span className="pricing-tier-badge">Most popular</span> : null}
                 <h3>{t.name}</h3>
                 <p className="pricing-tier-price">
-                  <span className="num">{t.price}</span> <span className="muted">{t.period}</span>
+                  <span className="num">{t.price}</span>
+                  <span className="pricing-tier-period">{t.period}</span>
                 </p>
-                <p className="muted text-sm">{t.blurb}</p>
+                <p className="pricing-tier-perday">
+                  <span className="num">{formatPerDay(t.price, t.days)}</span> / day
+                </p>
+                <p className="pricing-tier-blurb muted text-sm">{t.blurb}</p>
                 <ul className="pricing-features">
                   {t.features.map((f) => (
                     <li key={f}>

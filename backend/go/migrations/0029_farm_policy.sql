@@ -1,6 +1,7 @@
 -- 0026_farm_policy.sql — per-provider signup-farm policy + dry-run planning.
 --
--- NOTHING in this migration or in cmd/farmplan executes a farm. The operator's
+-- NOTHING in this migration or in the farm planner executes a farm. The
+-- operator's
 -- standing order (2026-10-24) is that farms stay OFF and run only on a manual
 -- trigger; this table exists so the planner can answer "what WOULD be farmed"
 -- without a single outbound request.

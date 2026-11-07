@@ -263,6 +263,24 @@ func ServeMux(p *Handler, health http.Handler) *http.ServeMux {
 	// /v1/ catch-all, which does not match /v1beta/ anyway.
 	mux.Handle("GET /v1beta/models", http.HandlerFunc(p.ServeGeminiModels))
 	mux.Handle("/v1beta/models/", http.HandlerFunc(p.ServeGemini))
+	// The media surface (media.go). These are registered EXACTLY (or as their
+	// own subtree) before the /v1/ catch-all, because the catch-all could not
+	// serve them at all: it reads a JSON body, so a GET task-poll or a GET
+	// media fetch answered 400 "invalid JSON body" no matter what the
+	// passthrough hatch said, and the multipart edit had no path home.
+	//
+	// The generation and task routes carry explicit methods so a wrong verb is
+	// a mux-level 405 instead of falling through to the catch-all and being
+	// forwarded to an upstream that would answer for a different resource.
+	mux.Handle("POST /v1/images/generations", http.HandlerFunc(p.ServeImages))
+	mux.Handle("POST /v1/images/edits", http.HandlerFunc(p.ServeImages))
+	mux.Handle("GET /v1/images/generations/", http.HandlerFunc(p.ServeImages))
+	mux.Handle("POST /v1/videos", http.HandlerFunc(p.ServeVideos))
+	mux.Handle("GET /v1/videos/", http.HandlerFunc(p.ServeVideos))
+	// The bytes behind those URLs. Public like the bridge's own media route
+	// (a media URL must embed in a client that cannot send headers) and
+	// deliberately outside the lifecycle — see media.go's ServeMedia.
+	mux.Handle("GET /v1/media/", http.HandlerFunc(p.ServeMedia))
 	mux.Handle("/v1/", http.HandlerFunc(p.ServeGeneric))
 	return mux
 }

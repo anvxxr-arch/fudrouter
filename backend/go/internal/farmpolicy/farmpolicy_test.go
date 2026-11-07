@@ -1,4 +1,4 @@
-// Rationale: farmpolicy.Evaluate is the brain of cmd/farmplan — it decides
+// Rationale: farmpolicy.Evaluate is the brain of the farm planner — it decides
 // what WOULD be farmed without ever firing a farm. The standing operator order
 // is that farms run only on a manual trigger, so this function is the ONLY
 // artifact that may say "WANT n credentials". Getting the verdicts wrong is

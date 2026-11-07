@@ -72,6 +72,7 @@ func TestQuotaClassificationAgreesAcrossStatusCodes(t *testing.T) {
 	permanent := []string{
 		`{"error":{"message":"Token balance exhausted. You have 0 tokens remaining and insufficient credit balance."}}`,
 		`{"error":{"message":"You have used all your included credits. Top up."}}`,
+		`{"error":{"message":"Your plan tokens are used up. Renew or upgrade your plan to continue."}}`,
 	}
 	for _, body := range permanent {
 		if got := permanentQuotaFailure([]byte(body)); !got {

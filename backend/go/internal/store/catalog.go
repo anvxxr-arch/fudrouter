@@ -231,11 +231,44 @@ var chatOnly = map[string]bool{"chat": true}
 // Global virtual model names (PRD §36, spec §5). The `model_alias` rows exist
 // so the catalogue can describe them; the router resolves their target sets
 // from the active strategy.
+//
+// Two different things live in this map, and conflating them is what made
+// `fudrouter/auto` useless as a tier:
+//
+//   - `strategy` is HOW the router picks inside the target set. Every tier now
+//     declares one (all seven `Strategy*` values it names are implemented in
+//     routing/select.go — no new strategies are needed for the tiers).
+//   - `caps` is the capability the name itself implies, so a tier can never
+//     advertise a model the candidate path would discard.
+//
+// The target set is NOT here: it comes from the alias's `model_alias_target`
+// rows when they exist (see resolveVirtual), so an operator can change WHICH
+// models a tier may use without a deploy. An empty allowlist keeps the old
+// behaviour — the full active fan-out — which is what every other virtual still
+// relies on.
+//
+// The four tier names below (auto/smart/medium/worker) are the customer-facing
+// tier ladder: `auto` is the widest live set with a fair random draw, the other
+// three are the same ladder narrowed by an explicit allowlist and ranked by one
+// measured signal each.
 var virtualModels = map[string]struct {
 	strategy string
 	caps     map[string]bool
 }{
-	"fudrouter/auto":      {caps: chatOnly},
+	// Tier ladder (PRD §36). `auto` is `random` on purpose: its target set is
+	// the LIVE set (see liveModelIDs), and "spread the load across everything
+	// that is answering right now" is exactly what a shuffle expresses. The
+	// other three rank the same set by ONE signal so their names mean
+	// something measurable.
+	"fudrouter/auto":   {strategy: "random", caps: chatOnly},
+	"fudrouter/smart":  {strategy: "highest_reliability", caps: chatOnly},
+	"fudrouter/medium": {strategy: "lowest_latency", caps: chatOnly},
+	"fudrouter/worker": {strategy: "lowest_cost", caps: chatOnly},
+
+	// The pre-existing names keep their hints. `fast` and `medium` share a
+	// strategy but not an allowlist, which is the whole point of the split:
+	// `fast` is the whole catalogue ranked by latency, `medium` is a curated
+	// six ranked by latency.
 	"fudrouter/fast":      {strategy: "lowest_latency", caps: chatOnly},
 	"fudrouter/cheap":     {strategy: "lowest_cost", caps: chatOnly},
 	"fudrouter/balanced":  {strategy: "balanced", caps: chatOnly},
@@ -408,6 +441,26 @@ func (s *Store) ResolveModel(ctx context.Context, k *APIKeyRow, name string) (*M
 		res.Kind = "combo"
 		return res, nil
 	}
+
+	// A global `fudrouter/*` name is a VIRTUAL even when it carries
+	// `model_alias_target` rows. That is the allowlist tier: the rows say
+	// WHO may be chosen, the virtual's `strategy` says how the router picks
+	// among them — they are not a fixed ordered pick the way an account
+	// alias's targets are.
+	//
+	// Why this has to be decided BEFORE the generic alias return: the alias
+	// branch above hands back `Kind="alias"` with the raw target ids, which
+	// (a) skips canonicalisation, so a target that is a non-canonical
+	// duplicate row isolates its own providers from the rest of the family's
+	// (the depth defect 0026 exists to prevent), and (b) makes lifecycle
+	// copy the target order onto `Plan.ModelPref`, turning an allowlist into
+	// a hard preference ranking. An ACCOUNT alias that happens to be named
+	// `fudrouter/*` is still the customer's own override and keeps the plain
+	// alias shape — `kind == "account"` is the tell.
+	if v, ok := virtualModels[name]; ok && kind != "account" {
+		return s.resolveVirtual(ctx, name, v.strategy, v.caps, name == autoVirtual, res.ModelIDs)
+	}
+
 	if found {
 		if len(res.ModelIDs) > 0 {
 			res.Kind = "alias"
@@ -427,21 +480,16 @@ func (s *Store) ResolveModel(ctx context.Context, k *APIKeyRow, name string) (*M
 		// fall through to the virtual branch (3)
 	}
 
-	// 3: global virtual. Target set is every model the request path can
-	// actually attempt; the strategy picks among them (spec §5: "resolved by
-	// the router from the active strategy"). The set is filtered by the
-	// virtual's OWN capability requirement, so `fudrouter/auto` cannot
-	// advertise a model CandidatesBatch will discard (see activeModelIDs).
+	// 3: global virtual. Target set is the allowlist when the alias declares
+	// one, otherwise every model the request path can actually attempt; the
+	// strategy picks among them (spec §5: "resolved by the router from the
+	// active strategy"). The set is filtered by the virtual's OWN capability
+	// requirement, so `fudrouter/auto` cannot advertise a model CandidatesBatch
+	// will discard (see activeModelIDs).
 	if v, ok := virtualModels[name]; ok {
-		ids, slugs, err := s.activeModelIDs(ctx, v.caps)
-		if err != nil {
-			return nil, err
-		}
-		res.Kind = "virtual"
-		res.ModelIDs, res.ModelSlugs = ids, slugs
-		res.StrategyHint = v.strategy
-		res.RequiredCapabilities = v.caps
-		return res, nil
+		// `found == false` here: the name has no alias row at all, so there is
+		// no allowlist to read (res.ModelIDs is empty).
+		return s.resolveVirtual(ctx, name, v.strategy, v.caps, name == autoVirtual, res.ModelIDs)
 	}
 
 	// 4: literal canonical slug.
@@ -526,6 +574,61 @@ func (s *Store) SetChatCapable(ctx context.Context, slug string, chat bool) erro
 // Capability checks still use each mapping's original model row, like the batch:
 // an alias must not erase a provider's explicit capability veto.
 func (s *Store) activeModelIDs(ctx context.Context, requiredCaps map[string]bool) ([]string, []string, error) {
+	return s.modelSetIDs(ctx, requiredCaps, false)
+}
+
+// liveSetCTE opens the target-set query as two CTEs: `live` (models with a 2xx
+// inside the window) and `active` (the full fan-out, whose body the caller
+// supplies). Kept beside the query it feeds rather than in virtual.go so the two
+// halves of "which models may a virtual choose" are readable together.
+//
+// The join is attempt → provider_model → model, then the SAME identity mapping
+// the outer query uses, so a 2xx recorded against a non-canonical duplicate still
+// counts as a success for the canonical row it maps to. Without that the live set
+// and the candidate set would disagree about identity, which is the depth-1
+// defect again in a new place.
+//
+// The window is $2 rather than a literal so a test can set it to zero and
+// exercise the empty-live-set recovery path deterministically, instead of hoping
+// no other test in the suite left a recent 2xx behind.
+const liveSetCTE = `
+		with live as (
+		    select distinct coalesce(canonical.id, m.id) as model_id
+		    from request_attempt a
+		    join provider_model pm on pm.id = a.provider_model_id
+		    join model m on m.id = pm.model_id
+		    left join model_slug_alias identity on identity.alias = m.slug
+		    left join model canonical on canonical.id = identity.canonical_model_id
+		      and canonical.status = 'active'
+		    where a.started_at > now() - make_interval(hours => $2::int)
+		      and a.http_status between 200 and 299
+		      and m.status = 'active'
+		),
+		active as (`
+
+// liveSetTail closes `active` and projects the answer: the live set when it has
+// members, the whole fan-out when it does not.
+//
+// The fallback is INSIDE this statement on purpose. Doing it in Go would mean a
+// second round trip on exactly the path (a cold or freshly-wiped database) where
+// the router is already at its slowest, and would make the two branches two
+// queries to keep in agreement. `fell_back` is projected so the caller can log
+// the recovery path without asking the database again.
+const liveSetTail = `
+		)
+		select id, slug, (not exists (select 1 from live)) as fell_back
+		from active
+		where not exists (select 1 from live)
+		   or id in (select model_id from live)
+		order by slug`
+
+// modelSetIDs is the ONE query behind every virtual target set: the full active
+// fan-out, or (liveOnly) that same set narrowed to models with a recent 2xx.
+//
+// Sharing the body is deliberate — the servability, capability-override and
+// credential predicates are load-bearing and had to agree exactly, so a second
+// copy would be a second thing to keep in sync with CandidatesBatch.
+func (s *Store) modelSetIDs(ctx context.Context, requiredCaps map[string]bool, liveOnly bool) ([]string, []string, error) {
 	// The required set rides as one jsonb parameter. `{}` (not `null`) when
 	// nothing is required: jsonb_each is strict, but relying on a strict
 	// function returning no rows is the kind of accident that reads as intent
@@ -536,7 +639,28 @@ func (s *Store) activeModelIDs(ctx context.Context, requiredCaps map[string]bool
 			caps = string(b)
 		}
 	}
-	rows, err := s.pool.Query(ctx, `
+
+	// The live set is a 24h aggregate over the attempt ledger; it is cached
+	// in-process for liveSetTTL (virtual.go). Every other caller of this
+	// function is a catalogue fan-out that must stay exact, so only the
+	// liveOnly path consults the cache.
+	liveKey := ""
+	if liveOnly {
+		liveKey = capsKey(requiredCaps)
+		if ids, slugs, ok := s.live.get(liveKey); ok {
+			return ids, slugs, nil
+		}
+	}
+
+	head, tail, orderBy := "", "", "\n		order by slug"
+	args := []any{caps}
+	if liveOnly {
+		// The inner body becomes the `active` CTE: no ORDER BY inside a CTE,
+		// and the tail projects the intersection (or everything) with one.
+		head, tail, orderBy = liveSetCTE, liveSetTail, ""
+		args = append(args, liveWindowHoursForQuery)
+	}
+	rows, err := s.pool.Query(ctx, head+`
 		select distinct coalesce(canonical.id, m.id) as id,
 		       coalesce(canonical.slug, m.slug) as slug
 		from model m
@@ -568,22 +692,40 @@ func (s *Store) activeModelIDs(ctx context.Context, requiredCaps map[string]bool
 		            ))
 		        )
 		        and `+s.providerServableSQL()+`
-		  )
-		order by slug`, caps)
+		          )`+orderBy+tail, args...)
 	if err != nil {
 		return nil, nil, err
 	}
 	defer rows.Close()
+
 	var ids, slugs []string
+	fellBack := false
 	for rows.Next() {
 		var id, slug string
-		if err := rows.Scan(&id, &slug); err != nil {
+		if liveOnly {
+			if err := rows.Scan(&id, &slug, &fellBack); err != nil {
+				return nil, nil, err
+			}
+		} else if err := rows.Scan(&id, &slug); err != nil {
 			return nil, nil, err
 		}
 		ids = append(ids, id)
 		slugs = append(slugs, slug)
 	}
-	return ids, slugs, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	if liveOnly {
+		if fellBack {
+			// The live set was empty, so the SQL already widened to the full
+			// fan-out. Say so: a tier silently serving everything is an outage
+			// symptom, not a healthy state.
+			logf("fudrouter: virtual %s: live set is EMPTY (no 2xx in %dh); served the full active fan-out — recovery path, not a healthy state", autoVirtual, liveWindowHours)
+		} else if len(ids) > 0 {
+			s.live.put(liveKey, ids, slugs)
+		}
+	}
+	return ids, slugs, nil
 }
 
 // Candidate is one routable target: a canonical model served through one

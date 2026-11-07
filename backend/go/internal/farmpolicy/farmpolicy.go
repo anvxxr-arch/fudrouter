@@ -1,7 +1,7 @@
 // Package farmpolicy decides, per provider, whether a signup-farm run is
 // WANTED — and nothing more. It is pure: no database, no clock, no network.
-// The caller (cmd/farmplan today) reads state and injects it; the same
-// function powers unit tests and the operator's dry-run table.
+// A caller reads state and injects it; the same function powers unit tests
+// and the operator's dry-run table.
 //
 // Why pure by construction: the standing operator order is that farms run only
 // on a manual trigger, so the evaluator must be incapable of firing one even

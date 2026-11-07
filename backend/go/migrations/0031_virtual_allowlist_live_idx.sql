@@ -1,0 +1,51 @@
+-- 0031_virtual_allowlist_live_idx.sql — index the 24h liveness window.
+--
+-- WHY: `fudrouter/auto`'s target set is now the LIVE SET — the canonical models
+-- that produced at least one 2xx in the last 24 hours, read from
+-- request_attempt (internal/store/catalog.go's liveSetCTE). Without an index that
+-- query is a full scan
+-- of the whole attempt ledger plus a heap fetch per row: MEASURED on this
+-- catalogue (2026-11-04, 262 569 attempt rows / 153 MB):
+--
+--   sequential scan + bitmap   -> 69.2 ms
+--   this partial index         ->  3.6 ms
+--
+-- The refresh is cached in-process for 60s (store/liveset.go), so the cost is
+-- per-TTL rather than per-request — but 69 ms of a shared Postgres backend on
+-- every TTL tick is still the kind of load that shows up as admission latency
+-- under concurrency.
+--
+-- WHY PARTIAL ON `http_status`: the predicate is fixed by the definition of
+-- "live" (a 2xx response), so the index holds only the rows the query can ever
+-- match. Attempt rows are overwhelmingly failures on this deployment (2xx is
+-- 1 902 of 4 985 rows in the last 24h, 234 250 of 262 569 all-time), so the
+-- partial form is both smaller and more selective than a plain (started_at).
+--
+-- WHY `provider_model_id` IS A KEY COLUMN and not an INCLUDE: the query joins
+-- provider_model -> model to get from an attempt to a canonical model, and
+-- reading provider_model_id out of the index keeps the scan index-only. It is
+-- the second key column (after started_at) because the range predicate is on
+-- started_at; PostgreSQL can still answer `provider_model_id` from a second-key
+-- column on an index-only scan.
+--
+-- CONTRACT IMPACT: none. No table, column, row or API surface changes; this is
+-- a read-path index only. Nothing writes differently and no query in the tree
+-- changes meaning.
+--
+-- IDEMPOTENT: `CREATE INDEX IF NOT EXISTS`, so a partially applied database (or
+-- a rehearsal that replays the documented pg_dump + migrate recipe) converges.
+--
+-- ROLLBACK: ops/rollback/0031_virtual_allowlist_live_idx.rollback.sql (same
+-- card, exercised in internal/store/virtual_allowlist_test.go). Dropping the
+-- index is a pure performance revert — it cannot lose data, because the index
+-- duplicates no state the table does not already hold.
+--
+-- ATOMICITY: deliberately NO BEGIN/COMMIT, matching 0026/0028/0030. The runner
+-- applies the file with ON_ERROR_STOP, so a failure aborts before
+-- `schema_migration` records it; keeping the transaction out of the file lets a
+-- test drive it inside its own transaction instead of committing index DDL to
+-- the shared catalogue.
+
+CREATE INDEX IF NOT EXISTS "request_attempt_live_idx"
+	ON "request_attempt" USING btree ("started_at", "provider_model_id")
+	WHERE "http_status" BETWEEN 200 AND 299;

@@ -328,6 +328,20 @@ func classify402(body []byte) (int, bool) {
 	return 900, false
 }
 
+// maintenanceEnvelope reports whether an upstream response is the freemodel.in
+// maintenance declaration: HTTP 503 carrying its "FreeModel is being upgraded
+// right now." envelope. The status gate is part of the contract — the vendor
+// message was measured at 503, and the same body at any other status is not a
+// shape this router has evidence for, so it keeps its existing classification
+// (invariant: only the measured envelope changes behaviour).
+//
+// The body match itself lives in routing.MaintenanceEnvelope so the taxonomy
+// package owns the vocabulary and the park it triggers; this wrapper owns only
+// the status the envelope was measured at.
+func maintenanceEnvelope(status int, body []byte) bool {
+	return status == http.StatusServiceUnavailable && routing.MaintenanceEnvelope(body)
+}
+
 // permanentQuotaFailure reports whether a non-2xx body describes a balance that
 // cannot recover on its own, whatever status code the provider wrapped it in.
 //
@@ -346,6 +360,7 @@ func permanentQuotaFailure(body []byte) bool {
 		"token balance exhausted",
 		"0 tokens remaining",
 		"included credits",
+		"plan tokens are used up",
 	} {
 		if strings.Contains(low, marker) {
 			return true

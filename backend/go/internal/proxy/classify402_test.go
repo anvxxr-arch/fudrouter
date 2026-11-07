@@ -72,8 +72,19 @@ func TestClassify402DailyCapFallsBackToUTCReset(t *testing.T) {
 	if diff := got - want; diff < -5 || diff > 5 {
 		t.Fatalf("got %d seconds, want about %d (until %s)", got, want, next)
 	}
-	if got <= 900 {
-		t.Fatalf("parked for %d seconds, which is not past the 15-minute default", got)
+	// The daily cap must NOT be answered with the generic 15-minute bench.
+	//
+	// This assertion used to read `got <= 900` unconditionally, which is only
+	// true while UTC midnight is more than 15 minutes away — so the test failed
+	// every run in the last 15 minutes of a UTC day (observed at 23:59:05Z,
+	// where the correct answer is 55s). The real invariant is conditional: when
+	// the boundary is FURTHER than the bench, parking longer than the bench is
+	// what distinguishes "park until reset" from "park 15 minutes"; when the
+	// boundary is CLOSER, a shorter park is the correct answer and the equality
+	// check above already covers it.
+	if want > 900 && got <= 900 {
+		t.Fatalf("parked for %d seconds with %d until the UTC reset — that is the generic "+
+			"15-minute bench, not the wall-clock boundary", got, want)
 	}
 }
 

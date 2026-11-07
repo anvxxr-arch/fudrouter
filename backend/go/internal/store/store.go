@@ -62,6 +62,10 @@ type Store struct {
 	// It is the difference between one Postgres round trip per request and one
 	// per TTL; see admission.go for the bounds and why the two TTLs differ.
 	admission admissionCache
+	// live caches the `fudrouter/auto` live set (virtual.go). Its own mutex and
+	// TTL: it is not admission data and must not inherit that cache's
+	// semantics.
+	live liveSetCache
 }
 
 // hardLimitCache is one cached copy of

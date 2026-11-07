@@ -53,6 +53,18 @@ func TestPublicSurfaceIsPinned(t *testing.T) {
 		// forwards. It is not advertised as fully supported (see the endpoint
 		// spec §3), but the path is routed.
 		{http.MethodPost, "/v1/embeddings"},
+		// The media surface (media.go): its own routes, ahead of the catch-all.
+		// The GET forms are the load-bearing rows — the catch-all reads a JSON
+		// body, so a body-less GET could not be served by it at any hatch
+		// setting, and before these patterns existed `GET /v1/videos/{id}`
+		// answered `400 invalid JSON body`. A regression that drops a pattern
+		// shows up here as the wrong status.
+		{http.MethodPost, "/v1/images/generations"},
+		{http.MethodPost, "/v1/images/edits"},
+		{http.MethodGet, "/v1/images/generations/task_1"},
+		{http.MethodPost, "/v1/videos"},
+		{http.MethodGet, "/v1/videos/task_1"},
+		{http.MethodGet, "/v1/media/img_1.png"},
 	}
 
 	for _, c := range cases {

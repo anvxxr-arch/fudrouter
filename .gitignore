@@ -2,6 +2,8 @@ node_modules/
 build/
 dist/
 bin/
+# TypeScript incremental build cache (regenerated on every `npm run check`).
+*.tsbuildinfo
 .env
 .env.*
 !.env.example

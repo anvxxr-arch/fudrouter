@@ -1470,7 +1470,22 @@ func (lc *lifecycle) dispatch(ctx context.Context, upBody []byte, method, rawQue
 	attemptFn := func(attemptCtx context.Context, cand *routing.Candidate, next, budget int) []*routing.Attempt {
 		return lc.attempt(attemptCtx, cand, next, budget, upBody, method, rawQuery, upstreamPath)
 	}
-	res := routing.Execute(ctx, lc.cands, *lc.pol, lc.deadline, lc.h.breaker, attemptFn)
+	// Admission: a provider under a maintenance park (see routing/maintenance.go)
+	// is not a candidate for this request at all, so the walk does not spend its
+	// first attempt re-learning what another request already measured. The
+	// filter fails open when it would empty the set — a provider can be a
+	// model's only target, and answering "no routable target" without asking the
+	// upstream would be worse than one honest 503.
+	cands := lc.cands
+	if lc.h.breaker != nil {
+		cands = lc.h.breaker.FilterMaintenanceParked(ctx, cands)
+		// Same one-level-down: a provider_model row whose upstream just
+		// refused the body is skipped for the rest of its short park, so the
+		// walk does not re-burn an attempt rediscovering a 400 another request
+		// already measured. Fails open exactly like the maintenance filter.
+		cands = lc.h.breaker.FilterRowRejectParked(ctx, cands)
+	}
+	res := routing.Execute(ctx, cands, *lc.pol, lc.deadline, lc.h.breaker, attemptFn)
 	lc.attempts = res.Attempts
 
 	if res.Winner != nil {
@@ -1518,15 +1533,26 @@ func (lc *lifecycle) attempt(ctx context.Context, cand *routing.Candidate, n, bu
 		if lc.pol != nil && len(lc.attempts)+len(out) >= lc.pol.MaxAttempts {
 			break
 		}
-		// Always allow the FIRST try on a candidate even when its p95 estimate
-		// overshoots the deadline (Execute's last-resort pass relies on this);
-		// later tries still respect the deadline.
-		if i > 0 && !lc.deadline.IsZero() && time.Now().Add(estimateFor(cand)).After(lc.deadline) {
+		// Allow the FIRST try on a candidate even when its raw p95 estimate
+		// overshoots the deadline (Execute's last-resort pass relies on this),
+		// but bound it with firstTryFits: a POISONED estimate (a row that only
+		// ever answers a retryable 4xx, so nothing parked it) must not buy a
+		// start on a request with almost no budget left. Later tries still
+		// respect the deadline in full.
+		if i == 0 {
+			if !firstTryFits(time.Now(), lc.deadline, cand) {
+				break
+			}
+		} else if !lc.deadline.IsZero() && time.Now().Add(estimateFor(cand)).After(lc.deadline) {
 			break // spec §9: never start an attempt that cannot finish
 		}
 		a := lc.exchange(ctx, cand, n+len(out), upBody, method, rawQuery, upstreamPath)
 		out = append(out, a)
-		if a.ErrorCode == "" || !a.Retryable {
+		// A row-reject (upstream refused THIS body) does not improve by
+		// rotating to another credential of the same row: the mapping is what
+		// is refused. Stop the inner loop so the walk moves to the next
+		// CANDIDATE, which is where a different mapping can serve.
+		if a.ErrorCode == "" || !a.Retryable || a.MaintenancePark || a.RowRejectPark {
 			break
 		}
 	}
@@ -1548,6 +1574,36 @@ func estimateFor(cand *routing.Candidate) time.Duration {
 		return 300 * time.Millisecond
 	}
 	return time.Duration(cand.LatencyMs) * time.Millisecond
+}
+
+// firstTryFloor bounds the estimate used by the FIRST-try exception. That
+// exception exists so a candidate with no measured latency (estimate 300ms)
+// still gets its shot, and so Execute's last-resort pass can run. It must not
+// become a licence for a POISONED estimate: a row that upstream-rejects with a
+// retryable 4xx never gets a credential parked, so its measured estimate climbs
+// toward the wire timeout (measured 125–165 s), and with no floor the first try
+// is started on ANY request however small the remaining budget — the client then
+// inherits the hang (measured p50 88 s for one model). With the floor, such a
+// row is only started as a first try when at least firstTryFloor of budget
+// remains; if a sibling candidate exists, Select ranks and Execute walks it
+// first instead.
+const firstTryFloor = 10 * time.Second
+
+// firstTryFits reports whether a first try on cand may start: always when the
+// candidate has no usable estimate or the request has no deadline, otherwise
+// only when the (floored) estimate fits the remaining budget.
+func firstTryFits(now time.Time, deadline time.Time, cand *routing.Candidate) bool {
+	if deadline.IsZero() {
+		return true
+	}
+	if cand == nil || cand.LatencyMs <= 0 {
+		return true // unmeasured: the 300ms default is trustworthy
+	}
+	est := estimateFor(cand)
+	if est > firstTryFloor {
+		est = firstTryFloor
+	}
+	return !now.Add(est).After(deadline)
 }
 
 // exchange performs ONE upstream exchange and classifies it (spec §9). The
@@ -1845,6 +1901,20 @@ func (lc *lifecycle) exchange(ctx context.Context, cand *routing.Candidate, n in
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	_ = resp.Body.Close()
 	code, retryable := routing.ClassifyUpstream(resp.StatusCode)
+	// freemodel.in declares a SERVICE-WIDE maintenance window as HTTP 503 with
+	// {"error":"FreeModel is being upgraded right now. ..."}. ClassifyUpstream
+	// already answers PROVIDER_UNAVAILABLE + retryable, which is the right
+	// client-facing meaning, but "retryable" alone wrote no cooldown: the next
+	// candidate (and the next request) re-asked the same upgrading provider and
+	// burned the whole attempt budget on it. Measured 2026-11-03 19:17–19:37:
+	// 307 of these, 58 requests, every one of them freemodel-only and six
+	// fast-fail attempts deep. The flag parks the provider (routing.Execute)
+	// and skips its remaining candidates; the walk still moves to any OTHER
+	// provider, and a request with no other candidate still gets this one
+	// honest attempt.
+	if maintenanceEnvelope(resp.StatusCode, body) {
+		a.MaintenancePark = true
+	}
 	// An upstream that cannot DESERIALIZE a body is reporting its own parser's
 	// defect, not a malformed client request: ServeCompletions already parsed
 	// this body as JSON before dispatch, and a captured copy of exactly these
@@ -1857,6 +1927,17 @@ func (lc *lifecycle) exchange(ctx context.Context, cand *routing.Candidate, n in
 	if resp.StatusCode == http.StatusBadRequest &&
 		(bytes.Contains(body, []byte("deserialize")) || bytes.Contains(body, []byte("duplicate field"))) {
 		retryable = true
+		// ...AND park the ROW so the next request does not re-pick it. A 4xx
+		// marks no credential failed, so without this the row stayed
+		// enabled/available and was re-picked forever: measured 2026-11-03,
+		// one tokenjuice row answered 383/383 attempts with the same 400 while
+		// the model it served read request_log p50 88 s (every pick burned a
+		// fast 400, then the walk fell through to the wire timeout). The park
+		// is row-scoped and short (RowRejectParkTTL), so a provider whose
+		// shape clears is re-probed honestly after the bench — unlike the
+		// credential parks, which is where this failure must NOT land: the
+		// credential is fine, the mapping is what the upstream refuses.
+		a.RowRejectPark = true
 	}
 	// A per-IP budget rejection survived every rotation: another candidate
 	// (a different provider) may still serve this request, so let the router

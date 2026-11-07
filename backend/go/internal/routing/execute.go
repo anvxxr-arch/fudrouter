@@ -38,6 +38,24 @@ type Attempt struct {
 	// RetryAfterSeconds carries an upstream Retry-After hint (waiting room /
 	// rate limit) so the client response can relay it.
 	RetryAfterSeconds int
+	// MaintenancePark reports that this attempt's failure was the provider
+	// declaring a SERVICE-WIDE maintenance window (freemodel.in's
+	// "FreeModel is being upgraded right now", see maintenance.go). The attempt
+	// stays retryable — another provider may serve the request — but the
+	// provider is parked and the rest of its candidates are skipped, so one
+	// declaration costs one attempt instead of one per candidate.
+	MaintenancePark bool
+	// RowRejectPark reports that this attempt's failure was the provider_model
+	// ROW being rejected by the upstream's own parser (a retryable 400 whose
+	// body names a body defect, see lifecycle.go). A 4xx marks no credential
+	// failed, so without this flag the row stays servable and is re-picked on
+	// every request that ranks it — measured on one row as 383/383 attempts
+	// rejected while the row stayed enabled/available, and the model's client
+	// p50 at 88 s. The flag parks the ROW (not the provider, not the
+	// credential) for RowRejectParkTTL, so a request that sees it skips it and
+	// the walk reaches a sibling candidate; the next request after the TTL
+	// re-probes it honestly.
+	RowRejectPark bool
 	// ClientStatus overrides the taxonomy's default HTTP status for this
 	// attempt's failure (e.g. a waiting room is 503, not the generic
 	// provider-unavailable 502). Zero = use the default.
@@ -107,8 +125,25 @@ func Execute(ctx context.Context, ordered []Candidate, plan Plan, deadline time.
 	// starved the fallback candidates: with maxAttempts=2 and two open
 	// circuits ahead, the healthy third candidate was never reached.
 	realAttempts := 0
+	// parkedInWalk holds providers that declared a maintenance window DURING
+	// this walk. Their remaining candidates are skipped for free: the provider
+	// has already told us it is upgrading, and re-asking it once per
+	// provider_model row (three rows × two credentials, measured) only burns the
+	// attempt budget that a healthy fallback needs.
+	parkedInWalk := make(map[string]bool, 1)
+	// provider_model rows whose upstream rejected THIS walk's body, same idea
+	// one level down. A 4xx blames no credential, so nothing else stops the
+	// walk from spending another attempt on the same deterministic rejection —
+	// the row is skipped once its own attempt proves it rejects the body.
+	parkedRowsInWalk := make(map[string]bool, 1)
 	for i := 0; i < len(ordered) && realAttempts < maxAttempts; i++ {
 		cand := ordered[i]
+		if parkedInWalk[candidateProviderID(&cand)] {
+			continue
+		}
+		if rid := candidateProviderModelID(&cand); rid != "" && parkedRowsInWalk[rid] {
+			continue
+		}
 
 		// 1. Deadline: prefer a candidate that can finish in time. SKIP (not
 		// abort) a slow one so a faster fallback still gets its turn; the
@@ -177,6 +212,30 @@ func Execute(ctx context.Context, ordered []Candidate, plan Plan, deadline time.
 				a.LatencyMs = a.FinishedAt.Sub(a.StartedAt).Milliseconds()
 			}
 			res.Attempts = append(res.Attempts, a)
+
+			// A provider that declared maintenance is parked (shared, short
+			// TTL) and skipped for the rest of THIS walk. Done before the
+			// retry/fallback test below: the attempt itself stays retryable,
+			// the provider is what becomes unattractive.
+			if a.MaintenancePark {
+				if pid := candidateProviderID(&cand); pid != "" {
+					parkedInWalk[pid] = true
+					cb.ParkMaintenance(ctx, pid)
+				}
+			}
+
+			// A row whose upstream rejected the BODY is a ROW fact: nothing
+			// parked the credential, so the row stays servable and would be
+			// re-picked on the next request that ranks it (measured: 383/383
+			// attempts on one row, model client p50 88 s). Park the row (short,
+			// shared TTL) and skip it for the rest of THIS walk — the remaining
+			// candidates then get the attempt budget the rejection was eating.
+			if a.RowRejectPark {
+				if rid := candidateProviderModelID(&cand); rid != "" {
+					parkedRowsInWalk[rid] = true
+					cb.ParkRowReject(ctx, rid)
+				}
+			}
 
 			// 3. Circuit feedback. RATE_LIMITED and MODEL_NOT_FOUND are
 			// deliberately neutral for the breaker: a 429 is the upstream

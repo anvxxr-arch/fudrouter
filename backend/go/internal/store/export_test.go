@@ -44,6 +44,39 @@ func (s *Store) SetAdmissionTTLForTest(accountTTL, policy time.Duration) {
 	s.admission.mu.Unlock()
 }
 
+// ResetLiveSetForTest drops the cached `fudrouter/auto` live set (virtual.go).
+//
+// Needed because the live set is a 60s in-process cache over a 24h query: a test
+// that seeds attempt rows and then resolves `auto` would read whatever the
+// previous resolution cached, and would pass or fail depending on test order.
+func ResetLiveSetForTest(s *Store) {
+	s.live.reset()
+}
+
+// LiveSetTTLForTest exposes the cache bound so a test can assert the cache is
+// what makes the live-set read cheap, rather than asserting a timing.
+func LiveSetTTLForTest() time.Duration { return liveSetTTL }
+
+// SetLiveWindowForTest overrides the live-set window (hours) for one test and
+// returns a restore func. Zero makes the live set empty on demand, which is the
+// only deterministic way to exercise the recovery path: waiting for real
+// traffic to age out is not a test, and "the suite happened to have no recent
+// 2xx" is an accident, not an assertion.
+func SetLiveWindowForTest(hours int) (restore func()) {
+	prev := liveWindowHoursForQuery
+	liveWindowHoursForQuery = hours
+	return func() { liveWindowHoursForQuery = prev }
+}
+
+// SetLogfForTest swaps the store's log sink so a test can assert that a
+// degraded resolution SAYS SO. A fallback that is silent is the defect these
+// tests exist to prevent, so the log line is part of the contract.
+func SetLogfForTest(fn func(format string, args ...any)) (restore func()) {
+	prev := logf
+	logf = fn
+	return func() { logf = prev }
+}
+
 // CounterTracer counts the queries a store issues, so a test can assert a
 // query-count contract (head "one round trip") instead of inferring it from
 // timings that sit inside their own noise band.

@@ -176,8 +176,15 @@ func (h *Handler) ServeModel(w http.ResponseWriter, r *http.Request) {
 	// §6 P1 field set (exactly id/object/owned_by/context/pricing, mirrored
 	// 1:1 by the list). No record yet = field omitted, which is the honest
 	// "not probed yet" signal — the probe loop fills it within a sweep.
+	//
+	// The lookup is keyed by the RESOLVED slug (m.Slug), not the requested
+	// one: the sweep probes the published family entry, so a request naming a
+	// folded spelling (`…:free`, `-thinking`) or an `-unrestricted` twin must
+	// read that entry's record. Keying on the request dropped health for
+	// exactly those slugs, which broke the "detail matches the list entry"
+	// invariant for them.
 	if r.URL.Query().Get("health") == "1" {
-		if e, ok := h.healthView(r.Context())[slug]; ok {
+		if e, ok := h.healthView(r.Context())[m.Slug]; ok {
 			obj["health"] = e
 		}
 	}

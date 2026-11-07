@@ -23,7 +23,210 @@ type ModelInfo struct {
 	Currency    string
 }
 
-// ActiveModels lists the published chat catalogue.
+// displayFamilyCTE is the ONE definition of a model's display family: the set
+// of catalogue rows that are the SAME model under a different spelling. Two
+// spellings fold here, and only here:
+//
+//   - a recorded `model_slug_alias` identity (migration 0028's canonical
+//     union: `Kimi-K2.6`, `kimi-k2.6`, `tokenharbor/kimi-k2.6` are one model);
+//   - a trailing variant suffix — `:free`, `-free`, `-thinking`,
+//     `-thinking:free`, `-fast` — and ONLY when the stripped remainder names an
+//     existing active chat row.
+//
+// WHY the fold lives in presentation and not in resolution: folding at
+// `ResolveModel` would serve the non-reasoning base to a client that explicitly
+// asked for `-thinking`, and would merge free/paid pricing in the biller. Raw
+// slugs therefore keep resolving, and keep billing, exactly as before; only the
+// catalogue and the health probe see families.
+//
+// WHY a closure and not one hop: the real catalogue carries
+// `tokenharbor/deepseek-v4.1-flash:free`, whose alias target is
+// `deepseek-v4.1-flash:free` and whose suffix-stripped base is
+// `tokenharbor/deepseek-v4.1-flash`. A single hop reaches a DIFFERENT
+// intermediate row for each spelling and leaves three entries for one model.
+// `family_walk` follows every edge to a fixpoint; `UNION` (not `UNION ALL`)
+// makes a cyclic alias/variant pair terminate instead of recursing forever.
+//
+// WHY the family key is the plainest reachable slug: the key is both the
+// grouping identity and the published display slug, so it must be the row an
+// operator would name — no provider prefix first, then the lower-case spelling,
+// then lexicographic order (the precedence migration 0028's `ranked` CTE used
+// to pick a canonical id). A base is a prefix of every variant of it, so a
+// plain slug always sorts ahead of its own variants.
+//
+// Chat-only throughout: an image, audio or embedding row must never become a
+// family key, or it would inherit a chat row's variants and publish a model the
+// chat surface cannot serve.
+const displayFamilyCTE = `
+	with recursive
+	chat_model as (
+		select m.id, m.slug, lower(m.slug) as lslug,
+		       m.name, m.context, m.input_price, m.output_price, m.currency
+		from model m
+		where m.status = 'active'
+		  and (m.capabilities->>'chat') is distinct from 'false'
+	),
+	variant_strip(suffix) as (values
+		(':free'), ('-free'), ('-thinking'), ('-thinking:free'), ('-fast')
+	),
+	-- Both edge CTEs are MATERIALIZED on purpose: the recursive walk below
+	-- re-reads them once per iteration, and left inlined the planner re-derived
+	-- (and re-sorted) the whole edge set each time. Measured on a 6,700-row
+	-- fixture: 393 ms inlined, 6 ms materialized.
+	fold_edge as materialized (
+		select lower(a.alias) as src, c.lslug as dst
+		from model_slug_alias a
+		join chat_model c on c.id = a.canonical_model_id
+		union
+		select m.lslug, b.lslug
+		from chat_model m
+		join variant_strip v
+		  on lower(right(m.slug, length(v.suffix))) = lower(v.suffix)
+		join chat_model b
+		  on b.lslug = lower(left(m.slug, length(m.slug) - length(v.suffix)))
+		where b.id <> m.id
+	),
+	-- The family is a CONNECTED COMPONENT, so the walk is undirected: a row
+	-- that is only ever pointed AT (a prefixed sibling reached through someone
+	-- else's alias) is still the same model and must be folded with its
+	-- pointers. Following only forward edges left that sibling as its own
+	-- family, which is the second entry this fold exists to remove.
+	family_link as materialized (
+		select src, dst from fold_edge
+		union
+		select dst, src from fold_edge
+	),
+	family_walk as (
+		select c.lslug as start_slug, c.lslug as key_slug
+		from chat_model c
+		union
+		select w.start_slug, e.dst
+		from family_walk w
+		join family_link e on e.src = w.key_slug
+	),
+	family_key as (
+		select distinct on (start_slug) start_slug, key_slug as family_key
+		from family_walk
+		order by start_slug, (position('/' in key_slug) = 0) desc, key_slug
+	)`
+
+// displayWinnerCTE returns the servability gate and the family winner. It is
+// appended to displayFamilyCTE by every catalogue read, so the list, the detail
+// endpoint and the health probe cannot disagree about which family a slug
+// belongs to or which row represents it.
+//
+// The servable gate is PER FAMILY, not per row: a family is published when at
+// least one of its members passes the predicate the hot path uses (enabled
+// provider_model + enabled/healthy connection + a usable credential +
+// providerServableSQL). That is what keeps a combo with a dead primary
+// advertised: the primary's row is not servable, the fallback's row is.
+//
+// The winner's identity and price are its OWN row's values — no summing, no
+// fanning.
+func (s *Store) displayWinnerCTE() string {
+	return `, servable_model as (
+		select distinct m.id
+		from model m
+		join provider_model pm on pm.model_id = m.id and pm.enabled
+		join provider p on p.id = pm.provider_id
+		where m.status = 'active'
+		  and (m.capabilities->>'chat') is distinct from 'false'
+		  and pm.status not in ('disabled', 'unavailable')
+		  and exists (
+			select 1 from connection c
+			where c.id = pm.connection_id
+			  and c.enabled
+			  and c.health_status is distinct from 'unhealthy'
+			  and exists (
+				select 1 from credential cr
+				where cr.connection_id = c.id
+				  and cr.status not in ('disabled', 'invalid')
+				  and (cr.cooldown_until is null or cr.cooldown_until <= now())
+			  )
+		  )
+		  and ` + s.providerServableSQL() + `
+	),
+	family_servable as (
+		select distinct fk.family_key
+		from family_key fk
+		join chat_model m on m.lslug = fk.start_slug
+		join servable_model sm on sm.id = m.id
+	),
+	winner as (
+		select distinct on (fk.family_key)
+		       fk.family_key, m.id, m.slug, m.name, m.context,
+		       m.input_price, m.output_price, m.currency
+		from family_key fk
+		join chat_model m on m.lslug = fk.family_key
+		order by fk.family_key,
+		         (position('/' in m.slug) = 0) desc,
+		         (m.slug = lower(m.slug)) desc,
+		         m.slug, m.id
+	)`
+}
+
+// displayCatalogueSQL is the SELECT shared by both catalogue endpoints: one row
+// per display family, carrying the winner's own identity and price. The two
+// callers differ only in their WHERE clause, and they share this text so the
+// list and the detail view cannot drift (endpoint-surface §7 acceptance).
+func (s *Store) displayCatalogueSQL() string {
+	return displayFamilyCTE + s.displayWinnerCTE() + `
+	select w.slug, w.name, coalesce(w.context, 0),
+	       coalesce(pr.input_price::text, w.input_price::text),
+	       coalesce(pr.output_price::text, w.output_price::text),
+	       coalesce(pr.currency, w.currency, 'USD')
+	from winner w
+	left join lateral (
+		select input_price, output_price, currency
+		from pricing_rule r
+		where r.model_id = w.id
+		  and r.provider_model_id is null
+		  and r.effective_from <= now()
+		  and (r.effective_until is null or r.effective_until > now())
+		order by r.version desc
+		limit 1
+	) pr on true`
+}
+
+// DisplayFamilyIDs returns every active chat model id in slug's display family:
+// the requested row, every `model_slug_alias` sibling of its canonical
+// identity, and every active chat row whose slug is a suffix-stripped variant
+// of a family member — followed transitively in both directions.
+//
+// The health probe uses this to dial the WHOLE combo instead of one spelling.
+// A family whose primary provider is down but whose fallback answers must
+// report ok; probing a single row reported "down" for a model that still
+// served. Resolution and billing are untouched: this is a read.
+//
+// Empty (no error) when slug names no active chat row — the probe turns that
+// into `model_unresolved`, exactly like an unresolvable slug.
+func (s *Store) DisplayFamilyIDs(ctx context.Context, slug string) ([]string, error) {
+	rows, err := s.pool.Query(ctx, displayFamilyCTE+`
+	select distinct m.id
+	from chat_model m
+	join family_key fk on fk.start_slug = m.lslug
+	where fk.family_key = (
+		select family_key from family_key where start_slug = lower($1)
+	)
+	order by m.id`, slug)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
+// ActiveModels lists the published chat catalogue: ONE entry per same-model
+// display family, folded across prefixed aliases and trailing variant
+// suffixes.
 //
 // The gate is the same rule the control plane's publish gate implements
 // (`packages/platform/publish.ts`, endpoint-surface spec §2.1): canonical model
@@ -48,43 +251,9 @@ type ModelInfo struct {
 // same class of bug this gate exists to fix — the catalogue promising less than
 // the router can serve.
 func (s *Store) ActiveModels(ctx context.Context) ([]ModelInfo, error) {
-	rows, err := s.pool.Query(ctx, `
-		select m.slug, m.name, coalesce(m.context, 0),
-		       coalesce(pr.input_price::text, m.input_price::text),
-		       coalesce(pr.output_price::text, m.output_price::text),
-		       coalesce(pr.currency, m.currency, 'USD')
-		from model m
-		join provider_model pm on pm.model_id = m.id and pm.enabled
-		join provider p on p.id = pm.provider_id
-		left join lateral (
-			select input_price, output_price, currency
-			from pricing_rule r
-			where r.model_id = m.id
-			  and r.provider_model_id is null
-			  and r.effective_from <= now()
-			  and (r.effective_until is null or r.effective_until > now())
-			order by r.version desc
-			limit 1
-		) pr on true
-		where m.status = 'active'
-		  and (m.capabilities->>'chat') is distinct from 'false'
-		  and pm.status not in ('disabled', 'unavailable')
-		  and exists (
-			select 1 from connection c
-			where c.id = pm.connection_id
-			  and c.enabled
-			  and c.health_status is distinct from 'unhealthy'
-			  and exists (
-				select 1 from credential cr
-				where cr.connection_id = c.id
-				  and cr.status not in ('disabled', 'invalid')
-				  and (cr.cooldown_until is null or cr.cooldown_until <= now())
-			  )
-		  )
-		  and `+s.providerServableSQL()+`
-		group by m.slug, m.name, m.context, m.input_price, m.output_price, m.currency,
-		         pr.input_price, pr.output_price, pr.currency
-		order by m.slug`)
+	rows, err := s.pool.Query(ctx, s.displayCatalogueSQL()+`
+	where w.family_key in (select family_key from family_servable)
+	order by w.slug`)
 	if err != nil {
 		return nil, err
 	}
@@ -109,44 +278,21 @@ func (s *Store) ActiveModels(ctx context.Context) ([]ModelInfo, error) {
 // Same chat-surface gate as ActiveModels, for the same reason: a model
 // `/v1/models` does not list must not be reachable through `/v1/models/{slug}`,
 // or the two views of one catalogue drift.
+//
+// The slug is resolved to its DISPLAY FAMILY first, so the detail endpoint
+// answers with exactly the object the list publishes for that family. That is
+// what lets a client that names a folded spelling (`…:free`, `-thinking`) get
+// the published entry back instead of a 404 or a twin entry the list never
+// showed. Resolution and billing still see the raw slug: this is presentation.
 func (s *Store) PublishedModel(ctx context.Context, slug string) (*ModelInfo, error) {
 	m := &ModelInfo{OwnedBy: "fudrouter"}
 	var priceIn, priceOut, curCode *string
-	err := s.pool.QueryRow(ctx, `
-		select m.slug, m.name, coalesce(m.context, 0),
-		       coalesce(pr.input_price::text, m.input_price::text),
-		       coalesce(pr.output_price::text, m.output_price::text),
-		       coalesce(pr.currency, m.currency, 'USD')
-		from model m
-		join provider_model pm on pm.model_id = m.id and pm.enabled
-		join provider p on p.id = pm.provider_id
-		left join lateral (
-			select input_price, output_price, currency
-			from pricing_rule r
-			where r.model_id = m.id
-			  and r.provider_model_id is null
-			  and r.effective_from <= now()
-			  and (r.effective_until is null or r.effective_until > now())
-			order by r.version desc
-			limit 1
-		) pr on true
-		where m.slug = $1 and m.status = 'active'
-		  and (m.capabilities->>'chat') is distinct from 'false'
-		  and pm.status not in ('disabled', 'unavailable')
-		  and exists (
-			select 1 from connection c
-			where c.id = pm.connection_id
-			  and c.enabled
-			  and c.health_status is distinct from 'unhealthy'
-			  and exists (
-				select 1 from credential cr
-				where cr.connection_id = c.id
-				  and cr.status not in ('disabled', 'invalid')
-				  and (cr.cooldown_until is null or cr.cooldown_until <= now())
-			  )
-		  )
-		  and `+s.providerServableSQL()+`
-		limit 1`, slug,
+	err := s.pool.QueryRow(ctx, s.displayCatalogueSQL()+`
+	where w.family_key in (select family_key from family_servable)
+	  and w.family_key = (
+		select family_key from family_key where start_slug = lower($1)
+	  )
+	limit 1`, slug,
 	).Scan(&m.Slug, &m.Name, &m.Context, &priceIn, &priceOut, &curCode)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound

@@ -8,8 +8,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/anvxxr-arch/fudrouter/backend/go/internal/ids"
 	"github.com/anvxxr-arch/fudrouter/backend/go/internal/proxy"
 	"github.com/anvxxr-arch/fudrouter/backend/go/tests"
+	"github.com/jackc/pgx/v5"
 )
 
 // chatUpstream answers the probe's one-token completion like a real upstream:
@@ -167,5 +169,141 @@ func TestModelsListStaysValid(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"object":"list"`) {
 		t.Fatal("list envelope lost")
+	}
+}
+
+// TestProbeOkWhenOnlyFallbackProviderAlive is the failover-aware health
+// contract. A published model is a COMBO: one canonical model reachable through
+// several providers. When the first provider is down and a later one serves,
+// the model is serving — a probe that reports "down" tells an operator the
+// opposite of the truth and invites them to debug a model that works.
+//
+// The probe used to fire exactly one attempt (`MaxAttempts = 1`,
+// `FallbackEnabled = false`), so it reported whichever provider the walk ranked
+// first. Now it dials the whole display family, bounded by its candidate count.
+func TestProbeOkWhenOnlyFallbackProviderAlive(t *testing.T) {
+	dsn := tests.RequireDB(t)
+	up := chatUpstream(t)
+	// Two independent providers: the first one's upstream refuses connections.
+	deadEnv := tests.SeedEnv(t, dsn, "http://127.0.0.1:1")
+	liveEnv := tests.SeedEnv(t, dsn, up.URL)
+	ctx := context.Background()
+
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { conn.Close(context.Background()) })
+
+	// Fold the live provider's row into the dead row's display family, so the
+	// two rows are ONE published combo.
+	if _, err := conn.Exec(ctx, `insert into model_slug_alias (alias, canonical_model_id) values ($1,$2)`,
+		liveEnv.Slug, deadEnv.ModelID); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if _, err := conn.Exec(context.Background(), `delete from model_slug_alias where alias = $1`, liveEnv.Slug); err != nil {
+			t.Errorf("teardown leaked an alias row: %v", err)
+		}
+	})
+	// The dead provider ranks FIRST, so a single-shot probe hits it and only it.
+	if _, err := conn.Exec(ctx, `update provider set priority = 1 where id = $1`, deadEnv.ProviderID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Exec(ctx, `update provider set priority = 2 where id = $1`, liveEnv.ProviderID); err != nil {
+		t.Fatal(err)
+	}
+
+	h := tests.NewProxy(t, dsn, up.URL)
+	e := h.ProbeOnce(ctx, deadEnv.Slug)
+	if e.Status != "ok" {
+		t.Fatalf("probe status = %q (err %q), want ok: a sibling provider still serves this model", e.Status, e.ErrCode)
+	}
+
+	// Negative control: remove the live row from the family. With only the dead
+	// provider left, the same probe must report down — the failover is what
+	// earns the ok, not a weakened failure contract.
+	if _, err := conn.Exec(ctx, `delete from model_slug_alias where alias = $1`, liveEnv.Slug); err != nil {
+		t.Fatal(err)
+	}
+	if e := h.ProbeOnce(ctx, deadEnv.Slug); e.Status != "down" {
+		t.Fatalf("probe status = %q with no live provider, want down", e.Status)
+	}
+}
+
+// TestFoldedVariantDetailCarriesFamilyHealth closes the loop between the
+// catalogue fold and the health field. The sweep probes the PUBLISHED entry
+// (the family's plain slug), so a client that names a folded spelling must read
+// that entry's record — including its id and health — not a 404 and not an
+// object missing the health it just saw in the list.
+func TestFoldedVariantDetailCarriesFamilyHealth(t *testing.T) {
+	dsn := tests.RequireDB(t)
+	up := chatUpstream(t)
+	env := tests.SeedEnv(t, dsn, up.URL)
+	ctx := context.Background()
+
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { conn.Close(context.Background()) })
+
+	base := "foldhealth-" + tests.RandChars(6)
+	if _, err := conn.Exec(ctx, `update model set slug = $2, capabilities = '{"chat":true}'::jsonb where id = $1`,
+		env.ModelID, base); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if _, err := conn.Exec(context.Background(), `update model set slug = $2 where id = $1`, env.ModelID, env.Slug); err != nil {
+			t.Errorf("restore base slug: %v", err)
+		}
+	})
+	variant := base + ":free"
+	variantID := ids.New("mdl")
+	if _, err := conn.Exec(ctx, `
+		insert into model (id, provider_id, name, slug, context, input_price, output_price, currency, status, capabilities)
+		values ($1,$2,$3,$4,128000,'150000.000000','600000.000000','USD','active','{"chat":true}'::jsonb)`,
+		variantID, env.ProviderID, variant, variant); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Exec(ctx, `
+		insert into provider_model (id, model_id, provider_id, connection_id, provider_model_id, enabled, status)
+		values ($1,$2,$3,$4,$5,true,'available')`,
+		ids.New("pmdl"), variantID, env.ProviderID, env.ConnectionID, variant); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if _, err := conn.Exec(context.Background(), `delete from provider_model where model_id = $1`, variantID); err != nil {
+			t.Errorf("teardown leaked a provider_model row: %v", err)
+		}
+		if _, err := conn.Exec(context.Background(), `delete from model where id = $1`, variantID); err != nil {
+			t.Errorf("teardown leaked a model row: %v", err)
+		}
+	})
+
+	h := tests.NewProxy(t, dsn, up.URL)
+	if e := h.ProbeOnce(ctx, base); e.Status != "ok" {
+		t.Fatalf("probe = %q (%q), want ok", e.Status, e.ErrCode)
+	}
+	mux := proxy.ServeMux(h, readyHealth{})
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/models/"+variant+"?health=1", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /v1/models/%s = %d body %s", variant, rec.Code, rec.Body.String())
+	}
+	var detail map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &detail); err != nil {
+		t.Fatalf("detail not JSON: %s", rec.Body.String())
+	}
+	if detail["id"] != base {
+		t.Errorf("detail id = %v, want the published family entry %q", detail["id"], base)
+	}
+	hv, present := detail["health"].(map[string]any)
+	if !present {
+		t.Fatalf("folded spelling must carry its family's health, got %v", detail)
+	}
+	if hv["status"] != "ok" {
+		t.Errorf("health.status = %v, want ok", hv["status"])
 	}
 }

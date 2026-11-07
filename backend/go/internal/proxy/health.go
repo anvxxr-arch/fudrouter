@@ -285,29 +285,54 @@ func (h *Handler) probeModel(parent context.Context, slug string) HealthEntry {
 
 	pol := store.DefaultRoutingPolicy()
 	plan := routing.PlanFromRoutingPolicy(pol, "", false)
-	// A health signal is this slug's own truth: one sharp attempt, no
-	// cross-model fallback chain diluting which upstream actually failed.
-	plan.MaxAttempts = 1
-	plan.FallbackEnabled = false
+	// The probe reports the FAMILY's health, not one spelling's: a combo whose
+	// primary provider is down but whose fallback answers is serving, and an
+	// operator reading "down" for it is being told the opposite of the truth.
+	// So the walk keeps the policy's fallback chain, bounded to the number of
+	// candidates the family actually has.
+	//
+	// This replaced `MaxAttempts = 1` / `FallbackEnabled = false`. That single
+	// shot was defensible when a probe covered one row, but after the catalogue
+	// folded variants and prefixed aliases into one family it meant probing the
+	// dead primary of a live combo and publishing "down" for it.
+	plan.FallbackEnabled = true
 
 	res, err := h.store.ResolveModel(ctx, probeKey, slug)
 	if err != nil {
 		e.ErrCode = "model_unresolved"
 		return e
 	}
-	byModel, err := h.store.CandidatesBatch(ctx, res.ModelIDs, res.RequiredCapabilities)
+	// Candidates come from the display family, so every provider serving this
+	// model is a probe target — not just the row the slug happens to name.
+	familyIDs, err := h.store.DisplayFamilyIDs(ctx, slug)
+	if err != nil {
+		e.ErrCode = "candidates_unreadable"
+		return e
+	}
+	if len(familyIDs) == 0 {
+		e.ErrCode = "model_unresolved"
+		return e
+	}
+	byModel, err := h.store.CandidatesBatch(ctx, familyIDs, res.RequiredCapabilities)
 	if err != nil {
 		e.ErrCode = "candidates_unreadable"
 		return e
 	}
 	var merged []routing.Candidate
-	for _, modelID := range res.ModelIDs {
+	for _, modelID := range familyIDs {
 		for j := range byModel[modelID] {
 			c := byModel[modelID][j]
 			rc := routing.Candidate{Store: &c}
 			rc.LoadSignals()
 			merged = append(merged, rc)
 		}
+	}
+	plan.MaxAttempts = len(merged)
+	if plan.MaxAttempts < 1 {
+		plan.MaxAttempts = 1
+	}
+	if plan.MaxAttempts > 8 {
+		plan.MaxAttempts = 8
 	}
 	h.fillCandidatePricing(ctx, merged)
 	merged = routing.Filter(merged, plan.Constraints)

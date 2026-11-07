@@ -108,8 +108,15 @@ func TestOldProviderSlugRoutesWithoutRenaming(t *testing.T) {
 	}
 	st := tests.NewStore(t, dsn)
 	published, err := st.PublishedModel(ctx, oldSlug)
-	if err != nil || published.Slug != oldSlug {
-		t.Fatalf("old live catalogue slug changed: %+v, %v", published, err)
+	if err != nil {
+		t.Fatalf("old live catalogue slug is no longer reachable: %v", err)
 	}
-	t.Log("old prefixed input: HTTP 200, original upstream id, original audit spelling, original published slug")
+	// The catalogue publishes ONE entry per display family, so the prefixed
+	// spelling answers with the family's published entry rather than a twin
+	// entry of its own. The ROWS stay (routing and billing above prove that);
+	// only the listing folds them.
+	if published.Slug != env.Slug {
+		t.Fatalf("old live catalogue slug resolved to %q, want the published family entry %q", published.Slug, env.Slug)
+	}
+	t.Log("old prefixed input: HTTP 200, original upstream id, original audit spelling, folds to the published entry")
 }

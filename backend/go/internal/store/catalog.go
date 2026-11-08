@@ -1124,3 +1124,34 @@ func CapabilitySatisfied(effective map[string]any, required map[string]bool) boo
 	}
 	return true
 }
+
+// HasSupply reports whether one provider_model mapping is tagged as serving a
+// given economic bucket in `provider_model_supply` (migration 0033, decisions
+// K3/K10). Single-purpose by design: it is the one-read guard consulted by
+// catalogue and supply verification, NOT a hot-path lookup. Resolution and
+// billing keep serving raw slugs (spec §5, displayFamilyCTE above), so this
+// predicate must never be folded into Candidates/CandidatesBatch — doing so
+// would partition routing by bucket, the exact drift the display-family fold
+// exists to prevent.
+//
+// Absence returns `false, nil`, not an error: a mapping that predates the 0033
+// backfill has no supply claim, which is a legal state, not a query failure. A
+// mapping may serve SEVERAL buckets through the join table without duplicating
+// its provider_model row — the whole reason the guard is a join table rather
+// than a column on provider_model (K3).
+func (s *Store) HasSupply(ctx context.Context, providerModelID string, bucket Bucket) (bool, error) {
+	var one int
+	err := s.pool.QueryRow(ctx, `
+		select 1
+		from provider_model_supply
+		where provider_model_id = $1 and bucket = $2
+		limit 1`, providerModelID, string(bucket),
+	).Scan(&one)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}

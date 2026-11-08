@@ -133,7 +133,7 @@ type ChargeResult struct {
 // The round trips were not the real damage; the LOCK HOLD was. The explicit
 // `for update` was held from statement 3 until statement 6, five round trips, so
 // every concurrent request for the SAME account queued on it. Folding the block
-// into one statement keeps the lock — the atomic `balance_micro + $45` still needs
+// into one statement keeps the lock — the atomic `balance_micro + $50` still needs
 // it — but holds it for the tail of a single statement instead of four network
 // waits. The evidence is the round-trip COUNT (6 -> 1, pinned by
 // TestWritePathRoundTrips) plus the lock hold itself; the wall-clock difference is
@@ -148,6 +148,13 @@ type ChargeResult struct {
 //   - request_attempt has an FK to request_log, so the request_log row must
 //     exist before the attempts are written. That is why the insert is its own
 //     CTE arm rather than being folded into the ledger insert's FROM clause.
+//
+// The ledger parameters start at $49, not $42: request_log now binds 48 columns
+// (seven economic columns were appended, see requestLogColumns), so the seven
+// ledger parameters and the two `user_id` lookups shifted by exactly that
+// seven. The mapping is $49 ledger id, $50 amount, $51 currency, $52 request id,
+// $53 idempotency key, $54 description, $55 user id — the balance update reuses
+// the SAME $50 amount, so a change to the shift must move both.
 func (s *Store) ChargeRequest(ctx context.Context, r *RequestLog) (*ChargeResult, error) {
 	// Mirror the charge on the ledger row BEFORE the insert so request_log is
 	// self-describing (spec §8: credit_charged_micro) without joining.
@@ -161,7 +168,7 @@ func (s *Store) ChargeRequest(ctx context.Context, r *RequestLog) (*ChargeResult
 		// nothing to charge, so this is one insert and nothing else.
 		if _, err := s.pool.Exec(ctx, `
 			insert into request_log (`+requestLogColumns+`)
-			values (`+placeholders(41)+`)
+			values (`+placeholders(requestLogColumnCount)+`)
 			on conflict (id) do nothing`, r.args()...); err != nil {
 			return nil, err
 		}
@@ -199,21 +206,21 @@ func (s *Store) ChargeRequest(ctx context.Context, r *RequestLog) (*ChargeResult
 	err := s.pool.QueryRow(ctx, `
 		with rl as (
 			insert into request_log (`+requestLogColumns+`)
-			values (`+placeholders(41)+`)
+			values (`+placeholders(requestLogColumnCount)+`)
 			on conflict (id) do nothing
 			returning 1
 		), ledger as (
 			insert into credit_ledger
 			  (id, billing_account_id, type, amount_micro, currency, request_id,
 			   idempotency_key, description, metadata)
-			select $42, ba.id, 'usage_charge', $43, $44, $45, $46, $47, '{}'::jsonb
+			select $49, ba.id, 'usage_charge', $50, $51, $52, $53, $54, '{}'::jsonb
 			from billing_account ba
-			where ba.user_id = $48
+			where ba.user_id = $55
 			on conflict (idempotency_key) do nothing
 			returning id, billing_account_id
 		), bal as (
 			update billing_account ba
-			set balance_micro = ba.balance_micro + $43, updated_at = now()
+			set balance_micro = ba.balance_micro + $50, updated_at = now()
 			from ledger l
 			where ba.id = l.billing_account_id
 			returning ba.id, ba.warning_threshold_micro, ba.hard_stop_threshold_micro, ba.balance_micro
@@ -228,7 +235,7 @@ func (s *Store) ChargeRequest(ctx context.Context, r *RequestLog) (*ChargeResult
 		-- is what the first version of this statement returned.
 		select ba.id, ba.warning_threshold_micro, ba.hard_stop_threshold_micro, ba.balance_micro, false
 		from billing_account ba
-		where ba.user_id = $48 and not exists (select 1 from bal)`,
+		where ba.user_id = $55 and not exists (select 1 from bal)`,
 		append(append([]any{}, r.args()...),
 			ids.New("txn"), -r.Cost, r.Currency, nullStr(r.ID),
 			"usage:"+r.ID, "usage charge for "+r.ID, nullStr(r.UserID))...,

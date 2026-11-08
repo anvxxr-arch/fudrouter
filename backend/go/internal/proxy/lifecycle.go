@@ -83,6 +83,29 @@ type lifecycle struct {
 	// dispatch (compress.go). Recorded for reporting only — never billed.
 	tokensSaved int64
 
+	// Economic layer state (design §3.1, §5): resolved once per request and
+	// reused by admission (checkFrsubsQuota) and the ledger write (buildRow,
+	// via economic()). The bucket is needed pre-flight; the provider COGS rule
+	// and margin resolve lazily against the winning mapping, so a rejected
+	// request (no winner) never pays a COGS/margin lookup on its way out. Each
+	// memo has a resolved bool because the memoized zero/null value is still a
+	// valid answer (frpayg with no cost rule resolves to a nil pointer).
+	bucket           store.Bucket
+	bucketResolved   bool
+	pc               *store.ProviderCostPricing
+	pcResolved       bool
+	markupMillionths int64
+	markupResolved   bool
+	// quotaIncomingMicro is the retail-equivalent meter THIS request is
+	// expected to add to the frsubs quota windows. It is 0 at admission:
+	// usage is only known after the upstream answers, so the pre-flight gate
+	// checks the durable used sum alone and the POST-charge counter write
+	// (finish → quotaSpendAdd) is the authoritative meter. The field exists so
+	// checkFrsubsQuota expresses the full used+incoming comparison; a future
+	// estimate (e.g. tokenEstimate(body) against a blended retail price) can
+	// set it without touching the gate.
+	quotaIncomingMicro int64
+
 	status   string // spec §8 vocabulary
 	errCode  string
 	errMsg   string
@@ -658,22 +681,279 @@ func (lc *lifecycle) resolvePricing() *store.Pricing {
 
 // customerCost is the charge the lifecycle computed (or would compute) in
 // micro-units — the value request_log.cost carries. Only surfaced to the
-// client behind the cost-headers flag (PRD §90).
+// client behind the cost-headers flag (PRD §90). It delegates to economic()
+// so the header can never disagree with the row buildRow writes.
 func (lc *lifecycle) customerCost() int64 {
-	p := lc.resolvePricing()
-	if p == nil {
-		return 0
+	return lc.economic(lc.usage).cost
+}
+
+// economicOutcome is the per-request set of economic layer fields, derived in
+// ONE place (economic()) so buildRow and customerCost cannot drift. The three
+// money questions (design §3.1) stay separate: cost is the CUSTOMER debit,
+// providerCostMicro is the three-valued COGS, quotaUsageMicro is the
+// frsubs retail-equivalent meter — flat-fee buckets debit 0 per request but
+// still carry either a proven-free 0 COGS (farm) or a NULL COGS (flat/never
+// priced) and, for frsubs, a nonzero meter.
+type economicOutcome struct {
+	bucket            store.Bucket
+	billingBasis      store.BillingBasis
+	costBasis         store.CostBasis
+	markupMillionths  int64
+	providerCostMicro *int64
+	cost              int64
+	quotaUsageMicro   *int64
+}
+
+// economic resolves the economic layer state for one request: the effective
+// bucket, the winner's provider cost rule (mapped to its three-valued COGS),
+// the frpayg markup, the customer charge and the frsubs meter. Every piece is
+// memoized on the lifecycle, so calling it once at the cost header and again
+// in buildRow costs one DB lookup per fact, not two.
+//
+// `u` is the usage to bill from, supplied by the caller: buildRow passes the
+// clampTokens-adjusted count (finish clamps a local copy), while the cost
+// header passes the raw lc.usage — so negative/oversized upstream counts are
+// excluded from the ledger but still shown, pre-clamp, in the flag-gated
+// header, exactly as before. The bucket/COGS/markup lookups are
+// usage-independent and stay memoized across both callers.
+func (lc *lifecycle) economic(u usageCounts) economicOutcome {
+	bucket := lc.resolveBucket()
+	o := economicOutcome{
+		bucket:           bucket,
+		billingBasis:     store.BasisRetail,
+		costBasis:        store.CostRetail,
+		markupMillionths: 1_000_000,
 	}
-	in, cached, out, reason := p.BillablePrices()
-	u := lc.usage
-	c := cost.ComputeUsage(
-		u.TokensIn-u.CachedInputTokens, u.CachedInputTokens,
-		u.TokensOut-u.ReasoningTokens, u.ReasoningTokens,
-		in, cached, out, reason)
-	if c < 0 {
-		return 0
+
+	// Retail-equivalent usage (the spec §6 price snapshot): the base for the
+	// frpayg no-COGS passthrough and, crucially, the frsubs fair-use meter. A
+	// flat-fee frsubs debits cost=0, so without this retail figure the quota
+	// denominator would be zero and the stop-loss could never trip.
+	var retail int64
+	if p := lc.resolvePricing(); p != nil {
+		in, cached, out, reason := p.BillablePrices()
+		retail = cost.ComputeUsage(
+			u.TokensIn-u.CachedInputTokens, u.CachedInputTokens,
+			u.TokensOut-u.ReasoningTokens, u.ReasoningTokens,
+			in, cached, out, reason)
+		if retail < 0 {
+			retail = 0
+		}
 	}
-	return c
+
+	// Three-valued COGS (design §4.3, K4): farm_zero → a real 0, a flat-fee
+	// subscription → NULL, invoice/declared → the real number. A missing rule is
+	// also NULL, not 0: "never priced" and "proven free" are categorically
+	// different, and request_log_farm_zero_check (`IS NOT DISTINCT FROM 0`)
+	// exists precisely to stop a NULL from reading as free. frsubs never reads a
+	// cost rule at all — its plan is already paid, so its COGS is NULL by
+	// definition, not by lookup.
+	var pc *int64
+	var pcRule *store.ProviderCostPricing
+	if bucket != store.BucketSubs {
+		pcRule = lc.resolveProviderCost()
+	}
+	if pcRule != nil {
+		switch pcRule.Source {
+		case "farm_zero":
+			zero := int64(0)
+			pc = &zero
+			o.costBasis = store.CostFarmZero
+		case "subscription_flat":
+			// NULL: the plan is already paid. Deliberately NOT 0.
+			o.costBasis = store.CostSubFlat
+		default: // "invoice" | "declared" → a real provider cost
+			if bucket == store.BucketCheap {
+				// frcheap only recognizes PROVEN farmed-free supply. An invoice
+				// or declared cost on the farm bucket is not a reason to bill per
+				// token (the flat fee already covers it), and fabricating a real
+				// COGS to then discard it is dead work. Straight to retail, COGS
+				// NULL — "never priced", not free.
+				o.costBasis = store.CostRetail
+			} else {
+				// ProviderCostPricing already applied the §6 NULL-class fallbacks
+				// in ResolveProviderCost, so these four are billable as-is.
+				cogs := cost.ComputeUsage(
+					u.TokensIn-u.CachedInputTokens, u.CachedInputTokens,
+					u.TokensOut-u.ReasoningTokens, u.ReasoningTokens,
+					pcRule.InputMicro, pcRule.CachedMicro, pcRule.OutputMicro, pcRule.ReasonMicro)
+				if cogs < 0 {
+					cogs = 0
+				}
+				pc = &cogs
+				o.costBasis = store.CostProvider
+			}
+		}
+	}
+
+	switch bucket {
+	case store.BucketCheap:
+		// Flat-fee farm bucket: the customer's 100k IDR/28d arrives via
+		// credit_purchase, never per request, so cost=0. Only a PROVEN farmed
+		// supply gets a real 0 COGS; any other source means "we never priced
+		// this upstream" and the COGS is NULL, not free (design K8: prefer not
+		// to hard-reject day-0, but never fabricate a 0).
+		if o.costBasis != store.CostFarmZero {
+			pc = nil
+			o.costBasis = store.CostRetail
+		}
+		o.cost = 0
+	case store.BucketSubs:
+		// Flat-fee subscription: already paid per period, cost=0, COGS NULL. The
+		// meter is the retail-equivalent usage — the single fair-use denominator
+		// (design §3.2) because a flat subscription has no per-token COGS to
+		// meter against.
+		pc = nil
+		o.costBasis = store.CostSubFlat
+		o.cost = 0
+		meter := retail
+		o.quotaUsageMicro = &meter
+	default: // frpayg — prepaid, per-token metered
+		if o.costBasis == store.CostProvider {
+			// Real COGS + markup: the debit is the marked-up provider cost. Markup
+			// is only ever legal on a real COGS (design K5, the 0035 CHECK); it
+			// never rides a retail passthrough.
+			o.billingBasis = store.BasisProvider
+			o.markupMillionths = lc.resolveMarkup(bucket, pcRule)
+			o.cost = store.MarkupMicro(*pc, o.markupMillionths)
+		} else {
+			// No real COGS: passthrough the published retail price, and leave the
+			// COGS NULL (never priced, not free).
+			o.costBasis = store.CostRetail
+			pc = nil
+			o.cost = retail
+		}
+	}
+
+	o.providerCostMicro = pc
+	return o
+}
+
+// resolveBucket returns the memoized effective bucket (design §3.1 precedence:
+// live subscription → api_key.economic_bucket → billing_account.bucket →
+// frpayg) with a 60s Valkey cache beside the key. On a lookup FAILURE it fails
+// OPEN to frpayg, never refuses the request: the failure direction that
+// overcharges (frpayg retail passthrough) is the safe one, whereas failing
+// closed would turn a bucket-resolution outage into a full data-plane outage,
+// and failing open to a flat bucket would let spend leak unbilled.
+//
+// The cache key is the API key ID — NOT the user ID — because api_key.economic_bucket
+// is the MIDDLE precedence layer and is per-key: caching by user would let one
+// key's override leak onto a sibling key. The bucket only changes on an
+// administrative edit (subscription purchase, key/account update), so 60s is
+// the same staleness the api-key cache already tolerates for revocation, and
+// the console's key.revoke precedent shows the operator flushes these caches on
+// the sharp-edged changes.
+func (lc *lifecycle) resolveBucket() store.Bucket {
+	if lc.bucketResolved {
+		return lc.bucket
+	}
+	lc.bucketResolved = true
+	if lc.key == nil {
+		lc.bucket = store.BucketPayg
+		return lc.bucket
+	}
+	ck := lc.h.bucketCacheKey(lc.key.ID)
+	// CheckBudgetsForTest builds a lifecycle without an *http.Request, so the
+	// context base must be nil-safe: the bench drives the gate with a bare
+	// key and no real request. Production always has r.
+	var vctx context.Context
+	if lc.r != nil {
+		vctx = lc.r.Context()
+	} else {
+		vctx = context.Background()
+	}
+	var cached store.Bucket
+	if err := lc.h.vk.GetJSON(vctx, ck, &cached, 2*time.Second); err == nil &&
+		cached != "" {
+		lc.bucket = cached
+		return lc.bucket
+	}
+	bctx, cancel := context.WithTimeout(context.WithoutCancel(vctx), 5*time.Second)
+	b, err := lc.h.store.ResolveBucket(bctx, lc.key)
+	cancel()
+	if err != nil {
+		log.Printf("[proxy] bucket resolution failed for key %s: %v", lc.key.ID, err)
+		lc.bucket = store.BucketPayg
+		return lc.bucket
+	}
+	lc.bucket = b
+	// Best-effort fill, like every other cache: a failed Set never fails the
+	// request, and a miss re-resolves from the DB next time. Reuse the
+	// nil-safe base: after the DB resolve returned, the request goroutine may
+	// already be gone (finish's detached ledger path).
+	_ = lc.h.vk.SetJSON(vctx, ck, b, bucketCacheTTL)
+	return lc.bucket
+}
+
+// bucketCacheKey is the Valkey key for one key's effective bucket, namespaced by
+// database so two deployments sharing a Valkey cannot answer from each other's
+// rows. The console must spell it identically to flush it on an edit.
+func (h *Handler) bucketCacheKey(keyID string) string {
+	return cacheKey(h.cacheNS(), "bucket", keyID)
+}
+
+// bucketCacheTTL bounds how long a stale bucket can survive an administrative
+// edit. Same shape as the api-key cache: short on purpose, the flush is the real
+// mechanism, this is the backstop.
+const bucketCacheTTL = 60 * time.Second
+
+// resolveProviderCost returns the memoized winner's cost rule (or nil). A
+// lookup FAILURE returns nil (no error): the caller degrades to retail
+// passthrough with provider_cost_micro = NULL — the honest "we never priced
+// this upstream" — rather than fabricating a 0 or refusing a paying request.
+func (lc *lifecycle) resolveProviderCost() *store.ProviderCostPricing {
+	if lc.pcResolved {
+		return lc.pc
+	}
+	lc.pcResolved = true
+	w := lc.winner()
+	if w == nil || w.Candidate == nil {
+		return nil
+	}
+	pctx, cancel := context.WithTimeout(context.WithoutCancel(lc.r.Context()), 5*time.Second)
+	pc, err := lc.h.store.ResolveProviderCost(pctx,
+		w.Candidate.Store.ModelID, w.Candidate.Store.ProviderModelID, lc.start)
+	cancel()
+	if err != nil {
+		log.Printf("[proxy] provider cost resolution failed for %s/%s: %v",
+			w.Candidate.Store.ModelID, w.Candidate.Store.ProviderModelID, err)
+		return nil
+	}
+	lc.pc = pc
+	return pc
+}
+
+// resolveMarkup returns the memoized frpayg markup in millionths. It is only
+// consulted on a real provider COGS (economic() gates that), so a non-frpayg
+// bucket or a nil rule short-circuits to passthrough 1.0 without a query. A
+// lookup failure falls back to 1.0 (no markup) — the direction that
+// UNDER-charges the customer rather than inflating a charge off a broken
+// margin table.
+func (lc *lifecycle) resolveMarkup(bucket store.Bucket, pcRule *store.ProviderCostPricing) int64 {
+	if lc.markupResolved {
+		return lc.markupMillionths
+	}
+	lc.markupResolved = true
+	lc.markupMillionths = 1_000_000
+	if bucket != store.BucketPayg || pcRule == nil {
+		return lc.markupMillionths
+	}
+	w := lc.winner()
+	if w == nil || w.Candidate == nil {
+		return lc.markupMillionths
+	}
+	mctx, cancel := context.WithTimeout(context.WithoutCancel(lc.r.Context()), 5*time.Second)
+	mm, err := lc.h.store.ResolveBucketMargin(mctx, bucket,
+		w.Candidate.Store.ModelID, w.Candidate.Store.ProviderModelID, lc.start)
+	cancel()
+	if err != nil {
+		log.Printf("[proxy] bucket margin resolution failed for %s/%s: %v",
+			w.Candidate.Store.ModelID, w.Candidate.Store.ProviderModelID, err)
+		return lc.markupMillionths
+	}
+	lc.markupMillionths = mm
+	return mm
 }
 
 func (lc *lifecycle) servedModel() string {
@@ -1108,6 +1388,18 @@ func (lc *lifecycle) finish() {
 			}
 		}()
 	} else {
+		// frsubs fair-use meter (design §6): move this request's ACTUAL
+		// retail-equivalent usage into the period-keyed quota counters AFTER the
+		// charge is durable. It is written from quota_usage_micro, never row.Cost
+		// — a frsubs request debits cost=0, and counting 0 would make the quota
+		// un-exhaustable. Deferred behind the charge (not at admission) exactly
+		// like budgetSpendAdd, so a retry storm cannot overcount, and best-effort
+		// around the durable SpendQuotaMicro sum (fail-closed on the READ side in
+		// checkFrsubsQuota). quotaSpendAdd re-checks lc.bucket, so the nil guard
+		// alone is the whole cost of a non-frsubs row.
+		if row.QuotaUsageMicro != nil {
+			defer lc.h.quotaSpendAdd(ctx, lc, *row.QuotaUsageMicro)
+		}
 		// The charge succeeded, so the parent row is already durable on ctx.
 		// The attempts still go to a detached goroutine: they are a forensic
 		// trail, not something the client waits on, and the FK is satisfied.
@@ -1282,10 +1574,11 @@ func (lc *lifecycle) buildRow(u usageCounts) *store.RequestLog {
 	}
 	// total_tokens NULL = the provider did not report (PRD §122).
 
-	// Price snapshot (spec §6): the version effective at request start, frozen
-	// into the row so a later price change never rewrites history. Resolved
-	// under the DETACHED context: the client may already be gone, and the
-	// snapshot must still land.
+	// Price snapshot (spec §6): the pricing_rule version effective at request
+	// start, frozen so a later price change never rewrites history. The raw
+	// price STRINGS stay on the row as the snapshot; the customer charge,
+	// three-valued COGS, billing/cost basis, markup and the frsubs meter are
+	// all derived below by economic(), which reuses this same snapshot.
 	if p := lc.resolvePricing(); p != nil {
 		row.PricingRuleID = p.RuleID
 		if !p.Legacy {
@@ -1298,19 +1591,21 @@ func (lc *lifecycle) buildRow(u usageCounts) *store.RequestLog {
 				row.ReasoningPriceMicro = strPtr(p.ReasonStr)
 			}
 		}
-		in, cached, out, reason := p.BillablePrices()
-		// Four token classes at their own price (spec §6 NULL fallbacks).
-		row.Cost = cost.ComputeUsage(
-			u.TokensIn-u.CachedInputTokens, u.CachedInputTokens,
-			u.TokensOut-u.ReasoningTokens, u.ReasoningTokens,
-			in, cached, out, reason)
-		if row.Cost < 0 {
-			row.Cost = 0
-		}
-		// No per-provider price list exists yet, so the provider cost is the
-		// same number (0007's precedent: "a snapshot, not a lie").
-		row.ProviderCostMicro = row.Cost
 	}
+
+	// Economic layer (design §5): bucket, debit vs meter, three-valued COGS and
+	// the frpayg markup. One resolve, one set of row fields — buildRow and the
+	// cost header (customerCost) both call economic(), so the two can never
+	// disagree about what a request costs.
+	econ := lc.economic(u)
+	row.Bucket = econ.bucket
+	row.SupplyBucket = econ.bucket
+	row.BillingBasis = econ.billingBasis
+	row.CostBasis = econ.costBasis
+	row.MarkupMillionths = econ.markupMillionths
+	row.ProviderCostMicro = econ.providerCostMicro
+	row.Cost = econ.cost
+	row.QuotaUsageMicro = econ.quotaUsageMicro
 
 	row.Status = lc.status
 	if row.Status == "" {

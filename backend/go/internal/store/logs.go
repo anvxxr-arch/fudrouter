@@ -52,10 +52,35 @@ type RequestLog struct {
 	OutputPriceMicro      *string
 	ReasoningPriceMicro   *string
 	PricingRuleID         string
-	ProviderCostMicro     int64
-	Cost                  int64 // customer charge (micro-units)
-	CreditChargedMicro    int64
-	Currency              string
+	// ProviderCostMicro is the provider COGS snapshot, THREE-VALUED (design
+	// §4.3). It is a pointer because NULL and 0 mean different things: NULL is
+	// "subscription_flat — the plan is already paid" or "retail/unknown — no
+	// COGS is known", while 0 is "farm_zero — the supply is proven free". The
+	// old int64 collapsed both NULL cases into 0 and, worse, lifecycle.go wrote
+	// it as a copy of `Cost`, so the column restated the customer charge
+	// instead of recording a cost.
+	ProviderCostMicro  *int64
+	Cost               int64 // customer charge (micro-units), post-markup
+	CreditChargedMicro int64
+	Currency           string
+
+	// Economic snapshot (design §4.1). Bucket is the effective bucket the row
+	// was sold under; SupplyBucket is the bucket the winning supply belongs to
+	// (empty when unknown). BillingBasis names the price list that produced
+	// Cost; CostBasis is the provenance of ProviderCostMicro.
+	Bucket           Bucket
+	SupplyBucket     Bucket
+	BillingBasis     BillingBasis
+	CostBasis        CostBasis
+	MarkupMillionths int64
+	// QuotaUsageMicro is the retail-equivalent meter for the frsubs fair-use
+	// quota (design §3.2, §6). NULL for buckets that are not quota-metered, so
+	// "not metered" stays distinct from "metered zero".
+	QuotaUsageMicro *int64
+	// CogsEstimatedMicro is an ESTIMATED COGS for rows whose supply cost is not
+	// known exactly (e.g. frcheap churn), kept separate from the exact
+	// ProviderCostMicro. NULL when there is no estimate.
+	CogsEstimatedMicro *int64
 
 	TTFTMs             *int
 	LatencyMs          int64
@@ -69,6 +94,11 @@ type RequestLog struct {
 	ResponseBody       string
 }
 
+// requestLogColumns is the insert projection. The seven economic columns
+// (bucket … cogs_estimated_micro) are appended at the END so the first 41
+// placeholders keep their positions; the ledger parameters in ChargeRequest then
+// start at $49. Every column here MUST have a matching entry in args() in the
+// same order — requestLogColumnCount pins the total for the placeholder builder.
 const requestLogColumns = `
 	id, user_id, api_key_id,
 	endpoint, requested_model, model_id, provider_model_id, provider_id,
@@ -78,7 +108,9 @@ const requestLogColumns = `
 	input_price_micro, cached_input_price_micro, output_price_micro, reasoning_price_micro,
 	pricing_rule_id, provider_cost_micro, cost, credit_charged_micro, currency,
 	ttft_ms, latency_ms, timing, attempts, fallback_used, stream, client_disconnected,
-	client_ip, request_body, response_body`
+	client_ip, request_body, response_body,
+	bucket, supply_bucket, billing_basis, cost_basis, markup_millionths,
+	quota_usage_micro, cogs_estimated_micro`
 
 func (r *RequestLog) args() []any {
 	timingJSON := []byte("{}")
@@ -103,6 +135,35 @@ func (r *RequestLog) args() []any {
 	if r.ClientIP != "" {
 		clientIP = r.ClientIP
 	}
+	// bucket/supply_bucket are nullable: empty means "not attributed", which is
+	// distinct from a named bucket. billing_basis/cost_basis are NOT NULL with a
+	// 'retail' default in the DDL, so an unset value falls back to that default
+	// rather than violating the constraint — the backfill made 'retail' the
+	// honest value for a row whose charge came from the published price.
+	bucket := any(nil)
+	if r.Bucket != "" {
+		bucket = string(r.Bucket)
+	}
+	supplyBucket := any(nil)
+	if r.SupplyBucket != "" {
+		supplyBucket = string(r.SupplyBucket)
+	}
+	billingBasis := string(r.BillingBasis)
+	if billingBasis == "" {
+		billingBasis = string(BasisRetail)
+	}
+	costBasis := string(r.CostBasis)
+	if costBasis == "" {
+		costBasis = string(CostRetail)
+	}
+	// markup_millionths is NOT NULL DEFAULT 1000000 in the DDL; an unset Go
+	// zero would otherwise be written as 0x — a nonsensical "sell at cost" that
+	// would also fail the 0035 markup CHECK on a provider row. Mirror the DDL
+	// default so a row that does not participate in markup records passthrough.
+	markup := r.MarkupMillionths
+	if markup == 0 {
+		markup = 1_000_000
+	}
 	return []any{
 		r.ID, nullStr(r.UserID), nullStr(r.APIKeyID),
 		nullStr(r.Endpoint), nullStr(r.RequestedModel), nullStr(r.ModelID),
@@ -114,6 +175,8 @@ func (r *RequestLog) args() []any {
 		pricingRuleID, r.ProviderCostMicro, r.Cost, r.CreditChargedMicro, r.Currency,
 		ttft, r.LatencyMs, timingJSON, r.Attempts, r.FallbackUsed, r.Stream, r.ClientDisconnected,
 		clientIP, nullStr(r.RequestBody), nullStr(r.ResponseBody),
+		bucket, supplyBucket, billingBasis, costBasis, markup,
+		r.QuotaUsageMicro, r.CogsEstimatedMicro,
 	}
 }
 
@@ -131,7 +194,7 @@ func nullStr(s string) any {
 func (s *Store) InsertRequestLog(ctx context.Context, r *RequestLog) error {
 	_, err := s.pool.Exec(ctx, `
 		insert into request_log (`+requestLogColumns+`)
-		values (`+placeholders(41)+`)
+		values (`+placeholders(requestLogColumnCount)+`)
 		on conflict (id) do nothing`, r.args()...)
 	return err
 }
@@ -166,7 +229,7 @@ func (s *Store) InsertRequestLogWithLedger(ctx context.Context, r *RequestLog) e
 	}
 	if _, err := tx.Exec(ctx, `
 		insert into request_log (`+requestLogColumns+`)
-		values (`+placeholders(41)+`)
+		values (`+placeholders(requestLogColumnCount)+`)
 		on conflict (id) do nothing`, r.args()...); err != nil {
 		return err
 	}
@@ -334,6 +397,13 @@ func (s *Store) AttemptCount(ctx context.Context, requestID string) (int, error)
 		`select count(*) from request_attempt where request_id = $1`, requestID).Scan(&n)
 	return n, err
 }
+
+// requestLogColumnCount is the number of columns in requestLogColumns and,
+// therefore, the number of parameters the request_log insert binds. Kept as a
+// named constant next to the projection so the two cannot drift apart: adding a
+// column here without adding it to args() would bind the wrong values, and a
+// silent count mismatch is exactly the failure mode this pair exists to stop.
+const requestLogColumnCount = 48
 
 // placeholders builds "$1,$2,…" for the insert above. Kept next to
 // requestLogColumns so the two cannot drift apart.

@@ -87,6 +87,15 @@ func (h *Handler) checkBudgets(ctx context.Context, lc *lifecycle) error {
 			return errBudgetBlocked
 		}
 	}
+
+	// frsubs rolling quota (economic layer F5): the fair-use stop-loss on the
+	// flat-fee subscription bucket. It runs AFTER the account status/balance and
+	// the workspace budgets, so a suspension or a hard stop still wins, and it
+	// is checked BEFORE the request is admitted. Only a frsubs key pays any of
+	// this; every other bucket returns at the top of checkFrsubsQuota.
+	if err := h.checkFrsubsQuota(ctx, lc); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -369,3 +378,161 @@ func itoaInt(n int64) string {
 }
 
 func itoaPct(n int64) string { return itoaInt(n) }
+
+// errQuotaExceeded is the frsubs fair-use rejection (402). It is a distinct
+// sentinel from errBudgetBlocked so the two stop-losses stay observable apart,
+// even though both surface as INSUFFICIENT_CREDITS to the client (begin maps
+// any checkBudgets error to 402).
+var errQuotaExceeded = errors.New("quota exceeded for this bucket")
+
+// checkFrsubsQuota gates admission on the frsubs rolling quota windows (5h and
+// 7d). It resolves the effective bucket once, and only a frsubs key pays any of
+// this — every other bucket returns nil immediately, so the PAYG/cheap hot path
+// is untouched.
+//
+// The counter is Valkey period-keyed, in micro-USD: the adder (finish, via
+// quotaSpendAdd) and this reader spell the SAME key
+// `quota:frsubs:{userID}:{window}:{periodKey}` or every write silently misses
+// every read and the durable sum pays a Postgres round trip per request (the H4
+// lesson from budgetSpent/budgetSpendAdd, restated for the quota counters).
+//
+// Fail mode is CLOSED, deliberately unlike limits.allowTokens (which degrades
+// to in-process on a Valkey outage): a counter miss falls back to the durable
+// SpendQuotaMicro sum, and a DB error refuses the request. This gate bounds
+// SPEND, not rate — opening it on an error would let a DB outage turn a
+// flat-fee frsubs key into an unboundedly-billed meter, which is the arbitrage
+// the quota exists to stop.
+func (h *Handler) checkFrsubsQuota(ctx context.Context, lc *lifecycle) error {
+	bucket := lc.resolveBucket()
+	if bucket != store.BucketSubs {
+		return nil
+	}
+	if lc.key == nil {
+		return nil
+	}
+	limits, err := h.store.QuotaLimits(ctx, bucket)
+	if err != nil {
+		log.Printf("[proxy] quota limits lookup failed for %s: %v", lc.key.UserID, err)
+		return err
+	}
+	if len(limits) == 0 {
+		return nil // no configured window = no gate
+	}
+	for window, limit := range limits {
+		if limit <= 0 {
+			continue
+		}
+		used, err := h.quotaSpent(ctx, lc.key.UserID, window)
+		if err != nil {
+			log.Printf("[proxy] quota sum failed for %s/%s: %v", lc.key.UserID, window, err)
+			return err
+		}
+		incoming := lc.quotaIncomingMicro
+		if used+incoming > limit {
+			log.Printf("[proxy] frsubs quota %s blocked for %s: %d+%d > %d",
+				window, lc.key.UserID, used, incoming, limit)
+			return errQuotaExceeded
+		}
+	}
+	return nil
+}
+
+// quotaSpent returns the micro-USD already used in one frsubs quota window,
+// preferring the Valkey counter and falling back to the durable sum. `window` is
+// "5h" or "7d" (the schema CHECK vocabulary).
+func (h *Handler) quotaSpent(ctx context.Context, userID, window string) (int64, error) {
+	periodKey := quotaPeriod(window, time.Now())
+	key := "quota:frsubs:" + userID + ":" + window + ":" + periodKey
+	var cached int64
+	if err := h.vk.GetJSON(ctx, key, &cached, 2*time.Second); err == nil {
+		return cached, nil
+	}
+	// Counter miss (Valkey down, evicted, or the window rolled over): the
+	// durable aggregate is authoritative. A DB error propagates so checkFrsubsQuota
+	// fails closed.
+	return h.store.SpendQuotaMicro(ctx, userID, quotaWindowStart(window, time.Now()))
+}
+
+// quotaSpendAdd mirrors this request's frsubs meter into the 5h and 7d counters
+// AFTER the charge is durable (see finish). The suite of a 5h window must also
+// be counted in the 7d window: 5h holds a subset of any 7d period, so both
+// counters move together with the one measured value. It is best-effort around
+// the durable sum — a counter miss degrades to SpendQuotaMicro on the next gate,
+// never to unbounded spend.
+func (h *Handler) quotaSpendAdd(ctx context.Context, lc *lifecycle, micro int64) {
+	if micro <= 0 || lc.key == nil || lc.bucket != store.BucketSubs {
+		return
+	}
+	now := time.Now()
+	windows := []string{"5h", "7d"}
+	keys := make([]string, 0, len(windows))
+	ttls := make([]time.Duration, 0, len(windows))
+	for _, w := range windows {
+		periodKey, ttl := quotaPeriodTTL(w, now)
+		keys = append(keys, "quota:frsubs:"+lc.key.UserID+":"+w+":"+periodKey)
+		ttls = append(ttls, ttl)
+	}
+	h.quotaIncr(ctx, keys, ttls, micro)
+}
+
+// quotaIncr groups the quota counters by TTL and writes each group in one round
+// trip — the same shape as spendIncr for the budget counters.
+func (h *Handler) quotaIncr(ctx context.Context, keys []string, ttls []time.Duration, micro int64) {
+	groups := map[time.Duration][]string{}
+	order := make([]time.Duration, 0, 2)
+	for i, k := range keys {
+		if _, seen := groups[ttls[i]]; !seen {
+			order = append(order, ttls[i])
+		}
+		groups[ttls[i]] = append(groups[ttls[i]], k)
+	}
+	for _, ttl := range order {
+		if _, err := h.vk.IncrByBucket(ctx, groups[ttl], micro, ttl); err != nil &&
+			!errors.Is(err, vk.ErrDisabled) {
+			return // degrade: the durable sum stays authoritative
+		}
+	}
+}
+
+// quotaPeriod returns the period-named KEY for one quota window at `now`. The
+// period start is floored per window (5h blocks at 00:00, 05:00, ... UTC; 7d at
+// the Monday-aligned boundary), matching quotaWindowStart so the durable sum
+// counts the same period the counter would. A stale key from a previous period
+// simply MISSES the next period instead of reading old spend as current — the
+// same rule budget.go's day/month keys follow.
+func quotaPeriod(window string, now time.Time) string {
+	key, _ := quotaPeriodTTL(window, now)
+	return key
+}
+
+// quotaPeriodTTL returns the period-named key AND its TTL for one quota window.
+// The TTL outlives the named period with headroom (Δ): 5h+1h, 7d+1d.
+func quotaPeriodTTL(window string, now time.Time) (periodKey string, ttl time.Duration) {
+	now = now.UTC()
+	switch window {
+	case "5h":
+		blockStart := now.Truncate(5 * time.Hour)
+		return blockStart.Format("200601021504"), 6 * time.Hour
+	default: // "7d"
+		day := now.Truncate(24 * time.Hour)
+		// Align to Monday (Go's Weekday: Sunday=0..Saturday=6; Monday=1).
+		offset := (int(day.Weekday()) + 6) % 7
+		weekStart := day.AddDate(0, 0, -offset)
+		return weekStart.Format("20060102"), 8 * 24 * time.Hour
+	}
+}
+
+// quotaWindowStart returns the start of the current period for one quota window,
+// matching the flooring in quotaPeriodTTL so the durable sum over [start, now]
+// counts the same period the counter would.
+func quotaWindowStart(window string, now time.Time) time.Time {
+	now = now.UTC()
+	switch window {
+	case "5h":
+		return now.Truncate(5 * time.Hour)
+	default: // "7d"
+		day := now.Truncate(24 * time.Hour)
+		offset := (int(day.Weekday()) + 6) % 7
+		return day.AddDate(0, 0, -offset)
+	}
+}

@@ -203,3 +203,81 @@ func (p *Pricing) BillablePrices() (in, cached, out, reason int64) {
 	}
 	return in, cached, out, reason
 }
+
+// ProviderCostPricing is the provider's cost snapshot for one provider_model
+// mapping: what WE pay per 1M tokens, the mirror image of Pricing on the
+// retail side (migration 0034 `provider_cost_rule` vs `pricing_rule`).
+//
+// Unlike Pricing it carries only the SCALED billable micros — the §6 NULL-class
+// fallbacks (cached→input, reasoning→output) are applied here — because a cost
+// rule is never snapshotted back into request_log as raw strings; only the
+// folded three-value provider_cost_micro is. `Source` carries the provenance
+// enum ('farm_zero' | 'subscription_flat' | 'invoice' | 'declared') the caller
+// maps onto CostBasis: farm_zero → 0, subscription_flat → NULL, invoice/declared
+// → the real number.
+type ProviderCostPricing struct {
+	Source      string
+	InputMicro  int64
+	CachedMicro int64
+	OutputMicro int64
+	ReasonMicro int64
+}
+
+// ResolveProviderCost returns the provider_cost_rule version effective at `at`
+// for the winning provider_model — or (nil, nil) when no rule exists.
+//
+// A missing rule is a plain nil, not an error, and there is no legacy fallback:
+// provider cost is a NEW fact (migration 0034), so an unanswered lookup means
+// "we never priced this upstream" and the caller falls back to retail
+// passthrough with provider_cost_micro = NULL. That NULL is deliberate — it is
+// NOT 0 — because "never priced" (retail/unknown) and "flat fee already paid"
+// (subscription_flat) are categorically different from "proven farmed free"
+// (farm_zero → 0); a 0 without that provenance would read as free, which is
+// exactly what request_log_farm_zero_check (`IS NOT DISTINCT FROM 0`) exists to
+// stop (spec §4.3).
+//
+// `modelID` is accepted for API symmetry with ResolveBucketMargin but is not
+// consulted: provider_cost_rule is keyed by provider_model_id only (0034) — a
+// cost is always the cost of a SPECIFIC upstream mapping, never a model-wide
+// number (the retail pricing_rule has a model-wide NULL row; a cost rule cannot).
+func (s *Store) ResolveProviderCost(ctx context.Context, modelID, providerModelID string, at time.Time) (*ProviderCostPricing, error) {
+	if providerModelID == "" {
+		// No winning provider_model means the request never reached an
+		// upstream, so there is no provider cost to resolve.
+		return nil, nil
+	}
+	p := &ProviderCostPricing{}
+	var input, output string
+	var cached, reason *string
+	err := s.pool.QueryRow(ctx, `
+		select source, input_price::text, cached_input_price::text,
+		       output_price::text, reasoning_price::text
+		from provider_cost_rule
+		where provider_model_id = $1
+		  and effective_from <= $2
+		  and (effective_until is null or effective_until > $2)
+		order by (provider_model_id is not null) desc, version desc
+		limit 1`, providerModelID, at,
+	).Scan(&p.Source, &input, &cached, &output, &reason)
+	switch {
+	case err == nil:
+	case errors.Is(err, pgx.ErrNoRows):
+		return nil, nil
+	default:
+		return nil, err
+	}
+	p.InputMicro = cost.Price(input)
+	p.OutputMicro = cost.Price(output)
+	// §6 NULL-class fallback, mirroring Pricing.BillablePrices: a NULL
+	// cached_input_price bills cached input at the input price, and a NULL
+	// reasoning_price bills reasoning at the output price.
+	p.CachedMicro = p.InputMicro
+	if cached != nil {
+		p.CachedMicro = cost.Price(*cached)
+	}
+	p.ReasonMicro = p.OutputMicro
+	if reason != nil {
+		p.ReasonMicro = cost.Price(*reason)
+	}
+	return p, nil
+}

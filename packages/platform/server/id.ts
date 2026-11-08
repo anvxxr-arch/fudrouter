@@ -41,7 +41,8 @@ export const ID_PREFIXES: Record<string, string> = {
 	session: 'ses_',
 	account: 'acc_',
 	verification: 'ver_',
-	modelVerification: 'mvr_'
+	modelVerification: 'mvr_',
+	subscription: 'sub_'
 };
 
 export function newId(prefix: string): string {

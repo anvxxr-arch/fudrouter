@@ -38,9 +38,12 @@ CREATE TABLE IF NOT EXISTS "subscription" (
 	-- without a second table.
 	"starts_at" timestamptz NOT NULL DEFAULT now(),
 	"expires_at" timestamptz NOT NULL,
-	-- What was actually paid, in IDR minor units (rupiah has no minor unit in
-	-- practice, so this is whole rupiah × 100 for consistency with the ledger's
-	-- micro convention — see the CHECK below).
+	-- What was actually paid, in WHOLE rupiah as a bigint (rupiah has no minor
+	-- unit in practice). This is the unit the whole money path speaks: the TS plan
+	-- table (payments.ts PLANS, e.g. sub_7d = 30000), the grant writers (Go
+	-- GrantSubscription and TS grant.ts) and the reader (apps/web/server/pages.mjs,
+	-- Number(price_idr) with no /100) all use whole rupiah. Do NOT multiply by 100
+	-- here: the ledger's micro-unit convention is a separate, ledger-only concern.
 	"price_idr" bigint NOT NULL,
 	-- The payment that granted this. NULL only for an admin comp.
 	"payment_id" text,

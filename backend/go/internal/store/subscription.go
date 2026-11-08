@@ -22,6 +22,10 @@ type Subscription struct {
 	ExpiresAt time.Time
 	PriceIDR  int64
 	PaymentID *string
+	// The economic bucket this window sells under (design §3.1). NULL for rows
+	// written before the grant writer started emitting it (migration 0033 added
+	// the column AFTER 0025 created the table); a modern grant always sets it.
+	EconomicBucket *string
 }
 
 // ErrNoSubscription is the "this account has never paid" answer, distinct from
@@ -38,13 +42,13 @@ var ErrNoSubscription = errors.New("no subscription")
 func (s *Store) LiveSubscription(ctx context.Context, accountID string) (*Subscription, error) {
 	row := &Subscription{}
 	err := s.pool.QueryRow(ctx, `
-		select id, account_id, plan, status, starts_at, expires_at, price_idr, payment_id
+		select id, account_id, plan, status, starts_at, expires_at, price_idr, payment_id, economic_bucket
 		from subscription
 		where account_id = $1 and status = 'active' and expires_at > now()
 		order by expires_at desc
 		limit 1`, accountID,
 	).Scan(&row.ID, &row.AccountID, &row.Plan, &row.Status,
-		&row.StartsAt, &row.ExpiresAt, &row.PriceIDR, &row.PaymentID)
+		&row.StartsAt, &row.ExpiresAt, &row.PriceIDR, &row.PaymentID, &row.EconomicBucket)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNoSubscription
 	}
@@ -74,13 +78,13 @@ func (s *Store) LiveSubscription(ctx context.Context, accountID string) (*Subscr
 func (s *Store) LatestSubscription(ctx context.Context, accountID string) (*Subscription, error) {
 	row := &Subscription{}
 	err := s.pool.QueryRow(ctx, `
-		select id, account_id, plan, status, starts_at, expires_at, price_idr, payment_id
+		select id, account_id, plan, status, starts_at, expires_at, price_idr, payment_id, economic_bucket
 		from subscription
 		where account_id = $1
 		order by (status = 'active') desc, expires_at desc
 		limit 1`, accountID,
 	).Scan(&row.ID, &row.AccountID, &row.Plan, &row.Status,
-		&row.StartsAt, &row.ExpiresAt, &row.PriceIDR, &row.PaymentID)
+		&row.StartsAt, &row.ExpiresAt, &row.PriceIDR, &row.PaymentID, &row.EconomicBucket)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNoSubscription
 	}
@@ -93,40 +97,92 @@ func (s *Store) LatestSubscription(ctx context.Context, accountID string) (*Subs
 // GrantSubscription inserts a paid window and returns it. `paymentID` may be
 // empty for an admin comp. The window starts now and runs `days` days.
 //
-// It is idempotent on payment_id: a replayed webhook that already granted this
-// payment returns the existing row instead of stacking a second window. That is
-// the same idempotency the ledger gets from `usage:<request id>`.
-func (s *Store) GrantSubscription(ctx context.Context, accountID, plan string, days int, priceIDR int64, paymentID string) (*Subscription, error) {
+// `bucket` is the economic class the window sells under (design §3.1) and is
+// persisted verbatim (see GrantSubscriptionBucket) — the migration 0033 column
+// `subscription.economic_bucket` is how ResolveBucket gives a paid time-window
+// precedence over the key/account default. It must be one of BucketCheap,
+// BucketPayg or BucketSubs (the 0035 CHECK rejects a typo).
+//
+// It is idempotent on payment_id (migration 0038 partial UNIQUE index): a
+// replayed webhook that already granted this payment returns the existing row
+// instead of stacking a second window. That is the same idempotency the ledger
+// gets from `usage:<request id>` — the durable ON CONFLICT covers the
+// concurrent double-callback, not just the sequential re-read.
+func (s *Store) GrantSubscription(ctx context.Context, accountID, plan string, days int, priceIDR int64, paymentID string, bucket Bucket) (*Subscription, error) {
 	var pid *string
 	if paymentID != "" {
 		pid = &paymentID
-		// A payment that already granted a subscription must not grant again.
-		existing := &Subscription{}
-		err := s.pool.QueryRow(ctx, `
-			select id, account_id, plan, status, starts_at, expires_at, price_idr, payment_id
-			from subscription where payment_id = $1 limit 1`, paymentID,
-		).Scan(&existing.ID, &existing.AccountID, &existing.Plan, &existing.Status,
-			&existing.StartsAt, &existing.ExpiresAt, &existing.PriceIDR, &existing.PaymentID)
-		if err == nil {
-			return existing, nil
-		}
-		if !errors.Is(err, pgx.ErrNoRows) {
+		// A payment that already granted a subscription must not grant again
+		// (sequential replay). The partial UNIQUE index 0038 is the durable
+		// backstop for the concurrent case, hit by the ON CONFLICT below.
+		existing, err := s.subscriptionByPaymentID(ctx, paymentID)
+		if err != nil {
 			return nil, err
+		}
+		if existing != nil {
+			return existing, nil
 		}
 	}
 
 	row := &Subscription{}
 	err := s.pool.QueryRow(ctx, `
-		insert into subscription (id, account_id, plan, status, starts_at, expires_at, price_idr, payment_id)
-		values ($1, $2, $3, 'active', now(), now() + make_interval(days => $4), $5, $6)
-		returning id, account_id, plan, status, starts_at, expires_at, price_idr, payment_id`,
-		ids.New("sub"), accountID, plan, days, priceIDR, pid,
+		insert into subscription (id, account_id, plan, status, starts_at, expires_at, price_idr, payment_id, economic_bucket)
+		values ($1, $2, $3, 'active', now(), now() + make_interval(days => $4), $5, $6, $7)
+		on conflict (payment_id) where payment_id is not null do nothing
+		returning id, account_id, plan, status, starts_at, expires_at, price_idr, payment_id, economic_bucket`,
+		ids.New("sub"), accountID, plan, days, priceIDR, pid, string(bucket),
 	).Scan(&row.ID, &row.AccountID, &row.Plan, &row.Status,
-		&row.StartsAt, &row.ExpiresAt, &row.PriceIDR, &row.PaymentID)
+		&row.StartsAt, &row.ExpiresAt, &row.PriceIDR, &row.PaymentID, &row.EconomicBucket)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// Lost the insert race: another grant for this payment_id won. Return
+		// the winner's row — the second delivery is one grant, not two.
+		// A non-null paymentID that lost the race always has a winner to find.
+		if paymentID == "" {
+			return nil, err
+		}
+		existing, findErr := s.subscriptionByPaymentID(ctx, paymentID)
+		if findErr != nil {
+			return nil, findErr
+		}
+		if existing == nil {
+			return nil, err
+		}
+		return existing, nil
+	}
 	if err != nil {
 		return nil, err
 	}
 	return row, nil
+}
+
+// subscriptionByPaymentID returns the subscription a payment already granted,
+// or (nil, nil) when none exists yet. A nil paymentID is never a match.
+func (s *Store) subscriptionByPaymentID(ctx context.Context, paymentID string) (*Subscription, error) {
+	if paymentID == "" {
+		return nil, nil
+	}
+	row := &Subscription{}
+	err := s.pool.QueryRow(ctx, `
+		select id, account_id, plan, status, starts_at, expires_at, price_idr, payment_id, economic_bucket
+		from subscription where payment_id = $1 limit 1`, paymentID,
+	).Scan(&row.ID, &row.AccountID, &row.Plan, &row.Status,
+		&row.StartsAt, &row.ExpiresAt, &row.PriceIDR, &row.PaymentID, &row.EconomicBucket)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return row, nil
+}
+
+// GrantSubscriptionBucket inserts a paid window with a STRING bucket, for
+// callers whose vocabulary pre-dates the typed Bucket (design §3.1). It is a
+// thin surface over GrantSubscription; the string is validated by the 0035
+// CHECK (a NULL or empty string is refused, which is the "a grant MUST write
+// its bucket" invariant, FR-revised §7.3).
+func (s *Store) GrantSubscriptionBucket(ctx context.Context, accountID, plan, bucket string, days int, priceIDR int64, paymentID string) (*Subscription, error) {
+	return s.GrantSubscription(ctx, accountID, plan, days, priceIDR, paymentID, Bucket(bucket))
 }
 
 // KeyIPs returns the admitted client addresses for a key (owner rule 14). The

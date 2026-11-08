@@ -10,46 +10,61 @@
 --   psql "$SCRATCH_DSN" -f ops/scrub-balance-anomaly.sql
 --
 -- ---------------------------------------------------------------------------
--- Root cause (as found, with evidence)
+-- Root cause (verified against production `fudrouter`, 2026-11-08, read-only).
 -- ---------------------------------------------------------------------------
--- The live defect is documented in docs/changelog/2026-10-31-benchmark-
--- optimization.md and repeated in
--- docs/specs/2026-11-08-economic-layer-design.md §6/§8:
+--   credit_ledger rows:  2 × type='credit_purchase', amount_micro =
+--       5555555555555000000  (= 5555555555555 × 1e6), created 2026-10-26,
+--       description 'Credit purchase', on billing_account
+--       bac_wrk_usr_VjOnC8IZktzGBVXBagJkGJPEhoocKe5L (a benchmark/user account).
 --
---   billing_account.balance_micro = 5555555987774996738  (~5.55e18)
+--   billing_account.balance_micro for that account was 5555555987766272800,
+--   which equals the CLEAN ledger sum (432211272800) plus exactly ONE of the
+--   two corrupt postings — i.e. the cache is not merely SUM(ledger); it is
+--   stale/drifted, one posting behind the ledger.
 --
--- That is ~5.5 TRILLION USD in micro-units, on a normal customer account. A
--- genuine balance of this size is impossible, and the magnitude is the tell:
---    5.55e18 > 2^52 = 4.50e15  (and > 2^53 = 9.01e15, JS MAX_SAFE_INTEGER)
--- i.e. it is ABOVE the range where an IEEE-754 double can represent every
--- integer. A real bigint ledger posting cannot produce 5555555987774996738;
--- that trailing digit pattern is the residue of a float/double round-trip
--- (Number(x) loses low bits past 2^53). The same integer-overflow warning is
--- documented in backend/go/internal/cost/cost.go:12-14 ("int64 tops out at
--- 9.22e18"; "widened to numeric(18,6) precisely so those real prices fit").
+-- The magnitude is a PLACEHOLDER, not a float residue: 5555555555555 is an
+-- admin/test input with the repeated-5 digit pattern, written through the
+-- pre-bigint writer path that no longer exists. The writer that would have
+-- produced it is gone — packages/platform/server/billing.ts:133-135 (postLedger)
+-- now throws `TypeError` for any non-bigint `amountMicro`, and the Go charge
+-- path ($1 = 1_000_000 micro-units, native int64/bigint) cannot mint this value.
+-- So this is a one-off garbage posting to be scrubbed, not an ongoing writer bug.
 --
 -- balance_micro is only a CACHE of SUM(credit_ledger.amount_micro) (0006
--- §billing, billing.ts). So a corrupt cache is repaired by re-deriving, but a
+-- §billing, billing.ts). A corrupt cache is repaired by re-deriving, but a
 -- corrupt LEDGER row must be fixed FIRST — otherwise reconciling propagates the
--- 5.55e18 into the cache instead of removing it. The design calls this out
+-- garbage into the cache instead of removing it. The design calls this out
 -- explicitly: "reconcileAll ... MUST NOT run before the balance-anomaly scrub"
--- (economic-layer-design §8 invariant 4). That is why this script reports BOTH
--- classes and orders the repairs: ledger first, then cache.
+-- (economic-layer-design §8 invariant 4).
+--
+-- There is a SECOND, harder reason the ledger must go first: both this script's
+-- REPORT 1 and reconcileAll (billing.ts:275) cast SUM(amount_micro) to bigint
+-- for at least one row, and the corrupt account's SUM (1.11e19) exceeds the
+-- int64/bigint ceiling (9.22e18). Casting that value raises `bigint out of
+-- range`, so REPORT 1 here keeps the sum numeric; reconcileAll's own
+-- `::bigint` cast only stops overflowing AFTER Step 1 has nulled the corrupt
+-- rows. Ledger-first is therefore not just "right order", it is the only order
+-- in which Step 2 (and the hourly `billing_aggregation` job) can even run.
 -- ---------------------------------------------------------------------------
 
--- Threshold: one prepaid account holding more than $1M (1e12 micro-USD) is not
--- a real balance; it is overflow/garbage. Bump this only with operator review.
--- abs() is avoided on bigint because abs(INT64_MIN) overflows: use two bounds.
+-- Threshold: one account holding more than $1M (1e12 micro-USD) is not a real
+-- balance; it is a placeholder/garbage posting from the pre-bigint era. Bump
+-- this only with operator review. abs() is avoided on bigint because
+-- abs(INT64_MIN) overflows: use two bounds.
 
 -- ---------------------------------------------------------------------------
 -- REPORT 1 — affected accounts: out-of-range cache, ledger mismatch, or both.
 -- drift_micro > 0 means the cache owes MORE than the ledger says (impossible);
 -- drift_micro < 0 means the cache under-reports the ledger (real, but still a
 -- cache bug worth fixing once the ledger is clean).
+--
+-- ledger_sum is intentionally NUMERIC (not ::bigint): the corrupt account's
+-- SUM exceeds int64, so casting it would raise `bigint out of range` and hide
+-- the very row this report exists to surface.
 -- ---------------------------------------------------------------------------
 WITH ledger AS (
     SELECT billing_account_id AS account_id,
-           sum(amount_micro)::bigint AS ledger_sum,
+           sum(amount_micro) AS ledger_sum,
            sum(CASE WHEN amount_micro > 1000000000000
                      OR amount_micro < -1000000000000 THEN 1 ELSE 0 END) AS implausible_rows
       FROM credit_ledger
@@ -100,24 +115,26 @@ SELECT id,
 -- confirm they return zero rows before touching FreeAccessNoPaymentGateway.
 -- ---------------------------------------------------------------------------
 
--- -- Step 1 (LEDGER): null out the float round-trip postings. Scoped to the
+-- -- Step 1 (LEDGER): null out the corrupt placeholder postings. Scoped to the
 -- -- rows REPORT 2 lists, matched by id AND original idempotency_key AND the
 -- -- overflow predicate, so a review typo cannot rewrite a legitimate posting.
 -- -- Preserve provenance in description rather than deleting the row (the
 -- -- durable idempotency key keeps retries from re-posting, and the audit trail
--- -- stays readable).
+-- -- stays readable). The corrupt rows use the 'purchase:…' prefix, not
+-- -- 'usage:…' — copy the exact key from REPORT 2, do not retype it.
 -- -- UPDATE credit_ledger
 -- --    SET amount_micro = 0,
 -- --        description = coalesce(description, '') ||
--- --                      ' [scrub-balance-anomaly: float round-trip, was ' ||
+-- --                      ' [scrub-balance-anomaly: corrupt placeholder, was ' ||
 -- --                      amount_micro::text || ']'
 -- --  WHERE id = 'txn_…'
--- --    AND idempotency_key = 'usage:…'
+-- --    AND idempotency_key = 'purchase:…'
 -- --    AND (amount_micro > 1000000000000 OR amount_micro < -1000000000000);
 
 -- -- Step 2 (CACHE): re-derive balance_micro from the now-clean ledger — the
 -- -- exact set-based rule reconcileAll (packages/platform/server/billing.ts)
 -- -- uses, written only for rows that actually differ. Run AFTER step 1.
+-- -- The ::bigint cast is now safe because no account SUM exceeds int64.
 -- -- WITH derived AS (
 -- --     SELECT billing_account_id AS account_id, sum(amount_micro) AS total
 -- --       FROM credit_ledger

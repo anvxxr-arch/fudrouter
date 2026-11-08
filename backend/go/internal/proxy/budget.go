@@ -35,7 +35,35 @@ import (
 // rate limits — usage is still metered and charged to the ledger, so the
 // numbers a paid tier will invoice against already exist. The STATUS check
 // stays: suspend still cuts a user off.
+//
+// Since B0 the balance gate is subscription-aware (inv#2 / S2), and only once
+// the payment-gateway flip turns the balance gate on. The entitlement gate runs
+// FIRST and classifies the account's subscription:
+//
+//	live   → skip the hard stop (a time-window the member already paid for)
+//	expired → refuse with the "expired" rule, distinct from a hard stop
+//	never  → fall through to `balance > hard_stop_threshold` (inv#2's "OR")
+//
+// While the flip is OFF (the ship default) the entitlement gate is skipped
+// entirely, so an frpayg/frcheap account — subscribed or not — behaves exactly
+// as it did before B0: metered, never refused on balance.
 func (h *Handler) checkBudgets(ctx context.Context, lc *lifecycle) error {
+	// B0 (inv#2 / S2): resolve the subscription BEFORE the balance gate. This
+	// runs only while the balance gate is live (FreeAccessNoPaymentGateway =
+	// false) — before the flip it would be dead work, and refusing an expired
+	// window before the flip would ADD a refusal the dormant-balance frpayg
+	// path does not have. A LIVE subscription (the "live OR balance >
+	// threshold" first arm) is what the B4 flip must not self-lockout; a
+	// lapsed window refuses with the rule-12 "expired" rule.
+	live := false
+	if !store.FreeAccessNoPaymentGateway {
+		var err error
+		live, err = h.checkSubscription(ctx, lc)
+		if err != nil {
+			return err
+		}
+	}
+
 	// The billing hard stop (spec §10), read through the in-process cache: it
 	// was 525µs of the hot path — Postgres round-trip latency, paid per request
 	// — against single-digit microseconds for everything around it. The account
@@ -60,7 +88,11 @@ func (h *Handler) checkBudgets(ctx context.Context, lc *lifecycle) error {
 		// Free access: no payment gateway, so a balance is a meter, not a
 		// wallet — nothing tops it up, and the hardcoded hard stop would block
 		// every user the instant it was crossed. Metering continues below.
-		if !store.FreeAccessNoPaymentGateway && acct.BalanceMicro <= acct.HardStopThresholdMicro {
+		//
+		// `!live` is the B0 term: a live subscription skips the hard stop even
+		// at zero balance (inv#2), while every non-live account gates on it
+		// exactly as before.
+		if !live && !store.FreeAccessNoPaymentGateway && acct.BalanceMicro <= acct.HardStopThresholdMicro {
 			return store.ErrInsufficientCredits
 		}
 	}

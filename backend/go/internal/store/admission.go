@@ -1,6 +1,6 @@
 package store
 
-// In-process caching for the two reads admission makes before every dispatch.
+// In-process caching for the reads admission makes before every dispatch.
 //
 // Why this file exists: checkBudgets runs before the request is routed, so the
 // billing account + environment budget (BudgetGateState) and the scoped budget
@@ -14,7 +14,7 @@ package store
 // request, so the reads are cached in-process and the database sees a handful of
 // queries per workspace per TTL instead of one per request.
 //
-// The TTLs are different on purpose, because the two values age differently:
+// The TTLs are different on purpose, because the values age differently:
 //
 //   - The billing account carries `balance_micro`, which moves with EVERY charge.
 //     Its TTL is therefore SHORT (gateTTL), and a charge that crosses the hard
@@ -27,6 +27,13 @@ package store
 //     same 60s the limits cache already uses (hardLimitCache, EffectiveLimits),
 //     so the house already accepts that bound for policy reads.
 //
+// The same 60s policy bound applies to the subscription read (B0): a window is
+// a grant the control plane writes when a payment settles, not a value that
+// moves with request traffic, so 60s in-process is the same staleness the
+// bucket/limits caches already accept. Its expiry is bounded and it still
+// resolves to a lapsed window (the gate refuses it) once the TTL has passed, so
+// a late-settling refund is delayed, never missed.
+//
 // Failure semantics are the caller's, unchanged: this layer never caches an
 // error, so a failed read still surfaces to checkBudgets and still refuses
 // (spec §10 — a billing read that cannot be trusted must not admit spend).
@@ -36,17 +43,18 @@ package store
 // then arbitrary ones — never the whole map, which would stampede Postgres.
 //
 // Every value a getter returns is the CACHED ONE, not a copy: `*Limits`,
-// `*BillingAccount` and the `[]Budget` slice are read straight out of the map.
-// Callers therefore MUST treat them as read-only — a caller that wrote through
-// one (e.g. `acct.BalanceMicro = …`) would poison every reader sharing the
-// entry until its TTL, and nothing in the type system stops it. Copying on every
-// hit is not the trade: that is an allocation on the request path this cache
-// exists to keep free (measured 0 allocs/op). The charge path does not need it
-// either — it drops the entry instead (InvalidateAdmission), so a written-through
-// value would be discarded anyway.
+// `*BillingAccount`, `*Subscription` and the `[]Budget` slice are read straight
+// out of the map. Callers therefore MUST treat them as read-only — a caller
+// that wrote through one (e.g. `acct.BalanceMicro = …`) would poison every
+// reader sharing the entry until its TTL, and nothing in the type system stops
+// it. Copying on every hit is not the trade: that is an allocation on the
+// request path this cache exists to keep free (measured 0 allocs/op). The
+// charge path does not need it either — it drops the account entry instead
+// (InvalidateAdmission), so a written-through value would be discarded anyway.
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 )
@@ -57,7 +65,7 @@ const (
 	// moment it crosses the hard stop.
 	gateTTL = 5 * time.Second
 	// policyTTL is the bound for operator-set rows: the environment's monthly
-	// budget and the `budget` table.
+	// budget, the `budget` table and the latest-subscription window.
 	policyTTL = 60 * time.Second
 	// admissionCacheMax caps each map. A workspace that is idle for a TTL is
 	// evicted on the next insert past the cap, so the ceiling is memory, not
@@ -106,7 +114,19 @@ type limitsEntry struct {
 	exp    time.Time
 }
 
-// admissionCache holds all three maps under one lock. They are read on the same
+// subscriptionEntry caches one account's latest subscription read. `sub` is nil
+// when the account has NEVER been granted a window — a nil is a cached ANSWER,
+// distinct from a cache miss, and it is cached like any other value so a
+// never-subscribed frpayg hot path does not pay the query every request. A
+// non-nil row may be live or lapsed: the caller classifies that from the row's
+// own status + expires_at (see proxy/entitlement_gate.go), which is what lets
+// the gate tell "expired" from "never subscribed".
+type subscriptionEntry struct {
+	sub *Subscription
+	exp time.Time
+}
+
+// admissionCache holds all four maps under one lock. They are read on the same
 // request path and written on the same miss path, so a single RWMutex costs one
 // uncontended atomic on the hit path and removes any question of lock ordering.
 type admissionCache struct {
@@ -114,6 +134,7 @@ type admissionCache struct {
 	accounts map[string]accountEntry
 	budgets  map[budgetCacheKey]budgetEntry
 	limits   map[limitsCacheKey]limitsEntry
+	subs     map[string]subscriptionEntry
 	// ttl overrides the account TTL in tests (export_test.go). Zero means
 	// gateTTL; production never sets it.
 	ttl time.Duration
@@ -167,6 +188,48 @@ func (c *admissionCache) store(accountID string, acct *BillingAccount, now time.
 		evictAccounts(c.accounts, now)
 	}
 	c.accounts[accountID] = accountEntry{acct: acct, exp: now.Add(c.accountTTL())}
+}
+
+// AdmissionSubscription is LatestSubscription with the in-process cache in front
+// of it (B0). The value ages like operator policy — the window is written once
+// when a payment settles, not per request — so it shares policyTTL. The "never
+// subscribed" (nil) answer is cached alongside a row, so an frpayg account with
+// a zero balance pays ONE query per minute for the entitlement, never one per
+// request.
+//
+// LatestSubscription itself stays uncached (and keeps ErrNoSubscription), so
+// its query count remains a plain, pinned read for the control-plane path; the
+// caller decides live-vs-lapsed from the returned row.
+func (s *Store) AdmissionSubscription(ctx context.Context, accountID string) (*Subscription, error) {
+	now := time.Now()
+	c := &s.admission
+	c.mu.RLock()
+	subEntry, ok := c.subs[accountID]
+	c.mu.RUnlock()
+	if ok && now.Before(subEntry.exp) {
+		return subEntry.sub, nil
+	}
+
+	sub, err := s.LatestSubscription(ctx, accountID)
+	if err != nil && !errors.Is(err, ErrNoSubscription) {
+		// A real error fails closed; ErrNoSubscription is a normal "nil"
+		// answer ("never granted") and is cached below, distinct from the
+		// posted error.
+		return nil, err
+	}
+	if errors.Is(err, ErrNoSubscription) {
+		sub = nil
+	}
+	c.mu.Lock()
+	if c.subs == nil {
+		c.subs = make(map[string]subscriptionEntry, 64)
+	}
+	if len(c.subs) >= admissionCacheMax {
+		evictSubs(c.subs, now)
+	}
+	c.subs[accountID] = subscriptionEntry{sub: sub, exp: now.Add(c.policyTTL())}
+	c.mu.Unlock()
+	return sub, nil
 }
 
 // AdmissionLimits is EffectiveLimits with the in-process cache in front of it:
@@ -277,6 +340,18 @@ func evictBudgets(m map[budgetCacheKey]budgetEntry, now time.Time) {
 }
 
 func evictLimits(m map[limitsCacheKey]limitsEntry, now time.Time) {
+	for k, v := range m {
+		if now.After(v.exp) {
+			delete(m, k)
+		}
+	}
+	for k := range m {
+		delete(m, k)
+		break
+	}
+}
+
+func evictSubs(m map[string]subscriptionEntry, now time.Time) {
 	for k, v := range m {
 		if now.After(v.exp) {
 			delete(m, k)

@@ -54,6 +54,42 @@ func (s *Store) LiveSubscription(ctx context.Context, accountID string) (*Subscr
 	return row, nil
 }
 
+// LatestSubscription returns the account's most recent subscription row
+// REGARDLESS of whether it is still live. It is the admission gate's read
+// (B0): owner rule 12 needs to distinguish "a window that lapsed" from "never
+// subscribed at all", and LiveSubscription's live-only `expires_at > now()`
+// filter collapses those two into one ErrNoSubscription — which would make
+// "expired" and "broke" the same state, exactly the collapse the 0025 schema
+// split the tables apart to avoid.
+//
+// An active window wins over a lapsed one even when its expiry is not the
+// latest (a cancelled/refunded row must never shadow a still-live window), and
+// the latest expiry wins within a status, matching LiveSubscription's stacking
+// semantics. The wire's classification (live vs expired) happens in the caller
+// from the returned row's status + expires_at; this method only says "here is
+// the window that decides, or none has ever been granted".
+//
+// Like LiveSubscription it is cached by the caller (60s, AdmissionSubscription)
+// so a lapsed-window account does not pay a Postgres round trip per request.
+func (s *Store) LatestSubscription(ctx context.Context, accountID string) (*Subscription, error) {
+	row := &Subscription{}
+	err := s.pool.QueryRow(ctx, `
+		select id, account_id, plan, status, starts_at, expires_at, price_idr, payment_id
+		from subscription
+		where account_id = $1
+		order by (status = 'active') desc, expires_at desc
+		limit 1`, accountID,
+	).Scan(&row.ID, &row.AccountID, &row.Plan, &row.Status,
+		&row.StartsAt, &row.ExpiresAt, &row.PriceIDR, &row.PaymentID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNoSubscription
+	}
+	if err != nil {
+		return nil, err
+	}
+	return row, nil
+}
+
 // GrantSubscription inserts a paid window and returns it. `paymentID` may be
 // empty for an admin comp. The window starts now and runs `days` days.
 //

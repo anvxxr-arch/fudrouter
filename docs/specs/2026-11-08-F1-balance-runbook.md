@@ -29,6 +29,10 @@ Fakta terverifikasi terhadap produksi `fudrouter` (read-only, 2026-11-08; lihat 
   `::bigint`, jadi **job `billing_aggregation` per jam sedang error `bigint out of
   range`** dan tidak merekonsiliasi akun mana pun sampai Step 1 menghapus overflow.
   (Terverifikasi: CTE `coalesce(total,0)::bigint` pada akun ini → `ERROR: bigint out of range`.)
+- **Bukan "balance jadi nol".** Akun korup juga memegang **6 pembelian sah** (2×$210k,
+  2×$5,555, 2×$555) plus ~19.040 `usage_charge`. Setelah Step 1–2, saldo akun ini adalah
+  dikenal **432.211.272.800** (= $432.211,27), bukan 0. Gate F1 yang benar (desain §9)
+  adalah **Σledger == Σbalance dan `5.55e18` hilang**, bukan "saldo akun korup jadi nol".
 
 Ringkas: **ledger kotor dulu, baru cache.** Step 1 meniadakan baris korup; baru Step 2
 merekonstruksi cache dari ledger yang sudah bersih.
@@ -105,6 +109,13 @@ UPDATE credit_ledger
 **Jangan `DELETE`.** Baris tetap ada dengan `amount_micro=0` dan provenance lama
 tersimpan di `description`. `idempotency_key` unik tetap utuh, jadi retry posting lama
 tidak bisa menulis ulang sampah.
+
+**Jangan gabungkan dua `UPDATE` jadi satu statement ber-`OR`.** `AND (amount_micro >
+1e12 …)` mengikat lebih erat daripada `OR`, sehingga disjunct pertama kehilangan
+guard overflow dan re-run akan menambah suffix provenance dua kali pada baris yang
+`amount_micro`-nya sudah 0. Tetap bentuk per-baris (satu `UPDATE` per `txn_…`);
+idempotensi (re-run = `UPDATE 0`) adalah bagian dari go/no-go G5, dan guard yang lepas
+merusaknya. Kalau terpaksa menggabung, parenthesize seluruh klausa `OR`.
 
 **Stack SQL.** Setiap `UPDATE` harus dibungkus transaksi kalau Anda ingin bisa memisah
 dua baris:

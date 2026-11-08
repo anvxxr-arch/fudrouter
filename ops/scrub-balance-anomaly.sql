@@ -9,6 +9,19 @@
 -- Run against a SCRATCH/STAGING database first, never production `fudrouter`.
 --   psql "$SCRATCH_DSN" -f ops/scrub-balance-anomaly.sql
 --
+-- DO NOT execute the commented repair blocks below by hand any more: the
+-- ready-to-run, reviewed forms live in
+--   ops/scrub-balance-anomaly.step1.sql       (ledger first)
+--   ops/scrub-balance-anomaly.step2.sql       (cache, after Step 1)
+-- and the MANDATORY pre-image/undo pair in
+--   ops/rollback/scrub-balance-anomaly.rollback.sql  (capture, BEFORE repair)
+--   ops/rollback/scrub-balance-anomaly.undo.sql      (revert, from pre-image)
+-- with verification in ops/verify/scrub-gates.sql (G1-G5, V6). The exact
+-- operator order — backup, pre-image, report, review, repair, reconcile,
+-- re-report, gates, undo proof — is ops/scrub-execution-checklist.md. The
+-- templates below are kept only so this file can be read end-to-end without
+-- opening four others.
+--
 -- ---------------------------------------------------------------------------
 -- Root cause (verified against production `fudrouter`, 2026-11-08, read-only).
 -- ---------------------------------------------------------------------------
@@ -122,6 +135,14 @@ SELECT id,
 -- -- durable idempotency key keeps retries from re-posting, and the audit trail
 -- -- stays readable). The corrupt rows use the 'purchase:…' prefix, not
 -- -- 'usage:…' — copy the exact key from REPORT 2, do not retype it.
+-- --
+-- -- REQUIRED: one UPDATE per posting, re-run-safe by construction. Do NOT merge
+-- -- the two into one statement joined by OR: `AND (amount_micro > 1e12 …)`
+-- -- binds tighter than OR, so the first disjunct silently loses the overflow
+-- -- guard and a re-run would double-append the provenance suffix onto a row
+-- -- whose amount is already 0. If you must combine, parenthesise the whole OR
+-- -- group around each full predicate. Keep it single-row: idempotence (re-run
+-- -- = 0 rows) is a go/no-go check, and a dropped guard breaks it.
 -- -- UPDATE credit_ledger
 -- --    SET amount_micro = 0,
 -- --        description = coalesce(description, '') ||

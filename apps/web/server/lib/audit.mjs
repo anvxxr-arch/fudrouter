@@ -25,3 +25,14 @@ export function makeAudit(ipStore) {
 		await dbx.execute(sql`insert into audit_log (id, actor_user_id, actor_kind, action, resource, resource_id, ip, before, after, metadata) values (${'aud_' + uuidv7()}, ${entry.actorUserId ?? null}, ${entry.actorUserId ? 'user' : 'system'}, ${entry.action}, ${entry.resource}, ${entry.resourceId ?? null}, ${entry.ip ?? ipStore?.getStore?.() ?? null}, ${entry.before ? JSON.stringify(redact(entry.before)) : null}::jsonb, ${entry.after ? JSON.stringify(redact(entry.after)) : null}::jsonb, ${JSON.stringify(redact(entry.metadata ?? {}))}::jsonb)`);
 	};
 }
+
+// Rejection-path audit: a denied money write must leave an audit row even though
+// the ledger write is never attempted (or its transaction rolls back). Unlike
+// makeAudit's writer, this does NOT run inside a transaction — it executes the
+// insert on the handle it is handed, so it auto-commits before the caller throws
+// its HttpError and the poster wrapper turns it into a 400. Used only for denials.
+export async function _openAudit(dbx, entry) {
+	const redact = _sanitizeAudit;
+	await dbx.execute(sql`insert into audit_log (id, actor_user_id, actor_kind, action, resource, resource_id, ip, before, after, metadata) values (${'aud_' + uuidv7()}, ${entry.actorUserId ?? null}, ${entry.actorUserId ? 'user' : 'system'}, ${entry.action}, ${entry.resource}, ${entry.resourceId ?? null}, ${entry.ip ?? null}, ${entry.before ? JSON.stringify(redact(entry.before)) : null}::jsonb, ${entry.after ? JSON.stringify(redact(entry.after)) : null}::jsonb, ${JSON.stringify(redact(entry.metadata ?? {}))}::jsonb)`);
+}
+

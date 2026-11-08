@@ -25,6 +25,8 @@ const publish = await import('@fudrouter/platform/publish');
 const publishEnv = await import('@fudrouter/platform/server/publish-env.ts');
 const vkmod = await import('@fudrouter/platform/server/vk.ts');
 const limits = await import('@fudrouter/platform/server/admin-limits.ts');
+const money = await import('@fudrouter/platform/server/money.ts');
+const addCredit = await import('@fudrouter/platform/server/add-credit.ts');
 
 // SSRF: the platform module OWNS the rule, including the literal blocklist --
 // isBlockedIp and the range arithmetic are re-exported below for the request
@@ -64,6 +66,18 @@ export async function _assertPublic(rawUrl, allowPrivate = false) {
 // thousands of inserts). Re-exported so admin.mjs bounds the provider-enable
 // path with the same constant instead of a local copy that can drift.
 export const MAX_PRICE_USD = limits.MAX_PRICE_USD;
+
+// Money arithmetic + manual add-credit rule (ceiling + key namespace). Shared
+// with packages/platform so the two manual top-up surfaces and the scrub report
+// agree on one threshold; the .mjs writers import these rather than copying.
+export const parseAmountToMicro = money.parseAmountToMicro;
+export const MAX_ADD_CREDIT_MICRO = addCredit.MAX_ADD_CREDIT_MICRO;
+export const ADD_CREDIT_KEY_PREFIX = addCredit.ADD_CREDIT_KEY_PREFIX;
+export const addCreditKey = addCredit.addCreditKey;
+export const validateAddCreditAmount = addCredit.validateAddCreditAmount;
+export const addCreditError = addCredit.addCreditError;
+export const addCreditKeyError = addCredit.addCreditKeyError;
+export const validateAddCreditKey = addCredit.validateAddCreditKey;
 
 // Credentials: byte-identical AES-256-GCM envelope (iv[12]||ct||tag[16]).
 export const _encCred = (plain) => creds.encryptCredentials(plain);

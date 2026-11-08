@@ -79,21 +79,10 @@ export function isLedgerType(v: unknown): v is LedgerType {
 	return typeof v === 'string' && (LEDGER_TYPES as readonly string[]).includes(v);
 }
 
-/**
- * Parse a human-entered decimal amount ("10", "10.50", "0.00421") into signed
- * micro-units. String arithmetic only — Number("0.00421") * 1e6 is 4210.000000001
- * in a float, and a ledger must never depend on that.
- *
- * Accepts at most 6 decimal places (one micro-unit); anything else is a typo,
- * not something to silently round. Returns null for anything unparseable.
- */
-export function parseAmountToMicro(input: string): bigint | null {
-	const m = /^(-?)(\d+)(?:\.(\d{1,6}))?$/.exec(input.trim());
-	if (!m) return null;
-	const [, sign, whole, frac = ''] = m;
-	const micro = BigInt(whole) * 1_000_000n + BigInt(frac.padEnd(6, '0'));
-	return sign === '-' ? -micro : micro;
-}
+// Pure money arithmetic lives in ./money.ts so parse/ceiling rules have no DB
+// dependency (this module imports db/index.ts, which throws without a DSN).
+// Re-exported here so existing callers keep the historical name.
+export { parseAmountToMicro } from './money.ts';
 
 /**
  * The account's billing account — the one `user_id` allows (unique index),
@@ -268,9 +257,24 @@ export async function balanceMicro(accountId: string, dbtx: BillingHandle = db):
  * only rows whose value actually changes are written, so a steady-state run
  * updates nothing and does not churn `updated_at` across every account.
  *
- * The sum is `sum(bigint) -> numeric`, cast back to bigint: micro-unit amounts
- * are integers, so the cast is lossless, and it is the same figure
- * `balanceMicro()` returns (it goes through `::text` and `BigInt`, same value).
+ * The sum is `sum(bigint) -> numeric`, kept numeric until the write. An account
+ * whose total is OUTSIDE int64 cannot be written: `balance_micro` is bigint, so
+ * `::bigint` on it raises `bigint out of range` and — with the old single
+ * statement — aborted the WHOLE `billing_aggregation` job for every account
+ * (the runbook records the corrupt 5.55e18×2 account). Isolation is the fix,
+ * not cast and not silent skip (FR-revised §S1/P1.2, §7 invariant 4): overflow
+ * accounts are moved to `status='quarantine'` and get an audit row for manual
+ * triage, while every in-range account still reconciles. The Go admission gate
+ * (`checkBudgets`) already refuses any `status <> 'active'`, so a quarantined
+ * account cannot spend its unbounded balance.
+ *
+ * The `::bigint` cast sits in its own `inrange` CTE so Postgres only ever casts
+ * a sum it has already proven in-range; reading `w.total::bigint` inside the
+ * `updated`'s WHERE would let the executor cast overflow rows before the range
+ * predicate filters them, reproducing the very `bigint out of range` this
+ * change removes. `status='quarantine'` is written with the same statement
+ * (still one round trip); the audit insert rides along so a quarantine is never
+ * invisible.
  */
 export async function reconcileAll(dbtx: BillingHandle = db): Promise<string[]> {
 	const rows = await dbtx.execute(sql`
@@ -280,17 +284,53 @@ export async function reconcileAll(dbtx: BillingHandle = db): Promise<string[]> 
 			group by c.billing_account_id
 		),
 		wanted as (
-			select b2.id, coalesce(d.total, 0)::bigint as total
+			select b2.id, coalesce(d.total, 0) as total
 			from billing_account b2
 			left join derived d on d.account_id = b2.id
+		),
+		inrange as (
+			select id, total::bigint as total
+			from wanted
+			where total <= 9223372036854775807
+			  and total >= -9223372036854775808
+		),
+		overflow as (
+			select id, total
+			from wanted
+			where total > 9223372036854775807
+			   or total < -9223372036854775808
+		),
+		updated as (
+			update billing_account b
+			set balance_micro = w.total, updated_at = now()
+			from inrange w
+			where w.id = b.id and w.total <> b.balance_micro
+			returning b.id
+		),
+		quarantined as (
+			update billing_account b
+			set status = 'quarantine', updated_at = now()
+			from overflow o
+			where o.id = b.id and b.status <> 'quarantine'
+			returning b.id, o.total
+		),
+		audited as (
+			insert into audit_log (id, actor_kind, action, resource, resource_id, metadata)
+			select 'aud_' || gen_random_uuid(), 'system', 'billing.quarantine',
+			       'billing_account', q.id,
+			       jsonb_build_object(
+			         'reason', 'credit ledger sum exceeds int64',
+			         'ledger_sum_micro', q.total::text
+			       )
+			from quarantined q
+			returning id
 		)
-		update billing_account b
-		set balance_micro = w.total, updated_at = now()
-		from wanted w
-		where w.id = b.id and w.total <> b.balance_micro
-		returning b.id
+		select 'repaired' as kind, id as account_id from updated
+		union all
+		select 'quarantined' as kind, id as account_id from quarantined
 	`);
-	return (rows as unknown as { id: string }[]).map((r) => r.id);
+	const seen = rows as unknown as { kind: string; account_id: string }[];
+	return seen.filter((r) => r.kind === 'repaired').map((r) => r.account_id);
 }
 
 /** The usage charges (customer cost, positive) billed in [since, until). */

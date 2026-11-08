@@ -18,10 +18,11 @@ import { _fetchCatalog } from './lib/ssrf.mjs';
 import {
 	_isBlockedLiteral, _assertPublic, _encCred, _decCred, _tokenAt, _headersFor,
 	reachability as _reachability, allowDevProviders as _allowDevProviders, _enqueueJob,
-	MAX_PRICE_USD,
+	MAX_PRICE_USD, addCreditKey, validateAddCreditAmount, addCreditError,
+	validateAddCreditKey, addCreditKeyError,
 } from './lib/platform-ts.mjs';
 import { clientIp } from './lib/ip.mjs';
-import { _sanitizeAudit, _dropRedacted, _auditView, makeAudit } from './lib/audit.mjs';
+import { _sanitizeAudit, _dropRedacted, _auditView, makeAudit, _openAudit } from './lib/audit.mjs';
 import { SECTION_CAPS, _dominates, _canAdminister, _guardUser } from './lib/rbac.mjs';
 import { _deriveHealth, _evalSignals, _vk, _vkPing, _vkReady, _vkWait } from './lib/format.mjs';
 import {
@@ -595,14 +596,25 @@ export function registerAdminRoutes(app, ctx) {
 		const accountId = String(body.accountId ?? '').trim();
 		const type = _parseEnum(MANUAL_LEDGER_TYPES, body.type);
 		const direction = String(body.direction ?? 'grant').trim() === 'charge' ? 'charge' : 'grant';
-		const amount = _parseMicros(body.amount);
+		const amountParsed = validateAddCreditAmount(body.amount);
 		const description = _cleanField(body.description ?? '', 200);
-		const key = _cleanField(body.key ?? '', 100) || _newId('txn_');
 		if (!accountId) _fail(400, 'Missing billing account');
 		if (!type) _fail(400, `Type must be one of: ${MANUAL_LEDGER_TYPES.join(', ')}`);
-		if (amount === null || amount <= 0n) _fail(400, 'Amount must be a positive dollar value (e.g. 5.00)');
 		const acct = _rowsOf(await database.execute(sql`select id, balance_micro, currency from billing_account where id = ${accountId} limit 1`))[0];
 		if (!acct) _fail(404, 'Billing account not found');
+		if (!amountParsed.ok) {
+			const { code, message } = addCreditError(amountParsed.error);
+			await _openAudit(database, { actorUserId: userRow.id, action: 'billing.credit.rejected', resource: 'billing_account', resourceId: accountId, metadata: { error: code, amount: String(body.amount ?? '') } });
+			throw new HttpError(400, `${code}: ${message}`);
+		}
+		const amount = amountParsed.amountMicro;
+		const key = _cleanField(body.key ?? '', 100) || addCreditKey(_newId(_IDP.creditLedger));
+		const keyParsed = validateAddCreditKey(key);
+		if (!keyParsed.ok) {
+			const { code, message } = addCreditKeyError(keyParsed.error);
+			await _openAudit(database, { actorUserId: userRow.id, action: 'billing.credit.rejected', resource: 'billing_account', resourceId: accountId, metadata: { error: code, amount: String(body.amount ?? '') } });
+			throw new HttpError(400, `${code}: ${message}`);
+		}
 		const signed = direction === 'charge' ? -amount : amount;
 		const entryId = _newId(_IDP.creditLedger);
 		let inserted = false;

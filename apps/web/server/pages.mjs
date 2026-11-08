@@ -4,7 +4,7 @@ import { sql } from 'drizzle-orm';
 import { rowsOf, big, num, iso, okBody } from './lib/validate.mjs';
 import { clientIp } from './lib/ip.mjs';
 import { PLANS, PLAN_IDS, planOf, qrisFor, isChannel } from '@fudrouter/platform/server/payments.ts';
-import { invalidateApiKeyCache } from '@fudrouter/platform/server/vk.ts';
+import { validateAddCreditAmount, addCreditError, addCreditKey, validateAddCreditKey, addCreditKeyError, parseAmountToMicro as parseAmountToMicroShared } from './lib/platform-ts.mjs';
 
 // DB-backed dashboard page loads + POST actions for the member dashboard
 // routes. All routes require auth (anon 401).
@@ -27,12 +27,9 @@ function generateApiKey() {
 	const keyHash = createHash('sha256').update(secret).digest('hex');
 	return { key: `sk-ar-${prefix}_${secret}`, prefix, keyHash };
 }
-function parseAmountToMicro(input) {
-	const m = /^(-?)(\d+)(?:\.(\d{1,6}))?$/.exec(String(input ?? '').trim());
-	if (!m) return null;
-	const micro = BigInt(m[2]) * 1_000_000n + BigInt((m[3] ?? '').padEnd(6, '0'));
-	return m[1] === '-' ? -micro : micro;
-}
+// The parse lives in packages/platform/server/money.ts (shared with billing.ts);
+// the bridge import keeps the local call sites' historical name.
+function parseAmountToMicro(input) { return parseAmountToMicroShared(input); }
 function microsToInput(value) {
 	const n = typeof value === 'bigint' ? value : BigInt(String(value));
 	const whole = n / 1000000n;
@@ -510,17 +507,30 @@ export function registerPages(app, ctx) {
 		const byModel = rowsOf(
 			await database.execute(sql`select coalesce(m.slug, 'Unresolved') as label, coalesce(r.model_id,'') as key, count(*)::int as requests, coalesce(sum(r.tokens_in + r.tokens_out),0)::int as tokens, coalesce(sum(r.cost),0)::text as cost from request_log r left join model m on m.id = r.model_id where ${window} group by m.slug, r.model_id order by sum(r.cost) desc limit 10`)
 		).map((r) => ({ key: r.key, label: r.label || 'Unresolved', requests: num(r.requests), totalTokens: num(r.tokens), costMicro: String(r.cost ?? '0') }));
-		res.json({ currency: String(account.currency ?? 'USD').trim(), balanceMicro: balance.toString(), rows, addCreditKey: `purchase:${newId(prefixFor(ctx, 'creditLedger'))}`, page, pages, total, thresholds: { warningMicro: String(account.warning_threshold_micro ?? account.warningThresholdMicro ?? '0'), hardStopMicro: String(account.hard_stop_threshold_micro ?? account.hardStopThresholdMicro ?? '0') }, series, breakdowns: { byModel } });
+		res.json({ currency: String(account.currency ?? 'USD').trim(), balanceMicro: balance.toString(), rows, addCreditKey: addCreditKey(newId(prefixFor(ctx, 'creditLedger'))), page, pages, total, thresholds: { warningMicro: String(account.warning_threshold_micro ?? account.warningThresholdMicro ?? '0'), hardStopMicro: String(account.hard_stop_threshold_micro ?? account.hardStopThresholdMicro ?? '0') }, series, breakdowns: { byModel } });
 	}));
 	app.post(['/api/pages/billing/credits/add', '/api/pages/dashboard/billing/credits/add'], wrap(async (req, res) => {
 		const database = needDb(res);
 		if (!database) return;
 		const userRow = await mustAuth(req);
 		const b = okBody(req);
-		const amount = parseAmountToMicro(b.amount ?? '');
-		if (amount === null || amount <= 0n) return fail(res, 400, 'Enter a positive dollar amount, e.g. 100 or 25.50.');
-		const key = String(b.key ?? `purchase:${newId(prefixFor(ctx, 'creditLedger'))}`).trim();
+		const parsed = validateAddCreditAmount(b.amount);
+		if (!parsed.ok) {
+			const { code, message } = addCreditError(parsed.error);
+			const acct = rowsOf(await database.execute(sql`select id from billing_account where user_id = ${userRow.id} limit 1`))[0];
+			if (acct) await audit(database, { actorUserId: userRow.id, action: 'billing.credit.add.rejected', resource: 'billing_account', resourceId: acct.id, metadata: { error: code, amount: String(b.amount ?? '') } });
+			return res.status(400).json({ error: message, code });
+		}
+		const amount = parsed.amountMicro;
 		const account = await billingAccountFor(database, userRow.id);
+		const key = String(b.key ?? addCreditKey(newId(prefixFor(ctx, 'creditLedger')))).trim();
+		const keyParsed = validateAddCreditKey(key);
+		if (!keyParsed.ok) {
+			const { code, message } = addCreditKeyError(keyParsed.error);
+			const acctAudit = rowsOf(await database.execute(sql`select id from billing_account where user_id = ${userRow.id} limit 1`))[0];
+			if (acctAudit) await audit(database, { actorUserId: userRow.id, action: 'billing.credit.add.rejected', resource: 'billing_account', resourceId: acctAudit.id, metadata: { error: code, amount: String(b.amount ?? '') } });
+			return res.status(400).json({ error: message, code });
+		}
 		const id = newId(prefixFor(ctx, 'creditLedger'));
 		const ins = rowsOf(
 			await database.execute(sql`insert into credit_ledger (id, billing_account_id, type, amount_micro, currency, idempotency_key, description, created_by) values (${id}, ${account.id}, 'credit_purchase', ${amount.toString()}, ${String(account.currency ?? 'USD').trim()}, ${key}, ${String(b.description ?? '').trim() || 'Credit purchase'}, ${userRow.id}) on conflict (idempotency_key) do nothing returning id`)

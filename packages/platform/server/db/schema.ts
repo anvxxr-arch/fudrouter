@@ -1,4 +1,4 @@
-import { sql } from 'drizzle-orm';
+import { sql, desc } from 'drizzle-orm';
 import {
 	pgTable,
 	text,
@@ -884,5 +884,69 @@ export const systemSetting = pgTable('system_setting', {
 	updatedBy: text('updated_by'),
 	updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
 });
+
+// -------------------------------------------- subscription money ---
+// `payment` + `subscription` — the two tables a settled payment disciplines
+// (migration 0025), plus the partial-unique idempotency anchor (0038). Owned
+// by the platform (B3b); apps/web/server/index.mjs keeps a MINIMAL column copy
+// — change one and update the other.
+
+// payment — one attempt to move money through a gateway. The durable UNIQUE
+// (gateway, gateway_ref) is the idempotency anchor: a replayed settlement
+// callback updates the SAME row (never a second payment, never a second grant).
+export const payment = pgTable(
+	'payment',
+	{
+		id: text('id').primaryKey(),
+		accountId: text('account_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		channel: text('channel').notNull(),
+		gatewayRef: text('gateway_ref').notNull(),
+		gateway: text('gateway').notNull(),
+		plan: text('plan').notNull(),
+		amountIdr: bigint('amount_idr', { mode: 'bigint' }).notNull(),
+		status: text('status').notNull().default('pending'),
+		raw: jsonb('raw').$type<Record<string, unknown>>(),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [
+		// 0025: the gateway reference is unique per gateway.
+		uniqueIndex('payment_gateway_ref_uniq').on(t.gateway, t.gatewayRef),
+		index('payment_account_created_idx').on(t.accountId, desc(t.createdAt))
+	]
+);
+
+// subscription — the entitlement. economic_bucket was added by 0033; the
+// partial UNIQUE index on payment_id (0038) is the durable "one subscription
+// per payment" guard a replayed confirm must never violate.
+export const subscription = pgTable(
+	'subscription',
+	{
+		id: text('id').primaryKey(),
+		accountId: text('account_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		plan: text('plan').notNull(),
+		status: text('status').notNull().default('active'),
+		startsAt: timestamp('starts_at', { withTimezone: true }).notNull().defaultNow(),
+		expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+		priceIdr: bigint('price_idr', { mode: 'bigint' }).notNull(),
+		paymentId: text('payment_id'),
+		economicBucket: text('economic_bucket'),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [
+		// Hot-path read: "does this account have a live subscription now?"
+		index('subscription_account_live_idx')
+			.on(t.accountId, t.expiresAt)
+			.where(sql`${t.status} = 'active'`),
+		// 0038: one subscription per payment — the durable idempotency guard.
+		uniqueIndex('subscription_payment_id_uniq')
+			.on(t.paymentId)
+			.where(sql`${t.paymentId} is not null`)
+	]
+);
 
 export { user, session, account, verification } from './auth.schema.ts';

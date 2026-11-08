@@ -28,6 +28,8 @@ import { emailAuthEnabled } from './lib/auth-config.mjs';
 import { compress } from './lib/compress.mjs';
 import { clientIp, requestOrigin } from './lib/ip.mjs';
 import { readShell, withHead, seo } from './lib/head.mjs';
+import { registerInboundWebhook } from './webhook.mjs';
+import { registerPaymentConfirm } from './payment-confirm.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.join(__dirname, '..', 'dist');
@@ -677,6 +679,10 @@ app.all('/api/auth/{*path}', async (req, res) => {
 	}
 });
 
+// Inbound gateway callback receiver (B3a). Registered BEFORE express.json so
+// the HMAC sees the exact raw request bytes; see server/webhook.mjs.
+registerInboundWebhook(app, { getDb: () => db });
+
 // Owner rule 18: max payload 32 MB. The previous 1 MB cap refused a legitimate
 // large prompt (a long agent context) before it reached the router. 32 MiB is
 // the ceiling for every JSON surface; the auth surface below mirrors it.
@@ -882,6 +888,7 @@ registerPlayground(app, {
 
 registerAdminRoutes(app, { needDb, authedUser, requireCap, HttpError });
 registerPages(app, { getDb: () => db, needDb, authedUser, requireCap, parseCookies, newId, writeAudit, ID_PREFIXES, HttpError });
+registerPaymentConfirm(app, { getDb: () => db });
 registerPublicRoutes(app, { needDb, HttpError });
 
 // Unknown page APIs are a contract break (typo, removed endpoint): 404 + log,

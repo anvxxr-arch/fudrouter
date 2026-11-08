@@ -27,6 +27,7 @@ const vkmod = await import('@fudrouter/platform/server/vk.ts');
 const limits = await import('@fudrouter/platform/server/admin-limits.ts');
 const money = await import('@fudrouter/platform/server/money.ts');
 const addCredit = await import('@fudrouter/platform/server/add-credit.ts');
+const inboundWebhook = await import('@fudrouter/platform/server/webhook-receiver.ts');
 
 // SSRF: the platform module OWNS the rule, including the literal blocklist --
 // isBlockedIp and the range arithmetic are re-exported below for the request
@@ -123,6 +124,16 @@ export const served = (modelStatus, providerStatus, allowDevProviders) =>
 	publish.reachability(modelStatus, providerStatus, allowDevProviders).served;
 // The env read for the opt-in, from the same module that owns the rule.
 export const allowDevProviders = () => publishEnv.allowDevProviders();
+
+// Inbound gateway callback receiver (B3a): the pure verify/claim/guard DECISIONS
+// live in packages/platform/server/webhook-receiver.ts; the Express route
+// (server/webhook.mjs) re-uses them through here. The signature header name is
+// the one canonical constant, so a route and its test cannot drift.
+export const INBOUND_SIGNATURE_HEADER = inboundWebhook.INBOUND_SIGNATURE_HEADER;
+export const verifyInbound = inboundWebhook.verifyInbound;
+export const claimDelivery = inboundWebhook.claimDelivery;
+export const assertInboundPublic = inboundWebhook.assertInboundPublic;
+export const httpStatusForReject = inboundWebhook.httpStatusForReject;
 
 // Job queue: enqueue() validates the type against JOB_TYPES (a typo'd type
 // string would become a forever-pending row no handler claims — the exact bug

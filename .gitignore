@@ -55,3 +55,6 @@ ops/data/
 # operational data about the running fleet, not source. It was untracked but
 # NOT ignored, so a `git add -A` would have committed it.
 ops/backups/
+
+# Live credential for the zcode bridge — never commit (JWT + user id)
+ops/zcode-bridge/accounts.jsonl

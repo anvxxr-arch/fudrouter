@@ -100,14 +100,18 @@ func IsBlockedIP(ip net.IP) bool {
 		if hi == 0 && lo>>32 == 0 { // ::/96 v4-compatible / unspecified / loopback
 			return true
 		}
-		// Unwrap the transition mechanisms that carry a reachable IPv4, so the
-		// IPv4 rules decide. NAT64 is 64:ff9b::/96 (prefix in bytes 1-3, IPv4 in
-		// the last four); 6to4 is 2002::/16 (prefix in bytes 0-1, IPv4 at 2-5).
-		if ip[1] == 0x64 && ip[2] == 0xff && ip[3] == 0x9b { // 64:ff9b::/96
-			return IsBlockedIP(net.IPv4(ip[12], ip[13], ip[14], ip[15]))
+		// TS pins the whole 2002::/16 (6to4) and 64:ff9b::/96 (NAT64 well-known
+		// prefix) in V6_BLOCKS and refuses the entire prefix. We match that
+		// exactly (block the prefix, do NOT unwrap to the embedded v4): unwrapping
+		// let a public-embedded 6to4/NAT64 address (e.g. 2002:0808:0808:: of
+		// 8.8.8.8) through while TS blocked the prefix - a drift the proxy's SSRF
+		// guard must not have. Private-embedded addresses were already refused by
+		// the IPv4 rules; refusing the whole prefix is strictly stricter.
+		if ip[0] == 0x20 && ip[1] == 0x02 { // 2002::/16 (6to4)
+			return true
 		}
-		if ip[0] == 0x20 && ip[1] == 0x02 { // 2002::/16
-			return IsBlockedIP(net.IPv4(ip[2], ip[3], ip[4], ip[5]))
+		if ip[1] == 0x64 && ip[2] == 0xff && ip[3] == 0x9b { // 64:ff9b::/96 (NAT64)
+			return true
 		}
 	}
 

@@ -73,8 +73,15 @@ func TestIsBlockedIP(t *testing.T) {
 		// reached over it. Refusing it is the conservative direction (the shared TS
 		// rule also lists it in V6_BLOCKS).
 		{"2001:0:0:0:0:0:7f00:1", true, "Teredo 2001::/32"},
-		{"64:ff9b::0808:0808", false, "NAT64 embedding public 8.8.8.8"},
-		{"2002:0808:0808::", false, "6to4 embedding public 8.8.8.8"},
+		// 6to4/NAT64 whole-prefix refusal: TS pins the ENTIRE 2002::/16 and
+		// 64:ff9b::/96 in V6_BLOCKS and refuses the whole prefix. We match that
+		// exactly (never unwrap to the embedded v4), so even a PUBLIC-embedded
+		// address is refused - closing the Go/TS drift where unwrapping let
+		// 2002:0808:0808:: (6to4 of 8.8.8.8) through while TS blocked the prefix.
+		{"64:ff9b::0808:0808", true, "NAT64 embedding public 8.8.8.8, whole /96 refused"},
+		{"2002:0808:0808::", true, "6to4 embedding public 8.8.8.8, whole /16 refused"},
+		{"64:ff9b::9d9d:9d9d", true, "NAT64 embedding public 157.157.157.157, whole /96 refused"},
+		{"2002:9d9d:9d9d::", true, "6to4 embedding public 157.157.157.157, whole /16 refused"},
 		// Must be allowed: ordinary public addresses.
 		{"8.8.8.8", false, "public DNS"},
 		{"1.1.1.1", false, "public DNS"},

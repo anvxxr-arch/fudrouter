@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { Link } from "react-router-dom";
 import { apiGet, apiPost } from "../lib/server";
 import { ConsoleLayout } from "../components/ConsoleLayout";
+import { useSession } from "../components/guards";
+import { hasCap } from "../lib/caps";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
@@ -670,6 +672,11 @@ function SpendChart({ series }: { series: CreditsData["series"] }) {
 }
 
 export function CreditsPage() {
+	// F2 (live): manual credit is admin.billing. Hide the self-serve form from
+	// members so they never see a control that 403s — the API gate is the
+	// enforcement; this is the honest default, not the defence.
+	const user = useSession();
+	const canCredit = hasCap(user?.role ?? null, "admin.billing");
 	const [tick, setTick] = useState(0);
 	const [page, setPage] = useState(1);
 	const [err, setErr] = useState<string | null>(null);
@@ -697,7 +704,7 @@ export function CreditsPage() {
 				</div>
 			</div>
 		) : null}
-		<form onSubmit={(e) => {
+		{canCredit ? (<form onSubmit={(e) => {
 			e.preventDefault(); setErr(null);
 			const f = new FormData(e.currentTarget);
 			apiPost("/api/pages/dashboard/billing/credits/add", { amount: String(f.get("amount") ?? "") })
@@ -705,7 +712,7 @@ export function CreditsPage() {
 				.catch((ex) => setErr(ex instanceof Error ? ex.message : "Add failed"));
 		}}>
 			<div className="row"><Input aria-label="Amount" name="amount" placeholder="Amount" required /><Button type="submit">Add</Button></div>
-		</form>
+		</form>) : <p className="muted">Manual credit is operator-only.</p>}
 		{err ? <p className="error">{err}</p> : null}
 		{d && d.series.length > 0 ? (
 			<div className="card credits-chart-card">
@@ -1005,6 +1012,11 @@ type AliasModel = { id: string; slug: string; name: string; status: string; deve
 type AliasesData = { aliases: AliasRow[]; models: AliasModel[] };
 
 export function AliasesPage() {
+  // F1 (live): a global alias shadows the canonical slug platform-wide, so
+  // minting one is admin.models. Members see no 'global' option — the API gate
+  // is enforcement; this hides a control that would otherwise 403.
+  const user = useSession();
+  const canGlobal = hasCap(user?.role ?? null, "admin.models");
   const [tick, setTick] = useState(0);
   const [err, setErr] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
@@ -1039,7 +1051,7 @@ export function AliasesPage() {
       <label className="ps-field"><span>Scope</span>
         <select className="select" name="scope" defaultValue="account">
           <option value="account">This account</option>
-          <option value="global">Global (read-only once created)</option>
+          {canGlobal ? (<option value="global">Global (operator)</option>) : null}
         </select>
       </label>
       <label className="ps-field"><span>Targets (in fallback order)</span>

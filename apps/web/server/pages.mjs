@@ -4,7 +4,7 @@ import { sql } from 'drizzle-orm';
 import { rowsOf, big, num, iso, okBody } from './lib/validate.mjs';
 import { clientIp } from './lib/ip.mjs';
 import { PLANS, PLAN_IDS, planOf, qrisFor, isChannel } from '@fudrouter/platform/server/payments.ts';
-import { validateAddCreditAmount, addCreditError, addCreditKey, validateAddCreditKey, addCreditKeyError, parseAmountToMicro as parseAmountToMicroShared, drizzleClaimWriter } from './lib/platform-ts.mjs';
+import { validateAddCreditAmount, addCreditError, addCreditKey, validateAddCreditKey, addCreditKeyError, parseAmountToMicro as parseAmountToMicroShared, drizzleClaimWriter, capsFor } from './lib/platform-ts.mjs';
 
 // DB-backed dashboard page loads + POST actions for the member dashboard
 // routes. All routes require auth (anon 401).
@@ -445,14 +445,18 @@ export function registerPages(app, ctx) {
 		const period = rowsOf(
 			await database.execute(sql`select coalesce(-sum(amount_micro),0)::text as total, count(*)::int as requests from credit_ledger where billing_account_id = ${account.id} and type = 'usage_charge' and created_at >= ${ps.toISOString()} and created_at < ${pe.toISOString()}`)
 		)[0] ?? {};
-		// The account is the tenant: the caller owns the billing account, so
-		// canWrite is always true (the SPA's threshold form reads this flag).
-		res.json({ currency: String(account.currency ?? 'USD').trim(), status: account.status, canWrite: true, balanceMicro: balance.toString(), warningThresholdMicro: String(account.warning_threshold_micro ?? account.warningThresholdMicro ?? '0'), hardStopThresholdMicro: String(account.hard_stop_threshold_micro ?? account.hardStopThresholdMicro ?? '0'), period: { start: ps.toISOString(), end: pe.toISOString(), spentMicro: String(period.total ?? '0'), requests: num(period.requests) } });
+		// The account is the tenant, but threshold writes are admin.billing (F3): the
+		// SPA reads canWrite to hide the form from members rather than surfacing a
+		// 403 the API now returns.
+		res.json({ currency: String(account.currency ?? 'USD').trim(), status: account.status, canWrite: capsFor(userRow.role).has('admin.billing'), balanceMicro: balance.toString(), warningThresholdMicro: String(account.warning_threshold_micro ?? account.warningThresholdMicro ?? '0'), hardStopThresholdMicro: String(account.hard_stop_threshold_micro ?? account.hardStopThresholdMicro ?? '0'), period: { start: ps.toISOString(), end: pe.toISOString(), spentMicro: String(period.total ?? '0'), requests: num(period.requests) } });
 	}));
 	app.post(['/api/pages/billing/thresholds', '/api/pages/dashboard/billing/thresholds'], wrap(async (req, res) => {
 		const database = needDb(res);
 		if (!database) return;
 		const userRow = await mustAuth(req);
+		// F3 (live): a member must never set their own hard-stop/warning
+		// thresholds (a 0 hard-stop mints free service). Operator action only.
+		requireCap(userRow, 'admin.billing');
 		const b = okBody(req);
 		const warning = parseAmountToMicro(b.warn ?? b.warning ?? '');
 		const hardStop = parseAmountToMicro(b.suspend ?? b.hard_stop ?? b.hardStop ?? '');
@@ -513,6 +517,10 @@ export function registerPages(app, ctx) {
 		const database = needDb(res);
 		if (!database) return;
 		const userRow = await mustAuth(req);
+		// F2 (live): this endpoint minted free credit — a member POSTed an amount
+		// and the ledger grew by it. Manual credit is an admin.billing action;
+		// the QRIS gateway is the only member-facing money-in path.
+		requireCap(userRow, 'admin.billing');
 		const b = okBody(req);
 		const parsed = validateAddCreditAmount(b.amount);
 		if (!parsed.ok) {
@@ -987,6 +995,12 @@ export function registerPages(app, ctx) {
 		const name = String(b.name ?? '').trim();
 		if (!name) return fail(res, 400, 'Alias name is required');
 		const scope = String(b.scope ?? 'account') === 'global' ? 'global' : 'account';
+		// F1 (live): a global alias shadows the canonical slug platform-wide.
+		// Minting one is operator-only (admin.models); a member may create only
+		// account-scoped aliases.
+		if (scope === 'global' && !capsFor(userRow.role).has('admin.models')) {
+			return fail(res, 403, 'Global aliases are operator-only.');
+		}
 		// modelIds is the contract field name; targets is what the SPA sent
 		// before the flatten — accept both during the cutover.
 		const targets = (Array.isArray(b.modelIds) ? b.modelIds : Array.isArray(b.targets) ? b.targets : []).filter((t) => typeof t === 'string');

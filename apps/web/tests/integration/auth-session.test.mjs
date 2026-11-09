@@ -65,7 +65,10 @@ test('sign-up provisions the billing account /api/pages/billing reads', { skip: 
 	assert.equal(res.status, 200, `billing page failed: ${raw}`);
 	const body = JSON.parse(raw);
 	assert.equal(body.currency, 'USD', 'the billing account must carry a currency');
-	assert.equal(body.canWrite, true, 'the account owner must be able to write billing settings');
+	// F3 (live): threshold writes are admin.billing, so a freshly signed-up
+	// member (role 'user') no longer gets the write flag. The assertion pins the
+	// flipped behaviour rather than the pre-fix 'always true'.
+	assert.equal(body.canWrite, false, 'a plain member must not hold the billing write flag');
 	assert.equal(typeof body.balanceMicro, 'string', 'the billing page must report a balance');
 	assert.equal(typeof body.period?.spentMicro, 'string', 'the billing page must report period spend');
 });

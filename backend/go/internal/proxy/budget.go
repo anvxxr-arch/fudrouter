@@ -537,14 +537,39 @@ func quotaPeriod(window string, now time.Time) string {
 	return key
 }
 
+// quota5hStart returns the start of the current 5h quota block, anchored to UTC
+// midnight (00:00, 05:00, 10:00, 15:00, 20:00 UTC).
+//
+// The one-liner it replaces — now.Truncate(5 * time.Hour) — was WRONG for this
+// contract. time.Time.Truncate floors against the zero time (0001-01-01
+// 00:00:00 UTC), not against the calendar day, and a day is 24h = 4*5h + 4h, so
+// "5h blocks floored since zero time" DRIFT against wall-clock midnight by 4h
+// per day. Measured across 2026-11-09..13 the block starts were
+// 22:00/03:00/08:00/13:00/18:00, then 23:00/04:00/09:00/14:00/19:00, and so on
+// — never the documented 00:00/05:00. A quota whose "5h" window silently resets
+// at a different wall clock each day both breaks the documented fair-use window
+// and, because the key is the period start, changes what spend a given block
+// counts once the boundary crosses the operators' own 00:00/05:00 mental model.
+//
+// Anchoring to UTC midnight keeps every block at a fixed wall clock, so
+// "5h from 00:00" means the same thing every day. The last block (20:00) runs
+// 20:00–01:00(+1d) to cover a full day, but its key is 20:00's timestamp and
+// the next day restarts at 00:00 — the same boundary the counter TTL (6h)
+// outlives so a finished block's key expires after its named period.
+func quota5hStart(now time.Time) time.Time {
+	now = now.UTC()
+	day := now.Truncate(24 * time.Hour) // UTC midnight
+	block := now.Hour() / 5             // 0..4 → 00,05,10,15,20
+	return day.Add(time.Duration(block) * 5 * time.Hour)
+}
+
 // quotaPeriodTTL returns the period-named key AND its TTL for one quota window.
 // The TTL outlives the named period with headroom (Δ): 5h+1h, 7d+1d.
 func quotaPeriodTTL(window string, now time.Time) (periodKey string, ttl time.Duration) {
 	now = now.UTC()
 	switch window {
 	case "5h":
-		blockStart := now.Truncate(5 * time.Hour)
-		return blockStart.Format("200601021504"), 6 * time.Hour
+		return quota5hStart(now).Format("200601021504"), 6 * time.Hour
 	default: // "7d"
 		day := now.Truncate(24 * time.Hour)
 		// Align to Monday (Go's Weekday: Sunday=0..Saturday=6; Monday=1).
@@ -561,7 +586,7 @@ func quotaWindowStart(window string, now time.Time) time.Time {
 	now = now.UTC()
 	switch window {
 	case "5h":
-		return now.Truncate(5 * time.Hour)
+		return quota5hStart(now)
 	default: // "7d"
 		day := now.Truncate(24 * time.Hour)
 		offset := (int(day.Weekday()) + 6) % 7

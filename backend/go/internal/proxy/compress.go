@@ -32,6 +32,7 @@
 package proxy
 
 import (
+	"bytes"
 	"encoding/json"
 	"strconv"
 	"strings"
@@ -70,6 +71,12 @@ const (
 // able to turn it off without turning the router off.
 const tokenSaverHeader = "X-Fudrouter-Token-Saver"
 
+// toolRoleToken is the byte spelling scanned for in the compressToolResults
+// fast path: a `role:"tool"` message is the only thing compression rewrites,
+// so its absence lets the whole decode be skipped (see the scan comment there).
+// A \u-escaped `"tool"` contains a backslash, which is the second probe.
+var toolRoleToken = []byte(`"tool"`)
+
 // tokenSaverDisabled reports whether the caller asked for the raw body.
 func tokenSaverDisabled(header string) bool {
 	switch strings.ToLower(strings.TrimSpace(header)) {
@@ -87,6 +94,21 @@ func tokenSaverDisabled(header string) bool {
 // untouched case is byte-identical rather than a round-trip through encoding/json
 // (which would reorder keys and could alter a customer-supplied payload).
 func compressToolResults(body []byte) (out []byte, saved int64) {
+	// Fast path: a `role:"tool"` message is the only thing this function
+	// rewrites, and the JSON token `"tool"` (or a \u-escaped spelling, which
+	// contains a backslash) is a NECESSARY condition for it to exist. When
+	// neither byte sequence is present the whole decode below would scan every
+	// message, allocate the entire body into map[string]any (measured ~58
+	// allocs / 5.3 µs on a 500-byte request — BenchmarkBodyDecode) and then
+	// return the bytes unchanged. Skipping on the substring check is therefore
+	// observably identical to decoding-and-finding-nothing, and it removes a
+	// full JSON decode from the admission path of every chat request that
+	// carries no tool result. A `tool_calls` array (assistant) contains the
+	// substring `"tool"` and still decodes — the check is permissive, never a
+	// false skip.
+	if !bytes.Contains(body, toolRoleToken) && !bytes.Contains(body, backslash) {
+		return body, 0
+	}
 	var req map[string]any
 	if err := json.Unmarshal(body, &req); err != nil {
 		return body, 0

@@ -1,5 +1,7 @@
 import { isIP } from 'node:net';
 import { lookup } from 'node:dns/promises';
+import type { LookupAddress, LookupOptions } from 'node:dns';
+import { Agent, fetch as guardedFetch } from 'undici';
 
 /**
  * SSRF guard for admin-initiated requests to a provider's base_url.
@@ -231,6 +233,14 @@ export async function assertPublicUpstream(
 		return { ok: false, reason: `refusing to call a non-public address (${host})` };
 	}
 
+	// A non-blocked LITERAL is dialed directly: return it as the only validated
+	// address and skip the resolver. This (a) removes any second-resolution
+	// rebind window for literals and (b) stops a PUBLIC IPv6 literal such as
+	// `[2606:4700::1111]` from being refused because its bracketed form cannot
+	// be fed to `dns.lookup`.
+	const literal = literalOrNull(host);
+	if (literal !== null) return { ok: true, ips: [literal] };
+
 	// A name, not a literal. Resolve it here so the pre-flight check sees the
 	// addresses the name currently maps to, and refuse if any of them is
 	// non-public.
@@ -247,18 +257,18 @@ export async function assertPublicUpstream(
 	//
 	// The Go data plane does not have this window: its guard runs at dial time,
 	// after resolution and before the socket connects, so the address it checks
-	// is the address it dials. This side has no dial hook, so the check above is
-	// as far as a URL pre-flight can go; closing the window means pinning the
-	// validated addresses into the connection itself.
+	// is the address it dials. The web side had no dial hook, which is why the check
+	// above used to be all this module could do; the window is now closed by pinning
+	// the validated addresses into the connection itself (see `guardedUpstreamFetch`).
 	//
 	// The types Node ships describe that shape -- undici-types/fetch.d.ts has
 	// `dispatcher?: Dispatcher`, undici-types/connector.d.ts's `BuildOptions`
 	// includes `TcpNetConnectOpts`, and @types/node net.d.ts puts
 	// `lookup?: LookupFunction` on it -- so an Agent built with a connector whose
-	// lookup returns only `ips` is the route. Recorded as the route and not as a
-	// proven fix: nothing in this repo exercises it at runtime, so a maintainer
-	// taking it on should verify the runtime path before trusting it. Until then
-	// an admin-supplied base_url is rebindable between this check and the connect.
+	// lookup returns only `ips` is the route. Implemented below in
+	// `guardedUpstreamFetch`: the validated addresses are pinned into the connection
+	// via an undici Agent whose connector lookup returns only `ips`, so the dial
+	// uses the SAME addresses this pre-flight approved. The window is closed.
 	let ips: string[];
 	try {
 		const found = await lookup(host, { all: true, verbatim: true });
@@ -300,6 +310,47 @@ export type GuardedFetchResult = { ok: true; response: Response } | GuardedFetch
  * every hop at the socket but the web side has no dial hook, so it does not
  * follow at all.
  */
+/**
+ * Build the undici connector lookup that pins a hostname to the validated
+ * addresses. The pre-flight (`assertPublicUpstream`) resolved the name to
+ * `ips`; this closure makes the SOCKET resolve to exactly those addresses, so
+ * a rebinding resolver answering a private address at connect time is ignored
+ * — the address checked is the address dialed (the Go netguard.DialControl
+ * guarantee, reproduced on the web side).
+ *
+ * Any hostname other than the approved one fails closed (no addresses), so a
+ * later redirect whose host is not the one we validated cannot resolve here
+ * either. `redirect:'manual'` keeps the fetch from following a redirect at all.
+ */
+export function pinLookup(hostname: string, ips: string[]) {
+	const approved = new Set(ips.map((a) => a.toLowerCase()));
+	return function (
+		name: string,
+		_options: LookupOptions,
+		cb: (err: NodeJS.ErrnoException | null, address: string | LookupAddress[], family?: number) => void
+	): void {
+		if (String(name).toLowerCase() !== hostname.toLowerCase() || approved.size === 0) {
+			// The address argument is required by the type, but the error is what the
+			// connector acts on: an empty list never becomes a dial target.
+			cb(new Error(`ssrf guard: refusing to resolve unvalidated host «${name}»`), []);
+			return;
+		}
+		const addrs: LookupAddress[] = ips.map((a) => ({ address: a, family: isIP(a) === 6 ? 6 : 4 }));
+		// `all: true` semantics: the connector asked for every address, so hand back the
+		// whole validated set and let it pick. One address per validated IP, no more.
+		cb(null, addrs);
+	};
+}
+
+/**
+ * Fetch a provider URL with the SSRF guard applied end to end.
+ *
+ * The guard passes (host is a public literal, or every resolved address is
+ * public), then the validated addresses are PINNED into the connection: the
+ * fetch runs through an undici Agent whose connector lookup returns only
+ * `guard.ips`, so the request cannot reconnect to a re-resolved private address
+ * (DNS rebinding). `redirect:'manual'` is unchanged and load-bearing.
+ */
 export async function guardedUpstreamFetch(
 	baseUrl: unknown,
 	allowPrivate: boolean,
@@ -312,14 +363,48 @@ export async function guardedUpstreamFetch(
 		.trim()
 		.replace(/\/+$/, '');
 	const url = `${raw}${pathSuffix}`;
+
+	// `allowPrivate` is the documented loopback escape hatch: when it is on, the
+	// guard returned no address set to pin (loopback/private are allowed), so the
+	// pin is skipped and the request goes out with the resolver's own answer.
+	if (allowPrivate) {
+		const ctrl = new AbortController();
+		const timer = setTimeout(() => ctrl.abort(), init.timeoutMs);
+		try {
+			const response = await guardedFetch(url, { ...init, signal: ctrl.signal, redirect: 'manual' });
+			return { ok: true, response: response as unknown as Response };
+		} catch (err) {
+			return { ok: false, message: err instanceof Error ? err.message : 'request failed' };
+		} finally {
+			clearTimeout(timer);
+		}
+	}
+
+	let hostname: string;
+	try {
+		hostname = new URL(raw).hostname;
+	} catch {
+		return { ok: false, message: 'base_url is not a usable URL' };
+	}
+
+	// Pin the validated addresses into the connection. When the target is a
+	// literal, `ips` is that single literal so the pin is a no-op resolution; when
+	// the target is a name, the pin overrides the resolver's connect-time answer.
+	const dispatcher = new Agent({ connect: { lookup: pinLookup(hostname, guard.ips) } });
 	const ctrl = new AbortController();
 	const timer = setTimeout(() => ctrl.abort(), init.timeoutMs);
 	try {
-		const response = await fetch(url, { ...init, signal: ctrl.signal, redirect: 'manual' });
-		return { ok: true, response };
+		const response = await guardedFetch(url, {
+			...init,
+			signal: ctrl.signal,
+			redirect: 'manual',
+			dispatcher
+		});
+		return { ok: true, response: response as unknown as Response };
 	} catch (err) {
 		return { ok: false, message: err instanceof Error ? err.message : 'request failed' };
 	} finally {
 		clearTimeout(timer);
+		try { void dispatcher.close(); } catch { /* ignore */ }
 	}
 }

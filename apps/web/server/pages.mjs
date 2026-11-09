@@ -4,7 +4,7 @@ import { sql } from 'drizzle-orm';
 import { rowsOf, big, num, iso, okBody } from './lib/validate.mjs';
 import { clientIp } from './lib/ip.mjs';
 import { PLANS, PLAN_IDS, planOf, qrisFor, isChannel } from '@fudrouter/platform/server/payments.ts';
-import { validateAddCreditAmount, addCreditError, addCreditKey, validateAddCreditKey, addCreditKeyError, parseAmountToMicro as parseAmountToMicroShared } from './lib/platform-ts.mjs';
+import { validateAddCreditAmount, addCreditError, addCreditKey, validateAddCreditKey, addCreditKeyError, parseAmountToMicro as parseAmountToMicroShared, drizzleClaimWriter } from './lib/platform-ts.mjs';
 
 // DB-backed dashboard page loads + POST actions for the member dashboard
 // routes. All routes require auth (anon 401).
@@ -684,11 +684,20 @@ export function registerPages(app, ctx) {
 			await database.execute(sql`select id, plan, amount_idr, status from payment where gateway_ref = ${gatewayRef} and account_id = ${userRow.id} limit 1`)
 		);
 		if (!rows.length) return fail(res, 404, 'Payment not found.');
-		await database.execute(
-			sql`update payment set status = 'claimed', raw = ${JSON.stringify({ proofUrl })}::jsonb, updated_at = now() where id = ${rows[0].id}`
-		);
-		await audit(database, { actorId: userRow.id, action: 'payment.claim', resource: 'payment', resourceId: gatewayRef, meta: { proofUrl } });
-		res.json({ claimed: true });
+		// The ONE shared claim write (CS1): compare-and-swap on
+		// status='pending' so a confirm that landed between reload and click is
+		// never downgraded, and a replay never mints a double write.
+		const claim = await drizzleClaimWriter(database).record(String(rows[0].id), proofUrl);
+		if (claim.ok) {
+			await audit(database, { actorId: userRow.id, action: 'payment.claim', resource: 'payment', resourceId: gatewayRef, meta: { proofUrl } });
+			return res.json({ claimed: true });
+		}
+		if (claim.reason === 'already_claimed') {
+			// Idempotent success: the payment already left 'pending' (claimed or
+			// confirmed). No audit replay, no downgrade, same client shape.
+			return res.json({ claimed: true });
+		}
+		return fail(res, 404, 'Payment not found.');
 	}));
 	app.get(['/api/pages/subscription/payments', '/api/pages/dashboard/subscription/payments'], wrap(async (req, res) => {
 		const database = needDb(res);

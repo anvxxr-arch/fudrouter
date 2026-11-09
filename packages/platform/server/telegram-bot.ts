@@ -18,11 +18,11 @@
 // Telegram senders and the money seams, so the four-case test runs against
 // in-memory fakes with no network, no database and no DATABASE_URL.
 //
-// The one seam below that is NOT a shared decision function is `recordClaim`
-// (member proof → payment.status 'claimed'). There is no shared claim writer
-// yet — the web checkout does it inline in apps/web/server/pages.mjs. Rather than
-// mint a second writer here (out of C1's ownership), the adapter declares the
-// seam and the bot's transport wires it to that existing checkout path.
+// The claim seams below (`recordClaim`/`resolveClaim`) are declared by the
+// adapter and wired by the transport to the ONE shared claim writer —
+// packages/platform/server/claim.ts `drizzleClaimWriter(db)` (`record` ←
+// `recordClaim`, `resolve` ← `resolveClaim`). The adapter declares the
+// seam shape; the durable pending→claimed write lives in claim.ts, never here.
 
 import {
 	plansMessage,

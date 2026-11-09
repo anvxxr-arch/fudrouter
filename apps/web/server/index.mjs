@@ -30,6 +30,8 @@ import { clientIp, requestOrigin } from './lib/ip.mjs';
 import { readShell, withHead, seo } from './lib/head.mjs';
 import { registerInboundWebhook } from './webhook.mjs';
 import { registerPaymentConfirm } from './payment-confirm.mjs';
+import { registerTelegramWebhook } from './telegram-transport.mjs';
+import { registerDiscordInteractions } from './discord-transport.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.join(__dirname, '..', 'dist');
@@ -683,6 +685,11 @@ app.all('/api/auth/{*path}', async (req, res) => {
 // the HMAC sees the exact raw request bytes; see server/webhook.mjs.
 registerInboundWebhook(app, { getDb: () => db });
 
+// Discord interactions transport (C2). No-op when FLEXYROUTE_PUBLIC_KEY is
+// unset (fail closed, logged inside). Registered before express.json so the
+// Ed25519 signature sees the exact raw bytes Discord signed.
+registerDiscordInteractions(app, { getDb: () => db });
+
 // Owner rule 18: max payload 32 MB. The previous 1 MB cap refused a legitimate
 // large prompt (a long agent context) before it reached the router. 32 MiB is
 // the ceiling for every JSON surface; the auth surface below mirrors it.
@@ -889,6 +896,12 @@ registerPlayground(app, {
 registerAdminRoutes(app, { needDb, authedUser, requireCap, HttpError });
 registerPages(app, { getDb: () => db, needDb, authedUser, requireCap, parseCookies, newId, writeAudit, ID_PREFIXES, HttpError });
 registerPaymentConfirm(app, { getDb: () => db });
+
+// Telegram webhook transport (CS3). Registered after express.json so the update
+// body is already parsed; the X-Telegram-Bot-Api-Secret-Token header is compared
+// against TELEGRAM_WEBHOOK_SECRET. Absent secret -> endpoint disabled (404),
+// logged once at registration (fail closed, never a crash).
+registerTelegramWebhook(app, { getDb: () => db });
 registerPublicRoutes(app, { needDb, HttpError });
 
 // Unknown page APIs are a contract break (typo, removed endpoint): 404 + log,

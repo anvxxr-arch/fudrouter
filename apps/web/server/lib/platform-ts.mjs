@@ -32,6 +32,7 @@ const discordBot = await import('@fudrouter/platform/server/discord-bot.ts');
 const telegramBot = await import('@fudrouter/platform/server/telegram-bot.ts');
 const approval = await import('@fudrouter/platform/server/approval.ts');
 const approvalEnv = await import('@fudrouter/platform/server/approval-env.ts');
+const claimWriter = await import('@fudrouter/platform/server/claim.ts');
 
 // SSRF: the platform module OWNS the rule, including the literal blocklist --
 // isBlockedIp and the range arithmetic are re-exported below for the request
@@ -143,6 +144,12 @@ export const httpStatusForReject = inboundWebhook.httpStatusForReject;
 // the env reads in approval-env.ts. The transports re-use these through the
 // bridge instead of carrying .mjs copies — one escalation rule for Telegram and
 // Discord. `escalate` is the state transition a transport's TTL tick calls.
+// Durable claim writer (CS1): the ONE pending -> claimed write both bot
+// transports and the web checkout share. `drizzleClaimWriter(db)` returns
+// `{ record(paymentId, proofUrl), resolve(paymentId) }` - the two seams the
+// bot adapters already declare (`recordClaim`/`resolveClaim` map 1:1).
+export const drizzleClaimWriter = claimWriter.drizzleClaimWriter;
+
 export const parseApprovers = approval.parseApprovers;
 export const parseApprovalTtlMs = approval.parseApprovalTtlMs;
 export const approvalRoute = approval.approvalRoute;

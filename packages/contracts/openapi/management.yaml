@@ -9,7 +9,7 @@ info:
     Regenerate: npm run extract -w @fudrouter/contracts && npm run gen -w @fudrouter/contracts
     
     Paths, methods, path parameters and security are mechanically derived and therefore
-    exact. Request/response BODIES are intentionally NOT modelled — all 174 handlers return
+    exact. Request/response BODIES are intentionally NOT modelled — all 176 handlers return
     Drizzle result objects, and a fabricated schema would be worse than none. Each
     operation carries `x-source` pointing at the line that implements it.
     
@@ -23,6 +23,7 @@ tags:
   - name: app
   - name: auth
   - name: changelog
+  - name: discord
   - name: docs
   - name: health
   - name: metrics
@@ -35,6 +36,7 @@ tags:
   - name: providers
   - name: seo
   - name: status
+  - name: telegram
   - name: webhook
 paths:
   "{*path}":
@@ -43,7 +45,7 @@ paths:
       tags: [app]
       summary: "GET {*path}"
       description: |
-        Registered at apps/web/server/index.mjs:973.
+        Registered at apps/web/server/index.mjs:986.
         Express 5 splat route: the trailing path segment is greedy.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
@@ -55,7 +57,7 @@ paths:
         - session: []
       x-source:
         file: apps/web/server/index.mjs
-        line: 973
+        line: 986
       x-body-schema: unmodelled
       responses:
         "200":
@@ -3224,7 +3226,7 @@ paths:
       tags: [auth]
       summary: "ALL /api/auth/{*path}"
       description: |
-        Registered at apps/web/server/index.mjs:576.
+        Registered at apps/web/server/index.mjs:578.
         Express 5 splat route: the trailing path segment is greedy.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
@@ -3236,7 +3238,7 @@ paths:
         - session: []
       x-source:
         file: apps/web/server/index.mjs
-        line: 576
+        line: 578
       x-body-schema: unmodelled
       responses:
         "200":
@@ -3290,6 +3292,31 @@ paths:
       x-source:
         file: apps/web/server/public.mjs
         line: 1598
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/discord/interactions":
+    post:
+      operationId: postapiDiscordInteractions
+      tags: [discord]
+      summary: "POST /api/discord/interactions"
+      description: |
+        Registered at apps/web/server/discord-transport.mjs:482.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/discord-transport.mjs
+        line: 482
       x-body-schema: unmodelled
       responses:
         "200":
@@ -3362,13 +3389,13 @@ paths:
       tags: [health]
       summary: "GET /api/health"
       description: |
-        Registered at apps/web/server/index.mjs:558.
+        Registered at apps/web/server/index.mjs:560.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/index.mjs
-        line: 558
+        line: 560
       x-body-schema: unmodelled
       responses:
         "200":
@@ -3512,7 +3539,7 @@ paths:
       tags: [pages]
       summary: "GET /api/pages/{*path}"
       description: |
-        Registered at apps/web/server/index.mjs:896.
+        Registered at apps/web/server/index.mjs:909.
         Express 5 splat route: the trailing path segment is greedy.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
@@ -3524,7 +3551,7 @@ paths:
         - session: []
       x-source:
         file: apps/web/server/index.mjs
-        line: 896
+        line: 909
       x-body-schema: unmodelled
       responses:
         "200":
@@ -4193,13 +4220,13 @@ paths:
       tags: [pages]
       summary: "GET /api/pages/shell"
       description: |
-        Registered at apps/web/server/index.mjs:852.
+        Registered at apps/web/server/index.mjs:859.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/index.mjs
-        line: 852
+        line: 859
       x-body-schema: unmodelled
       responses:
         "200":
@@ -4218,7 +4245,7 @@ paths:
       tags: [palette]
       summary: "GET /api/palette/{type}"
       description: |
-        Registered at apps/web/server/index.mjs:727.
+        Registered at apps/web/server/index.mjs:734.
         PUBLIC — rate-limited by client IP (_publicRead).
       parameters:
         - name: type
@@ -4228,7 +4255,7 @@ paths:
       security: []
       x-source:
         file: apps/web/server/index.mjs
-        line: 727
+        line: 734
       x-body-schema: unmodelled
       responses:
         "200":
@@ -4446,6 +4473,31 @@ paths:
           content:
             application/json:
               schema: { type: object, additionalProperties: true }
+  "/api/telegram/webhook":
+    post:
+      operationId: postapiTelegramWebhook
+      tags: [telegram]
+      summary: "POST /api/telegram/webhook"
+      description: |
+        Registered at apps/web/server/telegram-transport.mjs:385.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/telegram-transport.mjs
+        line: 385
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
   "/api/webhook/payment":
     post:
       operationId: postapiWebhookPayment
@@ -4477,13 +4529,13 @@ paths:
       tags: [seo]
       summary: "GET /robots.txt"
       description: |
-        Registered at apps/web/server/index.mjs:909.
+        Registered at apps/web/server/index.mjs:922.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/index.mjs
-        line: 909
+        line: 922
       x-body-schema: unmodelled
       responses:
         "200":
@@ -4502,13 +4554,13 @@ paths:
       tags: [seo]
       summary: "GET /sitemap.xml"
       description: |
-        Registered at apps/web/server/index.mjs:924.
+        Registered at apps/web/server/index.mjs:937.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/index.mjs
-        line: 924
+        line: 937
       x-body-schema: unmodelled
       responses:
         "200":

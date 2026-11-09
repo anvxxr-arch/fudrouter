@@ -142,10 +142,9 @@ export interface DiscordGrant {
 }
 
 /**
- * The claim-recording seam. The gateway wires this to the SAME write the web
- * checkout's /claim performs (payment.status='claimed' + raw.proofUrl) so the
- * Discord and web surfaces never diverge on what "claimed" means — there is NO
- * second payment-claim writer (criterion: reuse B3).
+ * The claim-recording seam. The gateway wires this to the ONE shared write
+ * (packages/platform/server/claim.ts `drizzleClaimWriter(db).record`) so the
+ * Discord, Telegram and web surfaces never diverge on what "claimed" means.
  */
 export interface DiscordClaimRecorder {
 	record(paymentId: string, proofUrl: string): Promise<{ ok: boolean }>;

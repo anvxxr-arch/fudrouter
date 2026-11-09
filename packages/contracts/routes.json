@@ -3,9 +3,9 @@
   "note": "Mechanical extraction of the live HTTP surface. Regenerate with `npm run extract -w @fudrouter/contracts`. A changed hash in `sources` with an unchanged route list means the surface survived an edit; a changed route list means the public API changed and downstream clients/OpenAPI must follow. `line` is RECORDED but deliberately NOT part of the staleness comparison: it is what the OpenAPI entries cite (\"Registered at <file>:<line>\"), so it is kept for a human tracing an operation, while a registration that merely SHIFTED because an unrelated edit added a line above it is not a surface change and must not turn this lock red — a lock that fails on a moved line number teaches people to regenerate it without reading the diff, which is the failure mode a lock exists to prevent. What IS compared is the route set, both directions, and the middleware set.",
   "counts": {
     "inference": 15,
-    "management": 174,
+    "management": 176,
     "management_get": 75,
-    "management_post": 98,
+    "management_post": 100,
     "middleware": 13
   },
   "inference": [
@@ -105,13 +105,13 @@
       "method": "ALL",
       "path": "/api/auth/{*path}",
       "file": "index.mjs",
-      "line": 576
+      "line": 578
     },
     {
       "method": "GET",
       "path": "{*path}",
       "file": "index.mjs",
-      "line": 973
+      "line": 986
     },
     {
       "method": "GET",
@@ -423,7 +423,7 @@
       "method": "GET",
       "path": "/api/health",
       "file": "index.mjs",
-      "line": 558
+      "line": 560
     },
     {
       "method": "GET",
@@ -453,7 +453,7 @@
       "method": "GET",
       "path": "/api/pages/{*path}",
       "file": "index.mjs",
-      "line": 896
+      "line": 909
     },
     {
       "method": "GET",
@@ -507,13 +507,13 @@
       "method": "GET",
       "path": "/api/pages/shell",
       "file": "index.mjs",
-      "line": 852
+      "line": 859
     },
     {
       "method": "GET",
       "path": "/api/palette/:type",
       "file": "index.mjs",
-      "line": 727
+      "line": 734
     },
     {
       "method": "GET",
@@ -549,13 +549,13 @@
       "method": "GET",
       "path": "/robots.txt",
       "file": "index.mjs",
-      "line": 909
+      "line": 922
     },
     {
       "method": "GET",
       "path": "/sitemap.xml",
       "file": "index.mjs",
-      "line": 924
+      "line": 937
     },
     {
       "method": "POST",
@@ -1009,6 +1009,12 @@
     },
     {
       "method": "POST",
+      "path": "/api/discord/interactions",
+      "file": "discord-transport.mjs",
+      "line": 482
+    },
+    {
+      "method": "POST",
       "path": "/api/metrics/vitals",
       "file": "public.mjs",
       "line": 1275
@@ -1141,6 +1147,12 @@
     },
     {
       "method": "POST",
+      "path": "/api/telegram/webhook",
+      "file": "telegram-transport.mjs",
+      "line": 385
+    },
+    {
+      "method": "POST",
       "path": "/api/webhook/payment",
       "file": "webhook.mjs",
       "line": 118
@@ -1163,97 +1175,101 @@
     "api/pricing": 1,
     "robots.txt": 1,
     "sitemap.xml": 1,
+    "api/discord": 1,
     "api/payment": 1,
+    "api/telegram": 1,
     "api/webhook": 1
   },
   "middleware": [
     {
       "path": "/api/admin",
       "file": "index.mjs",
-      "line": 719,
+      "line": 726,
       "kind": "rate-limit"
     },
     {
       "path": "/api/auth",
       "file": "index.mjs",
-      "line": 569,
+      "line": 571,
       "kind": "middleware"
     },
     {
       "path": "/api/changelog",
       "file": "index.mjs",
-      "line": 716,
+      "line": 723,
       "kind": "rate-limit"
     },
     {
       "path": "/api/docs",
       "file": "index.mjs",
-      "line": 715,
+      "line": 722,
       "kind": "rate-limit"
     },
     {
       "path": "/api/metrics",
       "file": "index.mjs",
-      "line": 713,
+      "line": 720,
       "kind": "rate-limit"
     },
     {
       "path": "/api/models",
       "file": "index.mjs",
-      "line": 710,
+      "line": 717,
       "kind": "middleware"
     },
     {
       "path": "/api/pages",
       "file": "index.mjs",
-      "line": 718,
+      "line": 725,
       "kind": "rate-limit"
     },
     {
       "path": "/api/palette",
       "file": "index.mjs",
-      "line": 717,
+      "line": 724,
       "kind": "rate-limit"
     },
     {
       "path": "/api/playground",
       "file": "index.mjs",
-      "line": 720,
+      "line": 727,
       "kind": "rate-limit"
     },
     {
       "path": "/api/pricing",
       "file": "index.mjs",
-      "line": 712,
+      "line": 719,
       "kind": "middleware"
     },
     {
       "path": "/api/providers",
       "file": "index.mjs",
-      "line": 711,
+      "line": 718,
       "kind": "middleware"
     },
     {
       "path": "/api/status",
       "file": "index.mjs",
-      "line": 714,
+      "line": 721,
       "kind": "rate-limit"
     },
     {
       "path": "/assets",
       "file": "index.mjs",
-      "line": 952,
+      "line": 965,
       "kind": "static"
     }
   ],
   "sources": {
     "apps/web/server/admin.mjs": "50f8f655243155383ee3687a8a5cf9870a8d437e58233e3aba96ea4b6bcf8f83",
-    "apps/web/server/index.mjs": "80c9388d55cee4133a3e332648645ad68cb062db647a2c4ed9abcf8bb05f5121",
+    "apps/web/server/discord-transport.mjs": "a5e2f124f1e4c40c74d5dfcb258fd478edee476363df85b83519e66feefa527c",
+    "apps/web/server/index.mjs": "fa330322396d6d5582d84e21877cfc2b74b594667755afff44136eebae743639",
     "apps/web/server/pages.mjs": "dd5a35aacb51ae739975acd3a2c79111a6f431c2a4e4f86e1d53d9c0dcadc043",
     "apps/web/server/payment-confirm.mjs": "9e03e51964c3122329d6654d9db2e6c9a498d1e6a86ffb8018f4d554032145d1",
     "apps/web/server/playground.mjs": "60c2f846256a8a07f99769cbdb3a53ed593d1ca528ea82e64e463ebe212bf60b",
     "apps/web/server/public.mjs": "c2ee82bb63b4b0b70284ae4ad1336c8dcd46234004f5ebf22352c87930322c3e",
     "apps/web/server/rate-limit.mjs": "72545a3d910a086142a322a28938fb01b4f81cff750225afd39915e3203e3bbd",
+    "apps/web/server/telegram-transport.mjs": "6d7421dc1d294acdb15777e0eaffb14354802e4398c339cfce430c28de1114cf",
     "apps/web/server/webhook.mjs": "ecc1a655f8f804a87715879c57020aea95adfcbb0f07c642cd2adb2f062d948b",
     "backend/go/internal/proxy/proxy.go": "f815a61ba34eab2cb649aa964f72e64aed03aa1504c5c7635fc67cc77a4e0918"
   }

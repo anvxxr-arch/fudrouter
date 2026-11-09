@@ -36,6 +36,8 @@ import {
 import { drizzlePaymentConfirmStore } from '@fudrouter/platform/server/payment-confirm.ts';
 import { drizzleGatewayStore } from '@fudrouter/platform/server/gateway-store.ts';
 import { drizzleSubscriptionWriter } from '@fudrouter/platform/server/grant.ts';
+import { telegramApproverUsers } from '@fudrouter/platform/server/approval-env.ts';
+import { drizzleApprovalAnswerWriter } from '@fudrouter/platform/server/claim.ts';
 
 /** Header Telegram sets on every webhook delivery when a secret token is set. */
 export const TELEGRAM_SECRET_TOKEN_HEADER = 'x-telegram-bot-api-secret-token';
@@ -206,6 +208,10 @@ function defaultApprovers() {
 	return parseApprovers(process.env[APPROVERS_ENV]);
 }
 
+function defaultTelegramApproverUsers() {
+	return telegramApproverUsers();
+}
+
 /** Build the adapter's TelegramBotDeps from ctx overrides + the real durable seams. */
 function buildDeps(opts, db) {
 	const idfn = opts.newId ?? newId;
@@ -218,10 +224,14 @@ function buildDeps(opts, db) {
 	const resolveClaim =
 		opts.resolveClaim ?? (claimWriter ? (paymentId) => claimWriter.resolve(paymentId) : () => Promise.resolve(null));
 	const tokenGetter = opts.botToken ?? (() => process.env[TELEGRAM_BOT_TOKEN_ENV] ?? null);
+	const answerWriter = db ? drizzleApprovalAnswerWriter(db) : null;
 	return {
 		send: opts.send ?? makeSend(tokenGetter, opts.log),
 		answerCallback: opts.answerCallback ?? makeAnswerCallback(tokenGetter, opts.log),
 		approvers: opts.approvers ?? defaultApprovers(),
+		approverUsers: opts.approverUsers ?? defaultTelegramApproverUsers(),
+		answerApproval: opts.answerApproval ?? (answerWriter ? (paymentId, answeredBy, answeredAt) => answerWriter.answer(paymentId, answeredBy, answeredAt) : undefined),
+		rejectPayment: opts.rejectPayment ?? (answerWriter ? (paymentId) => answerWriter.reject(paymentId) : undefined),
 		now: opts.now,
 		accountIdFor: opts.accountIdFor ?? ((chatId) => accountIdForTelegram(db, chatId)),
 		findPendingPayment: opts.findPendingPayment ?? ((accountId) => findPendingPayment(db, accountId)),
@@ -250,7 +260,8 @@ export async function dispatchUpdate(handlers, deps, update) {
 			id: String(cq.id ?? ''),
 			data: String(cq.data ?? ''),
 			answer: decoded.answer,
-			claim: decoded.claim
+			claim: decoded.claim,
+			actorId: String(cq.from?.id ?? '')
 		});
 		return result;
 	}

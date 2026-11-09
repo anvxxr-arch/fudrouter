@@ -50,6 +50,10 @@ function makeSeams(overrides = {}) {
 			}
 		},
 		approvers: ['adm-1', 'adm-2'],
+		// C2: the component interaction's actor is discord user 'u2'; the
+		// fail-closed approverUsers gate must authorise THEM, else every approve
+		// deny-alls. This is the seam be-platform added to the bot handler.
+		approverUsers: ['u2'],
 		now: new Date('2026-11-09T12:00:00Z'),
 		accountIdFor: async () => 'acc_1',
 		findPendingPayment: async () => ({ paymentId: 'pay_1', planId: 'sub_7d' }),
@@ -245,6 +249,15 @@ test('discord: unknown slash command answers the shared unknown-plan text', asyn
 	const out = await handleDiscordInteraction(slashInteraction('bogus'), seams);
 	assert.equal(out.type, 4);
 	assert.match(out.data.content, /Unknown command/);
+});
+
+test('discord: a non-approver actor is refused by the transport seam (C2)', async () => {
+	const { seams, confirmed } = makeSeams({ approverUsers: [] /* empty => deny-all */ });
+	const out = await handleDiscordInteraction(componentInteraction('approval:yes:pay_1'), seams);
+
+	assert.equal(confirmed.length, 0, 'a non-approver must never reach the grant seam');
+	assert.equal(out.type, 4);
+	assert.match(out.data.content, /not an approver/i);
 });
 
 test('discord: unknown component custom-id is answered, never granted', async () => {

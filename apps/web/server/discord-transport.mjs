@@ -36,7 +36,7 @@ import {
 	parseApprovalCustomId
 } from '@fudrouter/platform/server/discord-bot.ts';
 import { parseApprovers } from '@fudrouter/platform/server/approval.ts';
-import { APPROVERS_ENV } from '@fudrouter/platform/server/approval-env.ts';
+import { APPROVERS_ENV, discordApproverUsers } from '@fudrouter/platform/server/approval-env.ts';
 import { createPayment } from '@fudrouter/platform/server/gateway.ts';
 import { drizzleGatewayStore } from '@fudrouter/platform/server/gateway-store.ts';
 import {
@@ -232,6 +232,9 @@ export async function handleDiscordInteraction(interaction, deps) {
 		grant: deps.grant,
 		claim: deps.claim,
 		approvers: deps.approvers ?? [],
+		approverUsers: deps.approverUsers ?? [],
+		answerApproval: deps.answerApproval,
+		rejectPayment: deps.rejectPayment,
 		now: deps.now
 	};
 	const norm = normalizeInteraction(interaction);
@@ -273,11 +276,13 @@ export async function handleDiscordInteraction(interaction, deps) {
 /** CS1's claim writer is added to @fudrouter/platform/server/claim.ts; load it
  * lazily so this module still imports while that sibling lands. */
 let _claimWriterModule;
+let _answerWriterModule;
 async function claimWriterFactory() {
 	if (typeof _claimWriterModule === 'undefined') {
 		try {
 			const mod = await import('@fudrouter/platform/server/claim.ts');
 			_claimWriterModule = typeof mod.drizzleClaimWriter === 'function' ? mod.drizzleClaimWriter : null;
+			if (typeof mod.drizzleApprovalAnswerWriter === 'function') _answerWriterModule = mod.drizzleApprovalAnswerWriter;
 		} catch {
 			_claimWriterModule = null;
 		}
@@ -321,10 +326,11 @@ export async function discordSendDirect(channelId, message, token = process.env.
 }
 
 /** Build the seams dispatch consumes, wired to the real DB + env. */
-async function buildProductionSeams({ getDb, approvers, now }) {
+async function buildProductionSeams({ getDb, approvers, approverUsers, now }) {
 	const db = getDb ? getDb() : null;
 
 	const claimWriter = await claimWriterFactory();
+	const answerWriter = db && _answerWriterModule ? _answerWriterModule(db) : null;
 	const claim =
 		db && claimWriter
 			? {
@@ -362,6 +368,9 @@ async function buildProductionSeams({ getDb, approvers, now }) {
 		grant,
 		claim,
 		approvers: approvers(),
+		approverUsers: approverUsers(),
+		answerApproval: answerWriter ? (paymentId, answeredBy, answeredAt) => answerWriter.answer(paymentId, answeredBy, answeredAt) : undefined,
+		rejectPayment: answerWriter ? (paymentId) => answerWriter.reject(paymentId) : undefined,
 		now: now(),
 		accountIdFor: (userId) => discordAccountUserId(db, userId),
 		findPendingPayment: (accountId) => discordPendingPayment(db, accountId),
@@ -426,6 +435,7 @@ export function registerDiscordInteractions(app, ctx = {}) {
 	const getPublicKey = ctx.getPublicKey ?? (() => process.env.FLEXYROUTE_PUBLIC_KEY ?? null);
 	const getDb = ctx.getDb ?? (() => null);
 	const approvers = ctx.approvers ?? (() => parseApprovers(process.env[APPROVERS_ENV]));
+	const approverUsers = ctx.approverUsers ?? (() => discordApproverUsers());
 	const now = ctx.now ?? (() => new Date());
 
 	const publicKey = getPublicKey();
@@ -450,7 +460,7 @@ export function registerDiscordInteractions(app, ctx = {}) {
 					signature: headerValue(req, 'x-signature-ed25519'),
 					timestamp: headerValue(req, 'x-signature-timestamp'),
 					publicKeyHex: publicKey,
-					deps: await buildProductionSeams({ getDb, approvers, now })
+					deps: await buildProductionSeams({ getDb, approvers, approverUsers, now })
 				});
 				res.status(result.status).json(result.body);
 			} catch (err) {

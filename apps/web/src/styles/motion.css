@@ -1,0 +1,122 @@
+/*
+ * FE-Motion -- microinteraction foundation (hack sprint).
+ *
+ * Owner: FE-Motion. Self-contained, no framework. FE-DesignSys imports this
+ * AFTER its token layer (`@import './styles/motion.css';` in index.css); this
+ * file does NOT define or redefine any DesignSys token. Every value is either
+ * a local --fx-* primitive or a `var(--token, fallback)` read of a token some
+ * other layer owns, so it degrades to the MASTER.md dark palette if the token
+ * layer is missing.
+ *
+ * Correctness rules this file answers to:
+ *   - GPU only. Every animation/transition touches transform + opacity. No
+ *     width/height/margin/top/left/filter animation -- nothing here can cause
+ *     layout shift or a blur (WCAG 2.3.3: motion must not be a large,
+ *     unsteady, or vestibular trigger).
+ *   - Durations stay reasonable: 120ms click, 320ms entrance, 400ms ceiling;
+ *     the one infinite loop is the 1.4s loading shimmer, and it is small,
+ *     low-contrast, clipped to its own box, and switched off below.
+ *   - `both`/`forwards` fill never leaves an element invisible: the resting
+ *     state is the final state, so prefers-reduced-motion can collapse
+ *     everything to 0ms without a frame of hidden content (no fallback = bug).
+ */
+:root {
+  --fx-fast: 120ms;
+  --fx-med: 320ms;
+  --fx-slow: 400ms;
+  --fx-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --fx-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+[data-slot="button"]:not(:disabled):hover { transform: translateY(-1px); }
+[data-slot="button"]:not(:disabled):active { transform: translateY(0) scale(0.985); }
+
+.fx-lift {
+  transition: transform var(--fx-fast) var(--fx-ease-out), opacity var(--fx-fast) var(--fx-ease-out);
+}
+.fx-lift:hover { transform: translateY(-1px); }
+.fx-lift:active { transform: translateY(0) scale(0.99); }
+
+@keyframes fx-rise {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: none; }
+}
+.fx-rise { animation: fx-rise var(--fx-med) var(--fx-ease-out) both; }
+
+@keyframes fx-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.fx-fade { animation: fx-fade var(--fx-med) var(--fx-ease-out) both; }
+
+.fx-stagger > :nth-child(1) { --fx-i: 0; }
+.fx-stagger > :nth-child(2) { --fx-i: 1; }
+.fx-stagger > :nth-child(3) { --fx-i: 2; }
+.fx-stagger > :nth-child(4) { --fx-i: 3; }
+.fx-stagger > :nth-child(5) { --fx-i: 4; }
+.fx-stagger > :nth-child(6) { --fx-i: 5; }
+.fx-stagger > * { animation-delay: calc(var(--fx-i, 0) * 32ms); }
+
+@keyframes fx-breathe {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.55; }
+}
+[data-status="pending"],
+.fx-pending { animation: fx-breathe 1.8s var(--fx-ease-in-out) infinite; }
+
+.fx-skeleton {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-md, 8px);
+  background: var(--muted, #1a1e2f);
+}
+.fx-skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--foreground, #f8fafc) 8%, transparent) 50%,
+    transparent 100%
+  );
+  animation: fx-shimmer 1.4s var(--fx-ease-in-out) infinite;
+}
+@keyframes fx-shimmer { to { transform: translateX(100%); } }
+
+@keyframes fx-toast-in {
+  from { opacity: 0; transform: translateY(-8px) scale(0.98); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes fx-toast-out {
+  from { opacity: 1; transform: none; }
+  to   { opacity: 0; transform: translateY(-8px) scale(0.98); }
+}
+.fx-toast { animation: fx-toast-in var(--fx-fast) var(--fx-ease-out) both; }
+.fx-toast[data-state="closed"] { animation: fx-toast-out var(--fx-fast) var(--fx-ease-out) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  [data-status="pending"],
+  .fx-pending,
+  .fx-skeleton::after,
+  .fx-rise,
+  .fx-fade,
+  .fx-toast {
+    animation: none !important;
+  }
+  [data-slot="button"]:not(:disabled),
+  .fx-lift {
+    transition-duration: 0ms !important;
+  }
+  [data-slot="button"]:not(:disabled):hover,
+  [data-slot="button"]:not(:disabled):active,
+  .fx-lift:hover,
+  .fx-lift:active {
+    transform: none !important;
+  }
+  .fx-skeleton::after {
+    transform: none !important;
+    opacity: 0;
+  }
+}

@@ -108,7 +108,7 @@ function rawPublicKeyHex(publicKey) {
 	return der.subarray(der.length - 32).toString('hex');
 }
 
-function signedRequest(body, privateKey, publicKey, timestamp = '1700000000') {
+function signedRequest(body, privateKey, publicKey, timestamp = String(Math.floor(Date.now() / 1000))) {
 	const rawBody = typeof body === 'string' ? body : JSON.stringify(body);
 	const signature = ed25519Sign(null, Buffer.from(`${timestamp}${rawBody}`), privateKey).toString('hex');
 	return { rawBody, signature, timestamp, publicKeyHex: rawPublicKeyHex(publicKey) };
@@ -138,6 +138,13 @@ test('discord: verify false — a tampered body / wrong key / wrong timestamp fa
 
 	// Wrong timestamp (the signed content no longer matches).
 	assert.equal(verifyDiscordRequest({ rawBody, signature, timestamp: '1700000001', publicKeyHex }), false);
+
+	// W7: a correctly-signed but STALE timestamp (older than 5 minutes) is a replay -> false.
+	const stale = signedRequest({ type: 1 }, privateKey, publicKey, String(Math.floor(Date.now() / 1000) - 600));
+	assert.equal(
+		verifyDiscordRequest({ rawBody: stale.rawBody, signature: stale.signature, timestamp: stale.timestamp, publicKeyHex: stale.publicKeyHex }),
+		false
+	);
 
 	// Missing/blank fields fail closed, never throwing.
 	assert.equal(verifyDiscordRequest({ rawBody: '', signature, timestamp, publicKeyHex }), false);

@@ -147,6 +147,17 @@ export function parseApprovers(raw: string | null | undefined): string[] {
 }
 
 /**
+ * Parse an approver-USER allow-list (C2). The entries are channel platform
+ * user ids (Telegram user_id, Discord user_id), NOT the prompt destinations in
+ * `FUDROUTER_APPROVERS`. Same grammar and fail-loud rules as
+ * `parseApprovers`: comma-separated, trimmed, deduplicated, and a malformed
+ * entry throws rather than silently admitting a typed id.
+ */
+export function parseApproverUsers(raw: string | null | undefined): string[] {
+	return parseApprovers(raw);
+}
+
+/**
  * Parse the escalation TTL (`FUDROUTER_APPROVAL_TTL_MS`, milliseconds). Unset,
  * blank, or a non-finite/negative value falls back to the 15-minute default, so
  * a malformed value can never disable escalation entirely (or turn it into an

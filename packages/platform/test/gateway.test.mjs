@@ -33,7 +33,7 @@ import {
 	nonceFresh,
 	confirmPayment
 } from '../server/gateway.ts';
-import { PLANS } from '../server/payments.ts';
+import { PLANS, qrisFor } from '../server/payments.ts';
 import { SUBSCRIPTION_BUCKET } from '../server/grant.ts';
 
 const SECRET = 'top-secret-gateway-key';
@@ -123,6 +123,26 @@ test('create: warn — a missing idempotencyKey is refused, not defaulted', asyn
 	const r = await createPayment({ store: fakeStore() }, { ...SUB_7D, idempotencyKey: '' });
 	assert.equal(r.ok, false);
 	assert.equal(r.reason, 'missing_idempotency_key');
+});
+
+test('create: retry divergence — a DIFFERENT amount must not mint a different QR', async () => {
+	// An idempotencyKey owns ONE payment intent. A retry that changes the
+	// amount must still reproduce the FIRST intent's payload: the returned `qr`
+	// has to match the stored record's amount, or the member pays a different
+	// amount than the settlement will verify against (resolveGrant).
+	const store = fakeStore();
+	const ctx = { store };
+
+	const first = await createPayment(ctx, { ...SUB_7D, idempotencyKey: 'alice-divergence' });
+	const retry = await createPayment(ctx, { ...SUB_7D, amountIdr: 1000, idempotencyKey: 'alice-divergence' });
+
+	assert.equal(first.ok, true);
+	assert.equal(retry.ok, true);
+	assert.equal(retry.state, 'existing');
+	// The record is the FIRST intent's row (never overwritten)…
+	assert.equal(retry.record.amountIdr, first.record.amountIdr);
+	// …and the QR it shows must encode that stored amount, not the retry's 1000.
+	assert.equal(retry.qr, qrisFor(first.record.amountIdr));
 });
 
 // --- callback verify + replay ----------------------------------------------

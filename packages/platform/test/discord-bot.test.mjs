@@ -44,6 +44,7 @@ test('handleApproval: yes — a matching payment calls the grant seam once', asy
 			}
 		},
 		approvers: ['admin-1'],
+		approverUsers: ['admin'],
 		now: NOW
 	};
 	const interaction = { id: 'i1', userId: 'admin', userDisplayName: 'admin', channelId: 'admin-1' };
@@ -73,6 +74,7 @@ test('handleApproval: no — follows up and never grants', async () => {
 			}
 		},
 		approvers: ['admin-1'],
+		approverUsers: ['admin'],
 		now: NOW
 	};
 	const interaction = {
@@ -92,3 +94,128 @@ test('handleApproval: no — follows up and never grants', async () => {
 	assert.match(sent[0].m, /We could not confirm your payment for 7 Days \(Rp 30\.000\)/);
 	assert.match(sent[0].m, /complete the QRIS payment/);
 });
+
+
+// --- C2: actor authorization -------------------------------------------------
+
+test('handleApproval: a non-approver is refused before any grant (deny-all)', async () => {
+	const replies = [];
+	const confirmed = [];
+	const ctx = {
+		reply: async (i, m) => replies.push({ i, m }),
+		send: async (ch, m) => {},
+		grant: {
+			confirmAndGrant: async () => {
+				confirmed.push(1);
+				throw new Error('grant must not run for a non-approver');
+			}
+		},
+		approvers: ['admin-1'],
+		approverUsers: [], // empty => deny all
+		now: NOW
+	};
+	const interaction = {
+		id: 'i3',
+		userId: 'stranger',
+		userDisplayName: 'stranger',
+		channelId: 'admin-1'
+	};
+
+	await handleApproval(interaction, 'yes', payment, ctx);
+
+	assert.equal(confirmed.length, 0, 'no grant for a non-approver');
+	assert.ok(replies.some((r) => /not an approver/i.test(r.m)));
+});
+
+test('handleApproval: an allow-listed discord user is authorized', async () => {
+	const replies = [];
+	const confirmed = [];
+	const ctx = {
+		reply: async (i, m) => replies.push({ i, m }),
+		send: async (ch, m) => {},
+		grant: {
+			confirmAndGrant: async (p) => {
+				confirmed.push(p);
+				return { ok: true, subscriptionId: 'sub_1', plan: p.plan, days: 7 };
+			}
+		},
+		approvers: ['admin-1'],
+		approverUsers: ['123456789012345678'],
+		now: NOW
+	};
+	const interaction = {
+		id: 'i4',
+		userId: '123456789012345678',
+		userDisplayName: 'admin',
+		channelId: 'admin-1'
+	};
+
+	await handleApproval(interaction, 'yes', payment, ctx);
+
+	assert.equal(confirmed.length, 1);
+});
+
+// --- C3: answeredBy persist + status flip ------------------------------------
+
+test('handleApproval: a "no" records the answer and flips the payment to rejected', async () => {
+	const answers = [];
+	const rejected = [];
+	const confirmed = [];
+	const ctx = {
+		reply: async (i, m) => {},
+		send: async (ch, m) => {},
+		grant: {
+			confirmAndGrant: async () => {
+				confirmed.push(1);
+				throw new Error('grant must not run on "no"');
+			}
+		},
+		approvers: ['admin-1'],
+		approverUsers: ['admin'],
+		now: NOW,
+		answerApproval: async (paymentId, answeredBy, answeredAt) => answers.push({ paymentId, answeredBy, answeredAt }),
+		rejectPayment: async (paymentId) => rejected.push(paymentId)
+	};
+	const interaction = {
+		id: 'i5',
+		userId: 'admin',
+		userDisplayName: 'admin',
+		channelId: 'admin-1',
+		memberChannelId: 'dm-9'
+	};
+
+	await handleApproval(interaction, 'no', payment, ctx);
+
+	assert.equal(confirmed.length, 0);
+	assert.deepEqual(answers, [{ paymentId: 'pay_1', answeredBy: 'admin', answeredAt: NOW.getTime() }]);
+	assert.deepEqual(rejected, ['pay_1']);
+});
+
+test('handleApproval: a "yes" records the answer and does not reject', async () => {
+	const answers = [];
+	const rejected = [];
+	const confirmed = [];
+	const ctx = {
+		reply: async (i, m) => {},
+		send: async (ch, m) => {},
+		grant: {
+			confirmAndGrant: async (p) => {
+				confirmed.push(p);
+				return { ok: true, subscriptionId: 'sub_1', plan: p.plan, days: 7 };
+			}
+		},
+		approvers: ['admin-1'],
+		approverUsers: ['admin'],
+		now: NOW,
+		answerApproval: async (paymentId, answeredBy, answeredAt) => answers.push({ paymentId, answeredBy, answeredAt }),
+		rejectPayment: async (paymentId) => rejected.push(paymentId)
+	};
+	const interaction = { id: 'i6', userId: 'admin', userDisplayName: 'admin', channelId: 'admin-1' };
+
+	await handleApproval(interaction, 'yes', payment, ctx);
+
+	assert.equal(confirmed.length, 1);
+	assert.deepEqual(answers, [{ paymentId: 'pay_1', answeredBy: 'admin', answeredAt: NOW.getTime() }]);
+	assert.deepEqual(rejected, []);
+});
+

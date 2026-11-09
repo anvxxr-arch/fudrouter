@@ -31,7 +31,7 @@
 // `approvers`/`ttlMs` to approval-env.ts and `prompt` to whichever transport is
 // live (Telegram and/or Discord), using the adminApprovalPrompt core render.
 
-import { eq } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 
 import { escalate, type ApprovalClaim } from './approval.ts';
 import { payment } from './db/schema.ts';
@@ -210,7 +210,10 @@ export function drizzleClaimPersistence(db: DbTx | null): ClaimPersistence {
  * The claim scan: every `payment` still open for approval (status='claimed' and
  * not yet 'confirmed'/'rejected'). `raw->approval` may be present (a prior
  * tick) or absent (a fresh claim) — both are fed to `tickApproval`, which
- * bootstraps the latter. Returns at most `limit` rows per tick.
+ * bootstraps the latter. Returns at most `limit` rows per tick, ordered oldest
+ * claim first (`updated_at`, then `id`) so the slice is deterministic: the
+ * most overdue prompt is handled first and a claim beyond the slice is not
+ * starved by heap order.
  */
 export async function listOpenPayments(db: DbTx | null, limit = 200): Promise<OpenClaimRow[]> {
 	if (!db) return [];
@@ -226,6 +229,12 @@ export async function listOpenPayments(db: DbTx | null, limit = 200): Promise<Op
 		})
 		.from(payment)
 		.where(eq(payment.status, 'claimed'))
+		// Oldest claim first, so a tick always handles the most overdue prompt.
+		// Without a deterministic order the LIMIT slice depends on heap order
+		// and a claim past the first `limit` rows starves: it is never
+		// bootstrapped, so its primary is never prompted at all. (id as the
+		// tiebreak so two rows sharing a timestamp swap between ticks.)
+		.orderBy(asc(payment.updatedAt), asc(payment.id))
 		.limit(limit);
 	return rows.map((r) => {
 		const raw = (r.raw as Record<string, unknown> | undefined) ?? {};

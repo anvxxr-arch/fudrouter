@@ -61,6 +61,42 @@ export function paymentPrompt(planId: string): { text: string; qris: string; amo
 }
 
 /**
+ * The longest a member-controlled field may reach the admin approval prompt.
+ * A member handle and a proof URL are member input; the prompt is rendered into
+ * a chat an approver reads, so an overlong value is truncated, never carried
+ * verbatim into an unbounded message.
+ */
+const MAX_ADMIN_PROMPT_FIELD = 200;
+const MAX_ADMIN_PROMPT_URL = 2048;
+
+/**
+ * Sanitize a member-controlled display string before it is interpolated into
+ * the admin approval prompt (C4):
+ *
+ *   - strips control characters (a newline split across a chat is a spoofing
+ *     vector in its own right);
+ *   - removes Discord/Slack chat-widget ping syntax (`<@id>`, `<#channel>`,
+ *     `<@&role>`, `<!channel>`) outright;
+ *   - neutralises the mass-mention words `@everyone`/`@here` with a zero-width
+ *     space so they still read naturally but never produce a broadcast ping;
+ *   - truncates to `max` characters.
+ *
+ * The zero-width-space neutralisation (rather than stripping) keeps the text
+ * human-legible while it is inert in every renderer that honours the literal
+ * `@everyone`/`@here` token.
+ */
+export function sanitizeAdminPrompt(value: string, max: number): string {
+	if (typeof value !== 'string') return '';
+	let out = value;
+	// eslint-disable-next-line no-control-regex
+	out = out.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '');
+	out = out.replace(/<[@#!a][^>]*>/g, '');
+	out = out.replace(/@everyone/gi, '@\u200beveryone');
+	out = out.replace(/@here/gi, '@\u200bhere');
+	return out.trim().slice(0, max);
+}
+
+/**
  * The admin approval prompt (rule 21). `member` is a display name, `proofUrl`
  * the image reference the member sent. The two buttons map to `yes`/`no`.
  */
@@ -70,11 +106,16 @@ export function adminApprovalPrompt(member: string, planId: string, proofUrl: st
 } {
 	const plan = planOf(planId);
 	const amount = plan ? formatIdr(plan.priceIdr) : 'unknown amount';
+	// C4: `member` and `proofUrl` are member input — sanitize before they are
+	// interpolated into the approver's prompt so a mention cannot ping the
+	// admin channel.
+	const memberSafe = sanitizeAdminPrompt(member, MAX_ADMIN_PROMPT_FIELD);
+	const proofSafe = sanitizeAdminPrompt(proofUrl, MAX_ADMIN_PROMPT_URL);
 	return {
 		text:
-			`Payment claim from ${member}\n` +
+			`Payment claim from ${memberSafe}\n` +
 			`Plan: ${planId} (${amount})\n` +
-			`Reference: ${proofUrl || '(no image)'}\n\n` +
+			`Reference: ${proofSafe || '(no image)'}\n\n` +
 			`Did this user really make the transaction? This is the image reference.`,
 		buttons: [
 			{ id: 'yes', label: 'Yes, real — publish key' },

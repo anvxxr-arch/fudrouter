@@ -306,7 +306,7 @@ async function discordPendingPayment(db, accountId) {
 }
 
 /** Out-of-band Discord send (admin prompt, member follow-up), best-effort. */
-async function discordSendDirect(channelId, message, token = process.env.FLEXYROUTE_BOT_TOKEN) {
+export async function discordSendDirect(channelId, message, token = process.env.FLEXYROUTE_BOT_TOKEN) {
 	if (!token || !channelId) return;
 	try {
 		await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {

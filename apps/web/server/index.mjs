@@ -30,8 +30,11 @@ import { clientIp, requestOrigin } from './lib/ip.mjs';
 import { readShell, withHead, seo } from './lib/head.mjs';
 import { registerInboundWebhook } from './webhook.mjs';
 import { registerPaymentConfirm } from './payment-confirm.mjs';
-import { registerTelegramWebhook } from './telegram-transport.mjs';
-import { registerDiscordInteractions } from './discord-transport.mjs';
+import { registerTelegramWebhook, makeSend as telegramMakeSend } from './telegram-transport.mjs';
+import { registerDiscordInteractions, discordSendDirect } from './discord-transport.mjs';
+import { createEscalationLoop } from '@fudrouter/platform/server/approval-loop.ts';
+import { adminApprovalPrompt } from '@fudrouter/platform/server/bots.ts';
+import { approvers as approvalApprovers, approvalTtlMs } from '@fudrouter/platform/server/approval-env.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.join(__dirname, '..', 'dist');
@@ -689,6 +692,47 @@ registerInboundWebhook(app, { getDb: () => db });
 // unset (fail closed, logged inside). Registered before express.json so the
 // Ed25519 signature sees the exact raw bytes Discord signed.
 registerDiscordInteractions(app, { getDb: () => db });
+
+// ---- B5b: durable escalation loop ----
+// The one runtime place that calls approve/escalate (B5) on a timer. Lives in
+// the console, not the workers, because ONLY this process holds the bot secret
+// to actually SEND the admin prompt. Started only when >=2 approvers are
+// configured (a single approver cannot escalate - SPOF) AND at least one bot
+// transport is live (Telegram needs TELEGRAM_WEBHOOK_SECRET, Discord needs
+// FLEXYROUTE_PUBLIC_KEY). The loop itself is fail-soft and idempotent.
+const _tgTokenGet = () => process.env.TELEGRAM_BOT_TOKEN ?? null;
+const _tgSend = telegramMakeSend(_tgTokenGet, console);
+const _approverList = approvalApprovers();
+const _tgLive = Boolean(process.env.TELEGRAM_WEBHOOK_SECRET && process.env.TELEGRAM_BOT_TOKEN);
+const _dgLive = Boolean(process.env.FLEXYROUTE_PUBLIC_KEY && process.env.FLEXYROUTE_BOT_TOKEN);
+if (_approverList.length >= 2 && (_tgLive || _dgLive)) {
+	const loop = createEscalationLoop({
+		getDb: () => db,
+		approvers: _approverList,
+		ttlMs: approvalTtlMs(),
+		tickMs: 60_000,
+		prompt: async (approverIdx, payment) => {
+			const approver = _approverList[approverIdx];
+			if (!approver) return;
+			const prompt = adminApprovalPrompt(payment.memberName, payment.planId, payment.proofUrl);
+			if (payment.channel === 'telegram' && _tgLive) {
+				await _tgSend(approver, prompt.text, {
+					buttons: prompt.buttons,
+					claim: { paymentId: payment.id, memberChatId: '', memberName: payment.memberName }
+				});
+			} else if (_dgLive) {
+				await discordSendDirect(approver, prompt.text);
+			}
+		}
+	});
+	console.log(`[approval-loop] started (${_approverList.length} approvers, ttl=${approvalTtlMs()}ms)`);
+	// The loop timer is unref'd inside; the HTTP listener keeps the process alive.
+	globalThis.__approvalLoop = loop;
+} else {
+	console.warn(
+		`[approval-loop] not started: need >=2 approvers (got ${_approverList.length}) and a live bot transport (tg=${_tgLive}, dg=${_dgLive})`
+	);
+}
 
 // Owner rule 18: max payload 32 MB. The previous 1 MB cap refused a legitimate
 // large prompt (a long agent context) before it reached the router. 32 MiB is

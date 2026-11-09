@@ -27,7 +27,7 @@
 1. **A1 scrub PROD belum dijalankan** — prod masih 34 migrasi (berhenti 0032) + 2 baris korup `5.55e18`. Flip = prasyarat operator manual via `ops/scrub-balance-anomaly.step1/2.sql` + pre-image.
 2. **Migrasi 0038 belum di-apply prod** — `GrantSubscription` `ON CONFLICT` gagal tanpa index unik; WAJIB `ops/migrate.sh` sebelum grant writer live.
 3. **`recordClaim` seam** (C1/C2) belum di-wire ke jalur claim nyata (`pages.mjs`) → `payment.status='claimed'` belum ditulis dari bot.
-4. **Transport persist timer** (B5) belum ada job yang memanggil `escalate`/`approvalRoute` — escalation spec-complete, belum live.
+4. ~~**Transport persist timer** (B5) belum ada job yang memanggil `escalate`/`approvalRoute`~~ — resolved by B5b `approval-loop.ts` (durable tick, wired in the console alongside the bot transports).
 5. **Writer `credit_purchase` produksi** belum ada (flat subscription tidak perlu, tapi frpayg metered nanti butuh).
 6. **D-economics deferred** (D1–D5): gate = sinyal revenue (≥1 `payment` confirmed / ≥1 `subscription` aktif non-admin).
 

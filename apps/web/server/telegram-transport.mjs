@@ -124,7 +124,7 @@ async function telegramApi(token, method, payload) {
 	return res;
 }
 
-function makeSend(tokenGetter, log) {
+export function makeSend(tokenGetter, log) {
 	return async (chatId, text, opts) => {
 		const token = tokenGetter();
 		if (!token) {

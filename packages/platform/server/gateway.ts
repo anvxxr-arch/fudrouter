@@ -167,7 +167,18 @@ export async function createPayment(
 	const gatewayRef = gatewayRefFor(key);
 	const existing = await ctx.store.findPayment(gatewayRef);
 	if (existing) {
-		return { ok: true, gatewayRef, qr, record: existing, state: 'existing' };
+		// An idempotencyKey owns ONE payment intent. A retry that changes the
+		// amount must NOT hand back a QR for the retry's amount while the record
+		// keeps the first intent's amount — the member would pay X and the
+		// settlement would verify against Y. Reproduce the FIRST intent in full:
+		// the same record, and the QR for the record's own amount.
+		return {
+			ok: true,
+			gatewayRef,
+			qr: qrisFor(existing.amountIdr) ?? qr,
+			record: existing,
+			state: 'existing'
+		};
 	}
 
 	const record = await ctx.store.insertPayment({

@@ -17,7 +17,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { tickApproval, createEscalationLoop } from '../server/approval-loop.ts';
+import { tickApproval, createEscalationLoop, listOpenPayments } from '../server/approval-loop.ts';
 
 const TTL = 900_000; // 15 minutes
 const T0 = 1_700_000_000_000;
@@ -28,14 +28,56 @@ const APPROVERS = ['adm-1', 'adm-2', 'adm-3'];
 function fakeDb(rows) {
 	// A thenable builder chain mirroring drizzle: select().from().where().limit()
 	// and update().set().where(), each resolving to the programmed rows on await.
+	// orderBy() records the columns the caller asked for; the await applies them
+	// like Postgres would, so a test can pin the scan's order contract.
 	const chain = (result) => {
 		const b = {
 			from: () => b,
 			where: () => b,
-			limit: () => b,
+			orderBy(...cols) {
+				b._orderBy = cols;
+				return b;
+			},
+			limit: (n) => {
+				b._limit = n;
+				return b;
+			},
 			set: () => b,
 			then(resolve) {
-				resolve(result);
+				let out = result;
+				if (Array.isArray(out) && b._orderBy?.length) {
+					// drizzle hands orderBy() either a bare column (name on the
+				// descriptor) or an asc()/desc() SQL wrapper whose column sits in
+				// queryChunks. Read the SQL column name out of either shape.
+				const SQL_TO_JS = { updated_at: 'updatedAt', created_at: 'createdAt' };
+				const colName = (c) => {
+					if (!c) return undefined;
+					if (typeof c === 'string') return c;
+					if (c.name && typeof c.name === 'string') return c.name;
+					const chunks = c.queryChunks;
+					if (Array.isArray(chunks)) {
+						for (const ch of chunks) {
+							if (ch && typeof ch.name === 'string') return ch.name;
+						}
+					}
+					return undefined;
+				};
+				const keyOf = (c) => {
+					const name = colName(c);
+					return (name && SQL_TO_JS[name]) || name;
+				};
+					out = [...out].sort((x, y) => {
+						for (const col of b._orderBy) {
+							const key = keyOf(col);
+							const a = x[key] instanceof Date ? x[key].getTime() : x[key];
+							const z = y[key] instanceof Date ? y[key].getTime() : y[key];
+							if (a !== z) return a < z ? -1 : 1;
+						}
+						return 0;
+					});
+				}
+				if (Array.isArray(out) && b._limit !== undefined) out = out.slice(0, b._limit);
+				resolve(out);
 			}
 		};
 		return b;
@@ -216,3 +258,17 @@ test('createEscalationLoop: TTL elapsed with a stored claim -> prompts the next 
 		loop.stop();
 	}
 });
+
+
+test('listOpenPayments: rows come back sorted oldest claim first', async () => {
+	// Deterministic escalation: the oldest (longest-waiting) claims sit at the
+	// head of the scan, so a tick handles the most overdue prompt first.
+	const rows = [
+		openRow({ id: 'row_2', updatedAt: new Date(T0 + 300) }),
+		openRow({ id: 'row_0', updatedAt: new Date(T0 + 100) }),
+		openRow({ id: 'row_1', updatedAt: new Date(T0 + 200) })
+	];
+	const list = await listOpenPayments(fakeDb(rows));
+	assert.deepEqual(list.map((r) => r.id), ['row_0', 'row_1', 'row_2']);
+});
+

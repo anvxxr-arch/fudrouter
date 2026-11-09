@@ -12,6 +12,7 @@
 //   - confirm → grant (idempotent, frsubs)    -> payment-confirm.ts confirmAndGrant (B3b),
 //                                               which reaches grantForPayment → resolveGrant
 //   - WHICH approver holds the prompt (B5)    -> approval.ts approvalRoute / escalate
+//   - WHO may press the button (C2)           -> deps.approverUsers (actor allow-list)
 //
 // The split matches bots.ts's header (DECISIONS here, adapters own I/O) and the
 // "core ≠ transport" pattern gateway.ts uses: `TelegramBotDeps` carries the
@@ -82,15 +83,50 @@ export interface TelegramMessage {
 }
 
 /**
- * The claim identity a callback resolves to. Deliberately only `paymentId` and
- * (untrusted, transport-encoded) display facts: `paymentId` is the idempotency
- * anchor, and everything money-relevant is re-fetched by `resolveClaim` from the
- * trusted store — a tampered callback can never mint or redirect a grant.
+ * Telegram's InlineKeyboardButton.callback_data limit (Bot API): 1–64 BYTES.
+ */
+export const TELEGRAM_CALLBACK_DATA_MAX_BYTES = 64;
+
+/**
+ * Encode the approval button's callback_data. New contract (C1): the payload is
+ * ONLY `{"a":"yes|no","p":"<paymentId>"}` — never the member chat id or name.
+ * With a `pay_<uuidv7>` payment id the payload stays ≤ 58 bytes, inside the
+ * 64-byte Bot API limit. Throws (never truncates) if `paymentId` would push it
+ * over: a silently mangled callback is a failure that hides, while a loud one
+ * surfaces in the transport's logs.
+ */
+export function encodeApprovalCallbackData(answer: 'yes' | 'no', paymentId: string): string {
+	const data = JSON.stringify({ a: answer, p: paymentId });
+	const bytes = Buffer.byteLength(data, 'utf8');
+	if (bytes > TELEGRAM_CALLBACK_DATA_MAX_BYTES) {
+		throw new Error(
+			`callback_data is ${bytes} bytes, over Telegram's ${TELEGRAM_CALLBACK_DATA_MAX_BYTES}-byte limit (paymentId ${paymentId.length} chars)`
+		);
+	}
+	return data;
+}
+
+/**
+ * Guard: refuse any callback_data over the byte limit before any money decision.
+ * The transport is expected to enforce this too; this is the core-side backstop
+ * so a payment id that renders a too-long payload can never reach a grant.
+ */
+export function assertCallbackDataFits(data: string | null | undefined): void {
+	const bytes = Buffer.byteLength(String(data ?? ''), 'utf8');
+	if (bytes > TELEGRAM_CALLBACK_DATA_MAX_BYTES) {
+		throw new Error(`callback_data is ${bytes} bytes, over Telegram's ${TELEGRAM_CALLBACK_DATA_MAX_BYTES}-byte limit`);
+	}
+}
+
+/**
+ * The claim identity a callback resolves to. Deliberately only `paymentId`: the
+ * member chat and name are DISPLAY facts resolved server-side (member chat from
+ * the payment's account; name from the proof prompt), never trusted from the
+ * button. This single-field shape is what keeps the button payload under the
+ * 64-byte callback_data limit with a real 40-char payment id.
  */
 export interface TelegramClaim {
 	paymentId: string;
-	memberChatId: string;
-	memberName: string;
 }
 
 /** A callback query (the admin pressing Yes/No) as the transport normalises it. */
@@ -102,6 +138,8 @@ export interface TelegramCallbackQuery {
 	/** `yes` / `no` (anything else is fail-closed to follow-up). */
 	answer: string;
 	claim: TelegramClaim;
+	/** The Telegram USER id of whoever pressed the button (C2 actor identity). */
+	actorId: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -120,12 +158,16 @@ export interface TelegramBotDeps {
 	/**
 	 * The approver chats that receive the approval prompt, in escalation order:
 	 * `approvers[0]` is the primary, `approvers[1]` the first fallback, and so
-	 * on (owner rule 8/21; escalation rule S9/P1.3). One list — a single source
-	 * of truth — populated from `FUDROUTER_APPROVERS` by the transport (see
-	 * approval-env.ts). Empty means no approver is configured: fail closed,
-	 * the proof is still recorded but no prompt is sent.
+	 * on (owner rule 8/21; escalation rule S9/P1.3). These are PROMPT
+	 * DESTINATIONS (chat ids), NOT the human's identity.
 	 */
 	approvers: string[];
+	/**
+	 * The Telegram USER ids allowed to press the approve button (C2). Empty or
+	 * absent => EVERY actor is refused (fail-closed deny-all). Distinct from
+	 * `approvers`: that list routes the prompt, this one authorizes the actor.
+	 */
+	approverUsers: string[];
 	/** Frozen clock for tests; defaults to wall clock. */
 	now?: () => Date;
 	/** Member chat → platform account id. Owned by the transport (Telegram OAuth link). */
@@ -136,6 +178,16 @@ export interface TelegramBotDeps {
 	recordClaim(args: { paymentId: string; proofUrl: string }): Promise<{ ok: true } | { ok: false; reason: string }>;
 	/** Re-fetch the payment row behind a claim id (trusted store), or null when gone. */
 	resolveClaim(paymentId: string): Promise<PaymentConfirmRecord | null>;
+	/**
+	 * Resolve the member's Telegram chat id from the payment's platform account,
+	 * server-side (C1): `payment.account_id -> account.chat_id`. Never taken
+	 * from the button. null => the member has no reachable chat (ack only).
+	 */
+	memberChatIdFor?(accountId: string): Promise<string | null>;
+	/** Persist WHO answered + WHEN into raw.approval (C3). Wired to claim.ts. */
+	answerApproval?(paymentId: string, answeredBy: string, answeredAt: number): Promise<void>;
+	/** Flip a still-open payment to 'rejected' on a "no" (C3). Wired to claim.ts. */
+	rejectPayment?(paymentId: string): Promise<void>;
 	/** gateway.createPayment's store (B1) — mints the pending payment row. */
 	gatewayStore: GatewayStore;
 	/** payment-confirm.confirmAndGrant's store (B3b). */
@@ -295,11 +347,7 @@ async function handleProof(deps: TelegramBotDeps, msg: TelegramMessage): Promise
 	}
 
 	const name = msg.username ?? 'a member';
-	const claim: TelegramClaim = {
-		paymentId: pending.paymentId,
-		memberChatId: msg.chatId,
-		memberName: name
-	};
+	const claim: TelegramClaim = { paymentId: pending.paymentId };
 
 	// B5: prompt the PRIMARY approver. No approver configured -> fail closed
 	// (the proof is recorded, but nothing routes a yes/no to nowhere).
@@ -312,22 +360,53 @@ async function handleProof(deps: TelegramBotDeps, msg: TelegramMessage): Promise
 	await deps.send(routed.chatId, routed.text, routed.opts);
 }
 
+/** True when `actorId` is allowed to approve (C2). Empty allow-list => deny all. */
+function actorAuthorized(actorId: string, approverUsers: string[] | undefined): boolean {
+	if (!actorId) return false;
+	const allowed = approverUsers ?? [];
+	return allowed.length > 0 && allowed.includes(actorId);
+}
+
 /**
- * Handle the admin's Yes/No answer (owner rule 21). The decision is
- * bots.ts `decideClaim`'s and only its own; the durable grant is
- * payment-confirm.ts `confirmAndGrant`'s and only its own.
+ * Handle the admin's Yes/No answer (owner rule 21), gated on the actor (C2):
+ * only a user id in `deps.approverUsers` may adjudicate — anyone else who sees
+ * the button is refused before any money decision. An answered claim is
+ * persisted (C3) and a "no" flips the payment to 'rejected'.
  */
 export async function handleCallbackQuery(
 	deps: TelegramBotDeps,
 	query: TelegramCallbackQuery
 ): Promise<TelegramCallbackResult> {
+	// C1: reject an over-limit callback before doing anything else.
+	assertCallbackDataFits(query.data);
+
+	// C2: authorization before decision — a non-approver must never grant.
+	if (!actorAuthorized(query.actorId, deps.approverUsers)) {
+		await deps.answerCallback(query.id, 'You are not an approver.');
+		return { kind: 'unknown', reason: 'not_approver' };
+	}
+
 	const record = await deps.resolveClaim(query.claim.paymentId);
 	if (!record) {
 		await deps.answerCallback(query.id, 'Claim not found');
 		return { kind: 'unknown', reason: 'claim_not_found' };
 	}
+	// PaymentConfirmRecord.id is string|null: a record without a durable id is
+	// not an anchor for a grant or a reject, so treat it as unknown rather than
+	// passing null into the answer/reject seams.
+	const paymentId = record.id;
+	if (typeof paymentId !== 'string' || paymentId.trim() === '') {
+		await deps.answerCallback(query.id, 'Claim not found');
+		return { kind: 'unknown', reason: 'claim_not_found' };
+	}
 
 	const now = deps.now?.() ?? new Date();
+	const answeredAt = now.getTime();
+
+	// C3: record WHO answered and WHEN, before the decision, so even a refused
+	// "yes" (short amount) leaves an audit trail and the loop sees the claim as
+	// settled once it re-scans.
+	await deps.answerApproval?.(paymentId, query.actorId, answeredAt);
 
 	// `status` is a display fact only: decideClaim re-derives the confirmed state
 	// for resolveGrant. A "yes" still cannot grant a short/unknown payment.
@@ -337,8 +416,16 @@ export async function handleCallbackQuery(
 		now
 	);
 
+	// The member's chat is resolved server-side, never from the button (C1).
+	const memberChatId = (await deps.memberChatIdFor?.(record.accountId)) ?? null;
+
 	if (!decision.grant) {
-		await deps.send(query.claim.memberChatId, followUpMessage(record.plan));
+		// C3: a "no" flips the open claim to 'rejected'. A refused "yes"
+		// (short/unknown plan) stays open for the member to complete payment.
+		if (decision.reason === 'admin_declined') {
+			await deps.rejectPayment?.(paymentId);
+		}
+		if (memberChatId) await deps.send(memberChatId, followUpMessage(record.plan));
 		await deps.answerCallback(
 			query.id,
 			decision.reason === 'admin_declined' ? 'No — following up' : `Not granted (${decision.reason})`
@@ -355,12 +442,12 @@ export async function handleCallbackQuery(
 	if (!result.ok) {
 		// The money rule refused after a "yes" (short amount / unknown plan). The
 		// member is told to complete payment; nothing is granted.
-		await deps.send(query.claim.memberChatId, followUpMessage(record.plan));
+		if (memberChatId) await deps.send(memberChatId, followUpMessage(record.plan));
 		await deps.answerCallback(query.id, `Refused: ${result.reason}`);
 		return { kind: 'follow_up', reason: result.reason };
 	}
 
-	await deps.send(query.claim.memberChatId, grantedText(result.grant.plan));
+	if (memberChatId) await deps.send(memberChatId, grantedText(result.grant.plan));
 	await deps.answerCallback(query.id, 'Granted — key published');
 	return { kind: 'granted', subscriptionId: result.grant.subscriptionId, plan: result.grant.plan };
 }

@@ -17,7 +17,8 @@ import {
 	followUpMessage,
 	warningText,
 	marketplaceListing,
-	decideClaim
+	decideClaim,
+	sanitizeAdminPrompt
 } from '../server/bots.ts';
 
 const NOW = new Date('2026-10-31T12:00:00Z');
@@ -144,3 +145,29 @@ test('decideClaim: unknown — an unknown plan never grants even on yes', () => 
 	assert.equal(d.grant, false);
 	assert.equal(d.reason, 'unknown_plan');
 });
+
+
+// --- sanitizeAdminPrompt (C4) ------------------------------------------------
+
+test('sanitizeAdminPrompt: strips a Discord mass-mention so it cannot ping', () => {
+	const out = sanitizeAdminPrompt('budi@everyone', 200);
+	assert.ok(!/@everyone/.test(out), 'the literal @everyone token must be neutralised');
+	assert.ok(/@\u200beveryone/.test(out), 'renders with a zero-width split');
+});
+
+test('sanitizeAdminPrompt: removes chat-widget ping syntax outright', () => {
+	const out = sanitizeAdminPrompt('hi <@123456789012345678> and <#chan>', 200);
+	assert.ok(!/<@/.test(out) && !/<#/.test(out), 'widget pings are removed');
+});
+
+test('sanitizeAdminPrompt: truncates an overlong value to the bound', () => {
+	const out = sanitizeAdminPrompt('x'.repeat(500), 200);
+	assert.equal(out.length, 200);
+});
+
+test('sanitizeAdminPrompt: the approval prompt cannot carry a member mention', () => {
+	const p = adminApprovalPrompt('member @everyone', 'sub_7d', 'https://img/x.png @here');
+	assert.ok(!/@everyone/.test(p.text) && !/@here/.test(p.text), 'prompt is mention-inert');
+	assert.match(p.text, /https:\/\/img\/x\.png/);
+});
+

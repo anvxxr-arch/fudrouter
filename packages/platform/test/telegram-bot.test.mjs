@@ -26,7 +26,9 @@ import {
 	handleMessage,
 	handleCallbackQuery,
 	plansText,
-	unknownPlanText
+	unknownPlanText,
+	encodeApprovalCallbackData,
+	assertCallbackDataFits
 } from '../server/telegram-bot.ts';
 import { plansMessage, marketplaceListing, formatIdr, paymentPrompt } from '../server/bots.ts';
 import { PLANS, qrisFor } from '../server/payments.ts';
@@ -88,11 +90,13 @@ function makeDeps(overrides = {}) {
 	const answered = [];
 	const deps = {
 		approvers: ['9000'],
+		approverUsers: ['9000'],
 		now: () => NOW,
 		accountIdFor: async () => 'acc_1',
 		findPendingPayment: async () => null,
 		recordClaim: async () => ({ ok: true }),
 		resolveClaim: async () => null,
+		memberChatIdFor: async () => '100',
 		gatewayStore,
 		paymentConfirmStore,
 		subscriptionWriter,
@@ -207,7 +211,8 @@ test('tg: admin Yes — a sound claim grants (kind granted) and tells the member
 		id: 'cb_1',
 		data: 'yes',
 		answer: 'yes',
-		claim: { paymentId: 'pay_1', memberChatId: '100', memberName: '@member' }
+		actorId: '9000',
+		claim: { paymentId: 'pay_1' }
 	});
 
 	assert.equal(result.kind, 'granted');
@@ -239,7 +244,8 @@ test('tg: admin No — decides follow-up, grants nothing', async () => {
 		id: 'cb_2',
 		data: 'no',
 		answer: 'no',
-		claim: { paymentId: 'pay_1', memberChatId: '100', memberName: '@member' }
+		actorId: '9000',
+		claim: { paymentId: 'pay_1' }
 	});
 
 	assert.equal(result.kind, 'follow_up');
@@ -293,11 +299,134 @@ test('tg: admin Yes on a short amount — money rule refuses, still follow-up', 
 		id: 'cb_3',
 		data: 'yes',
 		answer: 'yes',
-		claim: { paymentId: 'pay_1', memberChatId: '100', memberName: '@member' }
+		actorId: '9000',
+		claim: { paymentId: 'pay_1' }
 	});
 
 	assert.equal(result.kind, 'follow_up');
 	assert.match(result.reason, /amount_mismatch/);
 	assert.equal(confirmStore.confirmed.length, 0);
 	assert.equal(writer.granted.length, 0);
+});
+
+
+// --- C1: callback_data <= 64 bytes ------------------------------------------
+
+test('tg: C1 — a realistic 40-char paymentId still fits the 64-byte callback_data', () => {
+	const paymentId = 'pay_' + 'a'.repeat(36); // pay_ + uuidv7 (40 chars)
+	const data = encodeApprovalCallbackData('yes', paymentId);
+	assert.equal(data, JSON.stringify({ a: 'yes', p: paymentId }));
+	assert.ok(Buffer.byteLength(data, 'utf8') <= 64, 'must stay under the Bot API limit');
+});
+
+test('tg: C1 — an over-limit callback_data is refused, never truncated', () => {
+	const paymentId = 'pay_' + 'a'.repeat(100);
+	assert.throws(() => encodeApprovalCallbackData('yes', paymentId), /64-byte limit/);
+	assert.throws(() => assertCallbackDataFits('x'.repeat(65)), /64-byte limit/);
+});
+
+// --- C2: actor authorization -------------------------------------------------
+
+test('tg: C2 — a non-approver pressing Yes is refused before any grant', async () => {
+	const confirmStore = fakeConfirmStore();
+	const writer = fakeWriter();
+	const { deps, sent, answered } = makeDeps({
+		approverUsers: [], // empty allow-list => deny all (fail-closed)
+		resolveClaim: async () => claimRecord(),
+		paymentConfirmStore: confirmStore,
+		subscriptionWriter: writer
+	});
+
+	const result = await handleCallbackQuery(deps, {
+		id: 'cb_evil',
+		data: 'yes',
+		answer: 'yes',
+		actorId: '999',
+		claim: { paymentId: 'pay_1' }
+	});
+
+	assert.equal(result.kind, 'unknown');
+	assert.equal(result.reason, 'not_approver');
+	assert.equal(confirmStore.confirmed.length, 0, 'no confirm for a non-approver');
+	assert.equal(writer.granted.length, 0, 'no grant for a non-approver');
+	assert.ok(answered.some((a) => a.id === 'cb_evil' && /not an approver/i.test(a.text)));
+	assert.equal(sent.length, 0);
+});
+
+test('tg: C2 — an approver on the allow-list is authorized', async () => {
+	const confirmStore = fakeConfirmStore();
+	const writer = fakeWriter();
+	const { deps } = makeDeps({
+		approverUsers: ['9000', '9001'],
+		resolveClaim: async () => claimRecord(),
+		paymentConfirmStore: confirmStore,
+		subscriptionWriter: writer
+	});
+
+	const result = await handleCallbackQuery(deps, {
+		id: 'cb_ok',
+		data: 'yes',
+		answer: 'yes',
+		actorId: '9001',
+		claim: { paymentId: 'pay_1' }
+	});
+
+	assert.equal(result.kind, 'granted');
+	assert.equal(writer.granted.length, 1);
+});
+
+// --- C3: answeredBy persist + status flip ------------------------------------
+
+test('tg: C3 — an answer records who/when and a "no" flips the payment to rejected', async () => {
+	const answers = [];
+	const rejected = [];
+	const confirmStore = fakeConfirmStore();
+	const writer = fakeWriter();
+	const { deps } = makeDeps({
+		resolveClaim: async () => claimRecord(),
+		paymentConfirmStore: confirmStore,
+		subscriptionWriter: writer,
+		answerApproval: async (paymentId, answeredBy, answeredAt) => answers.push({ paymentId, answeredBy, answeredAt }),
+		rejectPayment: async (paymentId) => rejected.push(paymentId)
+	});
+
+	const result = await handleCallbackQuery(deps, {
+		id: 'cb_no',
+		data: 'no',
+		answer: 'no',
+		actorId: '9000',
+		claim: { paymentId: 'pay_1' }
+	});
+
+	assert.equal(result.kind, 'follow_up');
+	assert.deepEqual(answers, [{ paymentId: 'pay_1', answeredBy: '9000', answeredAt: NOW.getTime() }]);
+	assert.deepEqual(rejected, ['pay_1'], 'a "no" flips the claim to rejected');
+	assert.equal(confirmStore.confirmed.length, 0);
+	assert.equal(writer.granted.length, 0);
+});
+
+test('tg: C3 — a "yes" records who/when and does not reject', async () => {
+	const answers = [];
+	const rejected = [];
+	const confirmStore = fakeConfirmStore();
+	const writer = fakeWriter();
+	const { deps } = makeDeps({
+		resolveClaim: async () => claimRecord(),
+		paymentConfirmStore: confirmStore,
+		subscriptionWriter: writer,
+		answerApproval: async (paymentId, answeredBy, answeredAt) => answers.push({ paymentId, answeredBy, answeredAt }),
+		rejectPayment: async (paymentId) => rejected.push(paymentId)
+	});
+
+	const result = await handleCallbackQuery(deps, {
+		id: 'cb_yes2',
+		data: 'yes',
+		answer: 'yes',
+		actorId: '9000',
+		claim: { paymentId: 'pay_1' }
+	});
+
+	assert.equal(result.kind, 'granted');
+	assert.deepEqual(answers, [{ paymentId: 'pay_1', answeredBy: '9000', answeredAt: NOW.getTime() }]);
+	assert.deepEqual(rejected, [], 'a "yes" must not reject the claim');
 });

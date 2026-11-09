@@ -119,3 +119,61 @@ export function drizzleClaimWriter(db: DbTx): ClaimWriter {
 		}
 	};
 }
+
+
+/**
+ * The approval-answer write seam (C3). When an authorized approver presses
+ * yes/no, the handler records WHO answered and WHEN (audit + a signal the
+ * escalation loop must see as "settled"), and — on a "no" — flips the still-open
+ * payment to 'rejected' so it leaves the loop's 'claimed' scan. This is the ONE
+ * durable implementation; both bot adapters inject it.
+ */
+export interface ApprovalAnswerWriter {
+	/**
+	 * Merge the approver's identity and timestamp into `payment.raw.approval`
+	 * WITHOUT clobbering the other keys (proofUrl, member name, or a prior
+	 * escalation claim). Idempotent: writing the same answer twice is one write.
+	 */
+	answer(paymentId: string, answeredBy: string, answeredAt: number): Promise<void>;
+	/**
+	 * Flip a still-open ('claimed') payment to 'rejected' on a "no". The CAS on
+	 * `status = 'claimed'` means a confirmed/rejected row is never downgraded —
+	 * the same discipline claim.record keeps for pending -> claimed.
+	 */
+	reject(paymentId: string): Promise<void>;
+}
+
+/**
+ * The drizzle-backed answer writer. `answer` preserves the existing `raw`
+ * object and merges into its `approval` sub-object, so a prior escalation
+ * claim's `promptedIndex`/`promptedAt` survive and `approvalRoute` sees an
+ * answered claim (answeredBy != null) instead of re-prompting forever.
+ */
+export function drizzleApprovalAnswerWriter(db: DbTx): ApprovalAnswerWriter {
+	return {
+		async answer(paymentId, answeredBy, answeredAt) {
+			if (typeof paymentId !== 'string' || paymentId.trim() === '') return;
+			const rows = await db
+				.select({ raw: payment.raw })
+				.from(payment)
+				.where(eq(payment.id, paymentId))
+				.limit(1);
+			const raw = (rows[0]?.raw as Record<string, unknown> | undefined) ?? {};
+			const approval = (raw.approval as Record<string, unknown> | undefined) ?? {};
+			await db
+				.update(payment)
+				.set({
+					raw: { ...raw, approval: { ...approval, answeredBy, answeredAt } },
+					updatedAt: new Date()
+				})
+				.where(eq(payment.id, paymentId));
+		},
+		async reject(paymentId) {
+			if (typeof paymentId !== 'string' || paymentId.trim() === '') return;
+			await db
+				.update(payment)
+				.set({ status: 'rejected', updatedAt: new Date() })
+				.where(sql`${payment.id} = ${paymentId} and ${payment.status} = 'claimed'`);
+		}
+	};
+}

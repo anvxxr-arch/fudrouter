@@ -16,8 +16,10 @@
 //
 // Transport is injected (DiscordReply / DiscordSend) and so is the confirm→grant
 // seam (DiscordGrant), which the gateway wires to B3b's `confirmAndGrant`
-// (payment-confirm.ts → grantForPayment → resolveGrant). The adapter runs
-// WITHOUT a network or database: tests inject fake reply/send/confirm recorders.
+// (payment-confirm.ts → grantForPayment → resolveGrant). WHO may press the
+// button (C2) is `ctx.approverUsers`, the Discord USER-id allow-list — empty
+// means every actor is refused. The adapter runs WITHOUT a network or database:
+// tests inject fake reply/send/confirm recorders.
 
 import {
 	paymentPrompt,
@@ -43,7 +45,7 @@ export type DiscordSend = (channelId: string, message: string) => Promise<void> 
 export interface DiscordInteraction {
 	/** Discord interaction id (kept for the reply; not used by the adapter). */
 	id: string;
-	/** Discord snowflake of the acting user. */
+	/** Discord snowflake of the acting user — the C2 actor identity. */
 	userId: string;
 	/** Display name of the acting user — feeds the admin prompt. */
 	userDisplayName: string;
@@ -159,12 +161,22 @@ export interface DiscordBotContext {
 	 * The approver channels that receive the approval prompt, in escalation
 	 * order: `approvers[0]` is the primary, `approvers[1]` the first fallback —
 	 * same rule and same env source as the Telegram adapter, so both channels
-	 * share one escalation contract (approval.ts). One list = one source of
-	 * truth; no compat alias.
+	 * share one escalation contract (approval.ts). These are PROMPT
+	 * DESTINATIONS (channel ids), NOT the human's identity.
 	 */
 	approvers: string[];
+	/**
+	 * The Discord USER ids allowed to press the approve button (C2). Empty or
+	 * absent => EVERY actor is refused (fail-closed deny-all). Distinct from
+	 * `approvers`: that list routes the prompt, this one authorizes the actor.
+	 */
+	approverUsers: string[];
 	/** Frozen clock for `decideClaim` (tests only; defaults to wall clock). */
 	now?: Date;
+	/** Persist WHO answered + WHEN into raw.approval (C3). Wired to claim.ts. */
+	answerApproval?(paymentId: string, answeredBy: string, answeredAt: number): Promise<void>;
+	/** Flip a still-open payment to 'rejected' on a "no" (C3). Wired to claim.ts. */
+	rejectPayment?(paymentId: string): Promise<void>;
 }
 
 // ------------------------------ handlers -----------------------------------
@@ -213,17 +225,37 @@ export async function handleProof(
 	);
 }
 
-/** Admin approve button Yes/No — decide, then grant or follow up. */
+/** True when `userId` may adjudicate (C2). Empty allow-list => deny all. */
+function actorAuthorized(userId: string, approverUsers: string[] | undefined): boolean {
+	if (!userId) return false;
+	const allowed = approverUsers ?? [];
+	return allowed.length > 0 && allowed.includes(userId);
+}
+
+/** Admin approve button Yes/No — authorize the actor (C2), then decide + act. */
 export async function handleApproval(
 	interaction: DiscordInteraction,
 	answer: 'yes' | 'no',
 	payment: DiscordPaymentClaim,
 	ctx: DiscordBotContext
 ): Promise<void> {
+	// C2: only an allow-listed Discord user may adjudicate; a non-approver who
+	// sees the button is refused before any money decision.
+	if (!actorAuthorized(interaction.userId, ctx.approverUsers)) {
+		await ctx.reply(interaction, 'You are not an approver.');
+		return;
+	}
+
+	const now = ctx.now ?? new Date();
+	const answeredAt = now.getTime();
+
+	// C3: record WHO answered and WHEN before deciding.
+	await ctx.answerApproval?.(payment.paymentId, interaction.userId, answeredAt);
+
 	const decision = decideClaim(
 		{ plan: payment.plan, status: payment.status, amountIdr: payment.amountIdr },
 		answer,
-		ctx.now ?? new Date()
+		now
 	);
 
 	if (decision.grant) {
@@ -238,7 +270,11 @@ export async function handleApproval(
 		}
 	} else {
 		// "no" (admin_declined) or "yes on a short/unknown plan" (fail-closed
-		// money rule): ask the member to complete payment; acknowledge the admin.
+		// money rule): a "no" also flips the claim to 'rejected' (C3) so the
+		// escalation loop stops re-prompting.
+		if (decision.reason === 'admin_declined') {
+			await ctx.rejectPayment?.(payment.paymentId);
+		}
 		await ctx.reply(interaction, `Not approved (${decision.reason}).`);
 		await ctx.send(
 			interaction.memberChannelId ?? interaction.channelId,

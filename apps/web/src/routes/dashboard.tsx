@@ -813,7 +813,7 @@ export function CreditsPage() {
 				.catch((ex) => setErr(ex instanceof Error ? ex.message : "Add failed"));
 		}}>
 			<div className="flex flex-wrap items-center gap-2"><Input aria-label="Amount" name="amount" placeholder="Amount" required /><Button type="submit">Add</Button></div>
-		</form>) : <p className="muted">Manual credit is operator-only.</p>}
+		</form>) : <p className="text-sm text-muted-foreground">Manual credit is operator-only.</p>}
 		{err ? <p className="error-text">{err}</p> : null}
 		{d && d.series.length > 0 ? (
 			<div className="min-w-0 surface p-5">

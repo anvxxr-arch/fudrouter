@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { getSession } from "../lib/server";
 import { hasCap, requiredCap, type Capability } from "../lib/caps";
+import { Skeleton } from "./ui/skeleton";
 export type SessionUser = { id: string; name: string; email: string; role?: string | null };
 
 // One session for the whole SPA. Every caller (RequireAuth, RequireCap,
@@ -19,6 +20,15 @@ export type SessionUser = { id: string; name: string; email: string; role?: stri
 // discarded on the navigation that could change it.
 let sessionCache: SessionUser | null | undefined;
 let sessionPending: Promise<void> | null = null;
+
+function LoadingGate() {
+  return (
+    <div role="status" aria-live="polite" aria-busy="true" className="loading-gate">
+      <span className="sr-only">Loading…</span>
+      <Skeleton lines={3} />
+    </div>
+  );
+}
 
 export function useSession() {
   const [user, setUser] = useState<SessionUser | null | undefined>(sessionCache);
@@ -39,14 +49,14 @@ export function useSession() {
 export function RequireAuth({ children }: { children: ReactNode }) {
   const user = useSession();
   const loc = useLocation();
-  if (user === undefined) return <p className="muted" role="status" aria-live="polite">Loading…</p>;
+  if (user === undefined) return <LoadingGate />;
   if (!user) return <Navigate to="/login" state={{ from: loc.pathname }} replace />;
   return <>{children}</>;
 }
 export function RequireCap({ cap, children }: { cap: Capability; children: ReactNode }) {
   const user = useSession();
   const loc = useLocation();
-  if (user === undefined) return <p className="muted" role="status" aria-live="polite">Loading…</p>;
+  if (user === undefined) return <LoadingGate />;
   if (!user) return <Navigate to="/login" state={{ from: loc.pathname }} replace />;
   if (!hasCap(user.role ?? null, cap)) return <Navigate to="/" replace />;
   return <>{children}</>;

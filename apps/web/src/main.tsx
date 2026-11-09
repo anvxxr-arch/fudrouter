@@ -6,6 +6,7 @@ import '@fontsource/plus-jakarta-sans/600.css';
 import '@fontsource/plus-jakarta-sans/700.css';
 import '@fontsource/jetbrains-mono/400.css';
 import App from './App';
+import './index.css';
 import './styles.css';
 import { initVitals } from './lib/vitals';
 

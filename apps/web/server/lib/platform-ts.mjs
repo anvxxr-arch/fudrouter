@@ -67,6 +67,10 @@ export async function _assertPublic(rawUrl, allowPrivate = false) {
 	return r.ok ? { ok: true } : { ok: false, reason: r.reason };
 }
 
+/** Pinned upstream fetch (SSRF DNS-rebind safe) + plain fetch under `guardedFetch`. */
+export const guardedUpstreamFetch = ssrf.guardedUpstreamFetch;
+export const guardedFetch = ssrf.guardedFetch;
+
 // Input bounds: admin-limits.ts OWNS them (a price of 1e308 reaching a
 // bigint micro-price column, an unbounded batch turning one POST into
 // thousands of inserts). Re-exported so admin.mjs bounds the provider-enable

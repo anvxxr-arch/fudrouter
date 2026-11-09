@@ -357,12 +357,19 @@ export async function guardedUpstreamFetch(
 	pathSuffix: string,
 	init: RequestInit & { timeoutMs: number }
 ): Promise<GuardedFetchResult> {
-	const guard = await assertPublicUpstream(String(baseUrl ?? ''), allowPrivate);
-	if (!guard.ok) return { ok: false, message: guard.reason };
+	// Compose FIRST, then guard the string that will actually be fetched. Guarding
+	// `baseUrl` and fetching `baseUrl + pathSuffix` validates one string and dials
+	// another: a suffix beginning with `//` or `@` would move the authority, and
+	// the guard would have approved the ORIGINAL host. The suffixes in this repo
+	// are constants (`/models`, `/chat/completions`, ''), so nothing is exploitable
+	// today -- but the guard and the fetch must be the same string for the pin
+	// below to mean anything.
 	const raw = String(baseUrl ?? '')
 		.trim()
 		.replace(/\/+$/, '');
 	const url = `${raw}${pathSuffix}`;
+	const guard = await assertPublicUpstream(url, allowPrivate);
+	if (!guard.ok) return { ok: false, message: guard.reason };
 
 	// `allowPrivate` is the documented loopback escape hatch: when it is on, the
 	// guard returned no address set to pin (loopback/private are allowed), so the

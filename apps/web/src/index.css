@@ -1,0 +1,310 @@
+/*
+ * Design tokens -- the single source of truth for the console's visual
+ * language.
+ *
+ * Owner: FE-DesignSys. This file is imported FIRST (main.tsx imports it
+ * before styles.css), so every rule in styles.css can read a token without
+ * caring which file defined it.
+ *
+ * Three layers, and the order is the contract:
+ *
+ *   Tier 1 -- primitives. Raw values named for what they ARE
+ *              (--color-orange), never for where they go. A rebrand edits
+ *              one value here and nothing downstream has to know.
+ *   Tier 2 -- semantic. What a value is FOR (--primary, --on-primary).
+ *              Components read this tier and nothing else.
+ *   Tier 3 -- aliases. Names that other layers already ask for, mapped onto
+ *              tiers 1-2 so there is still exactly ONE place a value is
+ *              written. See "compatibility aliases" below.
+ *
+ * Nothing here redefines a token that already existed: the :root block that
+ * used to live in styles.css moved here wholesale -- values, names and the
+ * reasoning in the comments -- and styles.css keeps the component rules that
+ * consume them.
+ */
+
+/*
+ * FE-Motion's microinteraction layer (hack/fe-motion, commit daba8df).
+ *
+ * It is imported here so there is exactly one entry point for the console's
+ * CSS and one place a motion rule can be turned off. It defines no token of
+ * ours -- only its own --fx-* primitives -- and reads ours with a fallback,
+ * so it still renders if this file is ever absent.
+ *
+ * The import sits ABOVE the token block on purpose. CSS requires @import to
+ * precede every rule except @charset and @layer statements; a trailing
+ * @import is invalid and the browser drops it. Order does not otherwise
+ * matter here: custom properties and @keyframes are late-bound and global,
+ * and the only classes the two files share (.skeleton / .fx-skeleton) are
+ * resolved by styles.css, which loads after this file.
+ */
+@import './styles/motion.css';
+
+:root {
+  color-scheme: dark;
+  /* ---- 1. primitives: brand ---- */
+  --color-orange: #ff6c11;
+  --color-orange-hover: #ff8a3d;
+  --color-amber: #ffaa2b;
+  --color-cream: #ffe2ae;
+  /* ---- 1. primitives: surfaces ---- */
+  --color-bg: #090b0f;
+  --color-surface: #151922;
+  --color-surface-raised: #1e2430;
+  --color-border: #2a3040;
+  --color-border-strong: #3d4660;
+  /* A divider may be as dim as taste allows: nothing depends on seeing it. A
+     control's edge is different -- it is the only thing telling you an input
+     exists, so WCAG 1.4.11 holds it to 3:1 against what sits behind it. These
+     two are that pair, solved against the *lightest* surface a control can sit
+     on (--color-surface-raised), which is the worst case:
+       #6b7593 -> 3.40 raised, 3.84 surface, 4.31 bg
+       #8a96b8 -> 5.28 raised, 5.98 surface, 6.69 bg  */
+  --color-border-control: #6b7593;
+  --color-border-control-hover: #8a96b8;
+  /* ---- 1. primitives: text ---- */
+  --color-text: #f5f6f8;
+  --color-text-muted: #8b94a3;
+  /* ---- 1. primitives: status ---- */
+  --color-success: #10b981;
+  --color-danger: #f87171;
+  --color-info: #38bdf8;
+  /* The wash behind a sheet or a toast that sits above the page: a scrim is
+     not a surface, it is a veil, so it is its own primitive rather than a
+     tint of the background. */
+  --color-scrim: rgb(0 0 0 / 0.6);
+  /* The highlight band that sweeps across the display headline. On the dark
+     theme it is white (a light band over dark text); the light theme swaps it
+     for a mid grey, because a white band over near-black text would bleach
+     the glyph to invisible mid-sweep. */
+  --sheen: #ffffff;
+  /* ---- 1. primitives: type ---- */
+  --font-ui: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* ---- 1. primitives: shape ---- */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-pill: 999px;
+  /* Public chrome height. One token, because the sticky header, the anchor
+     offset and the mobile budget all have to agree on it. */
+  --header-h: 68px;
+  /* One content measure and one gutter, shared by the header, the page shell
+     and the footer. They were three independent literals, which is how the
+     brand ended up 82px left of the headline on a 1280 screen and 8px left of
+     it on a phone. */
+  --shell-max: 1100px;
+  --gutter: var(--space-lg);
+  --control-h-sm: 32px;
+  --control-h-md: 40px;
+  --control-h-lg: 48px;
+  /* ---- 1. primitives: space (4px rhythm) ---- */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-card: 20px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+  --space-3xl: 80px;
+  /* ---- 1. primitives: type sizes ---- */
+  --text-caption: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  /* ---- the declared type system -------------------------------------------
+     Two tiers, and the split is the point: static text does not scale (a
+     14px label is 14px on a phone and on a 4K monitor), headings are fluid
+     because their job is to fill the column they sit in.
+
+     Static:  caption 12  sm 14  base 16  lg 18
+     Fluid:   h6 18  h5 20  h4 24->25  h3 28->32  h2 32->40  h1 36->48
+              display 40->60  display-xl 48->76
+
+     Every fluid step is a clamp that reaches its floor at 320px and its
+     ceiling at 1280px (the widest point where the 1100px shell still has room
+     to breathe), so the ramp is continuous and no breakpoint restates it.
+
+     Two properties are load-bearing and both were violated before:
+
+     1. The token a heading element uses has the same name as the element
+        (h1 -> --text-h1). It used to be offset by one -- `h1` read
+        --text-h2 -- so the file said one thing and the page rendered another,
+        and --text-h1 had zero consumers.
+     2. The ladder must hold at BOTH ends. The old floors collapsed at the
+        bottom of the ramp: h1's floor equalled the display floor, so on a
+        320px phone a page title and the landing hero both rendered at 44px and
+        the step between them vanished. Every step below is monotonic at 320px
+        and at 1280px.
+
+     `.display-xl` is a distinct step from `.display`, not an alias: the hero
+     uses the xl rung (48->76) while a non-hero display line uses 40->60. */
+  --text-h6: 1.125rem;
+  --text-h5: 1.25rem;
+  --text-h4: clamp(1.5rem, 1.4792rem + 0.1042vw, 1.5625rem);
+  --text-h3: clamp(1.75rem, 1.6667rem + 0.4167vw, 2rem);
+  --text-h2: clamp(2rem, 1.8333rem + 0.8333vw, 2.5rem);
+  --text-h1: clamp(2.25rem, 2rem + 1.25vw, 3rem);
+  --text-display: clamp(2.5rem, 2.0833rem + 2.0833vw, 3.75rem);
+  --text-display-xl: clamp(3rem, 2.4167rem + 2.9167vw, 4.75rem);
+  /* Stat figures are not a heading level -- they are display numbers inside a
+     band, and they must stay larger than the label under them at every width.
+     Tied to h4 they would drop to 24px on a phone, a step below the h3 card
+     title they are meant to sit above. 22->28 keeps them between h4 and h3. */
+  --text-stat: clamp(1.375rem, 1.25rem + 0.625vw, 1.75rem);
+  --lh-display: 1.1;
+  --lh-body: 1.47;
+  --tracking-display: -0.02em;
+  --tracking-body: -0.00374em;
+  /* Line length. `ch` is the advance width of the glyph "0", not of an average
+     character: in Plus Jakarta Sans that digit is 0.73em while lowercase
+     averages 0.50em, so "70ch" fits ~100 characters instead of 70. Every
+     long-form block on the site was therefore ~45% wider than it claimed --
+     docs prose measured 99 characters per line, the pricing FAQ 90, the legal
+     pages 101. `em` resolves against the element's own font size and 0.5em is
+     the measured average advance, so 33em is ~66 characters at any size. */
+  --measure: 33em;
+  /* For bordered prose boxes (FAQ lists): the cap belongs on the box, so it is
+     absolute rather than size-relative. 32rem at the 14px answer size is ~64
+     characters per line. */
+  --measure-box: 32rem;
+  /* ---- 1. primitives: motion ---- */
+  --duration-fast: 120ms;
+  --duration-med: 320ms;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --shadow-sm: 0 1px 3px 0 #0000001a, 0 1px 2px -1px #0000001a;
+  --shadow-md: 0 1px 2px 0 #0000001a;
+  /* The elevation a floating panel needs: a toast or a sheet sits above the
+     page, so its shadow has to read as a gap in depth rather than a smudge.
+     The one shadow that is not a hairline, and the reason there is a token
+     for it at all. */
+  --shadow-lg: 0 18px 40px -28px rgb(0 0 0 / 0.85);
+  --focus-ring: 2px solid var(--primary);
+  /* ---- 2. semantic tokens ---- */
+  --primary: var(--color-orange);
+  --primary-hover: var(--color-orange-hover);
+  --on-primary: var(--color-bg);
+  --warning: var(--color-amber);
+  /* The status colours a component is allowed to read. A status badge has to
+     go green without a stylesheet knowing what green is -- that is the
+     difference between a semantic token and a renamed primitive, and it is
+     why these three exist even though each is a straight reference. */
+  --success: var(--color-success);
+  --danger: var(--color-danger);
+  --info: var(--color-info);
+  /* The panel that floats above the page: a toast, a sheet, a dialog. One
+     token because "raised" already means something else (the surface a
+     control sits on), and a floating panel is a third thing. */
+  --surface-float: var(--color-surface-raised);
+  --glow:
+    radial-gradient(
+      55% 60% at 30% 0%,
+      color-mix(in srgb, var(--color-orange) 18%, transparent),
+      transparent 60%
+    ),
+    radial-gradient(
+      55% 60% at 70% 0%,
+      color-mix(in srgb, var(--color-amber) 13%, transparent),
+      transparent 60%
+    );
+
+  /* ---- 3. compatibility aliases -----------------------------------------
+     Names that layers outside this repo already ask for, mapped onto tiers
+     1-2. They exist so that a layer written against the shadcn / MASTER
+     vocabulary (components.json points at this stylesheet) resolves to THIS
+     palette instead of the generator's stale one: MASTER.md still describes
+     a green CTA (#22C55E), IBM Plex and a #020617 background, none of which
+     this console ships, and a component built against those names would
+     otherwise render with undefined custom properties.
+
+     No value is duplicated here -- every alias points at a tier 1-2 token, so
+     a rebrand still edits exactly one value, and flipping a theme still
+     flips the alias with it. */
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--on-primary);
+  --primary-foreground: var(--on-primary);
+  --color-background: var(--color-bg);
+  --color-foreground: var(--color-text);
+  --color-card: var(--color-surface);
+  --color-card-foreground: var(--color-text);
+  --color-popover: var(--color-surface-raised);
+  --color-popover-foreground: var(--color-text);
+  --color-secondary: var(--color-surface-raised);
+  --color-muted: var(--color-surface-raised);
+  --color-muted-foreground: var(--color-text-muted);
+  --color-accent: var(--color-surface-raised);
+  --color-accent-foreground: var(--color-text);
+  --color-destructive: var(--color-danger);
+  --color-destructive-foreground: var(--color-bg);
+  --color-ring: var(--primary);
+  --color-input: var(--color-border-control);
+  /* The bare names, for the motion layer: it reads var(--muted) and
+     var(--foreground) with a fallback so it can render without this file. */
+  --muted: var(--color-surface-raised);
+  --foreground: var(--color-text);
+  --background: var(--color-bg);
+}
+
+/* The header is the one piece of chrome on every public page, so its height
+   is a budget, not a taste: on a phone it may not exceed 12% of the
+   viewport. One token, because the sticky header, the anchor offset and the
+   mobile budget all have to agree on it. */
+@media (max-width: 720px) {
+  :root { --header-h: 56px; }
+}
+
+/* ---- theme: light ---------------------------------------------------------
+   Opt-in. Nothing on the console turns it on by default: the console is
+   dark-first by design (DESIGN.md), and the public pages still carry visual
+   layers that are not tokenised (the aurora mask, the hero sheen) and were
+   drawn for a dark page. A surface opts in with data-theme="light" on <html>
+   or any ancestor, and every token flips with it -- no component rule
+   changes, because components read tier 2 only.
+
+   The values below are contrast-checked against WCAG AA on the light
+   surfaces: body and muted text clear 4.5:1, the control edge and the focus
+   ring clear 3:1 (1.4.11), against the LIGHTEST surface a control can sit
+   on, which is the worst case. The measured ratios are recorded in the
+   design-system report.
+
+   The status colours are darkened, not lightened: #10B981 on #FFFFFF is 2.2:1
+   and #FFAA2B is 1.8:1, so the dark-theme values cannot be reused -- a badge
+   has to stay legible, and a status that is only recognisable by hue is not
+   a status at all. */
+:root[data-theme='light'] {
+  color-scheme: light;
+  --color-orange: #b8390a;
+  --color-orange-hover: #9e3107;
+  --color-amber: #8a5300;
+  --color-cream: #f3e2c7;
+  --color-bg: #eef1f6;
+  --color-surface: #f9fafc;
+  --color-surface-raised: #ffffff;
+  --color-border: #d9dee7;
+  --color-border-strong: #b4bdcb;
+  --color-text: #0f1218;
+  --color-text-muted: #59626f;
+  --color-success: #067647;
+  --color-danger: #b42318;
+  --color-info: #0b6a9e;
+  --sheen: #8b94a3;
+  --shadow-sm: 0 1px 2px 0 rgb(9 11 15 / 0.06), 0 1px 3px 0 rgb(9 11 15 / 0.08);
+  --shadow-md: 0 1px 2px 0 rgb(9 11 15 / 0.1);
+  --shadow-lg: 0 18px 40px -28px rgb(9 11 15 / 0.35);
+}
+
+/* ---- reduced motion --------------------------------------------------------
+   The one global kill. Every animation and transition in the console stops
+   here, and it is deliberately a single rule rather than a per-component opt
+   out: a motion that survives in one corner of a product is a motion nobody
+   chose to offer. The motion layer (styles/motion.css) adds its own scoped
+   block for the keyframes it owns; this rule is the backstop that covers
+   everything, including rules written before the motion layer existed. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

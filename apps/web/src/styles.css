@@ -1,154 +1,8 @@
 /* Self-hosted webfonts fall back to system stacks when not bundled. */
 
 /*
- * Design tokens: Tier 1 (primitives) + Tier 2 (semantic tokens).
- * Components consume tier 2 only. This file is the single source of truth for
- * tokens and for the bespoke semantic-class system the routes consume.
+ * Design tokens now live in index.css (single source of truth).
  */
-:root {
-  color-scheme: dark;
-  /* ---- 1. primitives: brand ---- */
-  --color-orange: #ff6c11;
-  --color-orange-hover: #ff8a3d;
-  --color-amber: #ffaa2b;
-  --color-cream: #ffe2ae;
-  /* ---- 1. primitives: surfaces ---- */
-  --color-bg: #090b0f;
-  --color-surface: #151922;
-  --color-surface-raised: #1e2430;
-  --color-border: #2a3040;
-  --color-border-strong: #3d4660;
-  /* A divider may be as dim as taste allows: nothing depends on seeing it. A
-     control's edge is different -- it is the only thing telling you an input
-     exists, so WCAG 1.4.11 holds it to 3:1 against what sits behind it. These
-     two are that pair, solved against the *lightest* surface a control can sit
-     on (--color-surface-raised), which is the worst case:
-       #6b7593 -> 3.40 raised, 3.84 surface, 4.31 bg
-       #8a96b8 -> 5.28 raised, 5.98 surface, 6.69 bg  */
-  --color-border-control: #6b7593;
-  --color-border-control-hover: #8a96b8;
-  /* ---- 1. primitives: text ---- */
-  --color-text: #f5f6f8;
-  --color-text-muted: #8b94a3;
-  /* ---- 1. primitives: status ---- */
-  --color-success: #10b981;
-  --color-danger: #f87171;
-  --color-info: #38bdf8;
-  /* ---- 1. primitives: type ---- */
-  --font-ui: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-  /* ---- 1. primitives: shape ---- */
-  --radius-sm: 4px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-pill: 999px;
-  /* Public chrome height. One token, because the sticky header, the anchor
-     offset and the mobile budget all have to agree on it. */
-  --header-h: 68px;
-  /* One content measure and one gutter, shared by the header, the page shell
-     and the footer. They were three independent literals, which is how the
-     brand ended up 82px left of the headline on a 1280 screen and 8px left of
-     it on a phone. */
-  --shell-max: 1100px;
-  --gutter: var(--space-lg);
-  --control-h-sm: 32px;
-  --control-h-md: 40px;
-  --control-h-lg: 48px;
-  /* ---- 1. primitives: space (4px rhythm) ---- */
-  --space-xs: 4px;
-  --space-sm: 8px;
-  --space-md: 16px;
-  --space-card: 20px;
-  --space-lg: 24px;
-  --space-xl: 32px;
-  --space-2xl: 48px;
-  --space-3xl: 80px;
-  /* ---- 1. primitives: type sizes ---- */
-  --text-caption: 0.75rem;
-  --text-sm: 0.875rem;
-  --text-base: 1rem;
-  --text-lg: 1.125rem;
-  /* ---- the declared type system -------------------------------------------
-     Two tiers, and the split is the point: static text does not scale (a
-     14px label is 14px on a phone and on a 4K monitor), headings are fluid
-     because their job is to fill the column they sit in.
-
-     Static:  caption 12  sm 14  base 16  lg 18
-     Fluid:   h6 18  h5 20  h4 24->25  h3 28->32  h2 32->40  h1 36->48
-              display 40->60  display-xl 48->76
-
-     Every fluid step is a clamp that reaches its floor at 320px and its
-     ceiling at 1280px (the widest point where the 1100px shell still has room
-     to breathe), so the ramp is continuous and no breakpoint restates it.
-
-     Two properties are load-bearing and both were violated before:
-
-     1. The token a heading element uses has the same name as the element
-        (h1 -> --text-h1). It used to be offset by one -- `h1` read
-        --text-h2 -- so the file said one thing and the page rendered another,
-        and --text-h1 had zero consumers.
-     2. The ladder must hold at BOTH ends. The old floors collapsed at the
-        bottom of the ramp: h1's floor equalled the display floor, so on a
-        320px phone a page title and the landing hero both rendered at 44px and
-        the step between them vanished. Every step below is monotonic at 320px
-        and at 1280px.
-
-     `.display-xl` is a distinct step from `.display`, not an alias: the hero
-     uses the xl rung (48->76) while a non-hero display line uses 40->60. */
-  --text-h6: 1.125rem;
-  --text-h5: 1.25rem;
-  --text-h4: clamp(1.5rem, 1.4792rem + 0.1042vw, 1.5625rem);
-  --text-h3: clamp(1.75rem, 1.6667rem + 0.4167vw, 2rem);
-  --text-h2: clamp(2rem, 1.8333rem + 0.8333vw, 2.5rem);
-  --text-h1: clamp(2.25rem, 2rem + 1.25vw, 3rem);
-  --text-display: clamp(2.5rem, 2.0833rem + 2.0833vw, 3.75rem);
-  --text-display-xl: clamp(3rem, 2.4167rem + 2.9167vw, 4.75rem);
-  /* Stat figures are not a heading level -- they are display numbers inside a
-     band, and they must stay larger than the label under them at every width.
-     Tied to h4 they would drop to 24px on a phone, a step below the h3 card
-     title they are meant to sit above. 22->28 keeps them between h4 and h3. */
-  --text-stat: clamp(1.375rem, 1.25rem + 0.625vw, 1.75rem);
-  --lh-display: 1.1;
-  --lh-body: 1.47;
-  --tracking-display: -0.02em;
-  --tracking-body: -0.00374em;
-  /* Line length. `ch` is the advance width of the glyph "0", not of an average
-     character: in Plus Jakarta Sans that digit is 0.73em while lowercase
-     averages 0.50em, so "70ch" fits ~100 characters instead of 70. Every
-     long-form block on the site was therefore ~45% wider than it claimed --
-     docs prose measured 99 characters per line, the pricing FAQ 90, the legal
-     pages 101. `em` resolves against the element's own font size and 0.5em is
-     the measured average advance, so 33em is ~66 characters at any size. */
-  --measure: 33em;
-  /* For bordered prose boxes (FAQ lists): the cap belongs on the box, so it is
-     absolute rather than size-relative. 32rem at the 14px answer size is ~64
-     characters per line. */
-  --measure-box: 32rem;
-  /* ---- 1. primitives: motion ---- */
-  --duration-fast: 120ms;
-  --duration-med: 320ms;
-  --ease: cubic-bezier(0.16, 1, 0.3, 1);
-  --shadow-sm: 0 1px 3px 0 #0000001a, 0 1px 2px -1px #0000001a;
-  --shadow-md: 0 1px 2px 0 #0000001a;
-  --focus-ring: 2px solid var(--primary);
-  /* ---- 2. semantic tokens ---- */
-  --primary: var(--color-orange);
-  --primary-hover: var(--color-orange-hover);
-  --on-primary: var(--color-bg);
-  --warning: var(--color-amber);
-  --glow:
-    radial-gradient(
-      55% 60% at 30% 0%,
-      color-mix(in srgb, var(--color-orange) 18%, transparent),
-      transparent 60%
-    ),
-    radial-gradient(
-      55% 60% at 70% 0%,
-      color-mix(in srgb, var(--color-amber) 13%, transparent),
-      transparent 60%
-    );
-}
-
 
 /* ---- base ---- */
 *,
@@ -245,18 +99,9 @@ table.fr .fr-num { text-align: right; }
    outer wrap keeps owning horizontal scroll for the short tables. */
 .table-wrap:has(.table-scroll) { max-height: 70vh; }
 
-@media (max-width: 720px) {
-  :root { --header-h: 56px; }
-}
 
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
-  }
-}
+
+
 
 /* ---- base reset (replaces Tailwind preflight) ---- */
 *,
@@ -920,7 +765,7 @@ body { overflow-x: clip; }
   position: relative;
   display: inline-block;
   color: transparent;
-  background: linear-gradient(110deg, var(--shiny-base, var(--color-text)) 38%, #fff 50%, var(--shiny-base, var(--color-text)) 62%);
+  background: linear-gradient(110deg, var(--shiny-base, var(--color-text)) 38%, var(--sheen) 50%, var(--shiny-base, var(--color-text)) 62%);
   background-size: 200% 100%;
   -webkit-background-clip: text;
   background-clip: text;
@@ -1214,3 +1059,34 @@ p:has(> a:only-child) > a { display: inline-flex; align-items: center; min-heigh
 .pricing-faq details[open] summary { border-bottom: 1px solid var(--color-border); }
 .pricing-faq details p { margin: 0; padding: var(--space-sm) var(--space-md); color: var(--color-text-muted); font-size: var(--text-sm); }
 .pricing-cta { padding-top: var(--space-lg); border-top: 1px solid var(--color-border); }
+
+/* ---- design-system primitives (atomic) ----
+ * Owner: FE-DesignSys. Shared atoms the bespoke class system uses for the
+ * loading state, native selects and transient status. They consume tier-2
+ * tokens only, so they follow the dark/light theme with no per-component. */
+.field { display: grid; gap: var(--space-xs); }
+.field-label { font-size: var(--text-caption); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-text-muted); }
+.field-hint { margin: 0; font-size: var(--text-sm); }
+.field-error { margin: 0; }
+.field .select { width: 100%; }
+.skeleton { display: grid; gap: var(--space-sm); width: 100%; background: var(--color-surface-raised); border-radius: var(--radius-md); }
+.skeleton-line { display: block; height: var(--control-h-sm, 32px); background: var(--color-surface-raised); border-radius: var(--radius-sm); }
+.toast-viewport { position: fixed; right: var(--space-md); bottom: var(--space-md); display: grid; gap: var(--space-sm); z-index: 300; max-width: min(360px, calc(100vw - 2 * var(--space-md))); pointer-events: none; }
+.toast-viewport > * { pointer-events: auto; }
+.toast { display: grid; grid-template-columns: 1fr auto; gap: var(--space-sm); align-items: start; background: var(--surface-float); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: var(--space-sm) var(--space-md); box-shadow: var(--shadow-lg); color: var(--color-text); }
+.toast-body { display: grid; gap: 2px; }
+.toast-title { font-size: var(--text-sm); font-weight: 600; }
+.toast-desc { font-size: var(--text-sm); color: var(--color-text-muted); }
+.toast-close { border: 0; background: none; cursor: pointer; color: var(--color-text-muted); font-size: 1.1rem; line-height: 1; padding: 2px 4px; border-radius: var(--radius-sm); }
+.toast-close:hover { color: var(--color-text); background: var(--color-surface); }
+.toast-ok { border-left: 3px solid var(--color-success); }
+.toast-info { border-left: 3px solid var(--color-info); }
+.toast-warn { border-left: 3px solid var(--warning); }
+.toast-danger { border-left: 3px solid var(--color-danger); }
+.status-line { margin: 0; font-size: var(--text-sm); color: var(--color-text-muted); }
+.status-line-ok { color: var(--color-success); }
+.status-line-info { color: var(--color-info); }
+.status-line-warn { color: var(--warning); }
+.status-line-danger { color: var(--color-danger); }
+.loading-gate { display: grid; gap: var(--space-sm); max-width: 24rem; padding: var(--space-md) 0; }
+.loading-gate .skeleton-line:last-child { width: 68%; }

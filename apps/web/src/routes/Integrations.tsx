@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Reveal } from '../components/Reveal';
 import { Badge } from '../components/ui/badge';
+import { Button } from '../components/ui/button';
 import { API_BASE_DISPLAY } from '../lib/api';
 
 type Category = 'CLI coding tools' | 'SDKs' | 'Frameworks' | 'Self-hosted';
@@ -256,84 +257,85 @@ export function IntegrationsPage() {
   const shown = filter === 'All' ? INTEGRATIONS : INTEGRATIONS.filter((i) => i.category === filter);
   return (
     <Reveal>
-      <div className="stack">
+      <div className="grid gap-6">
         <h1>Integrations</h1>
-        <p className="lede muted">
-          fudrouter speaks [OI], so anything that can point at a custom base URL works — the tool keeps its own
+        <p className="measure text-lg text-muted-foreground">
+          fudrouter speaks OpenAI, so anything that can point at a custom base URL works — the tool keeps its own
           interface, fudrouter answers behind it.
         </p>
 
-        <section className="card" aria-labelledby="integrations-universal">
-          <h2 id="integrations-universal" className="card-title">Universal setup</h2>
+        <section className="surface p-5" aria-labelledby="integrations-universal">
+          <h2 id="integrations-universal">Universal setup</h2>
           {/* The three values below are the whole integration surface, so they
               are stated rather than described: the endpoint, what a key looks
               like, and where the model names come from. A reader who has those
               three can configure any client without reading a per-tool guide. */}
-          <p>
+          <p className="text-muted-foreground">
             Three values configure any client: the base URL replaces the provider's own, the key goes where that
             provider's key went, and the model name is any slug from the catalogue. Nothing else changes — no SDK, no
             second account.
           </p>
-          <dl className="stack">
+          <dl className="mt-2 grid gap-4">
             <div>
-              <dt className="fr-label">Base URL</dt>
-              <dd><code>{BASE_URL}</code></dd>
+              <dt className="eyebrow">Base URL</dt>
+              <dd className="m-0"><code className="font-mono">{BASE_URL}</code></dd>
             </div>
             <div>
-              <dt className="fr-label">Key format</dt>
-              <dd>
-                <code>sk-ar-&lt;prefix&gt;_&lt;secret&gt;</code> — minted in the console, shown once, stored only as a
+              <dt className="eyebrow">Key format</dt>
+              <dd className="m-0 text-muted-foreground">
+                <code className="font-mono">sk-ar-&lt;prefix&gt;_&lt;secret&gt;</code> — minted in the console, shown once, stored only as a
                 hash.
               </dd>
             </div>
             <div>
-              <dt className="fr-label">Model</dt>
-              <dd>
-                any slug from <code>/v1/models</code> on that base URL
+              <dt className="eyebrow">Model</dt>
+              <dd className="m-0 text-muted-foreground">
+                any slug from <code className="font-mono">/v1/models</code> on that base URL
               </dd>
             </div>
           </dl>
         </section>
 
-        <section aria-labelledby="integrations-list">
+        <section className="grid gap-2" aria-labelledby="integrations-list">
           <h2 id="integrations-list">Supported tools</h2>
-          <div className="row" role="group" aria-label="Filter by category">
+          <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Filter by category">
             {FILTERS.map((f) => (
-              <button
+              <Button
                 key={f}
                 type="button"
-                className={f === filter ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm'}
+                size="sm"
+                variant={f === filter ? 'default' : 'outline'}
                 aria-pressed={f === filter}
                 onClick={() => setFilter(f)}
               >
                 {f}
-              </button>
+              </Button>
             ))}
           </div>
-          <div className="cat-grid">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {shown.map((i) => (
-              <div key={i.name} className="card">
-                <div className="row" style={{ justifyContent: 'space-between' }}>
-                  <h3 className="card-title">{i.name}</h3>
-                  <Badge tone={i.status === 'Tested' ? 'ok' : 'info'}>{i.status}</Badge>
+              <div key={i.name} className="flex flex-col gap-2 surface p-5">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-base">{i.name}</h3>
+                  <Badge variant={i.status === 'Tested' ? 'ok' : 'info'}>{i.status}</Badge>
                 </div>
-                <p className="card-desc">{i.desc}</p>
-                <p className="meta">{i.category}</p>
-                <details>
-                  <summary>Setup guide</summary>
-                  <p className="fr-label">{i.config}</p>
-                  <pre className="code-block"><code>{i.code}</code></pre>
+                <p className="text-sm text-muted-foreground">{i.desc}</p>
+                <p className="text-xs text-muted-foreground">{i.category}</p>
+                <details className="mt-auto">
+                  <summary className="cursor-pointer font-semibold">Setup guide</summary>
+                  <p className="mt-1 eyebrow">{i.config}</p>
+                  <pre className="m-0 mt-1 overflow-x-auto rounded-md border border-border bg-[var(--muted)] p-3 font-mono text-xs leading-relaxed"><code>{i.code}</code></pre>
                 </details>
               </div>
             ))}
           </div>
         </section>
 
-        <section aria-labelledby="integrations-request">
+        <section className="grid gap-2" aria-labelledby="integrations-request">
           <h2 id="integrations-request">Request an integration</h2>
-          <p className="muted">
+          <p className="text-muted-foreground">
             Missing a tool?{' '}
-            <a href="mailto:integrations@your-domain.com?subject=Integration%20request">Request an integration</a>.
+            <a className="link" href="mailto:integrations@fudrouter.my.id?subject=Integration%20request">Request an integration</a>.
           </p>
         </section>
       </div>

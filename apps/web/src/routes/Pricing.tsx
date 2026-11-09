@@ -1,8 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { Check } from 'lucide-react';
 import { Reveal } from '../components/Reveal';
 import { Button } from '../components/ui/button';
-import { Table } from '../components/ui/table';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../components/ui/table';
 import { api, formatContext, formatPricePer1M, priceMicro } from '../lib/api';
 
 // Derive the per-day figure from the displayed price string instead of adding a
@@ -126,15 +134,6 @@ const FAQ: { q: string; a: string }[] = [
   },
 ];
 
-/** Inline check mark for tier feature lists. Inherits color via currentColor. */
-function Check() {
-  return (
-    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" className="pricing-check">
-      <path d="M3 8.5 6.5 12 13 4.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
 /**
  * Credit flow diagram: top-up feeds the balance, each request draws it down
  * through a ledger entry, and a low balance raises a threshold alert. Pure
@@ -157,11 +156,16 @@ function FlowDiagram() {
     { x1: 150, y1: 110, x2: 62, y2: 110 },
   ];
   return (
-    <svg viewBox="0 0 400 140" className="pricing-flow" role="img" aria-label="Credit flow: top-up adds to balance, a request draws it down through a ledger entry, and a low balance raises a threshold alert">
+    <svg viewBox="0 0 400 140" className="h-auto w-full" role="img" aria-label="Credit flow: top-up adds to balance, a request draws it down through a ledger entry, and a low balance raises a threshold alert">
       <title>Credit flow</title>
       <desc>Top-up feeds the credit balance. A request draws from the balance and writes a ledger entry, which decreases the balance. When the balance falls below the threshold, a threshold alert is raised.</desc>
+      <style>{`
+        .flow-node rect { fill: var(--card); stroke: var(--border); }
+        .flow-node text { fill: var(--foreground); font-family: var(--font-mono); font-size: 13px; }
+        .flow-edge line { stroke: var(--border); stroke-width: 1.5; }
+      `}</style>
       {edges.map((e, i) => (
-        <g key={i} className="pricing-flow-edge">
+        <g key={i} className="flow-edge">
           <line x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2} markerEnd="url(#pricing-arrow)" />
         </g>
       ))}
@@ -171,7 +175,7 @@ function FlowDiagram() {
         </marker>
       </defs>
       {nodes.map((n) => (
-        <g key={n.label} className="pricing-flow-node">
+        <g key={n.label} className="flow-node">
           <rect x={n.x} y={n.y} width="120" height="40" rx="8" />
           <text x={n.x + 60} y={n.y + 25} textAnchor="middle">{n.label}</text>
         </g>
@@ -217,6 +221,13 @@ function money(micro: bigint): string {
 function divRound(tokens: bigint, priceMicro: bigint): bigint {
   if (tokens === 0n || priceMicro === 0n) return 0n;
   return (tokens * priceMicro + 500_000n) / 1_000_000n;
+}
+
+interface PriceCellProps {
+  value: string | null;
+}
+function PriceCell({ value }: PriceCellProps) {
+  return <span className="font-mono text-right tabular-nums whitespace-nowrap">{formatPricePer1M(value)}</span>;
 }
 
 export function PricingPage() {
@@ -274,34 +285,45 @@ export function PricingPage() {
 
   return (
     <Reveal>
-      <div className="stack">
+      <div className="grid gap-6">
         <h1>Pricing</h1>
-        <p className="lede muted">Buy time, not tokens. One API key, every model, no per-request metering.</p>
+        <p className="measure text-lg text-muted-foreground">Buy time, not tokens. One API key, every model, no per-request metering.</p>
 
         <section aria-labelledby="pricing-plans">
           <h2 id="pricing-plans">Plans</h2>
-          <div className="pricing-tiers">
+          <div className="flex flex-wrap justify-center items-stretch gap-4">
             {TIERS.map((t) => (
-              <div key={t.name} className={t.highlight ? 'pricing-tier pricing-tier--pro' : 'pricing-tier'}>
-                {t.highlight ? <span className="pricing-tier-badge">Most popular</span> : null}
-                <h3>{t.name}</h3>
-                <p className="pricing-tier-price">
-                  <span className="num">{t.price}</span>
-                  <span className="pricing-tier-period">{t.period}</span>
+              <div
+                key={t.name}
+                className={
+                  t.highlight
+                    ? 'relative flex basis-80 max-w-[22rem] min-w-0 flex-col gap-2 rounded-lg border-2 border-[var(--primary)] bg-[var(--card)] p-5'
+                    : 'relative flex basis-80 max-w-[22rem] min-w-0 flex-col gap-2 surface p-5'
+                }
+              >
+                {t.highlight ? (
+                  <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-[var(--primary)] px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-[var(--primary-foreground)]">
+                    Most popular
+                  </span>
+                ) : null}
+                <h3 className="text-lg">{t.name}</h3>
+                <p className="m-0 flex flex-col gap-0.5 stat-figure">
+                  <span className="font-mono tabular-nums">{t.price}</span>
+                  <span className="text-xs font-normal tracking-normal text-muted-foreground">{t.period}</span>
                 </p>
-                <p className="pricing-tier-perday">
-                  <span className="num">{formatPerDay(t.price, t.days)}</span> / day
+                <p className="m-0 text-xs text-muted-foreground">
+                  <span className="font-mono tabular-nums text-foreground">{formatPerDay(t.price, t.days)}</span> / day
                 </p>
-                <p className="pricing-tier-blurb muted text-sm">{t.blurb}</p>
-                <ul className="pricing-features">
+                <p className="m-0 min-h-[3em] text-sm text-muted-foreground">{t.blurb}</p>
+                <ul className="m-0 mb-2 grid gap-1 p-0 text-sm">
                   {t.features.map((f) => (
-                    <li key={f}>
-                      <Check /> {f}
+                    <li key={f} className="flex items-start gap-2">
+                      <Check className="mt-0.5 size-3.5 flex-none text-[var(--primary)]" aria-hidden="true" /> {f}
                     </li>
                   ))}
                 </ul>
-                <Link to={t.to}>
-                  <Button variant={t.highlight ? 'primary' : 'secondary'} className="w-full">
+                <Link to={t.to} className="mt-auto">
+                  <Button variant={t.highlight ? 'default' : 'secondary'} className="w-full">
                     {t.cta}
                   </Button>
                 </Link>
@@ -312,15 +334,18 @@ export function PricingPage() {
 
         <section aria-labelledby="pricing-credits">
           <h2 id="pricing-credits">How subscriptions work</h2>
-          <div className="pricing-credits">
-            <ol className="pricing-steps">
-              <li>
+          <div className="grid items-start gap-8 lg:grid-cols-2">
+            <ol className="m-0 grid gap-4 p-0">
+              <li className="relative pl-12">
+                <span className="absolute left-0 top-0 grid size-8 place-items-center rounded-full border border-border font-mono text-sm text-[var(--chart-3)]">1</span>
                 <strong>Pick a plan.</strong> Choose one of the five windows above. The price is the whole cost — there is no per-token charge on top.
               </li>
-              <li>
+              <li className="relative pl-12">
+                <span className="absolute left-0 top-0 grid size-8 place-items-center rounded-full border border-border font-mono text-sm text-[var(--chart-3)]">2</span>
                 <strong>Pay by QRIS.</strong> Checkout shows a QRIS code for the exact amount. Pay it, then send the payment proof back.
               </li>
-              <li>
+              <li className="relative pl-12">
+                <span className="absolute left-0 top-0 grid size-8 place-items-center rounded-full border border-border font-mono text-sm text-[var(--chart-3)]">3</span>
                 <strong>An admin confirms it.</strong> The admin is notified on Discord and Telegram with your proof. On confirmation your API key is published and your window starts.
               </li>
             </ol>
@@ -330,21 +355,25 @@ export function PricingPage() {
 
         <section aria-labelledby="pricing-calc">
           <h2 id="pricing-calc">Cost calculator</h2>
-          <div className="pricing-calc">
-            <div className="pricing-calc-controls">
-              <label>
-                <span className="fr-label">Requests per day</span>
-                <input type="range" min={0} max={100000} step={100} value={reqPerDay} onChange={(e) => setReqPerDay(Number(e.target.value))} />
-                <span className="num">{reqPerDay.toLocaleString('en-US')}</span>
+          <div className="grid items-start gap-6 lg:grid-cols-2">
+            <div className="grid content-start gap-4">
+              <label className="grid gap-1">
+                <span className="eyebrow">Requests per day</span>
+                <input type="range" min={0} max={100000} step={100} value={reqPerDay} onChange={(e) => setReqPerDay(Number(e.target.value))} className="w-full accent-[var(--primary)]" />
+                <span className="font-mono tabular-nums">{reqPerDay.toLocaleString('en-US')}</span>
               </label>
-              <label>
-                <span className="fr-label">Average tokens per request</span>
-                <input type="range" min={100} max={100000} step={100} value={tokensPerReq} onChange={(e) => setTokensPerReq(Number(e.target.value))} />
-                <span className="num">{tokensPerReq.toLocaleString('en-US')}</span>
+              <label className="grid gap-1">
+                <span className="eyebrow">Average tokens per request</span>
+                <input type="range" min={100} max={100000} step={100} value={tokensPerReq} onChange={(e) => setTokensPerReq(Number(e.target.value))} className="w-full accent-[var(--primary)]" />
+                <span className="font-mono tabular-nums">{tokensPerReq.toLocaleString('en-US')}</span>
               </label>
-              <label>
-                <span className="fr-label">Model</span>
-                <select className="select" value={modelSlug ?? ''} onChange={(e) => setModelSlug(e.target.value)}>
+              <label className="grid gap-1">
+                <span className="eyebrow">Model</span>
+                <select
+                  className="form-control w-full"
+                  value={modelSlug ?? ''}
+                  onChange={(e) => setModelSlug(e.target.value)}
+                >
                   {models.map((m) => (
                     <option key={m.slug} value={m.slug}>
                       {m.name}
@@ -354,30 +383,28 @@ export function PricingPage() {
               </label>
             </div>
             {selected && calc ? (
-              <div className="pricing-calc-results">
-                <div>
-                  <span className="fr-label">Tokens / month</span>
-                  <span className="num">{calc.tokensMonth.toLocaleString('en-US')}</span>
-                </div>
-                <div>
-                  <span className="fr-label">Estimated cost / month</span>
-                  <span className="num">{money(calc.costMicro)}</span>
-                </div>
-                <div>
-                  <span className="fr-label">Cost per request</span>
-                  <span className="num">{calc.perReq === null ? '—' : money(calc.perReq)}</span>
-                </div>
+              <div className="grid content-start gap-4">
+                {[
+                  { label: 'Tokens / month', value: calc.tokensMonth.toLocaleString('en-US') },
+                  { label: 'Estimated cost / month', value: money(calc.costMicro) },
+                  { label: 'Cost per request', value: calc.perReq === null ? '—' : money(calc.perReq) },
+                ].map((r) => (
+                  <div key={r.label} className="grid gap-0.5 rounded-md border border-border bg-[var(--card)] p-4">
+                    <span className="eyebrow">{r.label}</span>
+                    <span className="stat-figure">{r.value}</span>
+                  </div>
+                ))}
               </div>
             ) : (
-              <div className="pricing-calc-results">
-                <p className="muted text-sm">
+              <div className="grid content-start gap-4">
+                <p className="text-sm text-muted-foreground measure">
                   {selected
                     ? 'This model has no output price in the catalog, so no estimate can be computed for it.'
                     : 'Loading the model catalog…'}
                 </p>
               </div>
             )}
-            <p className="muted text-sm">
+            <p className="text-sm text-muted-foreground measure col-span-full">
               Assumes 60% of tokens are input and 40% output. Estimate only — credits are metered per request from the ledger, and the tier prices above are plan prices, not token allowances. Input and output only; cached-input and reasoning tokens bill at their own rates. The figure is a projection from your inputs, not a quote.
             </p>
           </div>
@@ -385,54 +412,74 @@ export function PricingPage() {
 
         <section aria-labelledby="pricing-table">
           <h2 id="pricing-table">Model pricing table</h2>
-          <p className="lede muted">Pay per token — no seat fees. One API key, every model. All prices normalized per 1M tokens.</p>
-          {error ? <p className="error" role="alert">Pricing could not be loaded — reload in a moment.</p> : null}
+          <p className="measure text-lg text-muted-foreground">Pay per token — no seat fees. One API key, every model. All prices normalized per 1M tokens.</p>
+          {error ? <p className="error-text" role="alert">Pricing could not be loaded — reload in a moment.</p> : null}
           {groups.map((g) => (
             <section key={g.developer}>
-              <h3>{g.developer} <span className="muted">· {g.models.length}</span></h3>
-              <div className="table-wrap">
-                <Table
-                  head={['Model', 'Input', 'Cached input', 'Output', 'Context']}
-                  rows={g.models.map((m) => [
-                    // The model name is TEXT, not a link. It pointed at
-                    // /models/:slug, and that page is withdrawn — every name in
-                    // this table was a 404 while /pricing itself stayed indexable,
-                    // which is the worst shape a link can have. When a per-model
-                    // page comes back, this is the line that becomes a <Link>
-                    // again.
-                    <span key="m">{m.name}{m.slug !== m.name && <><br /><code className="muted">{m.slug}</code></>}</span>,
-                    ...(m.variesByProvider
-                      ? [<span key="v" className="muted">varies by provider</span>]
-                      : [
-                          <span key="i" className="num">{formatPricePer1M(m.price.inputPriceMicro)}</span>,
-                          <span key="c" className="num">{formatPricePer1M(m.price.cachedInputPriceMicro)}</span>,
-                          <span key="o" className="num">{formatPricePer1M(m.price.outputPriceMicro)}</span>,
-                        ]),
-                    <span key="x" className="num">{formatContext(m.context)}</span>,
-                  ])}
-                />
-              </div>
+              <h3 className="text-lg">
+                {g.developer} <span className="font-normal text-muted-foreground">· {g.models.length}</span>
+              </h3>
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-b border-border">
+                    <TableHead>Model</TableHead>
+                    <TableHead>Input</TableHead>
+                    <TableHead>Cached input</TableHead>
+                    <TableHead>Output</TableHead>
+                    <TableHead className="text-right">Context</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {g.models.map((m) => (
+                    <TableRow key={m.slug}>
+                      <TableCell>
+                        <span className="whitespace-normal">
+                          {m.name}
+                          {m.slug !== m.name && (
+                            <>
+                              <br />
+                              <code className="font-mono text-xs text-muted-foreground">{m.slug}</code>
+                            </>
+                          )}
+                        </span>
+                      </TableCell>
+                      {m.variesByProvider ? (
+                        <>
+                          <TableCell colSpan={3} className="text-muted-foreground">varies by provider</TableCell>
+                        </>
+                      ) : (
+                        <>
+                          <TableCell><PriceCell value={m.price.inputPriceMicro} /></TableCell>
+                          <TableCell><PriceCell value={m.price.cachedInputPriceMicro} /></TableCell>
+                          <TableCell><PriceCell value={m.price.outputPriceMicro} /></TableCell>
+                        </>
+                      )}
+                      <TableCell className="text-right font-mono text-muted-foreground tabular-nums">{formatContext(m.context)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </section>
           ))}
         </section>
 
         <section aria-labelledby="pricing-faq">
           <h2 id="pricing-faq">Billing FAQ</h2>
-          <div className="pricing-faq">
+          <div className="measure grid gap-2">
             {FAQ.map((f) => (
-              <details key={f.q}>
-                <summary>{f.q}</summary>
-                <p>{f.a}</p>
+              <details key={f.q} className="rounded-md border border-border bg-[var(--card)]">
+                <summary className="cursor-pointer rounded-md px-4 py-2 font-semibold">{f.q}</summary>
+                <p className="m-0 border-t border-border px-4 py-2 text-sm text-muted-foreground">{f.a}</p>
               </details>
             ))}
           </div>
         </section>
 
-        <section className="pricing-cta" aria-labelledby="pricing-cta">
+        <section className="border-t border-border pt-6" aria-labelledby="pricing-cta">
           <h2 id="pricing-cta">Start free. Upgrade when you need to.</h2>
-          <div className="row">
+          <div className="flex flex-wrap items-center gap-3">
             <Link to="/login"><Button>Get started</Button></Link>
-            <span className="muted">Then mint a key and point a client at the API.</span>
+            <span className="text-muted-foreground">Then mint a key and point a client at the API.</span>
           </div>
         </section>
       </div>

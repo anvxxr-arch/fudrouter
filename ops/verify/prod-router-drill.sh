@@ -76,22 +76,37 @@ done
 echo "  $((${#MIG_FILES[@]} - SKIPPED)) applied, $SKIPPED gated/skipped"
 
 echo "### 3. seed a dev + an active provider (dummy blob: listing never decrypts)"
-# The catalogue walks model -> provider_model -> provider (`ListModels` joins
-# `provider_model pm on pm.model_id = m.id and pm.enabled`). Seeding only a
-# provider+model leaves the model INVISIBLE no matter how healthy the provider
-# is, which is how this drill rotted: every /v1/models assertion went to 0 for a
-# reason unrelated to the dev-flag interlock it exists to test.
+# The catalogue walks a FOUR-hop chain, and a seed that misses any hop leaves the
+# model INVISIBLE while every assertion downstream goes to 0 for a reason
+# unrelated to the dev-flag interlock this drill exists to test. It has rotted
+# this way twice, so the chain is written out here in full:
+#
+#   model -> provider_model (enabled, connection_id)
+#         -> connection     (enabled, health_status != 'unhealthy')
+#         -> credential     (status not in ('disabled','invalid'), not cooling)
+#
+# The last two hops are the 0027 `connection_egress` gate: before it the join
+# stopped at `provider p on p.id = pm.provider_id`, so seeding provider+model
+# was enough. After it, a provider_model with a NULL connection_id fails the
+# `exists (select 1 from connection ...)` clause no matter how healthy the
+# provider row looks — which is exactly how it rotted again.
 QRY "insert into provider (id,name,base_url,credentials_enc,status,priority) values
  ('drill-dev','Drill Dev','https://example.invalid/v1','ZHVtbXk=','dev',100),
  ('drill-active','Drill Active','https://example.invalid/v1','ZHVtbXk=','active',100);
+ insert into connection (id,provider_id,name,slug,base_url) values
+ ('drill-c-dev','drill-dev','Drill Dev Conn','drill-dev-conn','https://example.invalid/v1'),
+ ('drill-c-active','drill-active','Drill Active Conn','drill-active-conn','https://example.invalid/v1');
+ insert into credential (id,connection_id,name,secret_enc,status) values
+ ('drill-cred-dev','drill-c-dev','Drill Dev Cred','ZHVtbXk=','healthy'),
+ ('drill-cred-active','drill-c-active','Drill Active Cred','ZHVtbXk=','healthy');
  insert into model (id,slug,name,provider_id,input_price,output_price,context,status) values
  ('drill-m-dev','drill-dev-model','Drill Dev Model','drill-dev',0,0,1000,'active'),
  ('drill-m-active','drill-active-model','Drill Active Model','drill-active',0,0,1000,'active');
- insert into provider_model (id,model_id,provider_id,provider_model_id,enabled) values
- ('drill-pm-dev','drill-m-dev','drill-dev','drill-dev-model',true),
- ('drill-pm-active','drill-m-active','drill-active','drill-active-model',true);" \
+ insert into provider_model (id,model_id,provider_id,connection_id,provider_model_id,enabled) values
+ ('drill-pm-dev','drill-m-dev','drill-dev','drill-c-dev','drill-dev-model',true),
+ ('drill-pm-active','drill-m-active','drill-active','drill-c-active','drill-active-model',true);" \
 	|| { fail "seed failed"; exit 1; }
-echo "  seeded: $(QRY 'select count(*) from provider') providers, $(QRY 'select count(*) from model') models, $(QRY 'select count(*) from provider_model') provider_models"
+echo "  seeded: $(QRY 'select count(*) from provider') providers, $(QRY 'select count(*) from connection') connections, $(QRY 'select count(*) from credential') credentials, $(QRY 'select count(*) from model') models, $(QRY 'select count(*) from provider_model') provider_models"
 
 echo "### 3b. status constraints are enforced (migration 0005)"
 # The seed above only proves the valid values are ACCEPTED. A CHECK that was

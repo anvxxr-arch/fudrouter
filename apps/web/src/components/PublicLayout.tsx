@@ -1,8 +1,11 @@
-import { Suspense, useEffect, useId, useRef, useState, type CSSProperties } from 'react';
-import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
+import { Suspense, useId, useRef, useEffect, useState } from 'react';
+import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { Menu, X, ChevronRight } from 'lucide-react';
 import { useSession } from "./guards";
 import { PUBLIC_NAV, filterNav } from '../lib/navigation';
 import { api, type StatusPayload } from '../lib/api';
+import { Button } from '@/components/ui/button';
+import { Sheet, SheetClose, SheetContent, SheetTitle } from '@/components/ui/sheet';
 
 // The footer's "all systems operational" dot. It reads the same /api/status
 // the status page reads, once per page load — no polling. It shows a green dot
@@ -19,8 +22,8 @@ function StatusDot() {
   }, []);
   if (!state) return null;
   return (
-    <span className="status-dot" role="img" aria-label={state.label}>
-      <span className="status-dot-ok" aria-hidden="true" />
+    <span className="inline-flex size-2 items-center justify-center" role="img" aria-label={state.label}>
+      <span className="size-2 rounded-full bg-[var(--primary)]" aria-hidden="true" />
     </span>
   );
 }
@@ -40,8 +43,6 @@ export function PublicLayout() {
   // costs one 44px button in the header instead of a second nav row.
   const [menuOpen, setMenuOpen] = useState(false);
   const menuId = useId();
-  const burgerRef = useRef<HTMLButtonElement>(null);
-  const sheetRef = useRef<HTMLDivElement>(null);
   const { pathname } = useLocation();
   // /dashboard and /admin render ConsoleLayout, which brings its own chrome
   // (sidebar, 44px mobile bar, sheet). This layout kept rendering the marketing
@@ -57,25 +58,6 @@ export function PublicLayout() {
     setMenuOpen(false);
   }, [pathname]);
 
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setMenuOpen(false);
-    };
-    document.addEventListener('keydown', onKey);
-    // The sheet is fixed and the page behind it must not scroll under a thumb.
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    const first = sheetRef.current?.querySelector<HTMLElement>('.pub-sheet-link');
-    first?.focus();
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      document.body.style.overflow = prevOverflow;
-      // Focus goes back to the button that opened the sheet, so a keyboard
-      // user does not land at the top of the document.
-      burgerRef.current?.focus();
-    };
-  }, [menuOpen]);
   // The header is sticky, so it needs to know two things the CSS cannot: how far
   // the page has been read (the progress rail) and whether the page has moved at
   // all (the solid background). Both are written as a CSS variable / data
@@ -107,152 +89,180 @@ export function PublicLayout() {
       if (raf) cancelAnimationFrame(raf);
     };
   }, []);
+
   return (
     <>
-      <a className="skip-link" href="#content">
+      <a className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60] focus:rounded-md focus:bg-background focus:px-4 focus:py-2 focus:text-foreground focus:ring-2 focus:ring-ring" href="#content">
         Skip to content
       </a>
-      {consoleRoute ? null : (<header className="pub" ref={headerRef}>
-        <NavLink className="brand" to="/">
-          fudrouter
-        </NavLink>
-        {/* Desktop nav. Hidden at <=720px, where the sheet takes over. */}
-        <nav className="pub-nav" aria-label="Primary">
-          {links.map((l) => (
-            <NavLink
-              key={l.to}
-              to={l.to}
-              className={({ isActive }) => (isActive ? 'active' : undefined)}
-            >
-              {l.label}
-            </NavLink>
-          ))}
-        </nav>
-        <span className="spacer" />
-        {/* One door. Two buttons (“Log in” + “Get started”) both led to the
-            same Discord round trip once signup stopped being a separate page. */}
-        {/* The console renders inside this layout, so an authenticated visitor
-            was still offered "Log in" on /dashboard -- a dead end that looks
-            like the session was lost. One label, switched by session. */}
-        <NavLink className="cta pub-cta" to={user ? "/dashboard" : "/login"}>
-          {user ? "Dashboard" : "Log in"}
-        </NavLink>
-        <button
-          ref={burgerRef}
-          type="button"
-          className="menu-btn"
-          aria-label={menuOpen ? 'Close menu' : 'Open menu'}
-          aria-expanded={menuOpen}
-          aria-controls={menuId}
-          onClick={() => setMenuOpen((v) => !v)}
+      {consoleRoute ? null : (
+        <header
+          ref={headerRef}
+          className="shell-gutter sticky top-0 z-50 flex h-[var(--header-h)] items-center gap-4 border-b border-border bg-background/80 backdrop-blur-xl data-[scrolled=true]:border-border-strong data-[scrolled=true]:bg-background/95"
         >
-          <span className="menu-bars" data-open={menuOpen} aria-hidden="true" />
-        </button>
-        <span className="pub-progress" aria-hidden="true" />
-      </header>)}
-
-      {/* Mobile sheet. Kept mounted and hidden with `visibility` so the panel
-          can animate both ways and so closed links leave the tab order. The
-          backdrop is a button, not a div, so it is reachable by assistive tech
-          as the close action it is. */}
-      {consoleRoute ? null : (<div className="pub-sheet" id={menuId} data-open={menuOpen} aria-hidden={!menuOpen}>
-        <button
-          type="button"
-          className="pub-sheet-backdrop"
-          aria-label="Close menu"
-          tabIndex={-1}
-          onClick={() => setMenuOpen(false)}
-        />
-        <div
-          ref={sheetRef}
-          className="pub-sheet-panel"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Menu"
-        >
-          {/* No header row inside the sheet and no second close button: the
-              burger above the scrim has already crossed into an X and every
-              tap outside the panel closes it (the scrim's whole surface is the
-              close button), so a row reading “MENU ×” would say the same thing
-              twice. The grabber is the only furniture — it explains where the
-              surface came from without promising a drag that is not wired. */}
-          <div className="pub-sheet-grip" aria-hidden="true" />
-          <nav className="pub-sheet-nav" aria-label="Primary">
-            {links.map((l, i) => (
+          <NavLink
+            to="/"
+            className="flex flex-none items-center gap-2 font-semibold text-foreground hover:no-underline"
+          >
+            <span className="brand-dot" aria-hidden="true" />
+            fudrouter
+          </NavLink>
+          {/* Desktop nav. Hidden below 720px, where the sheet takes over. */}
+          <nav className="hidden min-w-0 flex-none flex-wrap gap-4 overflow-x-auto md:flex" aria-label="Primary">
+            {links.map((l) => (
               <NavLink
                 key={l.to}
                 to={l.to}
-                style={{ '--i': i } as CSSProperties}
                 className={({ isActive }) =>
-                  isActive ? 'pub-sheet-link active' : 'pub-sheet-link'
+                  `relative inline-flex min-h-11 items-center whitespace-nowrap px-0.5 text-sm transition-colors after:absolute after:inset-x-0 after:bottom-2 after:h-0.5 after:origin-center after:rounded-sm ${
+                    isActive
+                      ? 'text-foreground after:scale-x-100 after:bg-[var(--primary)]'
+                      : 'text-muted-foreground hover:text-foreground after:scale-x-0 after:bg-[var(--primary)] hover:after:scale-x-100'
+                  }`
                 }
               >
                 {l.label}
-                <span className="pub-sheet-chevron" aria-hidden="true">→</span>
               </NavLink>
             ))}
           </nav>
-          <NavLink className="cta pub-sheet-cta" to={user ? "/dashboard" : "/login"}>
-            {user ? "Dashboard" : "Log in"}
-          </NavLink>
-        </div>
-      </div>)}
-      <main className="shell">
+          <span className="ml-auto" />
+          {/* One door. Two buttons (“Log in” + “Get started”) both led to the
+              same Discord round trip once signup stopped being a separate page.
+              The console renders inside this layout, so an authenticated visitor
+              was still offered "Log in" on /dashboard -- a dead end that looks
+              like the session was lost. One label, switched by session. */}
+          <Button asChild size="sm" className="hidden md:inline-flex">
+            <NavLink to={user ? "/dashboard" : "/login"}>
+              {user ? "Dashboard" : "Log in"}
+            </NavLink>
+          </Button>
+          <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
+            <SheetContent side="bottom" showCloseButton={false} className="gap-0 bg-background px-4 pb-6 pt-4" aria-describedby={undefined}>
+              <SheetTitle className="sr-only">Menu</SheetTitle>
+              <div className="flex items-center justify-between">
+                <span className="inline-flex items-center gap-2 font-semibold text-foreground">
+                  <span className="brand-dot" aria-hidden="true" />
+                  fudrouter
+                </span>
+                <SheetClose asChild>
+                  <button
+                    type="button"
+                    className="inline-flex size-11 items-center justify-center rounded-md border border-border text-muted-foreground hover:text-foreground"
+                    aria-label="Close menu"
+                  >
+                    <X className="size-5" />
+                  </button>
+                </SheetClose>
+              </div>
+              {/* The sheet opens from the bottom, so the grabber explains where
+                  the surface came from without promising a drag that is not
+                  wired. */}
+              <div className="mx-auto mt-0 h-1 w-12 flex-none rounded-full bg-muted" aria-hidden="true" />
+              <nav className="mt-2 grid gap-1" aria-label="Primary">
+                {links.map((l) => (
+                  <SheetClose asChild key={l.to}>
+                    <NavLink
+                      to={l.to}
+                      className={({ isActive }) =>
+                        `flex min-h-[52px] items-center justify-between rounded-md px-3 text-base transition-colors ${
+                          isActive
+                            ? 'bg-[var(--accent)] font-semibold text-foreground'
+                            : 'text-muted-foreground hover:bg-[var(--accent)] hover:text-foreground'
+                        }`
+                      }
+                    >
+                      {l.label}
+                      <ChevronRight className="size-4 text-muted-foreground" />
+                    </NavLink>
+                  </SheetClose>
+                ))}
+              </nav>
+              <SheetClose asChild>
+                <Button asChild size="lg" className="mt-2 w-full" variant={user ? 'secondary' : 'default'}>
+                  <NavLink to={user ? "/dashboard" : "/login"}>
+                    {user ? "Dashboard" : "Log in"}
+                  </NavLink>
+                </Button>
+              </SheetClose>
+            </SheetContent>
+          </Sheet>
+          {/* Burger: visible only below 720px. The shadcn Sheet closes on
+              Escape / outside tap / the X, with focus return handled by Radix
+              Dialog, so this button only has to open it. */}
+          <button
+            type="button"
+            className="inline-grid size-11 flex-none place-items-center rounded-md border border-border text-foreground md:hidden"
+            aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((v) => !v)}
+          >
+            <Menu className="size-5" />
+          </button>
+          <span
+            className="pointer-events-none absolute inset-x-0 -bottom-px h-0.5 origin-left scale-x-[var(--scroll-progress,0)] bg-gradient-to-r from-[var(--primary)] to-emerald-400"
+            aria-hidden="true"
+          />
+        </header>
+      )}
+
+      <main className="mx-auto w-full max-w-(--shell-max) px-6 py-8">
         <div id="content">
-          <Suspense fallback={<p className="muted" role="status" aria-live="polite">Loading…</p>}>
+          <Suspense fallback={<p className="text-muted-foreground" role="status" aria-live="polite">Loading…</p>}>
             <Outlet />
           </Suspense>
         </div>
       </main>
-      <footer className="foot">
-        <div className="foot-cols">
-          <div className="foot-brand">
-            <strong>fudrouter</strong>
+      <footer className="mx-auto flex w-full max-w-(--shell-max) flex-wrap items-center justify-between gap-4 px-6 py-6 text-sm text-muted-foreground">
+        <div className="flex w-full flex-wrap gap-6 md:flex-nowrap">
+          <div className="min-w-0 flex-shrink-0">
+            <strong className="block text-foreground">fudrouter</strong>
             <span>One API key, every model.</span>
+            <span className="mt-2 block">© 2026 fudrouter</span>
           </div>
-          <div className="foot-col">
-            <p className="fr-label">Product</p>
-            <ul>
-              <li><NavLink to="/features">Features</NavLink></li>
-              <li><NavLink to="/integrations">Integrations</NavLink></li>
-              <li><NavLink to="/models">Models</NavLink></li>
-              <li><NavLink to="/pricing">Pricing</NavLink></li>
-              <li><NavLink to="/changelog">Changelog</NavLink></li>
-              <li><NavLink to="/login">Log in</NavLink></li>
-            </ul>
-          </div>
-          <div className="foot-col">
-            <p className="fr-label">Docs</p>
-            <ul>
-              <li><NavLink to="/docs">Documentation</NavLink></li>
-              <li><NavLink to="/docs/getting-started/quickstart">Quickstart</NavLink></li>
-              <li><NavLink to="/docs/api/authentication">Authentication</NavLink></li>
-              <li><NavLink to="/docs/routing/fallback">Routing and fallback</NavLink></li>
-              <li><NavLink to="/docs/observability/observability">What gets recorded</NavLink></li>
-              <li><NavLink to="/docs/api/errors">Error reference</NavLink></li>
-            </ul>
-          </div>
-          <div className="foot-col">
-            <p className="fr-label">Company</p>
-            <ul>
-              <li><NavLink to="/security">Security</NavLink></li>
-              <li><NavLink to="/terms">Terms</NavLink></li>
-              <li><NavLink to="/privacy">Privacy</NavLink></li>
-            </ul>
-          </div>
-          <div className="foot-col">
-            <p className="fr-label">Status</p>
-            <ul>
-              <li>
-                <NavLink to="/status">
-                  System status
-                  <StatusDot />
-                </NavLink>
-              </li>
-            </ul>
+          <div className="grid flex-1 grid-cols-2 gap-6 sm:grid-cols-4">
+            <div className="flex flex-col gap-2">
+              <p className="eyebrow">Product</p>
+              <ul className="grid gap-2">
+                <li><NavLink className="hover:text-foreground hover:underline" to="/features">Features</NavLink></li>
+                <li><NavLink className="hover:text-foreground hover:underline" to="/integrations">Integrations</NavLink></li>
+                <li><NavLink className="hover:text-foreground hover:underline" to="/models">Models</NavLink></li>
+                <li><NavLink className="hover:text-foreground hover:underline" to="/pricing">Pricing</NavLink></li>
+                <li><NavLink className="hover:text-foreground hover:underline" to="/changelog">Changelog</NavLink></li>
+                <li><NavLink className="hover:text-foreground hover:underline" to="/login">Log in</NavLink></li>
+              </ul>
+            </div>
+            <div className="flex flex-col gap-2">
+              <p className="eyebrow">Docs</p>
+              <ul className="grid gap-2">
+                <li><NavLink className="hover:text-foreground hover:underline" to="/docs">Documentation</NavLink></li>
+                <li><NavLink className="hover:text-foreground hover:underline" to="/docs/getting-started/quickstart">Quickstart</NavLink></li>
+                <li><NavLink className="hover:text-foreground hover:underline" to="/docs/api/authentication">Authentication</NavLink></li>
+                <li><NavLink className="hover:text-foreground hover:underline" to="/docs/routing/fallback">Routing and fallback</NavLink></li>
+                <li><NavLink className="hover:text-foreground hover:underline" to="/docs/observability/observability">What gets recorded</NavLink></li>
+                <li><NavLink className="hover:text-foreground hover:underline" to="/docs/api/errors">Error reference</NavLink></li>
+              </ul>
+            </div>
+            <div className="flex flex-col gap-2">
+              <p className="eyebrow">Company</p>
+              <ul className="grid gap-2">
+                <li><NavLink className="hover:text-foreground hover:underline" to="/security">Security</NavLink></li>
+                <li><NavLink className="hover:text-foreground hover:underline" to="/terms">Terms</NavLink></li>
+                <li><NavLink className="hover:text-foreground hover:underline" to="/privacy">Privacy</NavLink></li>
+              </ul>
+            </div>
+            <div className="flex flex-col gap-2">
+              <p className="eyebrow">Status</p>
+              <ul className="grid gap-2">
+                <li>
+                  <NavLink className="inline-flex items-center gap-1.5 hover:text-foreground hover:underline" to="/status">
+                    System status
+                    <StatusDot />
+                  </NavLink>
+                </li>
+              </ul>
+            </div>
           </div>
         </div>
-        <span>© 2026 fudrouter</span>
       </footer>
     </>
   );

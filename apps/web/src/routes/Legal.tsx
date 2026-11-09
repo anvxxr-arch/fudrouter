@@ -1,5 +1,12 @@
+import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { Card } from '../components/ui/card';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '../components/ui/card';
 
 // Both documents are one file because they share the TOC shell and the
 // "last updated" line, and a visitor who lands on /terms is one click from
@@ -13,6 +20,20 @@ interface Section {
   body: string;
   list?: string[];
 }
+
+// The body is native <p>/<ul>/<li> (data, not JSX — headings get ids for the
+// TOC anchors), so one scoped sheet restores markers and spacing that the
+// base reset strips. Same pattern as the docs/changelog prose.
+const PROSE_STYLES = `
+.legal-prose { display: grid; gap: 1rem; max-width: 34rem; align-content: start; }
+.legal-prose > * { min-width: 0; }
+.legal-prose p { margin: 0; color: #e2e8f0; }
+.legal-prose ul { margin: 0; padding-left: 1.5rem; list-style: disc; color: #cbd5e1; }
+.legal-prose li + li { margin-top: 0.25rem; }
+.legal-prose li::marker { color: #64748b; }
+.legal-prose h2 { font-size: 1.25rem; font-weight: 600; color: var(--foreground); margin: 0; }
+.legal-prose a { color: var(--primary); text-decoration: underline; }
+`;
 
 const TERMS: Section[] = [
   {
@@ -116,7 +137,7 @@ const TERMS: Section[] = [
   {
     id: 'contact',
     title: 'Contact',
-    body: 'Questions about these terms go to legal@your-domain. Security reports go to security@your-domain instead — see the security page for what to include.',
+    body: 'Questions about these terms go to legal@fudrouter.my.id. Security reports go to security@fudrouter.my.id instead — see the security page for what to include.',
   },
 ];
 
@@ -206,7 +227,7 @@ const PRIVACY: Section[] = [
   {
     id: 'contact',
     title: 'Contact',
-    body: 'Privacy questions and data requests go to privacy@your-domain.',
+    body: 'Privacy questions and data requests go to privacy@fudrouter.my.id.',
   },
 ];
 
@@ -214,13 +235,13 @@ const LAST_UPDATED = '2026-10-19';
 
 function Toc({ sections, label }: { sections: Section[]; label: string }) {
   return (
-    <nav className="doc-sidebar" aria-label={label}>
-      <section>
-        <h2 className="fr-label">Contents</h2>
-        <ol>
+    <nav className="sticky top-6 grid content-start gap-4 self-start hidden lg:block" aria-label={label}>
+      <section className="grid gap-2">
+        <h2 className="eyebrow">Contents</h2>
+        <ol className="m-0 grid gap-2 p-0">
           {sections.map((s) => (
             <li key={s.id}>
-              <a href={`#${s.id}`}>{s.title}</a>
+              <a className="inline-flex min-h-6 items-center rounded-md px-2 py-1 text-sm text-muted-foreground hover:text-foreground" href={`#${s.id}`}>{s.title}</a>
             </li>
           ))}
         </ol>
@@ -231,7 +252,7 @@ function Toc({ sections, label }: { sections: Section[]; label: string }) {
 
 function Doc({ sections }: { sections: Section[] }) {
   return (
-    <div className="doc-prose">
+    <div className="legal-prose">
       {sections.map((s, i) => (
         <section key={s.id} aria-labelledby={s.id}>
           <h2 id={s.id}>
@@ -251,44 +272,60 @@ function Doc({ sections }: { sections: Section[] }) {
   );
 }
 
+function LegalShell({ title, sections, footer }: { title: string; sections: Section[]; footer?: ReactNode }) {
+  return (
+    <div className="grid gap-6">
+      <style dangerouslySetInnerHTML={{ __html: PROSE_STYLES }} />
+      <div>
+        <h1>{title}</h1>
+        <p className="text-muted-foreground">Last updated: {LAST_UPDATED}</p>
+      </div>
+      <div className="grid items-start gap-8 lg:grid-cols-[14rem_minmax(0,1fr)]">
+        <Toc sections={sections} label="Contents" />
+        <Doc sections={sections} />
+      </div>
+      {footer}
+    </div>
+  );
+}
+
 export function TermsPage() {
   return (
-    <div className="stack">
-      <div>
-        <h1>Terms of Service</h1>
-        <p className="lede muted">Last updated: {LAST_UPDATED}</p>
-      </div>
-      <div className="doc-layout">
-        <Toc sections={TERMS} label="Contents" />
-        <Doc sections={TERMS} />
-      </div>
-      <p className="muted">
-        Questions? <a href="mailto:legal@your-domain">legal@your-domain</a>
-      </p>
-    </div>
+    <LegalShell
+      title="Terms of Service"
+      sections={TERMS}
+      footer={
+        <p className="text-muted-foreground">
+          Questions? <a className="link" href="mailto:legal@fudrouter.my.id">legal@fudrouter.my.id</a>
+        </p>
+      }
+    />
   );
 }
 
 export function PrivacyPage() {
   return (
-    <div className="stack">
-      <div>
-        <h1>Privacy Policy</h1>
-        <p className="lede muted">Last updated: {LAST_UPDATED}</p>
-      </div>
-      <div className="doc-layout">
-        <Toc sections={PRIVACY} label="Contents" />
-        <Doc sections={PRIVACY} />
-      </div>
-      <Card title="Want your data?">
-        <p className="card-desc">
-          Email <a href="mailto:privacy@your-domain">privacy@your-domain</a> with your account email. We respond within 30
-          days.
-        </p>
-      </Card>
-      <p className="muted">
-        How we protect it is on the <Link to="/security">security page</Link>.
-      </p>
-    </div>
+    <LegalShell
+      title="Privacy Policy"
+      sections={PRIVACY}
+      footer={
+        <>
+          <Card>
+            <CardHeader>
+              <CardTitle>Want your data?</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <CardDescription>
+                Email <a className="link" href="mailto:privacy@fudrouter.my.id">privacy@fudrouter.my.id</a> with your account email. We respond within 30
+                days.
+              </CardDescription>
+            </CardContent>
+          </Card>
+          <p className="text-muted-foreground">
+            How we protect it is on the <Link className="link" to="/security">security page</Link>.
+          </p>
+        </>
+      }
+    />
   );
 }

@@ -275,12 +275,32 @@ model_alias_target (alias_id → model_alias, model_id → model, position int,
   the router eliminates candidates whose override/canonical value is **explicitly `false`**
   (PRD §123–124). A missing/unknown key is not a claim — it passes the filter and loses to
   explicit `true` in scoring — so an unenriched catalog can never black-hole a request.
-- Global virtual models (PRD §36) are `model_alias` rows with `workspace_id NULL` and names
-  `fudrouter/auto|fast|cheap|balanced|reliable|reasoning|coding`; each row carries the
-  human-readable intent in `description`. Their target sets are resolved by the router from
-  the active strategy (not pinned model lists).
-- Alias resolution order: project alias → workspace alias → global virtual → literal
-  `model.slug`. First match wins.
+- Global virtual models (PRD §36) are `model_alias` rows with `account_id NULL` (the column
+  was `workspace_id` until 0019 collapsed the scopes) and the names
+  `fudrouter/{auto,smart,medium,worker}` (the tier ladder) plus
+  `fudrouter/{fast,cheap,balanced,reliable,reasoning,coding}` (the signal-named tiers); each
+  row carries the human-readable intent in `description`.
+- **Allowlist tiers.** A global virtual's target set comes from its `model_alias_target`
+  rows when it has any, and falls back to the strategy-resolved active fan-out when it does
+  not (invariant A: backward compatible — opting in is inserting rows, opting out is deleting
+  them, no deploy). The split is:
+  - `model_alias_target` = **who** may be chosen (canonicalised through `model_slug_alias`,
+    deduplicated, chains/cycles rejected);
+  - the virtual's own strategy = **how** one of them is chosen
+    (`auto`=random, `smart`=highest_reliability, `medium`=lowest_latency, `worker`=lowest_cost);
+  - the policy's `ModelPref` = tie-break ranking, unchanged. An allowlist is never a hard
+    preference order (invariant B).
+  An allowlist may name a model that is currently failing: availability is decided at
+  admission (`CandidatesBatch` drops disabled/unhealthy mappings, `Select` demotes collapsed
+  targets), never by silently deleting tier members (invariant C: live ≠ reliable ≠ available).
+- `fudrouter/auto`'s default set (no allowlist) is the **live set**: canonical models that
+  produced at least one 2xx in the last 24h, read from `request_attempt` through the partial
+  index `request_attempt_live_idx` (0031). An empty live set is a recovery state — it widens
+  to the full fan-out and logs it, never silently assuming every model is healthy.
+- Alias resolution order: account alias → global virtual → literal `model.slug`. First match
+  wins. (The project/workspace levels this used to walk were collapsed into the account by
+  0019.) An account alias named `fudrouter/*` is the customer's own override and keeps the
+  plain ordered-alias shape.
 
 ---
 ## 6. Pricing (PRD §60–61)

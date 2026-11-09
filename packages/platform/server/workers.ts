@@ -1584,6 +1584,8 @@ async function retentionBatch(
  *   DELETE rows past the window; `0`/negative keeps them forever (deletion is
  *   opt-in — a zero here must never mean "wipe the ledger"). `job_days` deletes
  *   only TERMINAL (`completed`/`failed`) queue rows, never live work.
+ * - `credential_days` DELETEs `invalid` credentials that are unreferenced and
+ *   older than the window, opt-in (0/negative keeps them forever).
  *
  * Idempotent: a second run finds nothing older than the same cutoffs. Every
  * branch is batched (see retentionBatch) and reports whether it finished, so a
@@ -1596,6 +1598,7 @@ const dataRetentionCleanup: JobHandler = async (dbtx) => {
 	const eventDays = Number(retention?.system_events_days ?? 0);
 	const auditDays = Number(retention?.audit_logs_days ?? 0);
 	const jobDays = Number(retention?.job_days ?? 0);
+	const credentialDays = Number(retention?.credential_days ?? 0);
 	const cutoff = (days: number) => new Date(Date.now() - days * 86_400_000);
 
 	// Content first, then rows — the original order, now batched. Blanking is
@@ -1641,13 +1644,35 @@ const dataRetentionCleanup: JobHandler = async (dbtx) => {
 			)
 		).touched;
 	}
+	// `credential` holds every farm/onboarding key ever imported; nothing else
+	// prunes it, so dead (`invalid`) keys accumulate forever. Delete only
+	// `invalid` rows no `request_log`/`request_attempt` ever referenced — both
+	// store `credential_id` as plain text (no FK), so pruning a referenced row
+	// would leave a dangling id. `unknown` is deliberately KEPT: the validation
+	// probe writes it when it *cannot* judge a key (edge-rate gate, anonymous
+	// `/models`, expired OAuth), so `unknown` is not proof of death, unlike
+	// `invalid` (`status not in ('disabled','invalid')` is the router's usable
+	// predicate).
+	let deletedCredentials = 0;
+	if (credentialDays > 0) {
+		deletedCredentials = (
+			await retentionBatch(
+				dbtx,
+				'credential',
+				'updated_at',
+				cutoff(credentialDays),
+				"and status = 'invalid' and not exists (select 1 from request_log r where r.credential_id = credential.id) and not exists (select 1 from request_attempt a where a.credential_id = credential.id)"
+			)
+		).touched;
+	}
 	const unfinished =
 		blanked.more ||
 		(metadataDays > 0 && deletedRequests >= RETENTION_BATCH * RETENTION_MAX_BATCHES) ||
 		(eventDays > 0 && deletedEvents >= RETENTION_BATCH * RETENTION_MAX_BATCHES) ||
 		(auditDays > 0 && deletedAudits >= RETENTION_BATCH * RETENTION_MAX_BATCHES) ||
+		(credentialDays > 0 && deletedCredentials >= RETENTION_BATCH * RETENTION_MAX_BATCHES) ||
 		(jobDays > 0 && deletedJobs >= RETENTION_BATCH * RETENTION_MAX_BATCHES);
-	if (blanked.touched + deletedRequests + deletedEvents + deletedAudits + deletedJobs > 0) {
+	if (blanked.touched + deletedRequests + deletedEvents + deletedAudits + deletedCredentials + deletedJobs > 0) {
 		await dbtx.insert(systemEvent).values({
 			id: newId('evt_'),
 			type: 'data_retention_cleanup',
@@ -1658,9 +1683,11 @@ const dataRetentionCleanup: JobHandler = async (dbtx) => {
 				deletedRequests,
 				deletedEvents,
 				deletedAudits,
+				deletedCredentials,
 				deletedJobs,
 				metadataDays,
 				contentDays,
+				credentialDays,
 				jobDays,
 				// true = a window still had rows when the batch cap was reached, so
 				// the next scheduled run continues. Distinguishes "caught up" from

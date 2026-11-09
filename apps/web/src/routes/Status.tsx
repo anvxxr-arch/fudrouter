@@ -1,6 +1,13 @@
-import { useEffect, useState } from 'react';
-import { Badge, type Tone } from '../components/ui/badge';
-import { Table } from '../components/ui/table';
+import { useEffect, useState, type ComponentProps } from 'react';
+import { Badge } from '../components/ui/badge';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../components/ui/table';
 import { api, type StatusPayload } from '../lib/api';
 
 // The state vocabulary is the server's (public.mjs STATUS_COMPONENTS /
@@ -8,11 +15,12 @@ import { api, type StatusPayload } from '../lib/api';
 // maintenance, plus null = "we could not determine this". Nothing here invents
 // a status word — a page that says "fine" when the server said "unknown" is
 // the failure mode this whole page exists to avoid.
-const STATE_TONES: Record<string, Tone> = {
+
+const STATE_VARIANTS: Record<string, NonNullable<ComponentProps<typeof Badge>["variant"]>> = {
   operational: 'ok',
   degraded: 'warn',
   'partial-outage': 'warn',
-  'major-outage': 'danger',
+  'major-outage': 'destructive',
   maintenance: 'info',
 };
 
@@ -42,9 +50,9 @@ export function StatusPage() {
 
   if (error) {
     return (
-      <div className="stack">
+      <div className="grid gap-6">
         <h1>Status</h1>
-        <p className="error" role="alert">
+        <p className="error-text" role="alert">
           The status page could not be loaded — reload in a moment.
         </p>
       </div>
@@ -52,9 +60,9 @@ export function StatusPage() {
   }
   if (!data) {
     return (
-      <div className="stack">
+      <div className="grid gap-6">
         <h1>Status</h1>
-        <p className="muted" role="status">
+        <p className="text-muted-foreground" role="status">
           Checking the data plane…
         </p>
       </div>
@@ -68,121 +76,141 @@ export function StatusPage() {
   const incidentsUnknown = incidents === null;
 
   return (
-    <div className="stack">
+    <div className="grid gap-6">
       <h1>Status</h1>
-      <p className="lede muted">Health of the data plane that answers your API calls.</p>
+      <p className="measure text-lg text-muted-foreground">Health of the data plane that answers your API calls.</p>
 
       <section aria-labelledby="status-overall">
         <h2 id="status-overall" className="sr-only">
           Overall status
         </h2>
-        <p className="row flex-wrap">
-          <Badge tone={(overall.state && STATE_TONES[overall.state]) || 'default'}>{overall.label}</Badge>
-          {probe.service && <span className="muted">{probe.service}</span>}
+        <p className="flex flex-wrap items-center gap-2">
+          <Badge variant={(overall.state && STATE_VARIANTS[overall.state]) || 'default'}>{overall.label}</Badge>
+          {probe.service && <span className="text-muted-foreground">{probe.service}</span>}
         </p>
       </section>
 
-      <section aria-labelledby="status-components">
+      <section className="grid gap-2" aria-labelledby="status-components">
         <h2 id="status-components">Components</h2>
-        <div className="table-wrap">
-          <Table
-            head={['Component', 'Status', 'Derived from']}
-            rows={components.map((c) => [
-              <span key="c">
-                <strong>{c.label}</strong>
-                <br />
-                <span className="muted">{c.description}</span>
-              </span>,
-              <Badge key="s" tone={(c.state && STATE_TONES[c.state]) || 'default'}>
-                {c.stateLabel}
-              </Badge>,
-              <span key="b" className="muted">
-                {c.basis}
-              </span>,
-            ])}
-          />
-        </div>
+        <Table>
+          <TableHeader>
+            <TableRow className="border-b border-border">
+              <TableHead>Component</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Derived from</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {components.map((c) => (
+              <TableRow key={c.label}>
+                <TableCell>
+                  <span className="whitespace-normal">
+                    <strong>{c.label}</strong>
+                    <br />
+                    <span className="text-xs text-muted-foreground">{c.description}</span>
+                  </span>
+                </TableCell>
+                <TableCell>
+                  <Badge variant={(c.state && STATE_VARIANTS[c.state]) || 'default'}>
+                    {c.stateLabel}
+                  </Badge>
+                </TableCell>
+                <TableCell className="text-muted-foreground">
+                  {c.basis}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
       </section>
 
-      <section aria-labelledby="status-incidents">
+      <section className="grid gap-2" aria-labelledby="status-incidents">
         <h2 id="status-incidents">Incidents</h2>
         {incidentsUnknown ? (
           // null means the incident query threw: the database was unreachable.
           // That is "unknown", never "no incidents" — the two must not read the
           // same, or an outage looks like an all-clear.
-          <p className="muted" role="status">
+          <p className="text-muted-foreground" role="status">
             Incident history could not be loaded — the incident database is unreachable, so recent incidents are unknown.
           </p>
         ) : incidents.length === 0 ? (
-          <p className="muted">No incidents recorded.</p>
+          <p className="text-muted-foreground">No incidents recorded.</p>
         ) : (
-          <div className="table-wrap">
-            <Table
-              head={['Incident', 'Severity', 'Status', 'Started']}
-              rows={incidents.map((i) => [
-                <span key="t">
-                  <strong>{i.title}</strong>
-                  <br />
-                  <span className="muted">{i.componentLabel}</span>
-                </span>,
-                <Badge key="s">{i.severity}</Badge>,
-                <Badge key="st">{i.statusLabel}</Badge>,
-                <span key="d" className="num">
-                  {fmtDate(i.startedAt)}
-                </span>,
-              ])}
-            />
-          </div>
+          <Table>
+            <TableHeader>
+              <TableRow className="border-b border-border">
+                <TableHead>Incident</TableHead>
+                <TableHead>Severity</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Started</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {incidents.map((i) => (
+                <TableRow key={i.title}>
+                  <TableCell>
+                    <span className="whitespace-normal">
+                      <strong>{i.title}</strong>
+                      <br />
+                      <span className="text-xs text-muted-foreground">{i.componentLabel}</span>
+                    </span>
+                  </TableCell>
+                  <TableCell><Badge variant="secondary">{i.severity}</Badge></TableCell>
+                  <TableCell><Badge variant="secondary">{i.statusLabel}</Badge></TableCell>
+                  <TableCell className="font-mono text-muted-foreground tabular-nums">{fmtDate(i.startedAt)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         )}
       </section>
 
-      <section aria-labelledby="status-probe">
+      <section className="grid gap-2" aria-labelledby="status-probe">
         <h2 id="status-probe">Data plane probe</h2>
-        <div className="table-wrap">
-          <Table
-            head={['Check', 'Result']}
-            rows={[
-              [
-                <span key="r">Reachability</span>,
-                probe.ok ? (
-                  <Badge key="ok" tone="ok">
+        <Table>
+          <TableHeader>
+            <TableRow className="border-b border-border">
+              <TableHead>Check</TableHead>
+              <TableHead>Result</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <TableRow>
+              <TableCell>Reachability</TableCell>
+              <TableCell>
+                {probe.ok ? (
+                  <Badge variant="ok">
                     Reachable
                   </Badge>
                 ) : (
-                  <Badge key="bad" tone="danger">
+                  <Badge variant="destructive">
                     {probe.error ?? 'Unreachable'}
                   </Badge>
-                ),
-              ],
-              [
-                <span key="m">Models served</span>,
-                <span key="mv" className="num">
-                  {probe.models ?? '—'}
-                </span>,
-              ],
-              [
-                <span key="l">Latency</span>,
-                <span key="lv" className="num">
-                  {probe.latencyMs} ms
-                </span>,
-              ],
-              [
-                <span key="c">Checked at</span>,
-                <span key="cv" className="num">
-                  {fmtDate(probe.checkedAt)}
-                </span>,
-              ],
-            ]}
-          />
-        </div>
+                )}
+              </TableCell>
+            </TableRow>
+            <TableRow>
+              <TableCell>Models served</TableCell>
+              <TableCell className="font-mono text-muted-foreground tabular-nums">{probe.models ?? '—'}</TableCell>
+            </TableRow>
+            <TableRow>
+              <TableCell>Latency</TableCell>
+              <TableCell className="font-mono text-muted-foreground tabular-nums">{probe.latencyMs} ms</TableCell>
+            </TableRow>
+            <TableRow>
+              <TableCell>Checked at</TableCell>
+              <TableCell className="font-mono text-muted-foreground tabular-nums">{fmtDate(probe.checkedAt)}</TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
       </section>
 
       {dbErrorRequestId && (
         <section aria-labelledby="status-dberror">
           <h2 id="status-dberror">Support reference</h2>
-          <p className="muted">
+          <p className="measure text-muted-foreground">
             The incident database could not be read. Quote this reference when contacting support:{' '}
-            <code>{dbErrorRequestId}</code>
+            <code className="font-mono">{dbErrorRequestId}</code>
           </p>
         </section>
       )}

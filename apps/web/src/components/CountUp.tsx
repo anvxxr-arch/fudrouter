@@ -72,7 +72,7 @@ export function CountUp({
   }, [value, duration]);
 
   return (
-    <span ref={ref} className="countup">
+    <span ref={ref}>
       {format(shown)}
     </span>
   );

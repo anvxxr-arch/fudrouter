@@ -1,14 +1,22 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { apiGet } from "../lib/server";
 import { ConsoleLayout } from "../components/ConsoleLayout";
 import { Button } from "../components/ui/button";
-import { Table } from "../components/ui/table";
+import { Input } from "../components/ui/input";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "../components/ui/table";
 
 // House style mirrors dashboard.tsx: local Page/useLoad/LoadState/fmtDate so
 // the page stays self-contained until registration wires it into a shared
-// module (Phase 2 owns that move).
+// module.
 function Page({ title, lede, children }: { title: string; lede: string; children?: React.ReactNode }) {
-  return (<div className="stack"><h1>{title}</h1><p className="lede muted">{lede}</p>{children}</div>);
+  return (<div className="grid gap-6"><h1>{title}</h1><p className="measure text-base text-muted-foreground">{lede}</p>{children}</div>);
 }
 function useLoad<T>(path: string, tick = 0): { data: T | null; error: string | null; loading: boolean } {
   const [data, setData] = useState<T | null>(null);
@@ -26,8 +34,8 @@ function useLoad<T>(path: string, tick = 0): { data: T | null; error: string | n
   return { data, error, loading };
 }
 function LoadState({ loading, error }: { loading: boolean; error: string | null }) {
-  if (loading) return <p className="muted" role="status" aria-live="polite">Loading…</p>;
-  if (error) return <p className="error">{error}</p>;
+  if (loading) return <p className="text-muted-foreground" role="status" aria-live="polite">Loading…</p>;
+  if (error) return <p className="error-text">{error}</p>;
   return null;
 }
 function fmtDate(v: string | null) {
@@ -66,29 +74,45 @@ type Tab = (typeof TABS)[number];
 // one died with /api/pages/projects/**), so the drawer renders the row the
 // list already returned: every field here is on LogRow, nothing invented.
 function RequestDetailDrawer({ row, onClose }: { row: LogRow; onClose: () => void }) {
-  return (<div className="usage-drawer-backdrop" onClick={onClose}>
-    <div className="usage-drawer" role="dialog" aria-modal="true" aria-label="Request details" onClick={(e) => e.stopPropagation()}>
-      <div className="row usage-drawer-head">
-        <h3>Request</h3>
-        <Button size="sm" variant="ghost" onClick={onClose}>Close</Button>
+  const details: [string, string][] = [
+    ["Created", fmtDate(row.createdAt)],
+    ["Status", row.status],
+    ["Requested model", row.requestedModel ?? "—"],
+    ["Served model", row.modelSlug ?? "—"],
+    ["Provider", row.providerName ?? "—"],
+    ["Attempts", `${row.attempts}${row.fallbackUsed ? " (fallback used)" : ""}`],
+    ["Tokens in", String(row.tokensIn)],
+    ["Tokens out", String(row.tokensOut)],
+    ["Cost", fmtMicro(row.costMicro)],
+    ["Latency", `${row.latencyMs} ms`],
+    ["TTFT", row.ttftMs == null ? "—" : `${row.ttftMs} ms`],
+    ["Error code", row.errorCode ?? "—"],
+  ];
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50" onClick={onClose}>
+      <div
+        className="absolute right-0 top-0 h-full w-full max-w-md overflow-y-auto border-l border-border bg-[var(--card)] p-6"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Request details"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-lg">Request</h3>
+          <Button size="sm" variant="ghost" onClick={onClose}>Close</Button>
+        </div>
+        <p className="mt-2 font-mono text-xs text-muted-foreground"><code>{row.id}</code></p>
+        <dl className="mt-4 grid grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-2 text-sm">
+          {details.map(([dt, dd]) => (
+            <Fragment key={dt}>
+              <dt className="text-muted-foreground">{dt}</dt>
+              <dd className="m-0 text-foreground">{dd}</dd>
+            </Fragment>
+          ))}
+        </dl>
       </div>
-      <p className="usage-drawer-id"><code>{row.id}</code></p>
-      <dl className="usage-drawer-grid">
-        <dt>Created</dt><dd>{fmtDate(row.createdAt)}</dd>
-        <dt>Status</dt><dd>{row.status}</dd>
-        <dt>Requested model</dt><dd>{row.requestedModel ?? "—"}</dd>
-        <dt>Served model</dt><dd>{row.modelSlug ?? "—"}</dd>
-        <dt>Provider</dt><dd>{row.providerName ?? "—"}</dd>
-        <dt>Attempts</dt><dd>{row.attempts}{row.fallbackUsed ? " (fallback used)" : ""}</dd>
-        <dt>Tokens in</dt><dd>{row.tokensIn}</dd>
-        <dt>Tokens out</dt><dd>{row.tokensOut}</dd>
-        <dt>Cost</dt><dd>{fmtMicro(row.costMicro)}</dd>
-        <dt>Latency</dt><dd>{row.latencyMs} ms</dd>
-        <dt>TTFT</dt><dd>{row.ttftMs == null ? "—" : `${row.ttftMs} ms`}</dd>
-        <dt>Error code</dt><dd>{row.errorCode ?? "—"}</dd>
-      </dl>
     </div>
-  </div>);
+  );
 }
 
 function RequestsTab() {
@@ -112,29 +136,50 @@ function RequestsTab() {
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
 
+  const selectCls = "form-control";
+
   return (<>
-    <div className="row" style={{ flexWrap: "wrap" }}>
-      {LOG_DAYS.map((n) => (<Button key={n} size="sm" variant={days === n ? "primary" : "secondary"} onClick={() => { setDays(n); setPage(1); }}>{n}d</Button>))}
-      <select className="usage-select" aria-label="Filter by status" value={filters.status} onChange={(e) => setFilter("status", e.target.value)}>
+    <div className="flex flex-wrap items-center gap-2">
+      {LOG_DAYS.map((n) => (<Button key={n} size="sm" variant={days === n ? "default" : "outline"} onClick={() => { setDays(n); setPage(1); }}>{n}d</Button>))}
+      <select className={selectCls} aria-label="Filter by status" value={filters.status} onChange={(e) => setFilter("status", e.target.value)}>
         <option value="">All statuses</option>
         {LOG_STATUSES.map((s) => <option key={s} value={s}>{s.replace(/_/g, " ")}</option>)}
       </select>
-      <input className="usage-select" style={{ width: "14rem" }} aria-label="Filter by model" placeholder="Model id or slug" value={filters.model} onChange={(e) => setFilter("model", e.target.value)} />
-      <input className="usage-select" style={{ width: "14rem" }} aria-label="Filter by API key" placeholder="API key id" value={filters.key} onChange={(e) => setFilter("key", e.target.value)} />
+      <Input className="w-56" aria-label="Filter by model" placeholder="Model id or slug" value={filters.model} onChange={(e) => setFilter("model", e.target.value)} />
+      <Input className="w-56" aria-label="Filter by API key" placeholder="API key id" value={filters.key} onChange={(e) => setFilter("key", e.target.value)} />
       <Button size="sm" variant="ghost" onClick={reset}>Reset</Button>
     </div>
-    <p className="muted">{log ? `${log.total} requests · page ${log.page} of ${log.pages}` : ""}</p>
+    <p className="text-muted-foreground">{log ? `${log.total} requests · page ${log.page} of ${log.pages}` : ""}</p>
     <LoadState loading={loading} error={error} />
-    <Table head={["Time", "Model", "Provider", "Tokens in/out", "Cost", "Latency", "Status"]} rows={(log?.rows ?? []).map((r) => [
-      <button key={r.id} type="button" className="usage-row-btn" onClick={() => setOpen(r)} aria-label={`Open details for request ${r.id}`}>{fmtDate(r.createdAt)}</button>,
-      r.modelSlug ?? r.requestedModel ?? "—",
-      r.providerName ?? "—",
-      `${r.tokensIn} / ${r.tokensOut}`,
-      fmtMicro(r.costMicro),
-      `${r.latencyMs} ms`,
-      r.status,
-    ])} />
-    <div className="row">
+    <Table>
+      <TableHeader>
+        <TableRow className="border-b border-border">
+          <TableHead>Time</TableHead>
+          <TableHead>Model</TableHead>
+          <TableHead>Provider</TableHead>
+          <TableHead>Tokens in/out</TableHead>
+          <TableHead>Cost</TableHead>
+          <TableHead>Latency</TableHead>
+          <TableHead>Status</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {(log?.rows ?? []).map((r) => (
+          <TableRow key={r.id}>
+            <TableCell>
+              <button type="button" className="cursor-pointer text-left link" onClick={() => setOpen(r)} aria-label={`Open details for request ${r.id}`}>{fmtDate(r.createdAt)}</button>
+            </TableCell>
+            <TableCell>{r.modelSlug ?? r.requestedModel ?? "—"}</TableCell>
+            <TableCell>{r.providerName ?? "—"}</TableCell>
+            <TableCell className="font-mono tabular-nums">{r.tokensIn} / {r.tokensOut}</TableCell>
+            <TableCell className="font-mono tabular-nums">{fmtMicro(r.costMicro)}</TableCell>
+            <TableCell className="font-mono tabular-nums">{r.latencyMs} ms</TableCell>
+            <TableCell>{r.status}</TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+    <div className="flex flex-wrap items-center gap-2">
       <Button size="sm" variant="secondary" disabled={!log || log.page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>Prev</Button>
       <Button size="sm" variant="secondary" disabled={!log || log.page >= log.pages} onClick={() => setPage((p) => p + 1)}>Next</Button>
     </div>
@@ -145,12 +190,12 @@ function RequestsTab() {
 export function LogsPage() {
   const [tab, setTab] = useState<Tab>("Requests");
   return (<ConsoleLayout><Page title="Logs" lede="Requests, console and activity.">
-    <div role="tablist" aria-label="Log views" className="row">
+    <div role="tablist" aria-label="Log views" className="flex flex-wrap items-center gap-2">
       {TABS.map((t) => (
         <Button
           key={t}
           size="sm"
-          variant={tab === t ? "primary" : "secondary"}
+          variant={tab === t ? "default" : "outline"}
           role="tab"
           aria-selected={tab === t}
           onClick={() => setTab(t)}
@@ -159,14 +204,14 @@ export function LogsPage() {
     </div>
     <div role="tabpanel" aria-label={`${tab} view`}>
       {tab === "Requests" ? <RequestsTab /> : (
-        <div className="card">
-          <h3 className="card-title">{tab}</h3>
-          <p className="muted">{tab === "Console"
+        <div className="surface p-5">
+          <h3 className="text-base">{tab}</h3>
+          <p className="mt-1 text-muted-foreground">{tab === "Console"
             ? "Application console logs are not exposed to members."
             : "Account activity is not exposed to members."}</p>
         </div>
       )}
     </div>
-    <p className="muted">Request logs are retained for 90 days.</p>
+    <p className="text-muted-foreground">Request logs are retained for 90 days.</p>
   </Page></ConsoleLayout>);
 }

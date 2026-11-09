@@ -230,20 +230,6 @@ export function formatContext(tokens: number | null): string {
   return `${Math.round(tokens / 1000).toLocaleString('en-US')}k`;
 }
 
-/** Compact token count in SEKAI style: 1M, 500K, 393.216 for a max output. */
-export function formatTokens(tokens: number | null): string {
-  if (tokens === null || tokens <= 0) return '—';
-  if (tokens >= 1_000_000) {
-    const m = tokens / 1_000_000;
-    return `${Number.isInteger(m) ? m : m.toFixed(2)}M`;
-  }
-  if (tokens >= 1_000) {
-    const k = tokens / 1_000;
-    return `${Number.isInteger(k) ? k : k.toFixed(1)}k`;
-  }
-  return `${tokens}`;
-}
-
 export function formatMs(ms: number | null): string {
   if (ms === null) return '—';
   return `${ms.toLocaleString('en-US')} ms`;

@@ -6,22 +6,33 @@ import { useSession } from "../components/guards";
 import { hasCap } from "../lib/caps";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
-import { Card } from "../components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Input } from "../components/ui/input";
-import { Table } from "../components/ui/table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { StatCard, pctDelta } from "../components/stat-card";
 import { fmtMicro } from "../lib/money";
-import "./dashboard.css";
+
+// Shared control styles for the native <select>s (shadcn has no Select here):
+// Same box as the Input component so mixed rows keep one visual weight; the
+// actual recipe lives in index.css (.form-control) so a change here can never
+// drift from the admin/playground copies.
+const SELECT_CLS = "form-control";
+// Multi-line counterpart for injection content: same box, mono-friendly block.
+const TEXTAREA_CLS = "form-control form-textarea";
+// Chart series colours come from the theme tokens (chart-1 green, chart-2 blue,
+// chart-3 amber) so the figures stay readable on the slate surfaces.
+type SeriesColor = { cls: string; values: number[] };
+const LINE_COLORS = { req: "var(--chart-2)", err: "var(--destructive)", p50: "var(--chart-1)", p95: "var(--chart-3)", p99: "var(--destructive)" };
 
 // `actions` is the page-level toolbar (the range selector). It used to be a
 // bare row wedged between the KPI cards and the first section heading, which
 // left it floating under the cards and reading as if it belonged to the first
 // card only -- and it controls every figure on the page.
 function Page({ title, lede, actions, children }: { title: string; lede: string; actions?: ReactNode; children?: ReactNode }) {
-  return (<div className="stack">
-    <div className="dash-head">
-      <div className="dash-head-text"><h1>{title}</h1><p className="lede muted">{lede}</p></div>
-      {actions ? <div className="row dash-head-actions">{actions}</div> : null}
+  return (<div className="grid gap-6">
+    <div className="flex flex-wrap items-end justify-between gap-4">
+      <div className="grid min-w-0 gap-1"><h1>{title}</h1><p className="measure text-base text-muted-foreground">{lede}</p></div>
+      {actions ? <div className="flex flex-none flex-wrap items-center gap-2">{actions}</div> : null}
     </div>
     {children}
   </div>);
@@ -42,8 +53,8 @@ function useLoad<T>(path: string, tick = 0): { data: T | null; error: string | n
   return { data, error, loading };
 }
 function LoadState({ loading, error }: { loading: boolean; error: string | null }) {
-  if (loading) return <p className="muted" role="status" aria-live="polite">Loading…</p>;
-  if (error) return <p className="error">{error}</p>;
+  if (loading) return <p className="text-muted-foreground" role="status" aria-live="polite">Loading…</p>;
+  if (error) return <p className="error-text">{error}</p>;
   return null;
 }
 function fmtDate(v: string | null) {
@@ -77,15 +88,15 @@ function TokenChart({ series }: { series: SeriesPoint[] }) {
   const line = (key: "tokensIn" | "tokensOut") => series.map((s, i) => `${x(i).toFixed(1)},${y(s[key]).toFixed(1)}`).join(" ");
   const area = (key: "tokensIn" | "tokensOut") => `${x(0).toFixed(1)},${y(0).toFixed(1)} ${line(key)} ${x(series.length - 1).toFixed(1)},${y(0).toFixed(1)}`;
   const first = series[0]?.day ?? "", last = series[series.length - 1]?.day ?? "";
-  return (<svg className="token-chart" viewBox={`0 0 ${w} ${h}`} role="img" aria-label={`Daily input and output tokens from ${first} to ${last}. Peak ${fmtCompact(max)} tokens.`}>
-    <line className="token-chart-axis" x1={padL} y1={y(max)} x2={w - padR} y2={y(max)} />
-    <text className="token-chart-tick" x={padL - 6} y={y(max) + 4} textAnchor="end">{fmtCompact(max)}</text>
-    <polygon className="token-chart-area token-chart-area--in" points={area("tokensIn")} />
-    <polyline className="token-chart-line token-chart-line--in" points={line("tokensIn")} />
-    <polygon className="token-chart-area token-chart-area--out" points={area("tokensOut")} />
-    <polyline className="token-chart-line token-chart-line--out" points={line("tokensOut")} />
-    <text className="token-chart-tick" x={padL} y={h - 8}>{first}</text>
-    <text className="token-chart-tick" x={w - padR} y={h - 8} textAnchor="end">{last}</text>
+  return (<svg className="h-auto w-full" viewBox={`0 0 ${w} ${h}`} role="img" aria-label={`Daily input and output tokens from ${first} to ${last}. Peak ${fmtCompact(max)} tokens.`}>
+    <line style={{ stroke: "var(--border)", strokeWidth: 1 }} x1={padL} y1={y(max)} x2={w - padR} y2={y(max)} />
+    <text style={{ fill: "var(--muted-foreground)", fontFamily: "var(--font-mono)", fontSize: 11 }} x={padL - 6} y={y(max) + 4} textAnchor="end">{fmtCompact(max)}</text>
+    <polygon style={{ fill: "color-mix(in srgb, var(--chart-2) 16%, transparent)" }} points={area("tokensIn")} />
+    <polyline style={{ fill: "none", stroke: "var(--chart-2)", strokeWidth: 1.5 }} points={line("tokensIn")} />
+    <polygon style={{ fill: "color-mix(in srgb, var(--chart-1) 16%, transparent)" }} points={area("tokensOut")} />
+    <polyline style={{ fill: "none", stroke: "var(--chart-1)", strokeWidth: 1.5 }} points={line("tokensOut")} />
+    <text style={{ fill: "var(--muted-foreground)", fontFamily: "var(--font-mono)", fontSize: 11 }} x={padL} y={h - 8}>{first}</text>
+    <text style={{ fill: "var(--muted-foreground)", fontFamily: "var(--font-mono)", fontSize: 11 }} x={w - padR} y={h - 8} textAnchor="end">{last}</text>
   </svg>);
 }
 
@@ -110,22 +121,22 @@ function OnboardingBanner({ d }: { d: DashboardData }) {
   ];
   if (dismissed || !young || d.activeKeys > 0) return null;
   const done = steps.filter((s) => s.done).length;
-  return (<Card className="onboarding">
-    <div className="row onboarding-head">
-      <h2 className="card-title">Get started</h2>
-      <Button variant="ghost" size="sm" className="onboarding-dismiss" aria-label="Dismiss the getting-started checklist" onClick={() => {
+  return (<Card>
+    <div className="flex items-center justify-between gap-2">
+      <h2 className="text-base">Get started</h2>
+      <Button variant="ghost" size="sm" aria-label="Dismiss the getting-started checklist" onClick={() => {
         setDismissed(true);
         try { localStorage.setItem(`${ONBOARDING_KEY}:${d.userId}`, "1"); } catch { /* private mode: the banner returns next visit */ }
       }}>✕</Button>
     </div>
-    <div className="onboarding-track" role="progressbar" aria-valuenow={done} aria-valuemin={0} aria-valuemax={2} aria-label={`${done} of 2 setup steps complete`}>
-      <span className="onboarding-fill" style={{ width: `${(done / 2) * 100}%` }} />
+    <div className="h-1.5 overflow-hidden rounded-full bg-[var(--muted)]" role="progressbar" aria-valuenow={done} aria-valuemin={0} aria-valuemax={2} aria-label={`${done} of 2 setup steps complete`}>
+      <span className="block h-full rounded-full bg-[var(--primary)]" style={{ width: `${(done / 2) * 100}%` }} />
     </div>
-    <ol className="onboarding-steps">
-      {steps.map((s) => (<li key={s.to} className={s.done ? "onboarding-step onboarding-step--done" : "onboarding-step"}>
-        <span aria-hidden="true">{s.done ? "✓" : "○"}</span>
+    <ol className="grid list-none gap-2">
+      {steps.map((s) => (<li key={s.to} className="grid grid-cols-[1rem_minmax(0,1fr)_auto] items-center gap-2 text-sm">
+        <span aria-hidden="true" className={s.done ? "text-[var(--chart-1)]" : "text-muted-foreground"}>{s.done ? "✓" : "○"}</span>
         <Link to={s.to}>{s.label}</Link>
-        <span className="muted">{s.done ? "done" : "pending"}</span>
+        <span className="text-muted-foreground">{s.done ? "done" : "pending"}</span>
       </li>))}
     </ol>
   </Card>);
@@ -147,17 +158,17 @@ export function DashboardHome() {
   const empty = (d?.totals.requests ?? 0) === 0;
   const topModel = d?.byModel?.[0];
   const rangePicker = [7, 30, 90].map((n) => (
-    <Button key={n} size="sm" variant={d?.range === n ? "primary" : "secondary"} onClick={() => setRange(n)}>{n}d</Button>
+    <Button key={n} size="sm" variant={d?.range === n ? "default" : "secondary"} onClick={() => setRange(n)}>{n}d</Button>
   ));
   return (<ConsoleLayout><Page title="Dashboard" lede="Usage, keys, and spend at a glance." actions={d ? rangePicker : null}>
     <LoadState loading={loading} error={error} />
     {d ? (<>
       <OnboardingBanner d={d} />
-      <div className="row row--cards" style={{ flexWrap: "wrap" }}>
+      <div className="flex flex-wrap items-stretch gap-2">
         <StatCard title="Requests today" value={String(today?.requests ?? 0)} delta={today && yesterday ? pctDelta(today.requests, yesterday.requests) : undefined} spark={series.map((s) => s.requests)} />
         <StatCard title="Tokens today" value={fmtCompact(today ? today.tokensIn + today.tokensOut : 0)} delta={today && yesterday ? pctDelta(today.tokensIn + today.tokensOut, yesterday.tokensIn + yesterday.tokensOut) : undefined} spark={series.map((s) => s.tokensIn + s.tokensOut)} />
         <StatCard title="Errors today" value={String(today?.errors ?? 0)}>
-          <p className={`stat-sub num ${today && today.requests > 0 ? (today.errors / today.requests < 0.01 ? "stat-rate--ok" : today.errors / today.requests <= 0.05 ? "stat-rate--warn" : "stat-rate--bad") : ""}`}>{today && today.requests > 0 ? `${((today.errors / today.requests) * 100).toFixed(1)}% error rate` : "no requests"}</p>
+          <p className={`font-mono text-sm tabular-nums ${today && today.requests > 0 ? (today.errors / today.requests < 0.01 ? "text-[var(--chart-1)]" : today.errors / today.requests <= 0.05 ? "text-[var(--chart-3)]" : "text-[var(--destructive)]") : "text-muted-foreground"}`}>{today && today.requests > 0 ? `${((today.errors / today.requests) * 100).toFixed(1)}% error rate` : "no requests"}</p>
         </StatCard>
         <StatCard title="Credit balance" value={fmtMicro(d.balanceMicro)}>
           <Link to="/dashboard/billing/credits">Manage credits</Link>
@@ -166,52 +177,82 @@ export function DashboardHome() {
       {/* Live conditions, not a checklist: no dismiss. Alerts are
           account-scoped, so each one links to the account alerts page. */}
       {d.firingAlerts.length > 0 ? (
-        <Card titleAs="h2" title="Alerts">
-          <ul className="alert-list">
-            {d.firingAlerts.map((a) => (<li key={a.id} className="alert-row">
-              <Badge tone="warn">{a.conditionType.replace(/_/g, " ")}</Badge>
-              <span className="alert-name">{a.alertName}</span>
-              <span className="num">{a.value}</span>
-              <span className="muted">{fmtDate(a.triggeredAt)}</span>
-              <Link to="/dashboard/alerts">View</Link>
-            </li>))}
-          </ul>
+        <Card>
+          <CardHeader><CardTitle className="text-base font-semibold tracking-tight">Alerts</CardTitle></CardHeader>
+          <CardContent>
+            <ul className="grid list-none gap-2">
+              {d.firingAlerts.map((a) => (<li key={a.id} className="grid grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] items-center gap-2 text-sm">
+                <Badge variant="warn">{a.conditionType.replace(/_/g, " ")}</Badge>
+                <span className="truncate">{a.alertName}</span>
+                <span className="font-mono tabular-nums">{a.value}</span>
+                <span className="text-muted-foreground">{fmtDate(a.triggeredAt)}</span>
+                <Link to="/dashboard/alerts">View</Link>
+              </li>))}
+            </ul>
+          </CardContent>
         </Card>
       ) : null}
       {empty ? (
-        <Card titleAs="h2" title="No traffic yet" desc="Mint a key and send a request.">
-          <Link to="/dashboard/keys">Go to keys</Link>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base font-semibold tracking-tight">No traffic yet</CardTitle>
+            <CardDescription>Mint a key and send a request.</CardDescription>
+          </CardHeader>
+          <CardContent><Link to="/dashboard/keys">Go to keys</Link></CardContent>
         </Card>
       ) : (<>
-        <h2 className="dash-h">Tokens</h2>
-        <div className="dash-panels">
-          <Card titleAs="h3" title="Input vs output tokens" className="dash-chart-card"><TokenChart series={series} /></Card>
-          <Card titleAs="h3" title="Top models" className="dash-models-card">
-            <ul className="dash-models">
-              {(d.byModel ?? []).map((m) => (
-                <li key={m.slug}>
-                  <span className="dash-model-slug" title={m.slug}>{m.slug}</span>
-                  <span className="num dash-model-reqs">{m.requests}</span>
-                  <span className="num dash-model-cost">{fmtMicro(m.cost)}</span>
-                  <span className="dash-model-bar" aria-hidden="true"><span style={{ width: `${topModel && topModel.requests > 0 ? Math.round((m.requests / topModel.requests) * 100) : 0}%` }} /></span>
-                </li>
-              ))}
-            </ul>
+        <h2>Tokens</h2>
+        <div className="grid gap-4 md:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
+          <Card className="min-w-0">
+            <CardHeader><CardTitle className="text-base font-semibold tracking-tight">Input vs output tokens</CardTitle></CardHeader>
+            <CardContent><TokenChart series={series} /></CardContent>
+          </Card>
+          <Card className="min-w-0">
+            <CardHeader><CardTitle className="text-base font-semibold tracking-tight">Top models</CardTitle></CardHeader>
+            <CardContent>
+              <ul className="grid list-none gap-2">
+                {(d.byModel ?? []).map((m) => (
+                  <li key={m.slug} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2">
+                    <span className="truncate" title={m.slug}>{m.slug}</span>
+                    <span className="text-right font-mono text-muted-foreground tabular-nums">{m.requests}</span>
+                    <span className="text-right font-mono tabular-nums">{fmtMicro(m.cost)}</span>
+                    <span className="col-span-full mt-0.5 h-1.5 overflow-hidden rounded-full bg-[var(--muted)]" aria-hidden="true"><span className="block h-full rounded-full bg-[var(--primary)]" style={{ width: `${topModel && topModel.requests > 0 ? Math.round((m.requests / topModel.requests) * 100) : 0}%` }} /></span>
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
           </Card>
         </div>
-        <h2 className="dash-h">Recent requests</h2>
+        <h2>Recent requests</h2>
         {d.recent.length > 0 ? (<>
-          <Table head={["Time", "Model", "Provider", "Tokens", "Cost", "Status", "Latency"]} numeric={[3, 4, 6]} rows={d.recent.map((r) => [
-            fmtDate(r.createdAt),
-            r.model_slug ?? "—",
-            r.providerName ?? "—",
-            <span key="t" className="num">{r.tokens_in} / {r.tokens_out}</span>,
-            <span key="c" className="num">{fmtMicro(r.cost)}</span>,
-            <Badge key="s" tone={r.status === "success" ? "ok" : "warn"}>{r.status.replace(/_/g, " ")}</Badge>,
-            <span key="l" className="num">{r.latency_ms} ms</span>,
-          ])} />
+          <Table>
+            <TableHeader>
+              <TableRow className="border-b border-border">
+                <TableHead>Time</TableHead>
+                <TableHead>Model</TableHead>
+                <TableHead>Provider</TableHead>
+                <TableHead className="text-right">Tokens</TableHead>
+                <TableHead className="text-right">Cost</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Latency</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {d.recent.map((r) => (
+                <TableRow key={r.id}>
+                  <TableCell>{fmtDate(r.createdAt)}</TableCell>
+                  <TableCell>{r.model_slug ?? "—"}</TableCell>
+                  <TableCell>{r.providerName ?? "—"}</TableCell>
+                  <TableCell className="text-right font-mono tabular-nums">{r.tokens_in} / {r.tokens_out}</TableCell>
+                  <TableCell className="text-right font-mono tabular-nums">{fmtMicro(r.cost)}</TableCell>
+                  <TableCell><Badge variant={r.status === "success" ? "ok" : "warn"}>{r.status.replace(/_/g, " ")}</Badge></TableCell>
+                  <TableCell className="text-right font-mono tabular-nums">{r.latency_ms} ms</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
           <p><Link to="/dashboard/usage">View all</Link></p>
-        </>) : <p className="muted">No requests logged yet.</p>}
+        </>) : <p className="text-muted-foreground">No requests logged yet.</p>}
       </>)}
     </>) : null}
   </Page></ConsoleLayout>);
@@ -269,9 +310,9 @@ function KeysDialog({ title, onClose, children }: { title: string; onClose: () =
     box.current?.querySelector<HTMLElement>("input, select, textarea, button")?.focus();
     return () => document.removeEventListener("keydown", onKey);
   }, []);
-  return (<div className="keys-backdrop" onClick={() => close.current()}>
-    <div ref={box} className="keys-dialog" role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()}>
-      <h2 className="keys-dialog-title">{title}</h2>
+  return (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => close.current()}>
+    <div ref={box} className="relative z-50 grid max-h-[calc(100vh-2rem)] w-full max-w-md overflow-y-auto surface p-6" role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()}>
+      <h2>{title}</h2>
       {children}
     </div>
   </div>);
@@ -284,16 +325,16 @@ function NewKeyModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
   const [copied, setCopied] = useState(false);
   if (secret) {
     return (<KeysDialog title="Key created" onClose={onClose}>
-      <p className="keys-warn">This is the only time you&apos;ll see this secret</p>
-      <div className="keys-secret"><code>{secret.key}</code></div>
-      <div className="row">
+      <p className="text-sm font-semibold text-[var(--chart-3)]">This is the only time you&apos;ll see this secret</p>
+      <div className="break-all rounded-md border border-border bg-[var(--muted)] p-4"><code className="font-mono text-sm">{secret.key}</code></div>
+      <div className="flex flex-wrap items-center gap-2">
         <Button variant="secondary" onClick={() => { navigator.clipboard?.writeText(secret.key).then(() => setCopied(true)).catch(() => {}); }}>{copied ? "Copied" : "Copy"}</Button>
-        <Button variant="primary" onClick={() => { onCreated(); onClose(); }}>I&apos;ve saved it</Button>
+        <Button variant="default" onClick={() => { onCreated(); onClose(); }}>I&apos;ve saved it</Button>
       </div>
     </KeysDialog>);
   }
   return (<KeysDialog title="New API key" onClose={onClose}>
-    <form className="keys-form" onSubmit={(e) => {
+    <form className="grid gap-4" onSubmit={(e) => {
       e.preventDefault(); setErr(null); setBusy(true);
       const f = new FormData(e.currentTarget);
       apiPost<{ created: string; name: string }>("/api/pages/dashboard/keys/create", { name: String(f.get("name") ?? ""), expiresIn: String(f.get("expiresIn") ?? "never") })
@@ -301,20 +342,20 @@ function NewKeyModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
         .catch((ex) => setErr(ex instanceof Error ? ex.message : "Create failed"))
         .finally(() => setBusy(false));
     }}>
-      <label className="keys-field"><span>Name</span>
+      <label className="grid gap-1 text-sm text-muted-foreground"><span>Name</span>
         <Input name="name" placeholder="e.g. production-backend" required />
       </label>
-      <label className="keys-field"><span>Expiry</span>
-        <select className="select" name="expiresIn" defaultValue="never">
+      <label className="grid gap-1 text-sm text-muted-foreground"><span>Expiry</span>
+        <select className={SELECT_CLS} name="expiresIn" defaultValue="never">
           <option value="never">Never</option>
           <option value="30d">30 days</option>
           <option value="90d">90 days</option>
           <option value="1y">1 year</option>
         </select>
       </label>
-      {err ? <p className="error">{err}</p> : null}
-      <div className="row">
-        <Button type="submit" variant="primary" disabled={busy}>{busy ? "Creating…" : "Create"}</Button>
+      {err ? <p className="error-text">{err}</p> : null}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button type="submit" variant="default" disabled={busy}>{busy ? "Creating…" : "Create"}</Button>
         <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
       </div>
     </form>
@@ -325,9 +366,9 @@ function RevokeDialog({ apiKey, onClose, onRevoked }: { apiKey: KeyRow; onClose:
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   return (<KeysDialog title="Revoke key" onClose={onClose}>
-    <p>Revoke <code className="keys-prefix">sk-ar-{apiKey.prefix}_</code>? Requests using it will immediately fail with 401, and this cannot be undone.</p>
-    {err ? <p className="error">{err}</p> : null}
-    <div className="row">
+    <p>Revoke <code className="font-mono text-sm">sk-ar-{apiKey.prefix}_</code>? Requests using it will immediately fail with 401, and this cannot be undone.</p>
+    {err ? <p className="error-text">{err}</p> : null}
+    <div className="flex flex-wrap items-center gap-2">
       <Button variant="secondary" onClick={onClose}>Cancel</Button>
       <Button variant="destructive" disabled={busy} onClick={() => {
         setErr(null); setBusy(true);
@@ -353,44 +394,81 @@ export function KeysPage() {
     navigator.clipboard?.writeText(`sk-ar-${k.prefix}_`).then(() => { setCopied(k.id); window.setTimeout(() => setCopied(null), 1600); }).catch(() => {});
   };
   return (<ConsoleLayout>
-    <div className="stack">
-      <div className="keys-head">
+    <div className="grid gap-6">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <h1>API keys</h1>
-        <Button variant="primary" onClick={() => setCreating(true)}>New key</Button>
+        <Button variant="default" onClick={() => setCreating(true)}>New key</Button>
       </div>
-      <p className="lede muted">Create and revoke the keys your apps authenticate with.</p>
-      <div className="keys-info" role="note">
-        <p>Keys are stored as SHA-256 hashes — the secret itself is never saved. A lost secret cannot be recovered, so create a new key instead.</p>
+      <p className="measure text-base text-muted-foreground">Create and revoke the keys your apps authenticate with.</p>
+      <div className="relative overflow-hidden rounded-md border border-border bg-[var(--card)] px-4 py-2" role="note">
+        <span className="absolute inset-y-0 left-0 w-0.5 bg-[var(--chart-2)]" aria-hidden="true" />
+        <p className="m-0 text-sm text-muted-foreground">Keys are stored as SHA-256 hashes — the secret itself is never saved. A lost secret cannot be recovered, so create a new key instead.</p>
       </div>
       <LoadState loading={loading} error={error} />
       {!loading && !error && keys.length === 0 ? (
-        <div className="keys-empty">
-          <p className="muted">No API keys yet.</p>
-          <Button variant="primary" onClick={() => setCreating(true)}>New key</Button>
+        <div className="flex flex-wrap items-center gap-4">
+          <p className="text-muted-foreground">No API keys yet.</p>
+          <Button variant="default" onClick={() => setCreating(true)}>New key</Button>
         </div>
       ) : null}
       {keys.length > 0 ? (
-        <Table head={["Name", "Key", "Created", "Last used", "Requests (30d)", "Status", ""]} numeric={[4]} rows={keys.map((k) => {
-          const st = keyStatus(k);
-          return [
-            <div key="name" className="keys-name">{k.name}</div>,
-            <div key="key" className="keys-key"><code>sk-ar-{k.prefix}_<span className="keys-mask">••••••••••••</span></code><Button size="sm" variant="ghost" onClick={() => copyPrefix(k)}>{copied === k.id ? "Copied" : "Copy prefix"}</Button></div>,
-            <span key="created" title={fmtDate(k.createdAt)}>{relTime(k.createdAt)}</span>,
-            <span key="used" title={fmtDate(k.lastUsedAt)}>{relTime(k.lastUsedAt)}</span>,
-            <span key="reqs" className="num">{k.usage30d.requests}</span>,
-            <Badge key="status" tone={st.tone}>{st.label}</Badge>,
-            <Button key="revoke" size="sm" variant="secondary" disabled={st.label === "Revoked"} onClick={() => setRevoking(k)}>Revoke</Button>,
-          ];
-        })} />
+        <Table>
+          <TableHeader>
+            <TableRow className="border-b border-border">
+              <TableHead>Name</TableHead>
+              <TableHead>Key</TableHead>
+              <TableHead>Created</TableHead>
+              <TableHead>Last used</TableHead>
+              <TableHead className="text-right">Requests (30d)</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {keys.map((k) => {
+              const st = keyStatus(k);
+              return (
+                <TableRow key={k.id}>
+                  <TableCell>{k.name}</TableCell>
+                  <TableCell>
+                    <span className="inline-flex items-center gap-2">
+                      <code className="font-mono text-sm">sk-ar-{k.prefix}_<span className="tracking-[0.1em] text-muted-foreground">••••••••••••</span></code>
+                      <Button size="sm" variant="ghost" onClick={() => copyPrefix(k)}>{copied === k.id ? "Copied" : "Copy prefix"}</Button>
+                    </span>
+                  </TableCell>
+                  <TableCell title={fmtDate(k.createdAt)}>{relTime(k.createdAt)}</TableCell>
+                  <TableCell title={fmtDate(k.lastUsedAt)}>{relTime(k.lastUsedAt)}</TableCell>
+                  <TableCell className="text-right font-mono tabular-nums">{k.usage30d.requests}</TableCell>
+                  <TableCell><Badge variant={st.tone === "danger" ? "destructive" : st.tone}>{st.label}</Badge></TableCell>
+                  <TableCell><Button size="sm" variant="secondary" disabled={st.label === "Revoked"} onClick={() => setRevoking(k)}>Revoke</Button></TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
       ) : null}
       {keys.length > 0 ? (<>
         <h2>Usage per key</h2>
-        <Table head={["Key", "Requests 30d", "Tokens 30d", "Cost 30d"]} numeric={[1, 2, 3]} rows={byUsage.map((k) => [
-          <span key="k">{k.name} <code className="keys-prefix">sk-ar-{k.prefix}_</code></span>,
-          <span key="r" className="num">{k.usage30d.requests}</span>,
-          <span key="t" className="num">{k.usage30d.tokens}</span>,
-          <span key="c" className="num">{fmtMicro(k.usage30d.costMicro)}</span>,
-        ])} />
+        <Table>
+          <TableHeader>
+            <TableRow className="border-b border-border">
+              <TableHead>Key</TableHead>
+              <TableHead className="text-right">Requests 30d</TableHead>
+              <TableHead className="text-right">Tokens 30d</TableHead>
+              <TableHead className="text-right">Cost 30d</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {byUsage.map((k) => (
+              <TableRow key={k.id}>
+                <TableCell>{k.name} <code className="font-mono text-sm">sk-ar-{k.prefix}_</code></TableCell>
+                <TableCell className="text-right font-mono tabular-nums">{k.usage30d.requests}</TableCell>
+                <TableCell className="text-right font-mono tabular-nums">{k.usage30d.tokens}</TableCell>
+                <TableCell className="text-right font-mono tabular-nums">{fmtMicro(k.usage30d.costMicro)}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
       </>) : null}
     </div>
     {creating ? <NewKeyModal onClose={() => setCreating(false)} onCreated={refresh} /> : null}
@@ -413,16 +491,18 @@ const USAGE_STATUSES = ["success", "client_error", "provider_error", "timeout", 
 
 // Inline SVG line chart: one polyline per series, y scaled to the shared max.
 // No charting dependency — the console ships none and this is the whole need.
-function LineChart({ series, ariaLabel }: { series: { cls: string; values: number[] }[]; ariaLabel: string }) {
+// `cls` carries the theme stroke colour (a `var(--chart-N)` value), not a
+// class name, so the SVG needs no stylesheet of its own.
+function LineChart({ series, ariaLabel }: { series: SeriesColor[]; ariaLabel: string }) {
 	const W = 600, H = 180, PAD = 8;
 	const n = series[0]?.values.length ?? 0;
 	const max = Math.max(1, ...series.flatMap((s) => s.values));
 	const x = (i: number) => PAD + (n <= 1 ? 0 : (i * (W - 2 * PAD)) / (n - 1));
 	const y = (v: number) => H - PAD - (v / max) * (H - 2 * PAD);
 	return (
-		<svg className="usage-chart" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={ariaLabel} preserveAspectRatio="none">
+		<svg className="block h-40 w-full" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={ariaLabel} preserveAspectRatio="none">
 			{series.map((s) => (
-				<polyline key={s.cls} className={s.cls} points={s.values.map((v, i) => `${x(i)},${y(v)}`).join(" ")} />
+				<polyline key={s.cls} style={{ fill: "none", stroke: s.cls, strokeWidth: 1.5 }} points={s.values.map((v, i) => `${x(i)},${y(v)}`).join(" ")} />
 			))}
 		</svg>
 	);
@@ -431,16 +511,16 @@ function LineChart({ series, ariaLabel }: { series: { cls: string; values: numbe
 function UsageBars({ rows, unit }: { rows: UsageBreakdownRow[]; unit: string }) {
 	const max = Math.max(1, ...rows.map((r) => r.requests));
 	return (
-		<ul className="usage-bars">
+		<ul className="m-0 grid list-none gap-2 p-0">
 			{rows.map((r) => (
-				<li key={r.key}>
-					<span className="usage-bar-label" title={r.label}>{r.label}</span>
-					<span className="usage-bar-track"><span className="usage-bar-fill" style={{ width: `${(r.requests / max) * 100}%` }} /></span>
-					<span className="usage-bar-reqs">{r.requests}</span>
-					<span className="usage-bar-cost">{fmtMicro(r.costMicro)}</span>
+				<li key={r.key} className="grid grid-cols-[minmax(0,1fr)_4rem_3rem_4rem] items-center gap-2 text-sm">
+					<span className="truncate" title={r.label}>{r.label}</span>
+					<span className="h-1.5 overflow-hidden rounded-full bg-[var(--muted)]"><span className="block h-full rounded-full bg-[var(--primary)]" style={{ width: `${(r.requests / max) * 100}%` }} /></span>
+					<span className="text-right font-mono text-muted-foreground tabular-nums">{r.requests}</span>
+					<span className="text-right font-mono tabular-nums">{fmtMicro(r.costMicro)}</span>
 				</li>
 			))}
-			{rows.length === 0 ? <li className="muted">No {unit} in range.</li> : null}
+			{rows.length === 0 ? <li className="text-muted-foreground">No {unit} in range.</li> : null}
 		</ul>
 	);
 }
@@ -481,17 +561,17 @@ export function UsagePage() {
 
 	const empty = !!d && d.totals.requests === 0;
 	return (<ConsoleLayout><Page title="Usage" lede="Metered calls.">
-		<div className="row" style={{ flexWrap: "wrap" }}>
-			{[1, 7, 30, 90].map((n) => (<Button key={n} size="sm" variant={days === n ? "primary" : "secondary"} onClick={() => { setDays(n); setPage(1); }}>{n}d</Button>))}
-			<select className="usage-select" aria-label="Filter by model" value={filters.model} onChange={(e) => setFilter("model", e.target.value)}>
+		<div className="flex flex-wrap items-center gap-2">
+			{[1, 7, 30, 90].map((n) => (<Button key={n} size="sm" variant={days === n ? "default" : "secondary"} onClick={() => { setDays(n); setPage(1); }}>{n}d</Button>))}
+			<select className={SELECT_CLS} aria-label="Filter by model" value={filters.model} onChange={(e) => setFilter("model", e.target.value)}>
 				<option value="">All models</option>
 				{(d?.facets.models ?? []).map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
 			</select>
-			<select className="usage-select" aria-label="Filter by provider" value={filters.provider} onChange={(e) => setFilter("provider", e.target.value)}>
+			<select className={SELECT_CLS} aria-label="Filter by provider" value={filters.provider} onChange={(e) => setFilter("provider", e.target.value)}>
 				<option value="">All providers</option>
 				{(d?.facets.providers ?? []).map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
 			</select>
-			<select className="usage-select" aria-label="Filter by status" value={filters.status} onChange={(e) => setFilter("status", e.target.value)}>
+			<select className={SELECT_CLS} aria-label="Filter by status" value={filters.status} onChange={(e) => setFilter("status", e.target.value)}>
 				<option value="">All statuses</option>
 				{USAGE_STATUSES.map((s) => <option key={s} value={s}>{s.replace(/_/g, " ")}</option>)}
 			</select>
@@ -499,71 +579,90 @@ export function UsagePage() {
 		</div>
 		<LoadState loading={loading} error={error} />
 		{d ? (empty ? (
-			<p className="muted">No traffic in this range. <Link to="/dashboard/keys">Create an API key</Link> to start sending requests.</p>
+			<p className="text-muted-foreground">No traffic in this range. <Link to="/dashboard/keys">Create an API key</Link> to start sending requests.</p>
 		) : (<>
-			<div className="row" style={{ flexWrap: "wrap" }}>
-				<Card titleAs="h2" title="Requests" desc={String(d.totals.requests)} />
-				<Card titleAs="h2" title="Tokens" desc={`${d.totals.tokensIn + d.totals.tokensOut} (${d.totals.tokensIn} in / ${d.totals.tokensOut} out)`} />
-				<Card titleAs="h2" title="Cost" desc={fmtMicro(d.totals.costMicro)} />
-				<Card titleAs="h2" title="Median latency" desc={`${d.latency.p50} ms`} />
+			<div className="flex flex-wrap items-stretch gap-2">
+				<Card><CardHeader><CardTitle className="text-base font-semibold tracking-tight">Requests</CardTitle><CardDescription className="font-mono text-xl font-semibold tracking-tight text-foreground">{String(d.totals.requests)}</CardDescription></CardHeader></Card>
+				<Card><CardHeader><CardTitle className="text-base font-semibold tracking-tight">Tokens</CardTitle><CardDescription className="font-mono text-xl font-semibold tracking-tight text-foreground">{`${d.totals.tokensIn + d.totals.tokensOut} (${d.totals.tokensIn} in / ${d.totals.tokensOut} out)`}</CardDescription></CardHeader></Card>
+				<Card><CardHeader><CardTitle className="text-base font-semibold tracking-tight">Cost</CardTitle><CardDescription className="font-mono text-xl font-semibold tracking-tight text-foreground">{fmtMicro(d.totals.costMicro)}</CardDescription></CardHeader></Card>
+				<Card><CardHeader><CardTitle className="text-base font-semibold tracking-tight">Median latency</CardTitle><CardDescription className="font-mono text-xl font-semibold tracking-tight text-foreground">{`${d.latency.p50} ms`}</CardDescription></CardHeader></Card>
 			</div>
-			<div className="usage-charts">
-				<div className="card usage-chart-card">
-					<h3 className="card-title">Requests per day</h3>
+			<div className="grid items-start gap-4 md:grid-cols-2">
+				<div className="min-w-0 surface p-5">
+					<h3 className="text-base">Requests per day</h3>
 					<LineChart ariaLabel={`Requests per day over the last ${days} days: total and errors`} series={[
-						{ cls: "usage-line--req", values: d.breakdowns.byDay.map((r) => r.requests) },
-						{ cls: "usage-line--err", values: d.breakdowns.byDay.map((r) => errByDay[r.day] ?? 0) },
+						{ cls: LINE_COLORS.req, values: d.breakdowns.byDay.map((r) => r.requests) },
+						{ cls: LINE_COLORS.err, values: d.breakdowns.byDay.map((r) => errByDay[r.day] ?? 0) },
 					]} />
-					<p className="usage-legend"><span className="usage-chip usage-chip--req" /> total <span className="usage-chip usage-chip--err" /> errors</p>
+					<p className="mt-1 flex items-center gap-2 text-sm text-muted-foreground"><span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: LINE_COLORS.req }} /> total <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: LINE_COLORS.err }} /> errors</p>
 				</div>
-				<div className="card usage-chart-card">
-					<h3 className="card-title">Latency per day</h3>
+				<div className="min-w-0 surface p-5">
+					<h3 className="text-base">Latency per day</h3>
 					<LineChart ariaLabel={`Latency percentiles per day over the last ${days} days: p50, p95 and p99`} series={[
-						{ cls: "usage-line--p50", values: d.latencyByDay.map((r) => r.p50) },
-						{ cls: "usage-line--p95", values: d.latencyByDay.map((r) => r.p95) },
-						{ cls: "usage-line--p99", values: d.latencyByDay.map((r) => r.p99) },
+						{ cls: LINE_COLORS.p50, values: d.latencyByDay.map((r) => r.p50) },
+						{ cls: LINE_COLORS.p95, values: d.latencyByDay.map((r) => r.p95) },
+						{ cls: LINE_COLORS.p99, values: d.latencyByDay.map((r) => r.p99) },
 					]} />
-					<p className="usage-legend"><span className="usage-chip usage-chip--p50" /> p50 <span className="usage-chip usage-chip--p95" /> p95 <span className="usage-chip usage-chip--p99" /> p99</p>
+					<p className="mt-1 flex items-center gap-2 text-sm text-muted-foreground"><span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: LINE_COLORS.p50 }} /> p50 <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: LINE_COLORS.p95 }} /> p95 <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: LINE_COLORS.p99 }} /> p99</p>
 				</div>
 			</div>
-			<div className="usage-panels">
-				<div className="card">
-					<h3 className="card-title">By model</h3>
+			<div className="grid items-start gap-4 md:grid-cols-2">
+				<div className="surface p-5">
+					<h3 className="text-base">By model</h3>
 					<UsageBars rows={d.breakdowns.byModel} unit="models" />
 				</div>
-				<div className="card">
-					<h3 className="card-title">By provider</h3>
+				<div className="surface p-5">
+					<h3 className="text-base">By provider</h3>
 					<UsageBars rows={d.breakdowns.byProvider} unit="providers" />
 				</div>
 			</div>
 			<h2>Request log</h2>
-			<p className="muted">{active ? `Filtered by ${active}. ` : ""}{log ? `${log.total} requests · page ${log.page} of ${log.pages}` : ""}</p>
+			<p className="text-muted-foreground">{active ? `Filtered by ${active}. ` : ""}{log ? `${log.total} requests · page ${log.page} of ${log.pages}` : ""}</p>
 			<LoadState loading={logLoading} error={logError} />
-			<Table head={["Time", "Model", "Provider", "Tokens in/out", "Cost", "Latency", "Status"]} numeric={[3, 4, 5]} rows={(log?.rows ?? []).map((r) => [
-				<button key={r.id} type="button" className="usage-row-btn" onClick={() => { setOpen(r); setCopied(false); }} aria-label={`Open details for request ${r.id}`}>{fmtDate(r.createdAt)}</button>,
-				r.modelSlug ?? r.requestedModel ?? "—",
-				r.providerName ?? "—",
-				`${r.tokensIn} / ${r.tokensOut}`,
-				fmtMicro(r.costMicro),
-				`${r.latencyMs} ms`,
-				r.status,
-			])} />
-			<div className="row">
+			<Table>
+				<TableHeader>
+					<TableRow className="border-b border-border">
+						<TableHead>Time</TableHead>
+						<TableHead>Model</TableHead>
+						<TableHead>Provider</TableHead>
+						<TableHead className="text-right">Tokens in/out</TableHead>
+						<TableHead className="text-right">Cost</TableHead>
+						<TableHead className="text-right">Latency</TableHead>
+						<TableHead>Status</TableHead>
+					</TableRow>
+				</TableHeader>
+				<TableBody>
+					{(log?.rows ?? []).map((r) => (
+						<TableRow key={r.id}>
+							<TableCell>
+								<button type="button" className="cursor-pointer text-left link" onClick={() => { setOpen(r); setCopied(false); }} aria-label={`Open details for request ${r.id}`}>{fmtDate(r.createdAt)}</button>
+							</TableCell>
+							<TableCell>{r.modelSlug ?? r.requestedModel ?? "—"}</TableCell>
+							<TableCell>{r.providerName ?? "—"}</TableCell>
+							<TableCell className="text-right font-mono tabular-nums">{`${r.tokensIn} / ${r.tokensOut}`}</TableCell>
+							<TableCell className="text-right font-mono tabular-nums">{fmtMicro(r.costMicro)}</TableCell>
+							<TableCell className="text-right font-mono tabular-nums">{`${r.latencyMs} ms`}</TableCell>
+							<TableCell>{r.status}</TableCell>
+						</TableRow>
+					))}
+				</TableBody>
+			</Table>
+			<div className="flex flex-wrap items-center gap-2">
 				<Button size="sm" variant="secondary" disabled={!log || log.page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>Prev</Button>
 				<Button size="sm" variant="secondary" disabled={!log || log.page >= log.pages} onClick={() => setPage((p) => p + 1)}>Next</Button>
 			</div>
 		</>)) : null}
 		{open ? (
-			<div className="usage-drawer-backdrop" onClick={() => setOpen(null)}>
-				<div className="usage-drawer" role="dialog" aria-modal="true" aria-label="Request details" onClick={(e) => e.stopPropagation()}>
-					<div className="row usage-drawer-head">
-						<h3>Request</h3>
+			<div className="fixed inset-0 z-50 bg-black/50" onClick={() => setOpen(null)}>
+				<div className="absolute right-0 top-0 grid h-full w-full max-w-md content-start gap-2 overflow-y-auto border-l border-border bg-[var(--card)] p-6" role="dialog" aria-modal="true" aria-label="Request details" onClick={(e) => e.stopPropagation()}>
+					<div className="flex items-center justify-between gap-2">
+						<h3 className="text-lg">Request</h3>
 						<Button size="sm" variant="ghost" onClick={() => setOpen(null)}>Close</Button>
 					</div>
-					<p className="usage-drawer-id"><code>{open.id}</code>
+					<p className="flex flex-wrap items-center gap-2"><code className="break-all font-mono text-sm">{open.id}</code>
 						<Button size="sm" variant="secondary" onClick={() => { navigator.clipboard?.writeText(open.id).then(() => setCopied(true)).catch(() => {}); }}>{copied ? "Copied" : "Copy id"}</Button>
 					</p>
-					<dl className="usage-drawer-grid">
+					<dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-2 text-sm [&_dd]:m-0 [&_dt]:text-muted-foreground">
 						<dt>Created</dt><dd>{fmtDate(open.createdAt)}</dd>
 						<dt>Requested model</dt><dd>{open.requestedModel ?? "—"}</dd>
 						<dt>Served model</dt><dd>{open.modelSlug ?? "—"}</dd>
@@ -588,17 +687,17 @@ export function BillingPage() {
   const [err, setErr] = useState<string | null>(null);
   const { data: d, error, loading } = useLoad<{ currency: string; status: string; canWrite: boolean; balanceMicro: string; warningThresholdMicro: string; hardStopThresholdMicro: string; period: { start: string; end: string; spentMicro: string; requests: number } }>("/api/pages/dashboard/billing", tick);
   return (<ConsoleLayout><Page title="Billing" lede="Thresholds, credits, invoices, payment methods.">
-    <div className="row" style={{ flexWrap: "wrap" }}>
+    <div className="flex flex-wrap items-center gap-2">
       <Link to="/dashboard/billing/credits"><Button variant="secondary">Credits</Button></Link>
       <Link to="/dashboard/billing/invoices"><Button variant="secondary">Invoices</Button></Link>
       <Link to="/dashboard/billing/payment-methods"><Button variant="secondary">Payment methods</Button></Link>
     </div>
     <LoadState loading={loading} error={error} />
     {d ? (<>
-      <div className="row" style={{ flexWrap: "wrap" }}>
-        <Card titleAs="h2" title="Balance" desc={fmtMicro(d.balanceMicro)} />
-        <Card titleAs="h2" title="Status" desc={d.status} />
-        <Card titleAs="h2" title="This month" desc={`${fmtMicro(d.period.spentMicro)} · ${d.period.requests} reqs`} />
+      <div className="flex flex-wrap items-stretch gap-2">
+        <Card><CardHeader><CardTitle className="text-base font-semibold tracking-tight">Balance</CardTitle><CardDescription className="font-mono text-xl font-semibold tracking-tight text-foreground">{fmtMicro(d.balanceMicro)}</CardDescription></CardHeader></Card>
+        <Card><CardHeader><CardTitle className="text-base font-semibold tracking-tight">Status</CardTitle><CardDescription className="font-mono text-xl font-semibold tracking-tight text-foreground">{d.status}</CardDescription></CardHeader></Card>
+        <Card><CardHeader><CardTitle className="text-base font-semibold tracking-tight">This month</CardTitle><CardDescription className="font-mono text-xl font-semibold tracking-tight text-foreground">{`${fmtMicro(d.period.spentMicro)} · ${d.period.requests} reqs`}</CardDescription></CardHeader></Card>
       </div>
       {d.canWrite ? (
         <form onSubmit={(e) => {
@@ -608,10 +707,10 @@ export function BillingPage() {
             .then(() => setTick((t) => t + 1))
             .catch((ex) => setErr(ex instanceof Error ? ex.message : "Save failed"));
         }}>
-          <div className="row"><Input aria-label="Warn threshold" name="warn" placeholder="Warn threshold" /><Input aria-label="Suspend threshold" name="suspend" placeholder="Suspend threshold" /><Button type="submit">Save</Button></div>
+          <div className="flex flex-wrap items-center gap-2"><Input aria-label="Warn threshold" name="warn" placeholder="Warn threshold" /><Input aria-label="Suspend threshold" name="suspend" placeholder="Suspend threshold" /><Button type="submit">Save</Button></div>
         </form>
-      ) : <p className="muted">Read-only: you need billing.write to change thresholds.</p>}
-      {err ? <p className="error">{err}</p> : null}
+      ) : <p className="text-muted-foreground">Read-only: you need billing.write to change thresholds.</p>}
+      {err ? <p className="error-text">{err}</p> : null}
     </>) : null}
   </Page></ConsoleLayout>);
 }
@@ -632,11 +731,13 @@ type CreditsData = {
 
 // Ledger types map to the shared badge tones: money in is ok, metered spend
 // is neutral, manual corrections are warn.
-const CREDIT_BADGE: Record<string, string> = { credit_purchase: "badge badge-ok", refund: "badge badge-ok", top_up: "badge badge-ok", adjustment: "badge badge-warn" };
+const CREDIT_BADGE: Record<string, "ok" | "warn"> = { credit_purchase: "ok", refund: "ok", top_up: "ok", adjustment: "warn" };
 const CREDIT_LABEL: Record<string, string> = { credit_purchase: "Top-up", usage_charge: "Usage", adjustment: "Adjustment", refund: "Refund" };
 
 // Stacked bars: one column per day, one segment per series. Pure SVG — the
-// console ships no charting dependency and this is the whole need.
+// console ships no charting dependency and this is the whole need. Segment
+// colours come straight from the theme tokens, shared with the legend swatches.
+const SEGMENT_COLORS = ["var(--chart-1)", "var(--chart-2)", "var(--chart-4)", "var(--chart-3)", "var(--destructive)", "var(--muted-foreground)"];
 function SpendChart({ series }: { series: CreditsData["series"] }) {
 	const W = 720, H = 200, PAD_L = 48, PAD_R = 8, PAD_T = 8, PAD_B = 24;
 	const labels = series[0]?.series.map((s) => s.label) ?? [];
@@ -647,9 +748,9 @@ function SpendChart({ series }: { series: CreditsData["series"] }) {
 	const first = series[0]?.day ?? "", last = series[series.length - 1]?.day ?? "";
 	const total = totals.reduce((acc, v) => acc + v, 0n);
 	return (
-		<svg className="credits-chart" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Daily spend by model from ${first} to ${last}. Total ${fmtMicro(total.toString())} across ${labels.length} series.`}>
-			<line className="credits-chart-axis" x1={PAD_L} y1={H - PAD_B} x2={W - PAD_R} y2={H - PAD_B} />
-			<text className="credits-chart-tick" x={PAD_L - 6} y={H - PAD_B + 4} textAnchor="end">{fmtMicro(max.toString())}</text>
+		<svg className="block h-auto w-full min-w-[44rem]" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Daily spend by model from ${first} to ${last}. Total ${fmtMicro(total.toString())} across ${labels.length} series.`}>
+			<line style={{ stroke: "var(--border)", strokeWidth: 1 }} x1={PAD_L} y1={H - PAD_B} x2={W - PAD_R} y2={H - PAD_B} />
+			<text style={{ fill: "var(--muted-foreground)", fontFamily: "var(--font-mono)", fontSize: 11 }} x={PAD_L - 6} y={H - PAD_B + 4} textAnchor="end">{fmtMicro(max.toString())}</text>
 			{series.map((d, i) => {
 				let acc = 0n;
 				const x = PAD_L + i * barW;
@@ -660,13 +761,13 @@ function SpendChart({ series }: { series: CreditsData["series"] }) {
 							const y0 = y(acc);
 							acc += v;
 							const y1 = y(acc);
-							return <rect key={s.label} className={`credits-chart-seg credits-chart-seg--${j % 6}`} x={x + 1} y={y1} width={Math.max(barW - 2, 1)} height={Math.max(y0 - y1, 0)} />;
+							return <rect key={s.label} style={{ fill: SEGMENT_COLORS[j % 6] }} x={x + 1} y={y1} width={Math.max(barW - 2, 1)} height={Math.max(y0 - y1, 0)} />;
 						})}
 					</g>
 				);
 			})}
-			<text className="credits-chart-tick" x={PAD_L} y={H - 6}>{first}</text>
-			<text className="credits-chart-tick" x={W - PAD_R} y={H - 6} textAnchor="end">{last}</text>
+			<text style={{ fill: "var(--muted-foreground)", fontFamily: "var(--font-mono)", fontSize: 11 }} x={PAD_L} y={H - 6}>{first}</text>
+			<text style={{ fill: "var(--muted-foreground)", fontFamily: "var(--font-mono)", fontSize: 11 }} x={W - PAD_R} y={H - 6} textAnchor="end">{last}</text>
 		</svg>
 	);
 }
@@ -694,13 +795,13 @@ export function CreditsPage() {
 	return (<ConsoleLayout><Page title="Credits" lede="Ledger and balance.">
 		<LoadState loading={loading} error={error} />
 		{d ? (
-			<div className="credits-balance">
-				<p className="credits-balance-figure num">{fmtMicro(d.balanceMicro)}</p>
-				<p className={`credits-balance-state credits-balance-state--${state}`}>{stateText} · warning {fmtMicro(d.thresholds.warningMicro)} · hard stop {fmtMicro(d.thresholds.hardStopMicro)}</p>
-				<div className="credits-balance-track" role="img" aria-label={`Balance ${fmtMicro(d.balanceMicro)}. Warning threshold ${fmtMicro(d.thresholds.warningMicro)}, hard stop ${fmtMicro(d.thresholds.hardStopMicro)}.`}>
-					<span className="credits-balance-fill" style={{ width: `${Math.min(pct(balance), 100)}%` }} />
-					<span className="credits-balance-marker credits-balance-marker--warn" style={{ left: `${Math.min(pct(warn), 100)}%` }} />
-					<span className="credits-balance-marker credits-balance-marker--hard" style={{ left: `${Math.min(pct(hard), 100)}%` }} />
+			<div className="grid gap-2">
+				<p className="m-0 font-mono text-3xl font-semibold tabular-nums tracking-tight">{fmtMicro(d.balanceMicro)}</p>
+				<p className={`m-0 text-sm ${state === "bad" ? "text-[var(--destructive)]" : state === "warn" ? "text-[var(--chart-3)]" : "text-[var(--chart-1)]"}`}>{stateText} · warning {fmtMicro(d.thresholds.warningMicro)} · hard stop {fmtMicro(d.thresholds.hardStopMicro)}</p>
+				<div className="relative h-2.5 overflow-hidden rounded-full bg-[var(--muted)]" role="img" aria-label={`Balance ${fmtMicro(d.balanceMicro)}. Warning threshold ${fmtMicro(d.thresholds.warningMicro)}, hard stop ${fmtMicro(d.thresholds.hardStopMicro)}.`}>
+					<span className={`block h-full rounded-full ${state === "bad" ? "bg-[var(--destructive)]" : state === "warn" ? "bg-[var(--chart-3)]" : "bg-[var(--chart-1)]"}`} style={{ width: `${Math.min(pct(balance), 100)}%` }} />
+					<span className="absolute -bottom-0.5 -top-0.5 w-0.5 bg-[var(--chart-3)]" style={{ left: `${Math.min(pct(warn), 100)}%` }} />
+					<span className="absolute -bottom-0.5 -top-0.5 w-0.5 bg-[var(--destructive)]" style={{ left: `${Math.min(pct(hard), 100)}%` }} />
 				</div>
 			</div>
 		) : null}
@@ -711,40 +812,61 @@ export function CreditsPage() {
 				.then(() => { (e.target as HTMLFormElement).reset(); setTick((t) => t + 1); })
 				.catch((ex) => setErr(ex instanceof Error ? ex.message : "Add failed"));
 		}}>
+<<<<<<< Updated upstream
 			<div className="row"><Input aria-label="Amount" name="amount" placeholder="Amount" required /><Button type="submit">Add</Button></div>
 		</form>) : <p className="muted">Manual credit is operator-only.</p>}
 		{err ? <p className="error">{err}</p> : null}
+=======
+			<div className="flex flex-wrap items-center gap-2"><Input aria-label="Amount" name="amount" placeholder="Amount" required /><Button type="submit">Add</Button></div>
+		</form>
+		{err ? <p className="error-text">{err}</p> : null}
+>>>>>>> Stashed changes
 		{d && d.series.length > 0 ? (
-			<div className="card credits-chart-card">
-				<h2 className="card-title">Spend by model · last 30 days</h2>
-				<SpendChart series={d.series} />
-				<ul className="credits-legend">
-					{(d.series[0]?.series ?? []).map((s, i) => (<li key={s.label}><span className={`credits-legend-swatch credits-chart-seg--${i % 6}`} />{s.label}</li>))}
+			<div className="min-w-0 surface p-5">
+				<h2 className="text-base">Spend by model · last 30 days</h2>
+				<div className="overflow-x-auto"><SpendChart series={d.series} /></div>
+				<ul className="m-0 mt-1 flex list-none flex-wrap gap-x-4 gap-y-2 p-0 text-sm text-muted-foreground">
+					{(d.series[0]?.series ?? []).map((s, i) => (<li key={s.label} className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: SEGMENT_COLORS[i % 6] }} />{s.label}</li>))}
 				</ul>
 			</div>
 		) : null}
-		<div className="credits-panels">
-			<div className="card">
-				<h2 className="card-title">By model · last 30 days</h2>
+		<div className="grid items-start gap-4 md:grid-cols-2">
+			<div className="surface p-5">
+				<h2 className="text-base">By model · last 30 days</h2>
 				<UsageBars rows={d?.breakdowns.byModel ?? []} unit="models" />
 			</div>
 		</div>
 		<h2>Ledger</h2>
 		{rows.length === 0 ? (
-			<p className="muted">No ledger entries yet — credits appear here after a top-up or a metered request.</p>
+			<p className="text-muted-foreground">No ledger entries yet — credits appear here after a top-up or a metered request.</p>
 		) : (
 			<>
-				<Table head={["When", "Type", "Description", "Amount", "Balance after"]} numeric={[3, 4]} rows={rows.map((r) => [
-					fmtDate(r.createdAt),
-					<span key={r.id} className={CREDIT_BADGE[r.type] ?? "badge"}>{CREDIT_LABEL[r.type] ?? r.type}</span>,
-					r.description ?? "—",
-					<span className={BigInt(r.amountMicro) < 0n ? "credits-amount" : "credits-amount credits-amount--pos"}>{BigInt(r.amountMicro) < 0n ? "" : "+"}{fmtMicro(r.amountMicro)}</span>,
-					fmtMicro(r.balanceAfterMicro),
-				])} />
-				<div className="row">
+				<Table>
+					<TableHeader>
+						<TableRow className="border-b border-border">
+							<TableHead>When</TableHead>
+							<TableHead>Type</TableHead>
+							<TableHead>Description</TableHead>
+							<TableHead className="text-right">Amount</TableHead>
+							<TableHead className="text-right">Balance after</TableHead>
+						</TableRow>
+					</TableHeader>
+					<TableBody>
+						{rows.map((r) => (
+							<TableRow key={r.id}>
+								<TableCell>{fmtDate(r.createdAt)}</TableCell>
+								<TableCell><Badge variant={CREDIT_BADGE[r.type] ?? "secondary"}>{CREDIT_LABEL[r.type] ?? r.type}</Badge></TableCell>
+								<TableCell>{r.description ?? "—"}</TableCell>
+								<TableCell className={`text-right font-mono tabular-nums ${BigInt(r.amountMicro) < 0n ? "text-foreground" : "text-[var(--chart-1)]"}`}>{BigInt(r.amountMicro) < 0n ? "" : "+"}{fmtMicro(r.amountMicro)}</TableCell>
+								<TableCell className="text-right font-mono tabular-nums">{fmtMicro(r.balanceAfterMicro)}</TableCell>
+							</TableRow>
+						))}
+					</TableBody>
+				</Table>
+				<div className="flex flex-wrap items-center gap-2">
 					<Button size="sm" variant="secondary" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>Prev</Button>
 					<Button size="sm" variant="secondary" disabled={!d || page >= d.pages} onClick={() => setPage((p) => p + 1)}>Next</Button>
-					<span className="muted">page {d?.page ?? page} of {d?.pages ?? 1}</span>
+					<span className="text-muted-foreground">page {d?.page ?? page} of {d?.pages ?? 1}</span>
 				</div>
 			</>
 		)}
@@ -759,8 +881,34 @@ export function InvoicesPage() {
   return (<ConsoleLayout><Page title="Invoices" lede="Generate and settle.">
     <LoadState loading={loading} error={error} />
     <Button onClick={() => apiPost("/api/pages/dashboard/billing/invoices/generate", {}).then(refresh).catch((ex) => setErr(ex instanceof Error ? ex.message : "Generate failed"))}>Generate</Button>
-    {err ? <p className="error">{err}</p> : null}
-    <Table head={["Number", "Period", "Amount", "Status", ""]} rows={(d?.invoices ?? []).map((i) => [i.number, `${fmtDate(i.periodStart)} → ${fmtDate(i.periodEnd)}`, fmtMicro(i.amountMicro), i.status, <span key={i.id} className="row"><Button size="sm" variant="secondary" onClick={() => apiPost("/api/pages/dashboard/billing/invoices/markPaid", { id: i.id }).then(refresh).catch((ex) => setErr(ex instanceof Error ? ex.message : "Mark-paid failed"))}>Paid</Button><Button size="sm" variant="ghost" onClick={() => apiPost("/api/pages/dashboard/billing/invoices/void", { id: i.id }).then(refresh).catch((ex) => setErr(ex instanceof Error ? ex.message : "Void failed"))}>Void</Button></span>])} />
+    {err ? <p className="error-text">{err}</p> : null}
+    <Table>
+      <TableHeader>
+        <TableRow className="border-b border-border">
+          <TableHead>Number</TableHead>
+          <TableHead>Period</TableHead>
+          <TableHead className="text-right">Amount</TableHead>
+          <TableHead>Status</TableHead>
+          <TableHead />
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {(d?.invoices ?? []).map((i) => (
+          <TableRow key={i.id}>
+            <TableCell>{i.number}</TableCell>
+            <TableCell>{`${fmtDate(i.periodStart)} → ${fmtDate(i.periodEnd)}`}</TableCell>
+            <TableCell className="text-right font-mono tabular-nums">{fmtMicro(i.amountMicro)}</TableCell>
+            <TableCell>{i.status}</TableCell>
+            <TableCell>
+              <span className="flex flex-wrap items-center gap-2">
+                <Button size="sm" variant="secondary" onClick={() => apiPost("/api/pages/dashboard/billing/invoices/markPaid", { id: i.id }).then(refresh).catch((ex) => setErr(ex instanceof Error ? ex.message : "Mark-paid failed"))}>Paid</Button>
+                <Button size="sm" variant="ghost" onClick={() => apiPost("/api/pages/dashboard/billing/invoices/void", { id: i.id }).then(refresh).catch((ex) => setErr(ex instanceof Error ? ex.message : "Void failed"))}>Void</Button>
+              </span>
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
   </Page></ConsoleLayout>);
 }
 
@@ -770,7 +918,7 @@ export function PayMethodsPage() {
   const { data: d, error, loading } = useLoad<{ intent: { method: string; contact: string; note: string; recordedAt: string } | null }>("/api/pages/dashboard/billing/payment-methods", tick);
   return (<ConsoleLayout><Page title="Payment methods" lede="Record how you intend to pay — an operator follows up offline.">
     <LoadState loading={loading} error={error} />
-    {d?.intent ? <Card title={d.intent.method} desc={`${d.intent.contact} · ${d.intent.note}`} /> : <p className="muted">No billing intent recorded.</p>}
+    {d?.intent ? <Card><CardHeader><CardTitle className="text-base font-semibold tracking-tight">{d.intent.method}</CardTitle><CardDescription>{`${d.intent.contact} · ${d.intent.note}`}</CardDescription></CardHeader></Card> : <p className="text-muted-foreground">No billing intent recorded.</p>}
     <form onSubmit={(e) => {
       e.preventDefault(); setErr(null);
       const f = new FormData(e.currentTarget);
@@ -778,9 +926,9 @@ export function PayMethodsPage() {
         .then(() => setTick((t) => t + 1))
         .catch((ex) => setErr(ex instanceof Error ? ex.message : "Record failed"));
     }}>
-      <div className="row"><Input aria-label="Method" name="method" placeholder="Method" required /><Input aria-label="Contact" name="contact" placeholder="Contact" required /><Input aria-label="Note" name="note" placeholder="Note" /><Button type="submit">Record</Button></div>
+      <div className="flex flex-wrap items-center gap-2"><Input aria-label="Method" name="method" placeholder="Method" required /><Input aria-label="Contact" name="contact" placeholder="Contact" required /><Input aria-label="Note" name="note" placeholder="Note" /><Button type="submit">Record</Button></div>
     </form>
-    {err ? <p className="error">{err}</p> : null}
+    {err ? <p className="error-text">{err}</p> : null}
   </Page></ConsoleLayout>);
 }
 
@@ -791,7 +939,7 @@ export function AccountPage() {
   const { data: d, error, loading } = useLoad<{ account: { id: string; name: string; email: string; role: string | null } | null; timezone: string }>("/api/pages/dashboard/account", tick);
   return (<ConsoleLayout><Page title="Account" lede="Profile.">
     <LoadState loading={loading} error={error} />
-    {d?.account ? <Card title={d.account.email} desc={`Role: ${d.account.role ?? "—"}`} /> : null}
+    {d?.account ? <Card><CardHeader><CardTitle className="text-base font-semibold tracking-tight">{d.account.email}</CardTitle><CardDescription>{`Role: ${d.account.role ?? "—"}`}</CardDescription></CardHeader></Card> : null}
     <form onSubmit={(e) => {
       e.preventDefault(); setErr(null); setOk(false);
       const f = new FormData(e.currentTarget);
@@ -799,10 +947,10 @@ export function AccountPage() {
         .then(() => { setOk(true); setTick((t) => t + 1); })
         .catch((ex) => setErr(ex instanceof Error ? ex.message : "Save failed"));
     }}>
-      <div className="row"><Input aria-label="Name" name="name" placeholder="Name" defaultValue={d?.account?.name ?? ""} /><Input aria-label="Timezone" name="timezone" placeholder="Timezone" defaultValue={d?.timezone ?? ""} /><Button type="submit">Save</Button></div>
+      <div className="flex flex-wrap items-center gap-2"><Input aria-label="Name" name="name" placeholder="Name" defaultValue={d?.account?.name ?? ""} /><Input aria-label="Timezone" name="timezone" placeholder="Timezone" defaultValue={d?.timezone ?? ""} /><Button type="submit">Save</Button></div>
     </form>
-    {err ? <p className="error">{err}</p> : null}
-    {ok ? <p className="muted">Saved.</p> : null}
+    {err ? <p className="error-text">{err}</p> : null}
+    {ok ? <p className="text-muted-foreground">Saved.</p> : null}
   </Page></ConsoleLayout>);
 }
 
@@ -810,8 +958,8 @@ export function AccountPage() {
 //
 // Migration 0019 made the user account the tenant, so these five were project
 // sub-pages and are now their own console routes pointed at the
-// account-scoped /api/pages/* endpoints. The tables and form grids are the
-// same .ps-* idioms the project pages used: only the scope vocabulary moved
+// account-scoped /api/pages/* endpoints. The tables and form grids share the
+// labelled-field + info-rail idioms below: only the scope vocabulary moved
 // from {workspace,project,environment} to {account,api_key}.
 
 type LimitValues = { rpm: string; tpm: string; rpd: string; tpd: string; concurrency: string; dailySpendMicro: string; monthlySpendMicro: string };
@@ -838,8 +986,10 @@ type LimitsData = {
 function LimitEditorCard({ ed, onSaved }: { ed: LimitEditor; onSaved: () => void }) {
   const [status, setStatus] = useState<{ ok: boolean; msg: string } | null>(null);
   const [busy, setBusy] = useState(false);
-  return (<Card title={ed.label} className="ps-card">
-    <form className="ps-form" onSubmit={(e) => {
+  return (<Card className="min-w-0">
+    <CardHeader><CardTitle className="text-base font-semibold tracking-tight">{ed.label}</CardTitle></CardHeader>
+    <CardContent>
+    <form className="grid grid-cols-[repeat(auto-fit,minmax(9rem,1fr))] items-end gap-2" onSubmit={(e) => {
       e.preventDefault(); setStatus(null); setBusy(true);
       const f = new FormData(e.currentTarget);
       const body: Record<string, string> = { scope: ed.scope, scopeId: ed.scopeId };
@@ -849,11 +999,9 @@ function LimitEditorCard({ ed, onSaved }: { ed: LimitEditor; onSaved: () => void
         .catch((ex) => setStatus({ ok: false, msg: ex instanceof Error ? ex.message : "Save failed" }))
         .finally(() => setBusy(false));
     }}>
-      <div className="ps-fields">
-        {LIMIT_FIELDS.map((field) => (<label key={field.key} className="ps-field"><span>{field.label}</span><Input name={field.key} inputMode="decimal" defaultValue={ed.row?.values[field.key] ?? ""} /></label>))}
-      </div>
-      <div className="ps-card-actions">
-        <Button type="submit" variant="primary" disabled={busy}>{busy ? "Saving…" : "Save"}</Button>
+      {LIMIT_FIELDS.map((field) => (<label key={field.key} className="grid gap-1 text-sm text-muted-foreground"><span>{field.label}</span><Input name={field.key} inputMode="decimal" defaultValue={ed.row?.values[field.key] ?? ""} /></label>))}
+      <div className="col-span-full flex flex-wrap items-center gap-2">
+        <Button type="submit" variant="default" disabled={busy}>{busy ? "Saving…" : "Save"}</Button>
         {ed.row ? (
           <Button type="button" variant="ghost" disabled={busy} onClick={() => {
             setStatus(null); setBusy(true);
@@ -863,9 +1011,10 @@ function LimitEditorCard({ ed, onSaved }: { ed: LimitEditor; onSaved: () => void
               .finally(() => setBusy(false));
           }}>Clear override</Button>
         ) : null}
-        {status ? <p className={status.ok ? "ps-ok" : "error"}>{status.msg}</p> : null}
+        {status ? <p className={status.ok ? "m-0 text-sm text-[var(--chart-1)]" : "m-0 error-text"}>{status.msg}</p> : null}
       </div>
     </form>
+    </CardContent>
   </Card>);
 }
 
@@ -879,31 +1028,58 @@ export function LimitsPage() {
   const levelKeys = Object.keys(d?.levelLabels ?? {});
   return (<ConsoleLayout><Page title="Limits" lede="Rate and spend limits for your account and keys.">
     <LoadState loading={loading} error={error} />
-    <div className="ps-note" role="note">
-      <p>The router enforces the tightest value across the chain — platform, then account, then key. An override only ever lowers a limit.</p>
+    <div className="relative overflow-hidden rounded-md border border-border bg-[var(--card)] px-4 py-2" role="note">
+      <span className="absolute inset-y-0 left-0 w-0.5 bg-[var(--chart-2)]" aria-hidden="true" />
+      <p className="m-0 text-sm text-muted-foreground">The router enforces the tightest value across the chain — platform, then account, then key. An override only ever lowers a limit.</p>
     </div>
-    {d?.queryError ? <p className="error">{d.queryError}</p> : null}
+    {d?.queryError ? <p className="error-text">{d.queryError}</p> : null}
     {chain.length > 0 ? (
-      <Table head={["Metric", "Effective", "Bound at", ...levelKeys.map((l) => d?.levelLabels[l] ?? l)]} rows={chain.map((c) => {
-        const spend = c.metric === "dailySpendMicro" || c.metric === "monthlySpendMicro";
-        return [
-          c.label,
-          <span key="e" className="ps-effective">{c.effective === null ? "no limit" : spend ? `$${c.effective}` : c.effective}</span>,
-          <span key="b" className="ps-bound">{c.boundAtLabel ?? "—"}</span>,
-          ...levelKeys.map((l) => <span key={l}>{c.byLevel[l] == null ? "—" : spend ? `$${c.byLevel[l]}` : c.byLevel[l]}</span>),
-        ];
-      })} />
+      <Table>
+        <TableHeader>
+          <TableRow className="border-b border-border">
+            <TableHead>Metric</TableHead>
+            <TableHead>Effective</TableHead>
+            <TableHead>Bound at</TableHead>
+            {levelKeys.map((l) => <TableHead key={l}>{d?.levelLabels[l] ?? l}</TableHead>)}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {chain.map((c) => {
+            const spend = c.metric === "dailySpendMicro" || c.metric === "monthlySpendMicro";
+            return (
+              <TableRow key={c.metric}>
+                <TableCell>{c.label}</TableCell>
+                <TableCell><span className="font-semibold">{c.effective === null ? "no limit" : spend ? `$${c.effective}` : c.effective}</span></TableCell>
+                <TableCell className="text-[var(--primary)]">{c.boundAtLabel ?? "—"}</TableCell>
+                {levelKeys.map((l) => <TableCell key={l}>{c.byLevel[l] == null ? "—" : spend ? `$${c.byLevel[l]}` : c.byLevel[l]}</TableCell>)}
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
     ) : null}
-    <div className="ps-cards">
+    <div className="grid items-start gap-4 [grid-template-columns:repeat(auto-fit,minmax(18rem,1fr))]">
       {editors.map((ed) => (<LimitEditorCard key={ed.scope + ed.scopeId} ed={ed} onSaved={refresh} />))}
     </div>
     {keyRows.length > 0 ? (<>
       <h2>Per-key limits</h2>
-      <Table head={["Key", ...LIMIT_FIELDS.map((f) => f.label)]} rows={keyRows.map((k) => [
-        k.name,
-        ...LIMIT_FIELDS.map((f) => <span key={f.key}>{k.values[f.key] === "" ? "—" : f.key === "dailySpendMicro" || f.key === "monthlySpendMicro" ? `$${k.values[f.key]}` : k.values[f.key]}</span>),
-      ])} />
-      <p className="muted">Per-key overrides are read-only on this page; the account card above is what it writes.</p>
+      <Table>
+        <TableHeader>
+          <TableRow className="border-b border-border">
+            <TableHead>Key</TableHead>
+            {LIMIT_FIELDS.map((f) => <TableHead key={f.key}>{f.label}</TableHead>)}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {keyRows.map((k) => (
+            <TableRow key={k.id}>
+              <TableCell>{k.name}</TableCell>
+              {LIMIT_FIELDS.map((f) => <TableCell key={f.key} className="font-mono tabular-nums">{k.values[f.key] === "" ? "—" : f.key === "dailySpendMicro" || f.key === "monthlySpendMicro" ? `$${k.values[f.key]}` : k.values[f.key]}</TableCell>)}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+      <p className="text-muted-foreground">Per-key overrides are read-only on this page; the account card above is what it writes.</p>
     </>) : null}
   </Page></ConsoleLayout>);
 }
@@ -911,7 +1087,7 @@ export function LimitsPage() {
 type BudgetRow = { id: string; scope: string; scopeLabel: string; period: string; amountMicro: string; warnPercent: number; criticalPercent: number; actionAt100: string; consumedMicro: string; percent: number; state: string };
 type BudgetsData = { denied: boolean; queryError: string | null; periods: string[]; actions: string[]; budgets: BudgetRow[] };
 type KeyOption = { id: string; name: string };
-const BUDGET_TONE: Record<string, "ok" | "warn" | "danger"> = { ok: "ok", warn: "warn", critical: "danger", exceeded: "danger" };
+const BUDGET_TONE: Record<string, "ok" | "warn" | "destructive"> = { ok: "ok", warn: "warn", critical: "destructive", exceeded: "destructive" };
 
 export function BudgetsPage() {
   const [tick, setTick] = useState(0);
@@ -929,9 +1105,9 @@ export function BudgetsPage() {
   const startEdit = (b: BudgetRow | null) => { setErr(null); setOk(null); setEditing(b); setScope("account"); };
   return (<ConsoleLayout><Page title="Budgets" lede="Spend caps per period for the account and its keys.">
     <LoadState loading={loading} error={error} />
-    {err ? <p className="error">{err}</p> : null}
-    {ok ? <p className="ps-ok">{ok}</p> : null}
-    <form className="ps-form" onSubmit={(e) => {
+    {err ? <p className="error-text">{err}</p> : null}
+    {ok ? <p className="m-0 text-sm text-[var(--chart-1)]">{ok}</p> : null}
+    <form className="grid grid-cols-[repeat(auto-fit,minmax(14rem,1fr))] items-end gap-4" onSubmit={(e) => {
       e.preventDefault(); setErr(null); setOk(null);
       const f = new FormData(e.currentTarget);
       apiPost<{ saved: string }>("/api/pages/budgets/save", {
@@ -946,62 +1122,82 @@ export function BudgetsPage() {
         .then(() => { setOk(editing ? "Budget updated." : "Budget saved."); setEditing(null); (e.target as HTMLFormElement).reset(); refresh(); })
         .catch((ex) => setErr(ex instanceof Error ? ex.message : "Save failed"));
     }}>
-      <label className="ps-field"><span>Scope</span>
-        <select className="select" name="scope" value={scope} disabled={editing !== null} onChange={(e) => setScope(e.target.value)}>
+      <label className="grid gap-1 text-sm text-muted-foreground"><span>Scope</span>
+        <select className={SELECT_CLS} name="scope" value={scope} disabled={editing !== null} onChange={(e) => setScope(e.target.value)}>
           <option value="account">Account (all keys)</option>
           <option value="api_key">One API key</option>
         </select>
       </label>
       {scope === "api_key" ? (
-        <label className="ps-field"><span>API key</span>
-          <select className="select" name="scopeId" defaultValue="" required>
+        <label className="grid gap-1 text-sm text-muted-foreground"><span>API key</span>
+          <select className={SELECT_CLS} name="scopeId" defaultValue="" required>
             <option value="">Pick a key</option>
             {keys.map((k) => <option key={k.id} value={k.id}>{k.name}</option>)}
           </select>
         </label>
       ) : null}
-      <label className="ps-field"><span>Period</span>
-        <select className="select" name="period" defaultValue={editing?.period ?? periods[0] ?? "monthly"}>
+      <label className="grid gap-1 text-sm text-muted-foreground"><span>Period</span>
+        <select className={SELECT_CLS} name="period" defaultValue={editing?.period ?? periods[0] ?? "monthly"}>
           {periods.map((p) => <option key={p} value={p}>{p}</option>)}
         </select>
       </label>
-      <label className="ps-field"><span>Amount ($)</span><Input name="amount" inputMode="decimal" required defaultValue={editing ? (Number(BigInt(editing.amountMicro)) / 1_000_000).toFixed(2) : ""} /></label>
-      <label className="ps-field"><span>Warn at (%)</span><Input name="warnPercent" inputMode="numeric" defaultValue={editing ? String(editing.warnPercent) : "70"} /></label>
-      <label className="ps-field"><span>Critical at (%)</span><Input name="criticalPercent" inputMode="numeric" defaultValue={editing ? String(editing.criticalPercent) : "90"} /></label>
-      <label className="ps-field"><span>At 100%</span>
-        <select className="select" name="actionAt100" defaultValue={editing?.actionAt100 ?? "block"}>
+      <label className="grid gap-1 text-sm text-muted-foreground"><span>Amount ($)</span><Input name="amount" inputMode="decimal" required defaultValue={editing ? (Number(BigInt(editing.amountMicro)) / 1_000_000).toFixed(2) : ""} /></label>
+      <label className="grid gap-1 text-sm text-muted-foreground"><span>Warn at (%)</span><Input name="warnPercent" inputMode="numeric" defaultValue={editing ? String(editing.warnPercent) : "70"} /></label>
+      <label className="grid gap-1 text-sm text-muted-foreground"><span>Critical at (%)</span><Input name="criticalPercent" inputMode="numeric" defaultValue={editing ? String(editing.criticalPercent) : "90"} /></label>
+      <label className="grid gap-1 text-sm text-muted-foreground"><span>At 100%</span>
+        <select className={SELECT_CLS} name="actionAt100" defaultValue={editing?.actionAt100 ?? "block"}>
           {actions.map((a) => <option key={a} value={a}>{a}</option>)}
         </select>
       </label>
-      <div className="ps-form-actions pr-actions">
-        <Button type="submit" variant="primary">{editing ? "Save budget" : "Add budget"}</Button>
+      <div className="col-span-full flex flex-wrap items-center gap-2">
+        <Button type="submit" variant="default">{editing ? "Save budget" : "Add budget"}</Button>
         {editing ? <Button type="button" variant="ghost" onClick={() => startEdit(null)}>Cancel</Button> : null}
       </div>
     </form>
     {!loading && !error && budgets.length === 0 ? (
-      <div className="ps-empty"><p className="muted">No budgets yet. Create one above so this account&apos;s spend is capped and you are told before it is.</p></div>
+      <div className="flex flex-wrap items-center gap-4"><p className="text-muted-foreground">No budgets yet. Create one above so this account&apos;s spend is capped and you are told before it is.</p></div>
     ) : null}
     {budgets.length > 0 ? (
-      <Table head={["Scope", "Period", "Amount", "Consumed", "State", "Actions"]} rows={budgets.map((b) => [
-        b.scopeLabel,
-        b.period,
-        <span key="a" className="num">{fmtMicro(b.amountMicro)}</span>,
-        <span key="c" className="row">
-          <span className="usage-bar-track" style={{ width: "6rem" }}><span className="usage-bar-fill" style={{ width: `${Math.min(Math.max(b.percent, 0), 100)}%` }} /></span>
-          <span className="num">{b.percent}%</span>
-        </span>,
-        <Badge key="s" tone={BUDGET_TONE[b.state] ?? "default"}>{b.state}</Badge>,
-        <span key="x" className="row">
-          {b.scope === "account" ? <Button size="sm" variant="secondary" onClick={() => startEdit(b)}>Edit</Button> : null}
-          <Button size="sm" variant="ghost" onClick={() => {
-            setErr(null); setOk(null);
-            if (!window.confirm(`Delete the ${b.period} budget for ${b.scopeLabel}? Spend stops being capped and this cannot be undone.`)) return;
-            apiPost("/api/pages/budgets/remove", { id: b.id })
-              .then(() => { setOk(`Budget for ${b.scopeLabel} deleted.`); refresh(); })
-              .catch((ex) => setErr(ex instanceof Error ? ex.message : "Delete failed"));
-          }}>Delete</Button>
-        </span>,
-      ])} />
+      <Table>
+        <TableHeader>
+          <TableRow className="border-b border-border">
+            <TableHead>Scope</TableHead>
+            <TableHead>Period</TableHead>
+            <TableHead className="text-right">Amount</TableHead>
+            <TableHead>Consumed</TableHead>
+            <TableHead>State</TableHead>
+            <TableHead>Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {budgets.map((b) => (
+            <TableRow key={b.id}>
+              <TableCell>{b.scopeLabel}</TableCell>
+              <TableCell>{b.period}</TableCell>
+              <TableCell className="text-right font-mono tabular-nums">{fmtMicro(b.amountMicro)}</TableCell>
+              <TableCell>
+                <span className="flex flex-wrap items-center gap-2">
+                  <span className="inline-block h-1.5 w-24 overflow-hidden rounded-full bg-[var(--muted)]"><span className="block h-full rounded-full bg-[var(--primary)]" style={{ width: `${Math.min(Math.max(b.percent, 0), 100)}%` }} /></span>
+                  <span className="font-mono tabular-nums">{b.percent}%</span>
+                </span>
+              </TableCell>
+              <TableCell><Badge variant={BUDGET_TONE[b.state] ?? "default"}>{b.state}</Badge></TableCell>
+              <TableCell>
+                <span className="flex flex-wrap items-center gap-2">
+                  {b.scope === "account" ? <Button size="sm" variant="secondary" onClick={() => startEdit(b)}>Edit</Button> : null}
+                  <Button size="sm" variant="ghost" onClick={() => {
+                    setErr(null); setOk(null);
+                    if (!window.confirm(`Delete the ${b.period} budget for ${b.scopeLabel}? Spend stops being capped and this cannot be undone.`)) return;
+                    apiPost("/api/pages/budgets/remove", { id: b.id })
+                      .then(() => { setOk(`Budget for ${b.scopeLabel} deleted.`); refresh(); })
+                      .catch((ex) => setErr(ex instanceof Error ? ex.message : "Delete failed"));
+                  }}>Delete</Button>
+                </span>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
     ) : null}
   </Page></ConsoleLayout>);
 }
@@ -1028,12 +1224,13 @@ export function AliasesPage() {
   const models = d?.models ?? [];
   return (<ConsoleLayout><Page title="Aliases" lede="Stable names your apps can ask for instead of a model id.">
     <LoadState loading={loading} error={error} />
-    <div className="ps-note" role="note">
-      <p>An alias resolves to its targets in order. Account aliases are yours to edit; global aliases are platform-owned and read-only.</p>
+    <div className="relative overflow-hidden rounded-md border border-border bg-[var(--card)] px-4 py-2" role="note">
+      <span className="absolute inset-y-0 left-0 w-0.5 bg-[var(--chart-2)]" aria-hidden="true" />
+      <p className="m-0 text-sm text-muted-foreground">An alias resolves to its targets in order. Account aliases are yours to edit; global aliases are platform-owned and read-only.</p>
     </div>
-    {err ? <p className="error">{err}</p> : null}
-    {ok ? <p className="ps-ok">{ok}</p> : null}
-    <form className="ps-form" onSubmit={(e) => {
+    {err ? <p className="error-text">{err}</p> : null}
+    {ok ? <p className="m-0 text-sm text-[var(--chart-1)]">{ok}</p> : null}
+    <form className="grid grid-cols-[repeat(auto-fit,minmax(14rem,1fr))] items-end gap-4" onSubmit={(e) => {
       e.preventDefault(); setErr(null); setOk(null); setBusy(true);
       const f = new FormData(e.currentTarget);
       const name = String(f.get("name") ?? "").trim();
@@ -1047,38 +1244,57 @@ export function AliasesPage() {
         .catch((ex) => setErr(ex instanceof Error ? ex.message : "Create failed"))
         .finally(() => setBusy(false));
     }}>
-      <label className="ps-field"><span>Name</span><Input name="name" placeholder="e.g. fast" required /></label>
-      <label className="ps-field"><span>Scope</span>
-        <select className="select" name="scope" defaultValue="account">
+      <label className="grid gap-1 text-sm text-muted-foreground"><span>Name</span><Input name="name" placeholder="e.g. fast" required /></label>
+      <label className="grid gap-1 text-sm text-muted-foreground"><span>Scope</span>
+        <select className={SELECT_CLS} name="scope" defaultValue="account">
           <option value="account">This account</option>
           {canGlobal ? (<option value="global">Global (operator)</option>) : null}
         </select>
       </label>
-      <label className="ps-field"><span>Targets (in fallback order)</span>
-        <select className="select" name="modelIds" multiple size={4} required>
+      <label className="grid gap-1 text-sm text-muted-foreground"><span>Targets (in fallback order)</span>
+        <select className={`${SELECT_CLS} h-auto`} name="modelIds" multiple size={4} required>
           {models.map((m) => <option key={m.id} value={m.id}>{m.slug}</option>)}
         </select>
       </label>
-      <label className="ps-field"><span>Description</span><Input name="description" placeholder="What this alias is for" /></label>
-      <div className="ps-form-actions pr-actions">
-        <Button type="submit" variant="primary" disabled={busy}>{busy ? "Creating…" : "Create alias"}</Button>
+      <label className="grid gap-1 text-sm text-muted-foreground"><span>Description</span><Input name="description" placeholder="What this alias is for" /></label>
+      <div className="col-span-full flex flex-wrap items-center gap-2">
+        <Button type="submit" variant="default" disabled={busy}>{busy ? "Creating…" : "Create alias"}</Button>
       </div>
     </form>
     {!loading && !error && aliases.length === 0 ? (
-      <div className="ps-empty"><p className="muted">No aliases yet.</p></div>
+      <div className="flex flex-wrap items-center gap-4"><p className="text-muted-foreground">No aliases yet.</p></div>
     ) : null}
     {aliases.length > 0 ? (
-      <Table head={["Name", "Targets", "Scope", "State", ""]} rows={aliases.map((a) => [
-        <span key="n" className="ps-alias-name">{a.name}{a.description ? <span className="muted">{a.description}</span> : null}</span>,
-        <span key="t" className="ps-targets">{a.targets.length > 0 ? a.targets.map((t) => (<code key={t.modelId} className="ps-target">{t.slug}</code>)) : <span className="muted">no targets</span>}</span>,
-        <Badge key="s" tone={a.scope === "account" ? "info" : "default"}>{a.scope}</Badge>,
-        <Badge key="e" tone={a.enabled ? "ok" : "warn"}>{a.enabled ? "enabled" : "disabled"}</Badge>,
-        <Button key="d" size="sm" variant="secondary" disabled={a.scope === "global"} title={a.scope === "global" ? "Global aliases are read-only" : undefined} onClick={() => { setErr(null); setDeleting(a); }}>Delete</Button>,
-      ])} />
+      <Table>
+        <TableHeader>
+          <TableRow className="border-b border-border">
+            <TableHead>Name</TableHead>
+            <TableHead>Targets</TableHead>
+            <TableHead>Scope</TableHead>
+            <TableHead>State</TableHead>
+            <TableHead />
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {aliases.map((a) => (
+            <TableRow key={a.id}>
+              <TableCell>
+                <span className="inline-flex flex-wrap items-baseline gap-2">{a.name}{a.description ? <span className="text-muted-foreground">{a.description}</span> : null}</span>
+              </TableCell>
+              <TableCell>
+                <span className="flex flex-wrap gap-1">{a.targets.length > 0 ? a.targets.map((t) => (<code key={t.modelId} className="rounded-full border border-border bg-[var(--muted)] px-2 py-0.5 font-mono text-sm">{t.slug}</code>)) : <span className="text-muted-foreground">no targets</span>}</span>
+              </TableCell>
+              <TableCell><Badge variant={a.scope === "account" ? "info" : "default"}>{a.scope}</Badge></TableCell>
+              <TableCell><Badge variant={a.enabled ? "ok" : "warn"}>{a.enabled ? "enabled" : "disabled"}</Badge></TableCell>
+              <TableCell><Button size="sm" variant="secondary" disabled={a.scope === "global"} title={a.scope === "global" ? "Global aliases are read-only" : undefined} onClick={() => { setErr(null); setDeleting(a); }}>Delete</Button></TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
     ) : null}
     {deleting ? (<KeysDialog title="Delete alias" onClose={() => setDeleting(null)}>
-      <p>Delete <code className="keys-prefix">{deleting.name}</code>? Requests naming it fall back to normal model resolution. This cannot be undone.</p>
-      <div className="row">
+      <p>Delete <code className="font-mono text-sm">{deleting.name}</code>? Requests naming it fall back to normal model resolution. This cannot be undone.</p>
+      <div className="flex flex-wrap items-center gap-2">
         <Button variant="secondary" onClick={() => setDeleting(null)}>Cancel</Button>
         <Button variant="destructive" onClick={() => {
           apiPost(`/api/pages/aliases/delete`, { id: deleting.id })
@@ -1128,7 +1344,7 @@ function PolicyDialog({ policy, strategies, onClose, onSaved }: { policy: Routin
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   return (<KeysDialog title={`Edit ${policy.name}`} onClose={onClose}>
-    <form className="ps-dialog-form" onSubmit={(e) => {
+    <form className="grid gap-4" onSubmit={(e) => {
       e.preventDefault(); setErr(null); setBusy(true);
       const f = new FormData(e.currentTarget);
       apiPost(`/api/pages/routing/update`, policyBody(policy, {
@@ -1141,17 +1357,17 @@ function PolicyDialog({ policy, strategies, onClose, onSaved }: { policy: Routin
         .catch((ex) => setErr(ex instanceof Error ? ex.message : "Update failed"))
         .finally(() => setBusy(false));
     }}>
-      <label className="ps-field"><span>Name</span><Input name="name" defaultValue={policy.name} required /></label>
-      <label className="ps-field"><span>Strategy</span>
-        <select className="select" name="strategy" defaultValue={policy.strategy}>
+      <label className="grid gap-1 text-sm text-muted-foreground"><span>Name</span><Input name="name" defaultValue={policy.name} required /></label>
+      <label className="grid gap-1 text-sm text-muted-foreground"><span>Strategy</span>
+        <select className={SELECT_CLS} name="strategy" defaultValue={policy.strategy}>
           {strategies.map((s) => <option key={s} value={s}>{s.replace(/_/g, " ")}</option>)}
         </select>
       </label>
-      <label className="ps-field"><span>Max attempts (1–8)</span><Input name="maxAttempts" inputMode="numeric" defaultValue={String(policy.maxAttempts)} /></label>
-      <label className="ps-check"><input type="checkbox" name="enabled" defaultChecked={policy.enabled} /> enabled</label>
-      {err ? <p className="error">{err}</p> : null}
-      <div className="row">
-        <Button type="submit" variant="primary" disabled={busy}>{busy ? "Saving…" : "Save"}</Button>
+      <label className="grid gap-1 text-sm text-muted-foreground"><span>Max attempts (1–8)</span><Input name="maxAttempts" inputMode="numeric" defaultValue={String(policy.maxAttempts)} /></label>
+      <label className="inline-flex items-center gap-2 text-sm text-muted-foreground"><input type="checkbox" name="enabled" defaultChecked={policy.enabled} /> enabled</label>
+      {err ? <p className="error-text">{err}</p> : null}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button type="submit" variant="default" disabled={busy}>{busy ? "Saving…" : "Save"}</Button>
         <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
       </div>
     </form>
@@ -1173,13 +1389,14 @@ export function RoutingPage() {
   const platformDefault = policies.find((p) => p.scope === "platform") ?? null;
   return (<ConsoleLayout><Page title="Routing" lede="How a request picks its provider and model.">
     <LoadState loading={loading} error={error} />
-    <div className="ps-note" role="note">
-      <p>Your account policy applies to every key unless a tighter one exists. The platform default applies when your account defines none.</p>
+    <div className="relative overflow-hidden rounded-md border border-border bg-[var(--card)] px-4 py-2" role="note">
+      <span className="absolute inset-y-0 left-0 w-0.5 bg-[var(--chart-2)]" aria-hidden="true" />
+      <p className="m-0 text-sm text-muted-foreground">Your account policy applies to every key unless a tighter one exists. The platform default applies when your account defines none.</p>
     </div>
-    <Card titleAs="h2" title="Platform default" desc={platformDefault ? `${platformDefault.name} · ${platformDefault.strategy.replace(/_/g, " ")}` : "none"} />
-    {err ? <p className="error">{err}</p> : null}
-    {ok ? <p className="ps-ok">{ok}</p> : null}
-    <form className="ps-form" onSubmit={(e) => {
+    <Card><CardHeader><CardTitle className="text-base font-semibold tracking-tight">Platform default</CardTitle><CardDescription>{platformDefault ? `${platformDefault.name} · ${platformDefault.strategy.replace(/_/g, " ")}` : "none"}</CardDescription></CardHeader></Card>
+    {err ? <p className="error-text">{err}</p> : null}
+    {ok ? <p className="m-0 text-sm text-[var(--chart-1)]">{ok}</p> : null}
+    <form className="grid grid-cols-[repeat(auto-fit,minmax(14rem,1fr))] items-end gap-4" onSubmit={(e) => {
       e.preventDefault(); setErr(null); setOk(null); setBusy(true);
       const f = new FormData(e.currentTarget);
       const name = String(f.get("name") ?? "").trim();
@@ -1194,45 +1411,63 @@ export function RoutingPage() {
         .catch((ex) => setErr(ex instanceof Error ? ex.message : "Create failed"))
         .finally(() => setBusy(false));
     }}>
-      <label className="ps-field"><span>Name</span><Input name="name" placeholder="e.g. production" required /></label>
-      <label className="ps-field"><span>Strategy</span>
-        <select className="select" name="strategy" defaultValue={strategies[0] ?? "balanced"}>
+      <label className="grid gap-1 text-sm text-muted-foreground"><span>Name</span><Input name="name" placeholder="e.g. production" required /></label>
+      <label className="grid gap-1 text-sm text-muted-foreground"><span>Strategy</span>
+        <select className={SELECT_CLS} name="strategy" defaultValue={strategies[0] ?? "balanced"}>
           {strategies.map((s) => <option key={s} value={s}>{s.replace(/_/g, " ")}</option>)}
         </select>
       </label>
-      <label className="ps-field"><span>Max attempts (1–8)</span><Input name="maxAttempts" inputMode="numeric" defaultValue="2" /></label>
-      <label className="ps-field"><span>Timeout (ms)</span><Input name="requestTimeoutMs" inputMode="numeric" defaultValue="30000" /></label>
-      <label className="ps-check"><input type="checkbox" name="fallbackEnabled" defaultChecked /> fallback on failure</label>
-      <div className="ps-form-actions pr-actions">
-        <Button type="submit" variant="primary" disabled={busy}>{busy ? "Creating…" : "Create policy"}</Button>
+      <label className="grid gap-1 text-sm text-muted-foreground"><span>Max attempts (1–8)</span><Input name="maxAttempts" inputMode="numeric" defaultValue="2" /></label>
+      <label className="grid gap-1 text-sm text-muted-foreground"><span>Timeout (ms)</span><Input name="requestTimeoutMs" inputMode="numeric" defaultValue="30000" /></label>
+      <label className="inline-flex items-center gap-2 text-sm text-muted-foreground"><input type="checkbox" name="fallbackEnabled" defaultChecked /> fallback on failure</label>
+      <div className="col-span-full flex flex-wrap items-center gap-2">
+        <Button type="submit" variant="default" disabled={busy}>{busy ? "Creating…" : "Create policy"}</Button>
       </div>
     </form>
     {!loading && !error && accountPolicies.length === 0 ? (
-      <div className="ps-empty"><p className="muted">No account policies yet — the platform default applies.</p></div>
+      <div className="flex flex-wrap items-center gap-4"><p className="text-muted-foreground">No account policies yet — the platform default applies.</p></div>
     ) : null}
     {accountPolicies.length > 0 ? (
-      <Table head={["Name", "Strategy", "Attempts", "Fallback", "State", "Actions"]} rows={accountPolicies.map((p) => [
-        p.name,
-        p.strategy.replace(/_/g, " "),
-        <span key="a" className="num">{p.maxAttempts}</span>,
-        p.fallbackEnabled ? "yes" : "no",
-        <Badge key="s" tone={p.enabled ? "ok" : "warn"}>{p.enabled ? "enabled" : "disabled"}</Badge>,
-        <span key="x" className="row">
-          <Button size="sm" variant="secondary" onClick={() => { setErr(null); setEditing(p); }}>Edit</Button>
-          <Button size="sm" variant="ghost" onClick={() => {
-            setErr(null); setOk(null);
-            apiPost(`/api/pages/routing/update`, policyBody(p, { enabled: !p.enabled }))
-              .then(() => { setOk(`${p.name} ${p.enabled ? "disabled" : "enabled"}.`); refresh(); })
-              .catch((ex) => setErr(ex instanceof Error ? ex.message : "Update failed"));
-          }}>{p.enabled ? "Disable" : "Enable"}</Button>
-          <Button size="sm" variant="ghost" onClick={() => { setErr(null); setOk(null); setDeleting(p); }}>Delete</Button>
-        </span>,
-      ])} />
+      <Table>
+        <TableHeader>
+          <TableRow className="border-b border-border">
+            <TableHead>Name</TableHead>
+            <TableHead>Strategy</TableHead>
+            <TableHead className="text-right">Attempts</TableHead>
+            <TableHead>Fallback</TableHead>
+            <TableHead>State</TableHead>
+            <TableHead>Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {accountPolicies.map((p) => (
+            <TableRow key={p.id}>
+              <TableCell>{p.name}</TableCell>
+              <TableCell>{p.strategy.replace(/_/g, " ")}</TableCell>
+              <TableCell className="text-right font-mono tabular-nums">{p.maxAttempts}</TableCell>
+              <TableCell>{p.fallbackEnabled ? "yes" : "no"}</TableCell>
+              <TableCell><Badge variant={p.enabled ? "ok" : "warn"}>{p.enabled ? "enabled" : "disabled"}</Badge></TableCell>
+              <TableCell>
+                <span className="flex flex-wrap items-center gap-2">
+                  <Button size="sm" variant="secondary" onClick={() => { setErr(null); setEditing(p); }}>Edit</Button>
+                  <Button size="sm" variant="ghost" onClick={() => {
+                    setErr(null); setOk(null);
+                    apiPost(`/api/pages/routing/update`, policyBody(p, { enabled: !p.enabled }))
+                      .then(() => { setOk(`${p.name} ${p.enabled ? "disabled" : "enabled"}.`); refresh(); })
+                      .catch((ex) => setErr(ex instanceof Error ? ex.message : "Update failed"));
+                  }}>{p.enabled ? "Disable" : "Enable"}</Button>
+                  <Button size="sm" variant="ghost" onClick={() => { setErr(null); setOk(null); setDeleting(p); }}>Delete</Button>
+                </span>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
     ) : null}
     {editing ? <PolicyDialog policy={editing} strategies={strategies} onClose={() => setEditing(null)} onSaved={refresh} /> : null}
     {deleting ? (<KeysDialog title="Delete policy" onClose={() => setDeleting(null)}>
-      <p>Delete <code className="keys-prefix">{deleting.name}</code>? Requests fall back to the platform default. This cannot be undone.</p>
-      <div className="row">
+      <p>Delete <code className="font-mono text-sm">{deleting.name}</code>? Requests fall back to the platform default. This cannot be undone.</p>
+      <div className="flex flex-wrap items-center gap-2">
         <Button variant="secondary" onClick={() => setDeleting(null)}>Cancel</Button>
         <Button variant="destructive" onClick={() => {
           apiPost(`/api/pages/routing/delete`, { id: deleting.id })
@@ -1287,12 +1522,13 @@ export function AlertsPage() {
   };
   return (<ConsoleLayout><Page title="Alerts" lede="Conditions that notify you before a problem becomes an outage.">
     <LoadState loading={loading} error={error} />
-    <div className="ps-note" role="note">
-      <p>Alerts are account-wide. Each one watches every key's traffic, so a single rule covers the whole account.</p>
+    <div className="relative overflow-hidden rounded-md border border-border bg-[var(--card)] px-4 py-2" role="note">
+      <span className="absolute inset-y-0 left-0 w-0.5 bg-[var(--chart-2)]" aria-hidden="true" />
+      <p className="m-0 text-sm text-muted-foreground">Alerts are account-wide. Each one watches every key's traffic, so a single rule covers the whole account.</p>
     </div>
-    {err ? <p className="error">{err}</p> : null}
-    {ok ? <p className="ps-ok">{ok}</p> : null}
-    <form className="ps-form" onSubmit={(e) => {
+    {err ? <p className="error-text">{err}</p> : null}
+    {ok ? <p className="m-0 text-sm text-[var(--chart-1)]">{ok}</p> : null}
+    <form className="grid grid-cols-[repeat(auto-fit,minmax(14rem,1fr))] items-end gap-4" onSubmit={(e) => {
       e.preventDefault(); setErr(null); setOk(null); setBusy(true);
       const f = new FormData(e.currentTarget);
       const name = String(f.get("name") ?? "").trim();
@@ -1309,53 +1545,86 @@ export function AlertsPage() {
         .catch((ex) => setErr(ex instanceof Error ? ex.message : "Create failed"))
         .finally(() => setBusy(false));
     }}>
-      <label className="ps-field"><span>Name</span><Input name="name" placeholder="e.g. error spike" required /></label>
-      <label className="ps-field"><span>Condition</span>
-        <select className="select" name="type" value={alertType} onChange={(e) => setAlertType(e.target.value)}>
+      <label className="grid gap-1 text-sm text-muted-foreground"><span>Name</span><Input name="name" placeholder="e.g. error spike" required /></label>
+      <label className="grid gap-1 text-sm text-muted-foreground"><span>Condition</span>
+        <select className={SELECT_CLS} name="type" value={alertType} onChange={(e) => setAlertType(e.target.value)}>
           {conditionTypes.map((t) => <option key={t} value={t}>{t.replace(/_/g, " ")}</option>)}
         </select>
       </label>
-      <label className="ps-field"><span>Threshold</span><Input name="threshold" inputMode="decimal" placeholder={ALERT_UNITS[alertType] ?? "threshold"} required /></label>
-      <label className="ps-field"><span>Window (seconds)</span><Input name="windowSeconds" inputMode="numeric" placeholder="300" /></label>
-      <label className="ps-field"><span>Baseline rate</span><Input name="baselineRate" inputMode="decimal" placeholder="optional" /></label>
-      <label className="ps-field"><span>Channel</span>
-        <select className="select" name="channel" defaultValue={channels[0] ?? "inapp"}>
+      <label className="grid gap-1 text-sm text-muted-foreground"><span>Threshold</span><Input name="threshold" inputMode="decimal" placeholder={ALERT_UNITS[alertType] ?? "threshold"} required /></label>
+      <label className="grid gap-1 text-sm text-muted-foreground"><span>Window (seconds)</span><Input name="windowSeconds" inputMode="numeric" placeholder="300" /></label>
+      <label className="grid gap-1 text-sm text-muted-foreground"><span>Baseline rate</span><Input name="baselineRate" inputMode="decimal" placeholder="optional" /></label>
+      <label className="grid gap-1 text-sm text-muted-foreground"><span>Channel</span>
+        <select className={SELECT_CLS} name="channel" defaultValue={channels[0] ?? "inapp"}>
           {channels.map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
       </label>
-      <div className="ps-form-actions pr-actions">
-        <Button type="submit" variant="primary" disabled={busy}>{busy ? "Creating…" : "Create alert"}</Button>
+      <div className="col-span-full flex flex-wrap items-center gap-2">
+        <Button type="submit" variant="default" disabled={busy}>{busy ? "Creating…" : "Create alert"}</Button>
       </div>
     </form>
     {!loading && !error && alerts.length === 0 ? (
-      <div className="ps-empty"><p className="muted">No alerts yet. Create one above to be told when this account&apos;s error rate, latency or spend crosses a line.</p></div>
+      <div className="flex flex-wrap items-center gap-4"><p className="text-muted-foreground">No alerts yet. Create one above to be told when this account&apos;s error rate, latency or spend crosses a line.</p></div>
     ) : null}
     {alerts.length > 0 ? (
-      <Table head={["Name", "Condition", "Threshold", "Channel", "State", "Actions"]} rows={alerts.map((a) => [
-        a.name,
-        a.condition.type.replace(/_/g, " "),
-        <span key="t" className="num">{`${a.condition.threshold}${a.condition.windowSeconds ? ` / ${a.condition.windowSeconds}s` : ""}`}</span>,
-        a.channel,
-        <Badge key="s" tone={a.enabled ? "ok" : "warn"}>{a.enabled ? "enabled" : "disabled"}</Badge>,
-        <span key="x" className="row">
-          <Button size="sm" variant="secondary" onClick={() => toggle(a)}>{a.enabled ? "Disable" : "Enable"}</Button>
-          <Button size="sm" variant="ghost" onClick={() => { setErr(null); setOk(null); setDeleting(a); }}>Delete</Button>
-        </span>,
-      ])} />
+      <Table>
+        <TableHeader>
+          <TableRow className="border-b border-border">
+            <TableHead>Name</TableHead>
+            <TableHead>Condition</TableHead>
+            <TableHead className="text-right">Threshold</TableHead>
+            <TableHead>Channel</TableHead>
+            <TableHead>State</TableHead>
+            <TableHead>Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {alerts.map((a) => (
+            <TableRow key={a.id}>
+              <TableCell>{a.name}</TableCell>
+              <TableCell>{a.condition.type.replace(/_/g, " ")}</TableCell>
+              <TableCell className="text-right font-mono tabular-nums">{`${a.condition.threshold}${a.condition.windowSeconds ? ` / ${a.condition.windowSeconds}s` : ""}`}</TableCell>
+              <TableCell>{a.channel}</TableCell>
+              <TableCell><Badge variant={a.enabled ? "ok" : "warn"}>{a.enabled ? "enabled" : "disabled"}</Badge></TableCell>
+              <TableCell>
+                <span className="flex flex-wrap items-center gap-2">
+                  <Button size="sm" variant="secondary" onClick={() => toggle(a)}>{a.enabled ? "Disable" : "Enable"}</Button>
+                  <Button size="sm" variant="ghost" onClick={() => { setErr(null); setOk(null); setDeleting(a); }}>Delete</Button>
+                </span>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
     ) : null}
     {events.length > 0 ? (<>
       <h2>Recent firings</h2>
-      <Table head={["Alert", "Triggered", "Value", "State", "Resolved"]} rows={events.map((e) => [
-        e.alertName,
-        fmtDate(e.triggeredAt),
-        e.value,
-        e.state,
-        e.resolvedAt ? fmtDate(e.resolvedAt) : "—",
-      ])} />
+      <Table>
+        <TableHeader>
+          <TableRow className="border-b border-border">
+            <TableHead>Alert</TableHead>
+            <TableHead>Triggered</TableHead>
+            <TableHead>Value</TableHead>
+            <TableHead>State</TableHead>
+            <TableHead>Resolved</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {events.map((e) => (
+            <TableRow key={e.id}>
+              <TableCell>{e.alertName}</TableCell>
+              <TableCell>{fmtDate(e.triggeredAt)}</TableCell>
+              <TableCell>{e.value}</TableCell>
+              <TableCell>{e.state}</TableCell>
+              <TableCell>{e.resolvedAt ? fmtDate(e.resolvedAt) : "—"}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
     </>) : null}
     {deleting ? (<KeysDialog title="Delete alert" onClose={() => setDeleting(null)}>
-      <p>Delete <code className="keys-prefix">{deleting.name}</code>? You stop being told when this condition fires.</p>
-      <div className="row">
+      <p>Delete <code className="font-mono text-sm">{deleting.name}</code>? You stop being told when this condition fires.</p>
+      <div className="flex flex-wrap items-center gap-2">
         <Button variant="secondary" onClick={() => setDeleting(null)}>Cancel</Button>
         <Button variant="destructive" onClick={() => {
           apiPost(`/api/pages/alerts/remove`, { id: deleting.id })
@@ -1392,12 +1661,13 @@ export function CombosPage() {
   const models = d?.models ?? [];
   return (<ConsoleLayout><Page title="Combos" lede="Named fallback chains: ask for the combo, get the first hop that answers.">
     <LoadState loading={loading} error={error} />
-    <div className="ps-note" role="note">
-      <p>Hops are tried in order. Every hop is billed and logged as its own attempt, and failing over does not cost a second admission — the request passed the budget gate once.</p>
+    <div className="relative overflow-hidden rounded-md border border-border bg-[var(--card)] px-4 py-2" role="note">
+      <span className="absolute inset-y-0 left-0 w-0.5 bg-[var(--chart-2)]" aria-hidden="true" />
+      <p className="m-0 text-sm text-muted-foreground">Hops are tried in order. Every hop is billed and logged as its own attempt, and failing over does not cost a second admission — the request passed the budget gate once.</p>
     </div>
-    {err ? <p className="error">{err}</p> : null}
-    {ok ? <p className="ps-ok">{ok}</p> : null}
-    <form className="ps-form" onSubmit={(e) => {
+    {err ? <p className="error-text">{err}</p> : null}
+    {ok ? <p className="m-0 text-sm text-[var(--chart-1)]">{ok}</p> : null}
+    <form className="grid grid-cols-[repeat(auto-fit,minmax(14rem,1fr))] items-end gap-4" onSubmit={(e) => {
       e.preventDefault(); setErr(null); setOk(null); setBusy(true);
       const f = new FormData(e.currentTarget);
       const name = String(f.get("name") ?? "").trim();
@@ -1410,15 +1680,15 @@ export function CombosPage() {
         .catch((ex) => setErr(ex instanceof Error ? ex.message : "Create failed"))
         .finally(() => setBusy(false));
     }}>
-      <label className="ps-field"><span>Name</span><Input name="name" placeholder="e.g. premium" required /></label>
-      <label className="ps-field"><span>Description</span><Input name="description" placeholder="What this combo is for" /></label>
-      <label className="ps-field"><span>Add hop</span>
-        <select className="select" value={pick} onChange={(e) => setPick(e.target.value)}>
+      <label className="grid gap-1 text-sm text-muted-foreground"><span>Name</span><Input name="name" placeholder="e.g. premium" required /></label>
+      <label className="grid gap-1 text-sm text-muted-foreground"><span>Description</span><Input name="description" placeholder="What this combo is for" /></label>
+      <label className="grid gap-1 text-sm text-muted-foreground"><span>Add hop</span>
+        <select className={SELECT_CLS} value={pick} onChange={(e) => setPick(e.target.value)}>
           <option value="">Pick a model...</option>
           {models.filter((m) => !hops.some((h) => h.id === m.id)).map((m) => <option key={m.id} value={m.id}>{m.slug}</option>)}
         </select>
       </label>
-      <div className="ps-form-actions pr-actions">
+      <div className="col-span-full flex flex-wrap items-center gap-2">
         <Button type="button" variant="secondary" disabled={!pick} onClick={() => {
           const m = models.find((x) => x.id === pick);
           if (m) setHops((cur) => [...cur, m]);
@@ -1426,33 +1696,51 @@ export function CombosPage() {
         }}>Add to chain</Button>
       </div>
       {hops.length > 0 ? (
-        <div className="ps-targets">
+        <div className="flex flex-wrap gap-1">
           {hops.map((h, i) => (
-            <span key={h.id} className="ps-target">
+            <span key={h.id} className="inline-flex items-center gap-1 rounded-full border border-border bg-[var(--muted)] px-2 py-0.5 font-mono text-sm">
               <code>{i + 1}. {h.slug}</code>
               <Button type="button" size="sm" variant="ghost" title="Remove hop" onClick={() => setHops((cur) => cur.filter((x) => x.id !== h.id))}>×</Button>
             </span>
           ))}
         </div>
-      ) : <p className="muted">No hops yet — a combo needs at least one.</p>}
-      <div className="ps-form-actions pr-actions">
-        <Button type="submit" variant="primary" disabled={busy || hops.length === 0}>{busy ? "Creating..." : "Create combo"}</Button>
+      ) : <p className="text-muted-foreground">No hops yet — a combo needs at least one.</p>}
+      <div className="col-span-full flex flex-wrap items-center gap-2">
+        <Button type="submit" variant="default" disabled={busy || hops.length === 0}>{busy ? "Creating..." : "Create combo"}</Button>
       </div>
     </form>
     {!loading && !error && combos.length === 0 ? (
-      <div className="ps-empty"><p className="muted">No combos yet. Ask for the combo name exactly like a model id.</p></div>
+      <div className="flex flex-wrap items-center gap-4"><p className="text-muted-foreground">No combos yet. Ask for the combo name exactly like a model id.</p></div>
     ) : null}
     {combos.length > 0 ? (
-      <Table head={["Name", "Chain (in order)", "State", ""]} rows={combos.map((c) => [
-        <span key="n" className="ps-alias-name">{c.name}{c.description ? <span className="muted">{c.description}</span> : null}</span>,
-        <span key="t" className="ps-targets">{c.models.length > 0 ? c.models.map((t, i) => (<code key={t.modelId} className="ps-target">{i + 1}. {t.slug}</code>)) : <span className="muted">no hops</span>}</span>,
-        <Badge key="e" tone={c.enabled ? "ok" : "warn"}>{c.enabled ? "enabled" : "disabled"}</Badge>,
-        <Button key="d" size="sm" variant="secondary" onClick={() => { setErr(null); setDeleting(c); }}>Delete</Button>,
-      ])} />
+      <Table>
+        <TableHeader>
+          <TableRow className="border-b border-border">
+            <TableHead>Name</TableHead>
+            <TableHead>Chain (in order)</TableHead>
+            <TableHead>State</TableHead>
+            <TableHead />
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {combos.map((c) => (
+            <TableRow key={c.id}>
+              <TableCell>
+                <span className="inline-flex flex-wrap items-baseline gap-2">{c.name}{c.description ? <span className="text-muted-foreground">{c.description}</span> : null}</span>
+              </TableCell>
+              <TableCell>
+                <span className="flex flex-wrap gap-1">{c.models.length > 0 ? c.models.map((t, i) => (<code key={t.modelId} className="rounded-full border border-border bg-[var(--muted)] px-2 py-0.5 font-mono text-sm">{i + 1}. {t.slug}</code>)) : <span className="text-muted-foreground">no hops</span>}</span>
+              </TableCell>
+              <TableCell><Badge variant={c.enabled ? "ok" : "warn"}>{c.enabled ? "enabled" : "disabled"}</Badge></TableCell>
+              <TableCell><Button size="sm" variant="secondary" onClick={() => { setErr(null); setDeleting(c); }}>Delete</Button></TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
     ) : null}
     {deleting ? (<KeysDialog title="Delete combo" onClose={() => setDeleting(null)}>
       <p>Delete <strong>{deleting.name}</strong>? A client asking for this name falls back to a plain model lookup and gets a 404.</p>
-      <div className="row pr-actions">
+      <div className="flex flex-wrap items-center gap-2">
         <Button variant="ghost" onClick={() => setDeleting(null)}>Cancel</Button>
         <Button variant="destructive" onClick={() => {
           setBusy(true); setErr(null);
@@ -1501,12 +1789,13 @@ export function PromptInjectionPage() {
   const target = (r: InjectionRow) => r.scope === "account" ? "all traffic" : r.scope === "key" ? `key ${r.keyName ?? r.keyPrefix ?? r.apiKeyId}` : `model ${r.modelSlug}`;
   return (<ConsoleLayout><Page title="Prompt injection" lede="Text the router adds to every request, per target, before it reaches the model.">
     <LoadState loading={loading} error={error} />
-    <div className="ps-note" role="note">
-      <p>Injections stack: an account-wide one applies first, then a key's, then a model's — so a model-scoped persona lands closest to the conversation. Applied once per request, and a request that cannot be rewritten is still dispatched untouched: an injection is never a reason a chat fails.</p>
+    <div className="relative overflow-hidden rounded-md border border-border bg-[var(--card)] px-4 py-2" role="note">
+      <span className="absolute inset-y-0 left-0 w-0.5 bg-[var(--chart-2)]" aria-hidden="true" />
+      <p className="m-0 text-sm text-muted-foreground">Injections stack: an account-wide one applies first, then a key's, then a model's — so a model-scoped persona lands closest to the conversation. Applied once per request, and a request that cannot be rewritten is still dispatched untouched: an injection is never a reason a chat fails.</p>
     </div>
-    {err ? <p className="error">{err}</p> : null}
-    {ok ? <p className="ps-ok">{ok}</p> : null}
-    <form className="ps-form" onSubmit={(e) => {
+    {err ? <p className="error-text">{err}</p> : null}
+    {ok ? <p className="m-0 text-sm text-[var(--chart-1)]">{ok}</p> : null}
+    <form className="grid grid-cols-[repeat(auto-fit,minmax(14rem,1fr))] items-end gap-4" onSubmit={(e) => {
       e.preventDefault(); setErr(null); setOk(null); setBusy(true);
       const f = new FormData(e.currentTarget);
       apiPost<{ saved: string }>("/api/pages/injections/create", {
@@ -1520,61 +1809,78 @@ export function PromptInjectionPage() {
         .catch((ex) => setErr(ex instanceof Error ? ex.message : "Save failed"))
         .finally(() => setBusy(false));
     }}>
-      <label className="ps-field"><span>Scope</span>
-        <select className="select" value={scope} onChange={(e) => setScope(e.target.value)}>
+      <label className="grid gap-1 text-sm text-muted-foreground"><span>Scope</span>
+        <select className={SELECT_CLS} value={scope} onChange={(e) => setScope(e.target.value)}>
           <option value="account">Account-wide (every key, every model)</option>
           <option value="key">Per API key</option>
           <option value="model">Per model</option>
         </select>
       </label>
       {scope === "key" ? (
-        <label className="ps-field"><span>API key</span>
-          <select className="select" name="apiKeyId" required>
+        <label className="grid gap-1 text-sm text-muted-foreground"><span>API key</span>
+          <select className={SELECT_CLS} name="apiKeyId" required>
             {keys.map((k) => <option key={k.id} value={k.id}>{k.name ?? "unnamed"} ({k.prefix}…)</option>)}
           </select>
         </label>
       ) : null}
       {scope === "model" ? (
-        <label className="ps-field"><span>Model slug</span><Input name="modelSlug" list="pi-models" placeholder="e.g. claude-opus-4" required /></label>
+        <label className="grid gap-1 text-sm text-muted-foreground"><span>Model slug</span><Input name="modelSlug" list="pi-models" placeholder="e.g. claude-opus-4" required /></label>
       ) : null}
       {scope === "model" ? (
         <datalist id="pi-models">{models.map((m) => <option key={m.slug} value={m.slug} />)}</datalist>
       ) : null}
-      <label className="ps-field"><span>Mode</span>
-        <select className="select" value={mode} onChange={(e) => setMode(e.target.value)}>
+      <label className="grid gap-1 text-sm text-muted-foreground"><span>Mode</span>
+        <select className={SELECT_CLS} value={mode} onChange={(e) => setMode(e.target.value)}>
           {(d?.modes ?? Object.keys(MODE_LABEL)).map((m) => <option key={m} value={m}>{MODE_LABEL[m] ?? m}</option>)}
         </select>
       </label>
-      <label className="ps-field"><span>{mode === "chat_script" ? "Script (user: / bot: lines)" : "Content"}</span>
-        <textarea className="ps-textarea" name="content" rows={6} required placeholder={mode === "chat_script" ? "user: who are you?\nbot: I'm ENI." : "You are ..."} />
+      <label className="grid gap-1 text-sm text-muted-foreground [grid-column:1/-1]"><span>{mode === "chat_script" ? "Script (user: / bot: lines)" : "Content"}</span>
+        <textarea className={TEXTAREA_CLS} name="content" rows={6} required placeholder={mode === "chat_script" ? "user: who are you?\nbot: I'm ENI." : "You are ..."} />
       </label>
-      <div className="ps-form-actions pr-actions">
-        <Button type="submit" variant="primary" disabled={busy}>{busy ? "Saving..." : "Save injection"}</Button>
+      <div className="col-span-full flex flex-wrap items-center gap-2">
+        <Button type="submit" variant="default" disabled={busy}>{busy ? "Saving..." : "Save injection"}</Button>
       </div>
     </form>
     {!loading && !error && injections.length === 0 ? (
-      <div className="ps-empty"><p className="muted">No injections. Requests go to the model exactly as your client sent them.</p></div>
+      <div className="flex flex-wrap items-center gap-4"><p className="text-muted-foreground">No injections. Requests go to the model exactly as your client sent them.</p></div>
     ) : null}
     {injections.length > 0 ? (
-      <Table head={["Target", "Mode", "Content", "State", ""]} rows={injections.map((r) => [
-        <code key="t" className="ps-target">{target(r)}</code>,
-        <Badge key="m" tone="info">{MODE_LABEL[r.mode] ?? r.mode}</Badge>,
-        <span key="c" className="muted">{r.content.length > 120 ? `${r.content.slice(0, 120)}…` : r.content}</span>,
-        <Badge key="e" tone={r.enabled ? "ok" : "warn"}>{r.enabled ? "active" : "paused"}</Badge>,
-        <span key="a" className="row">
-          <Button size="sm" variant="secondary" onClick={() => { setErr(null); setEdit(r); }}>Edit</Button>
-          <Button size="sm" variant="secondary" onClick={() => { setBusy(true); setErr(null);
-            apiPost<{ saved: string }>("/api/pages/injections/update", { id: r.id, mode: r.mode, content: r.content, enabled: !r.enabled })
-              .then(() => refresh())
-              .catch((ex) => setErr(ex instanceof Error ? ex.message : "Update failed"))
-              .finally(() => setBusy(false));
-          }}>{r.enabled ? "Pause" : "Resume"}</Button>
-          <Button size="sm" variant="secondary" onClick={() => { setErr(null); setDeleting(r); }}>Delete</Button>
-        </span>,
-      ])} />
+      <Table>
+        <TableHeader>
+          <TableRow className="border-b border-border">
+            <TableHead>Target</TableHead>
+            <TableHead>Mode</TableHead>
+            <TableHead>Content</TableHead>
+            <TableHead>State</TableHead>
+            <TableHead />
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {injections.map((r) => (
+            <TableRow key={r.id}>
+              <TableCell><code className="rounded-full border border-border bg-[var(--muted)] px-2 py-0.5 font-mono text-sm">{target(r)}</code></TableCell>
+              <TableCell><Badge variant="info">{MODE_LABEL[r.mode] ?? r.mode}</Badge></TableCell>
+              <TableCell className="max-w-[24rem] whitespace-normal text-muted-foreground">{r.content.length > 120 ? `${r.content.slice(0, 120)}…` : r.content}</TableCell>
+              <TableCell><Badge variant={r.enabled ? "ok" : "warn"}>{r.enabled ? "active" : "paused"}</Badge></TableCell>
+              <TableCell>
+                <span className="flex flex-wrap items-center gap-2">
+                  <Button size="sm" variant="secondary" onClick={() => { setErr(null); setEdit(r); }}>Edit</Button>
+                  <Button size="sm" variant="secondary" onClick={() => { setBusy(true); setErr(null);
+                    apiPost<{ saved: string }>("/api/pages/injections/update", { id: r.id, mode: r.mode, content: r.content, enabled: !r.enabled })
+                      .then(() => refresh())
+                      .catch((ex) => setErr(ex instanceof Error ? ex.message : "Update failed"))
+                      .finally(() => setBusy(false));
+                  }}>{r.enabled ? "Pause" : "Resume"}</Button>
+                  <Button size="sm" variant="secondary" onClick={() => { setErr(null); setDeleting(r); }}>Delete</Button>
+                </span>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
     ) : null}
     {edit ? (<KeysDialog title={`Edit injection — ${target(edit)}`} onClose={() => setEdit(null)}>
-      <form className="ps-form" onSubmit={(e) => {
+      <form className="grid gap-4" onSubmit={(e) => {
         e.preventDefault(); setBusy(true); setErr(null);
         const f = new FormData(e.currentTarget);
         apiPost<{ saved: string }>("/api/pages/injections/update", {
@@ -1587,26 +1893,26 @@ export function PromptInjectionPage() {
           .catch((ex) => setErr(ex instanceof Error ? ex.message : "Update failed"))
           .finally(() => setBusy(false));
       }}>
-        <label className="ps-field"><span>Mode</span>
-          <select className="select" name="mode" defaultValue={edit.mode}>
+        <label className="grid gap-1 text-sm text-muted-foreground"><span>Mode</span>
+          <select className={SELECT_CLS} name="mode" defaultValue={edit.mode}>
             {Object.entries(MODE_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
           </select>
         </label>
-        <label className="ps-field"><span>Content</span>
-          <textarea className="ps-textarea" name="content" rows={10} defaultValue={edit.content} required />
+        <label className="grid gap-1 text-sm text-muted-foreground"><span>Content</span>
+          <textarea className={TEXTAREA_CLS} name="content" rows={10} defaultValue={edit.content} required />
         </label>
-        <label className="ps-field"><span>Enabled</span>
+        <label className="grid gap-1 text-sm text-muted-foreground"><span>Enabled</span>
           <input type="checkbox" name="enabled" defaultChecked={edit.enabled} />
         </label>
-        <div className="ps-form-actions pr-actions">
+        <div className="flex flex-wrap items-center gap-2">
           <Button type="button" variant="ghost" onClick={() => setEdit(null)}>Cancel</Button>
-          <Button type="submit" variant="primary" disabled={busy}>{busy ? "Saving..." : "Save"}</Button>
+          <Button type="submit" variant="default" disabled={busy}>{busy ? "Saving..." : "Save"}</Button>
         </div>
       </form>
     </KeysDialog>) : null}
     {deleting ? (<KeysDialog title="Delete injection" onClose={() => setDeleting(null)}>
       <p>Delete the injection for <strong>{target(deleting)}</strong>? Traffic goes back to the model with your client's own prompt only.</p>
-      <div className="row pr-actions">
+      <div className="flex flex-wrap items-center gap-2">
         <Button variant="ghost" onClick={() => setDeleting(null)}>Cancel</Button>
         <Button variant="destructive" onClick={() => {
           setBusy(true); setErr(null);

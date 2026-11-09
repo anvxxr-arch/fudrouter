@@ -77,10 +77,10 @@ function RouteMeta() {
 }
 function NotFoundPage() {
   return (
-    <div className="stack">
+    <div className="grid gap-6">
       <h1>Page not found</h1>
-      <p className="muted">No page lives at this URL.</p>
-      <p><Link to="/pricing">Back to pricing.</Link></p>
+      <p className="text-muted-foreground">No page lives at this URL.</p>
+      <p><Link className="link" to="/pricing">Back to pricing.</Link></p>
     </div>
   );
 }

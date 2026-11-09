@@ -4,20 +4,48 @@ import { apiGet } from "../lib/server";
 import { ROLE_CAPS } from "../lib/caps";
 import { ConsoleLayout } from "../components/ConsoleLayout";
 import { Button } from "../components/ui/button";
-import { Card } from "../components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { Badge } from "../components/ui/badge";
-import { Table } from "../components/ui/table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { StatCard, pctDelta } from "../components/stat-card";
 import { fmtMicro, fmtMicroShort } from "../lib/money";
-import "./dashboard.css";
+
+// Reused native-<select> styling (the bespoke select class is going away); shadcn has
+// no native-select primitive, so every admin <select> shares .form-control,
+// the recipe living in index.css (single source, not a per-file class string).
+const SELECT = "form-control";
+
+// The admin ledger chart is pure SVG with its own viewBox; the bespoke
+// credits-chart-* classes are going away, so the geometry stays untouched while
+// the paints are re-declared in this scoped block on the new CSS vars.
+const LEDGER_STYLES = `
+.ledger-axis { stroke: var(--border); stroke-width: 1; }
+.ledger-grid { stroke: var(--border); stroke-width: 1; stroke-dasharray: 2 4; opacity: 0.6; }
+.ledger-tick { fill: var(--muted-foreground); font-family: var(--font-mono); font-size: 11px; }
+.ledger-month { font-size: 10px; }
+.ledger-empty { fill: var(--muted); opacity: 0.7; }
+.ledger-seg--0 { fill: var(--chart-1); }
+.ledger-seg--1 { fill: var(--chart-2); }
+.ledger-seg--2 { fill: var(--chart-3); }
+.ledger-seg--3 { fill: var(--chart-4); }
+.ledger-seg--4 { fill: var(--chart-5); }
+.ledger-seg--5 { fill: var(--muted-foreground); }
+.ledger-swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.ledger-swatch.ledger-seg--0 { background: var(--chart-1); }
+.ledger-swatch.ledger-seg--1 { background: var(--chart-2); }
+.ledger-swatch.ledger-seg--2 { background: var(--chart-3); }
+.ledger-swatch.ledger-seg--3 { background: var(--chart-4); }
+.ledger-swatch.ledger-seg--4 { background: var(--chart-5); }
+.ledger-swatch.ledger-seg--5 { background: var(--muted-foreground); }
+`;
 
 // The admin tree renders inside ConsoleLayout, whose sidebar switches to the
 // admin section list when the path is under /admin. That replaced a 17-pill bar
 // sitting under the marketing header: two primary-looking navigations on one
 // page, and on a phone a third (the pill row collapsed into a <select>).
 function Page({ title, lede, children }: { title: string; lede: string; children?: ReactNode }) {
-  return (<ConsoleLayout><div className="stack console-main"><h1>{title}</h1><p className="lede muted">{lede}</p>{children}</div></ConsoleLayout>);
+  return (<ConsoleLayout><div className="grid gap-6"><h1>{title}</h1><p className="measure text-base text-muted-foreground">{lede}</p>{children}</div></ConsoleLayout>);
 }
 
 function useLoad<T>(path: string, tick = 0): { d: T | null; err: string | null } {
@@ -33,9 +61,33 @@ function useLoad<T>(path: string, tick = 0): { d: T | null; err: string | null }
 }
 
 function State({ err, d, children }: { err: string | null; d: unknown; children: (v: never) => ReactNode }) {
-  if (err) return (<Card title="Unavailable" desc={err} />);
-  if (!d) return (<Card desc="Loading…" />);
+  if (err) return (<Card><CardHeader><CardTitle>Unavailable</CardTitle><CardDescription>{err}</CardDescription></CardHeader></Card>);
+  if (!d) return (<Card><CardContent>Loading…</CardContent></Card>);
   return (<>{children(d as never)}</>);
+}
+
+// The old bespoke Table took `head`/`rows`/`numeric` arrays; shadcn's Table is
+// explicit JSX. This one small adapter preserves every call site's data shape
+// while rendering through the shadcn primitives.
+function DataTable({ head, rows, numeric = [] }: { head: ReactNode[]; rows: ReactNode[][]; numeric?: number[] }) {
+  const num = new Set(numeric);
+  const numClass = (i: number) => (num.has(i) ? "font-mono tabular-nums text-right" : undefined);
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          {head.map((h, i) => (<TableHead key={i} className={numClass(i)}>{h}</TableHead>))}
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {rows.map((r, ri) => (
+          <TableRow key={ri}>
+            {r.map((c, ci) => (<TableCell key={ci} className={numClass(ci)}>{c}</TableCell>))}
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
 }
 
 // Count keys arrive as camelCase/snake_case and several views printed them
@@ -103,7 +155,7 @@ export function AdminHome() {
       const today = v.series[v.series.length - 1];
       const yesterday = v.series[v.series.length - 2];
       return (<>
-        <div className="row row--cards" style={{ flexWrap: "wrap" }}>
+        <div className="flex flex-wrap items-center gap-2">
           <StatCard title="Requests" value={String(v.counts.requests)} delta={today && yesterday ? pctDelta(today.requests, yesterday.requests) : undefined} spark={v.series.map((s) => s.requests)} />
           <StatCard title="Tokens" value={String(v.counts.tokens)} delta={today && yesterday ? pctDelta(today.tokens, yesterday.tokens) : undefined} spark={v.series.map((s) => s.tokens)} />
           <StatCard title="Cost" value={fmtUsd(v.counts.costMicro)} delta={today && yesterday ? pctDelta(Number(BigInt(today.costMicro || "0")), Number(BigInt(yesterday.costMicro || "0"))) : undefined} spark={v.series.map((s) => Number(BigInt(s.costMicro || "0")))} />
@@ -117,24 +169,24 @@ export function AdminHome() {
             same flex row as the KPI cards: a different component, a different
             height, no figure styling, and the raw keys ("activeKeys") printed
             as labels. Same component, same row, human labels. */}
-        <h2 className="dash-h">Inventory</h2>
-        <div className="row row--cards" style={{ flexWrap: "wrap" }}>
+        <h2 className="my-0 text-lg">Inventory</h2>
+        <div className="flex flex-wrap items-center gap-2">
           {INVENTORY.map(([key, label]) => (
             <StatCard key={key} title={label} value={String(v.counts[key] ?? "—")} />
           ))}
         </div>
         {billing.d ? (<>
-          <h2 className="dash-h">Ledger inflow, last 12 months</h2>
+          <h2 className="my-0 text-lg">Ledger inflow, last 12 months</h2>
           <RevenueChart monthly={billing.d.monthly} />
         </>) : null}
         {users.d ? (<>
           <h2>Recent signups</h2>
-          <Table head={["Email", "Role", "Created", "First request"]} rows={users.d.users.slice(0, 8).map((u) => [u.email, u.role ?? "—", fmtDate(u.createdAt), u.firstRequestAt ? fmtDate(u.firstRequestAt) : "—"])} />
+          <DataTable head={["Email", "Role", "Created", "First request"]} rows={users.d.users.slice(0, 8).map((u) => [u.email, u.role ?? "—", fmtDate(u.createdAt), u.firstRequestAt ? fmtDate(u.firstRequestAt) : "—"])} />
         </>) : null}
         <h2>Top consumers</h2>
-        <Table head={["Key", "Owner", "Requests", "Cost"]} numeric={[2, 3]} rows={v.topConsumers.map((t) => [t.keyName, t.email, String(t.requests), fmtUsd(t.costMicro)])} />
+        <DataTable head={["Key", "Owner", "Requests", "Cost"]} numeric={[2, 3]} rows={v.topConsumers.map((t) => [t.keyName, t.email, String(t.requests), fmtUsd(t.costMicro)])} />
         <h2>Recent requests</h2>
-        <Table head={["ID", "Model", "Latency ms", "Status", "At"]} numeric={[2]} rows={v.recent.map((r) => [r.id, r.requestedModel ?? "—", String(r.latencyMs), r.status, fmtDate(r.createdAt)])} />
+        <DataTable head={["ID", "Model", "Latency ms", "Status", "At"]} numeric={[2]} rows={v.recent.map((r) => [r.id, r.requestedModel ?? "—", String(r.latencyMs), r.status, fmtDate(r.createdAt)])} />
       </>);
     }}</State>
   </Page>);
@@ -166,7 +218,7 @@ function RevenueChart({ monthly }: { monthly: { month: string; series: { type: s
   const used = typeOrder.filter((t) => monthly.some((m) => pos(m.series.find((s) => s.type === t)?.totalMicro) > 0n));
   const first = monthly[0]?.month ?? "", last = monthly[monthly.length - 1]?.month ?? "";
   if (monthly.length === 0 || total === 0n) {
-    return <Card desc={`No ledger entries between ${first || "—"} and ${last || "—"}.`} />;
+    return <Card><CardContent>No ledger entries between {first || "—"} and {last || "—"}.</CardContent></Card>;
   }
   const barW = (W - PAD_L - PAD_R) / monthly.length;
   const plotH = H - PAD_T - PAD_B;
@@ -175,12 +227,13 @@ function RevenueChart({ monthly }: { monthly: { month: string; series: { type: s
   // guesswork -- the only label sat on the baseline.
   const ticks = [0n, max / 2n, max];
   return (<>
-    <div className="credits-chart-wrap">
-      <svg className="credits-chart" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Gross ledger inflow by type, ${first} to ${last}. Total ${fmtUsd(total.toString())}.`}>
+    <style dangerouslySetInnerHTML={{ __html: LEDGER_STYLES }} />
+    <div className="overflow-x-auto">
+      <svg className="block h-auto w-full min-w-[44rem]" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Gross ledger inflow by type, ${first} to ${last}. Total ${fmtUsd(total.toString())}.`}>
         {ticks.map((t, i) => (
           <g key={i}>
-            <line className={i === 0 ? "credits-chart-axis" : "credits-chart-grid"} x1={PAD_L} y1={y(t)} x2={W - PAD_R} y2={y(t)} />
-            <text className="credits-chart-tick" x={PAD_L - 8} y={y(t) + 4} textAnchor="end">{fmtMicroShort(t.toString())}</text>
+            <line className={i === 0 ? "ledger-axis" : "ledger-grid"} x1={PAD_L} y1={y(t)} x2={W - PAD_R} y2={y(t)} />
+            <text className="ledger-tick" x={PAD_L - 8} y={y(t) + 4} textAnchor="end">{fmtMicroShort(t.toString())}</text>
           </g>
         ))}
         {monthly.map((m, i) => {
@@ -189,25 +242,25 @@ function RevenueChart({ monthly }: { monthly: { month: string; series: { type: s
           return (<g key={m.month}>
             {/* A zero month drew nothing at all, so 10 of 12 columns looked
                 like a chart that failed to render rather than "no activity". */}
-            {totals[i] === 0n ? <rect className="credits-chart-empty" x={x + 1} y={H - PAD_B - 2} width={Math.max(barW - 2, 1)} height={2} /> : null}
+            {totals[i] === 0n ? <rect className="ledger-empty" x={x + 1} y={H - PAD_B - 2} width={Math.max(barW - 2, 1)} height={2} /> : null}
             {m.series.map((s) => {
               const v = pos(s.totalMicro);
               if (v === 0n) return null;
               const y0 = y(acc);
               acc += v;
               const y1 = y(acc);
-              return <rect key={s.type} className={`credits-chart-seg credits-chart-seg--${colorOf(s.type)}`} x={x + 1} y={y1} width={Math.max(barW - 2, 1)} height={Math.max(y0 - y1, 0.5)} />;
+              return <rect key={s.type} className={`ledger-seg ledger-seg--${colorOf(s.type)}`} x={x + 1} y={y1} width={Math.max(barW - 2, 1)} height={Math.max(y0 - y1, 0.5)} />;
             })}
             {/* Every month is labelled, not just the endpoints: the one bar with
                 data was otherwise unattributable. YYYY-MM fits inside a 55-unit
                 column at 10px mono, so no rotation is needed. */}
-            <text className="credits-chart-tick credits-chart-month" x={x + barW / 2} y={H - 8} textAnchor="middle">{m.month}</text>
+            <text className="ledger-tick ledger-month" x={x + barW / 2} y={H - 8} textAnchor="middle">{m.month}</text>
           </g>);
         })}
       </svg>
     </div>
-    <ul className="credits-legend">
-      {used.map((t) => (<li key={t}><span className={`credits-legend-swatch credits-chart-seg--${colorOf(t)}`} />{t}</li>))}
+    <ul className="mt-2 flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted-foreground list-none">
+      {used.map((t) => (<li key={t} className="inline-flex items-center gap-2"><span className={`ledger-swatch ledger-seg--${colorOf(t)}`} />{t}</li>))}
     </ul>
   </>);
 }
@@ -218,16 +271,16 @@ function AnalyticsView() {
   const qs = [from ? "from=" + from : "", to ? "to=" + to : ""].filter(Boolean).join("&");
   const { d, err } = useLoad<Analytics>("/api/admin/analytics" + (qs ? "?" + qs : ""));
   return (<>
-    <form className="row" onSubmit={(e) => e.preventDefault()}>
+    <form className="flex flex-wrap items-center gap-2" onSubmit={(e) => e.preventDefault()}>
       <Input aria-label="from YYYY-MM-DD" placeholder="from YYYY-MM-DD" value={from} onChange={(e) => setFrom(e.currentTarget.value)} />
       <Input aria-label="to YYYY-MM-DD" placeholder="to YYYY-MM-DD" value={to} onChange={(e) => setTo(e.currentTarget.value)} />
     </form>
     <State err={err} d={d}>{(v: Analytics) => (<>
-      <Card desc={"Window " + v.from + " → " + v.to + " · source: " + (v.usingRollups ? "usage_daily rollups" : "request_log fallback")} />
+      <Card><CardContent>Window {v.from} → {v.to} · source: {(v.usingRollups ? "usage_daily rollups" : "request_log fallback")}</CardContent></Card>
       <h2>By model</h2>
-      <Table head={["Model", "Req", "OK", "Tok in", "Tok out", "Cost", "p50", "p95", "p99"]} numeric={[1, 2, 3, 4, 5, 6, 7, 8]} rows={v.byModel.map((r) => [r.name, String(r.requests), String(r.successes), String(r.tokensIn), String(r.tokensOut), fmtUsd(r.costMicro), String(r.p50), String(r.p95), String(r.p99)])} />
+      <DataTable head={["Model", "Req", "OK", "Tok in", "Tok out", "Cost", "p50", "p95", "p99"]} numeric={[1, 2, 3, 4, 5, 6, 7, 8]} rows={v.byModel.map((r) => [r.name, String(r.requests), String(r.successes), String(r.tokensIn), String(r.tokensOut), fmtUsd(r.costMicro), String(r.p50), String(r.p95), String(r.p99)])} />
       <h2>By provider</h2>
-      <Table head={["Provider", "Req", "OK", "Cost", "p50", "p95", "p99"]} numeric={[1, 2, 3, 4, 5, 6]} rows={v.byProvider.map((r) => [r.name, String(r.requests), String(r.successes), fmtUsd(r.costMicro), String(r.p50), String(r.p95), String(r.p99)])} />
+      <DataTable head={["Provider", "Req", "OK", "Cost", "p50", "p95", "p99"]} numeric={[1, 2, 3, 4, 5, 6]} rows={v.byProvider.map((r) => [r.name, String(r.requests), String(r.successes), fmtUsd(r.costMicro), String(r.p50), String(r.p95), String(r.p99)])} />
     </>)}</State>
   </>);
 }
@@ -280,20 +333,20 @@ function BillingDetailView({ id }: { id: string }) {
     const credit = () => run(() => postJSON("/api/admin/billing/credit", { accountId: id, type, direction, amount: amount.trim(), description: description.trim() || null, key }));
     const setAccountStatus = () => run(() => postJSON("/api/admin/billing/status", { accountId: id, status: current }));
     return (<>
-      <p className="muted"><Link to="/admin/billing">← All accounts</Link></p>
+      <p className="text-muted-foreground"><Link to="/admin/billing">← All accounts</Link></p>
       {/* Grid, not the flex row--cards: `flex: 1 1 12rem` put one card per line
           at 390px (4 × ~130px of chrome before any data). auto-fit at 9.5rem
           gives 4-across on desktop and a 2×2 block on a phone. */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(9.5rem, 1fr))", gap: "var(--space-sm)", alignItems: "stretch" }}>
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(9.5rem,1fr))] items-stretch gap-2">
         <StatCard title="Balance" value={fmtUsd(v.account.balanceMicro)} />
         <StatCard title="Ledger sum" value={fmtUsd(v.account.ledgerSumMicro)} />
         <StatCard title="Drift" value={fmtUsd(drift.toString())} />
         <StatCard title="Entries" value={String(v.ledger.total)} />
       </div>
-      {/* One fact per span with the separator glued to the FOLLOWING item
-          (.meta-row in styles.css): a plain text run used to break mid-fact and
-          strand a dangling "·" at the end of each wrapped line. */}
-      <p className="meta-row muted">
+      {/* One fact per span with the separator glued to the FOLLOWING item: a
+          plain text run used to break mid-fact and strand a dangling "·" at the
+          end of each wrapped line. */}
+      <p className="flex flex-wrap items-baseline text-muted-foreground [&>span+span]:before:content-['·'] [&>span+span]:before:mx-2">
         <span>{v.account.accountEmail}</span>
         <span>{v.account.currency}</span>
         <span>status <strong>{v.account.status}</strong></span>
@@ -301,15 +354,15 @@ function BillingDetailView({ id }: { id: string }) {
         <span>hard stop {BigInt(v.account.hardStopThresholdMicro) === 0n ? "off" : fmtUsd(v.account.hardStopThresholdMicro)}</span>
         <span>opened {fmtDate(v.account.createdAt)}</span>
         <span>balance is a cache; the ledger is truth</span>
-        {drift !== 0n ? <span className="error" role="alert">cache and ledger disagree by {fmtUsd(drift.toString())}</span> : null}
+        {drift !== 0n ? <span className="error-text" role="alert">cache and ledger disagree by {fmtUsd(drift.toString())}</span> : null}
       </p>
 
-      {err ? <p className="error" role="alert">{err}</p> : null}
-      {note ? <p className="muted" role="status">{note}</p> : null}
+      {err ? <p className="error-text" role="alert">{err}</p> : null}
+      {note ? <p className="text-muted-foreground" role="status">{note}</p> : null}
 
       {drift !== 0n ? (
-        <form className="row" onSubmit={(e) => { e.preventDefault(); run(() => postJSON("/api/admin/billing/resync", { accountId: id })); }}>
-          <span className="error" role="alert">Cash figure disagrees with the ledger.</span>
+        <form className="flex flex-wrap items-center gap-2" onSubmit={(e) => { e.preventDefault(); run(() => postJSON("/api/admin/billing/resync", { accountId: id })); }}>
+          <span className="error-text" role="alert">Cash figure disagrees with the ledger.</span>
           <Button type="submit" variant="ghost">Resync cache to ledger</Button>
         </form>
       ) : null}
@@ -317,24 +370,24 @@ function BillingDetailView({ id }: { id: string }) {
           the Adjust form — never a silent cache overwrite. */}
 
       <h2>Adjust balance</h2>
-      <form className="row" onSubmit={(e) => { e.preventDefault(); credit(); }}>
-        <select className="select" style={{ width: "auto" }} aria-label="entry type" value={type} onChange={(e) => { const t = e.currentTarget.value; setType(t); setDirection(t === "expiration" ? "charge" : "grant"); }}>
+      <form className="flex flex-wrap items-center gap-2" onSubmit={(e) => { e.preventDefault(); credit(); }}>
+        <select className={SELECT} aria-label="entry type" value={type} onChange={(e) => { const t = e.currentTarget.value; setType(t); setDirection(t === "expiration" ? "charge" : "grant"); }}>
           {MANUAL_LEDGER_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
         </select>
-        <select className="select" style={{ width: "auto" }} aria-label="direction" value={direction} onChange={(e) => setDirection(e.currentTarget.value === "charge" ? "charge" : "grant")}>
+        <select className={SELECT} aria-label="direction" value={direction} onChange={(e) => setDirection(e.currentTarget.value === "charge" ? "charge" : "grant")}>
           <option value="grant">grant (+)</option>
           <option value="charge">charge (−)</option>
         </select>
-        <Input aria-label="amount" inputMode="decimal" placeholder="0.00" style={{ width: "7rem" }} value={amount} onChange={(e) => setAmount(e.currentTarget.value)} />
-        <Input aria-label="description" placeholder="Reason (audited)" style={{ flex: "1 1 14rem", width: "auto" }} value={description} onChange={(e) => setDescription(e.currentTarget.value)} />
+        <Input aria-label="amount" inputMode="decimal" placeholder="0.00" className="w-28" value={amount} onChange={(e) => setAmount(e.currentTarget.value)} />
+        <Input aria-label="description" placeholder="Reason (audited)" className="grow basis-56" value={description} onChange={(e) => setDescription(e.currentTarget.value)} />
         <Button type="submit" disabled={!amount.trim()}>Apply</Button>
       </form>
-      <p className="muted">usage_charge is left to the meter — writing it here would double-bill.</p>
+      <p className="text-muted-foreground">usage_charge is left to the meter — writing it here would double-bill.</p>
 
       <h2>Lifecycle</h2>
-      <form className="row" onSubmit={(e) => { e.preventDefault(); setAccountStatus(); }}>
-        <span className="muted">Set status</span>
-        <select className="select" style={{ width: "auto" }} aria-label="account status" value={current} onChange={(e) => setStatus(e.currentTarget.value)}>
+      <form className="flex flex-wrap items-center gap-2" onSubmit={(e) => { e.preventDefault(); setAccountStatus(); }}>
+        <span className="text-muted-foreground">Set status</span>
+        <select className={SELECT} aria-label="account status" value={current} onChange={(e) => setStatus(e.currentTarget.value)}>
           {BILLING_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
         {/* A no-op submit is a status readout, not an action: ghost, not the
@@ -343,32 +396,32 @@ function BillingDetailView({ id }: { id: string }) {
       </form>
 
       <h2>Ledger totals by type</h2>
-      {v.byType.length === 0 ? <p className="muted">No entries.</p> : (
-        <Table head={["Type", "Entries", "Total"]} numeric={[1, 2]} rows={v.byType.map((t) => [t.type, String(t.entries), fmtSigned(t.totalMicro)])} />
+      {v.byType.length === 0 ? <p className="text-muted-foreground">No entries.</p> : (
+        <DataTable head={["Type", "Entries", "Total"]} numeric={[1, 2]} rows={v.byType.map((t) => [t.type, String(t.entries), fmtSigned(t.totalMicro)])} />
       )}
 
       <h2>Ledger entries</h2>
-      <Table
+      <DataTable
         head={["At", "Type", "Amount", "Balance after", "Description", "By"]}
         numeric={[2, 3]}
         rows={v.ledger.entries.map((e) => [fmtDate(e.createdAt), e.type, fmtSigned(e.amountMicro), fmtSigned(e.balanceAfterMicro), clip(e.description ?? "—"), e.requestId ? clip(e.requestId) : (e.createdBy ? clip(e.createdBy) : "—")])}
       />
       {v.ledger.pages > 1 ? (
-        <div className="row">
+        <div className="flex flex-wrap items-center gap-2">
           <Button size="sm" variant="ghost" disabled={page <= 1} onClick={() => setPage((n) => Math.max(1, n - 1))}>Newer</Button>
-          <span className="muted">Page {v.ledger.page} of {v.ledger.pages}</span>
+          <span className="text-muted-foreground">Page {v.ledger.page} of {v.ledger.pages}</span>
           <Button size="sm" variant="ghost" disabled={page >= v.ledger.pages} onClick={() => setPage((n) => n + 1)}>Older</Button>
         </div>
       ) : null}
 
       <h2>Spend, last 30 days</h2>
-      {v.usage.length === 0 ? <p className="muted">No requests.</p> : (
-        <Table head={["Model", "Requests", "Cost"]} numeric={[1, 2]} rows={v.usage.map((u) => [u.model ?? "—", String(u.requests), fmtUsd(u.costMicro)])} />
+      {v.usage.length === 0 ? <p className="text-muted-foreground">No requests.</p> : (
+        <DataTable head={["Model", "Requests", "Cost"]} numeric={[1, 2]} rows={v.usage.map((u) => [u.model ?? "—", String(u.requests), fmtUsd(u.costMicro)])} />
       )}
 
       <h2>Invoices</h2>
-      {v.invoices.length === 0 ? <p className="muted">No invoices.</p> : (
-        <Table head={["Number", "Amount", "Status", "Period", "Paid"]} numeric={[1]} rows={v.invoices.map((iv) => [iv.number, fmtUsd(iv.amountMicro), iv.status, fmtDate(iv.periodStart).slice(0, 10) + " → " + fmtDate(iv.periodEnd).slice(0, 10), iv.paidAt ? fmtDate(iv.paidAt) : "—"])} />
+      {v.invoices.length === 0 ? <p className="text-muted-foreground">No invoices.</p> : (
+        <DataTable head={["Number", "Amount", "Status", "Period", "Paid"]} numeric={[1]} rows={v.invoices.map((iv) => [iv.number, fmtUsd(iv.amountMicro), iv.status, fmtDate(iv.periodStart).slice(0, 10) + " → " + fmtDate(iv.periodEnd).slice(0, 10), iv.paidAt ? fmtDate(iv.paidAt) : "—"])} />
       )}
     </>);
   }}</State>);
@@ -378,13 +431,13 @@ function BillingView() {
   const { d, err } = useLoad<Billing>("/api/admin/billing");
   return (<State err={err} d={d}>{(v: Billing) => (<>
     <h2>Accounts (balance is a cache — ledger sum is truth)</h2>
-    <Table head={["Account", "Status", "Balance", "Ledger sum", "Drift", "Warn", "Hard stop"]} numeric={[2, 3, 4, 5, 6]} rows={v.accounts.map((a) => [<Link to={"/admin/billing/" + a.id}>{a.accountEmail}</Link>, a.status, fmtUsd(a.balanceMicro), fmtUsd(a.ledgerSumMicro), a.balanceMicro === a.ledgerSumMicro ? "—" : fmtUsd(String(BigInt(a.balanceMicro) - BigInt(a.ledgerSumMicro))), fmtUsd(a.warningThresholdMicro), fmtUsd(a.hardStopThresholdMicro)])} />
+    <DataTable head={["Account", "Status", "Balance", "Ledger sum", "Drift", "Warn", "Hard stop"]} numeric={[2, 3, 4, 5, 6]} rows={v.accounts.map((a) => [<Link to={"/admin/billing/" + a.id}>{a.accountEmail}</Link>, a.status, fmtUsd(a.balanceMicro), fmtUsd(a.ledgerSumMicro), a.balanceMicro === a.ledgerSumMicro ? "—" : fmtUsd(String(BigInt(a.balanceMicro) - BigInt(a.ledgerSumMicro))), fmtUsd(a.warningThresholdMicro), fmtUsd(a.hardStopThresholdMicro)])} />
     <h2>Ledger totals by type</h2>
-    <Table head={["Type", "Total"]} numeric={[1]} rows={v.totals.map((t) => [t.type, fmtUsd(t.totalMicro)])} />
+    <DataTable head={["Type", "Total"]} numeric={[1]} rows={v.totals.map((t) => [t.type, fmtUsd(t.totalMicro)])} />
     <h2>Recent ledger entries</h2>
-    <Table head={["Account", "Type", "Amount", "Request", "Description", "At"]} numeric={[2]} rows={v.recent.map((r) => [r.accountEmail, r.type, fmtUsd(r.amountMicro), r.requestId ?? "—", (r.description ?? "—").slice(0, 80), fmtDate(r.createdAt)])} />
+    <DataTable head={["Account", "Type", "Amount", "Request", "Description", "At"]} numeric={[2]} rows={v.recent.map((r) => [r.accountEmail, r.type, fmtUsd(r.amountMicro), r.requestId ?? "—", (r.description ?? "—").slice(0, 80), fmtDate(r.createdAt)])} />
     <h2>Invoices</h2>
-    <Table head={["Number", "Account", "Amount", "Status", "Period", "Paid"]} numeric={[2]} rows={v.invoices.map((i) => [i.number, i.accountEmail, fmtUsd(i.amountMicro), i.status, fmtDate(i.periodStart).slice(0, 10) + " → " + fmtDate(i.periodEnd).slice(0, 10), i.paidAt ? fmtDate(i.paidAt) : "—"])} />
+    <DataTable head={["Number", "Account", "Amount", "Status", "Period", "Paid"]} numeric={[2]} rows={v.invoices.map((i) => [i.number, i.accountEmail, fmtUsd(i.amountMicro), i.status, fmtDate(i.periodStart).slice(0, 10) + " → " + fmtDate(i.periodEnd).slice(0, 10), i.paidAt ? fmtDate(i.paidAt) : "—"])} />
   </>)}</State>);
 }
 
@@ -392,7 +445,7 @@ type Connections = { connections: { id: string; name: string; baseUrl: string; r
 function ConnectionsView() {
   const { d, err } = useLoad<Connections>("/api/admin/connections");
   return (<State err={err} d={d}>{(v: Connections) => (
-    <Table head={["Provider", "Connection", "Base URL", "Region", "Prio", "Enabled", "Health", "Creds ok/total"]} numeric={[4, 7]} rows={v.connections.map((c) => [c.providerName, c.name, c.baseUrl, c.region ?? "—", String(c.priority), String(c.enabled), c.healthStatus, c.credentialHealthy + "/" + c.credentialTotal])} />
+    <DataTable head={["Provider", "Connection", "Base URL", "Region", "Prio", "Enabled", "Health", "Creds ok/total"]} numeric={[4, 7]} rows={v.connections.map((c) => [c.providerName, c.name, c.baseUrl, c.region ?? "—", String(c.priority), String(c.enabled), c.healthStatus, c.credentialHealthy + "/" + c.credentialTotal])} />
   )}</State>);
 }
 
@@ -400,11 +453,11 @@ type Health = { providers: { id: string; name: string; status: string; requests:
 function HealthView() {
   const { d, err } = useLoad<Health>("/api/admin/health");
   return (<State err={err} d={d}>{(v: Health) => (<>
-    <Card titleAs="h2" title="Observed outcomes" desc="Last 24h from the request log — not synthetic probes." />
+    <Card><CardHeader><CardTitle className="text-base font-semibold tracking-tight">Observed outcomes</CardTitle><CardDescription className="text-sm text-muted-foreground">Last 24h from the request log — not synthetic probes.</CardDescription></CardHeader></Card>
     <h2>Providers</h2>
-    <Table head={["Provider", "Status", "Req/OK", "p95 ms", "Error mix"]} numeric={[2, 3, 4]} rows={v.providers.map((p) => [p.name, p.status, p.requests + "/" + p.successes, String(p.p95), p.errorMix.map((e) => e.code + "×" + e.n).join(", ") || "—"])} />
+    <DataTable head={["Provider", "Status", "Req/OK", "p95 ms", "Error mix"]} numeric={[2, 3, 4]} rows={v.providers.map((p) => [p.name, p.status, p.requests + "/" + p.successes, String(p.p95), p.errorMix.map((e) => e.code + "×" + e.n).join(", ") || "—"])} />
     <h2>Connections</h2>
-    <Table head={["Connection", "Health", "Req/OK", "p95 ms", "Creds", "Errors"]} numeric={[2, 3]} rows={v.connections.map((c) => [c.name, c.healthStatus, c.requests + "/" + c.successes, String(c.p95), c.credentialsHealthy + "/" + c.credentialsTotal, c.errorMix.map((e) => e.code + "×" + e.n).join(", ") || "—"])} />
+    <DataTable head={["Connection", "Health", "Req/OK", "p95 ms", "Creds", "Errors"]} numeric={[2, 3]} rows={v.connections.map((c) => [c.name, c.healthStatus, c.requests + "/" + c.successes, String(c.p95), c.credentialsHealthy + "/" + c.credentialsTotal, c.errorMix.map((e) => e.code + "×" + e.n).join(", ") || "—"])} />
   </>)}</State>);
 }
 
@@ -412,10 +465,10 @@ type Incidents = { incidents: { id: string; title: string; component: string; se
 function IncidentsView() {
   const { d, err } = useLoad<Incidents>("/api/admin/incidents");
   return (<State err={err} d={d}>{(v: Incidents) => (<>
-    {v.incidents.map((i) => (<Card key={i.id} title={i.title + " · " + i.severity + " · " + i.status} desc={i.component + " · started " + fmtDate(i.startedAt) + (i.resolvedAt ? " · resolved " + fmtDate(i.resolvedAt) : "")}>
-      <Table head={["At", "Status", "Message"]} rows={i.updates.map((u) => [fmtDate(u.createdAt), u.status, u.message])} />
-    </Card>))}
-    {v.incidents.length === 0 ? <Card desc="No incidents." /> : null}
+    {v.incidents.map((i) => (<Card key={i.id}><CardHeader><CardTitle className="text-base font-semibold tracking-tight">{i.title + " · " + i.severity + " · " + i.status}</CardTitle><CardDescription className="text-sm text-muted-foreground">{i.component + " · started " + fmtDate(i.startedAt) + (i.resolvedAt ? " · resolved " + fmtDate(i.resolvedAt) : "")}</CardDescription></CardHeader><CardContent>
+      <DataTable head={["At", "Status", "Message"]} rows={i.updates.map((u) => [fmtDate(u.createdAt), u.status, u.message])} />
+    </CardContent></Card>))}
+    {v.incidents.length === 0 ? <Card><CardContent>No incidents.</CardContent></Card> : null}
   </>)}</State>);
 }
 
@@ -423,7 +476,7 @@ type Keys = { users: { id: string; email: string }[]; keys: { id: string; name: 
 function KeysView() {
   const { d, err } = useLoad<Keys>("/api/admin/keys");
   return (<State err={err} d={d}>{(v: Keys) => (
-    <Table head={["Name", "Owner", "Prefix", "Status", "Req", "Cost", "RPM", "Last used"]} numeric={[4, 5, 6]} rows={v.keys.map((k) => [k.name, k.email, k.prefix, k.status, String(k.usage.requests), fmtUsd(k.usage.cost), k.rpm === null ? "—" : String(k.rpm), k.lastUsedAt ? fmtDate(k.lastUsedAt) : "—"])} />
+    <DataTable head={["Name", "Owner", "Prefix", "Status", "Req", "Cost", "RPM", "Last used"]} numeric={[4, 5, 6]} rows={v.keys.map((k) => [k.name, k.email, k.prefix, k.status, String(k.usage.requests), fmtUsd(k.usage.cost), k.rpm === null ? "—" : String(k.rpm), k.lastUsedAt ? fmtDate(k.lastUsedAt) : "—"])} />
   )}</State>);
 }
 
@@ -483,48 +536,48 @@ function ModelModal({ model, providers, onClose, onSaved }: { model: ModelRow | 
       .catch((ex) => setErr(ex instanceof Error ? ex.message : "Save failed"))
       .finally(() => setBusy(false));
   };
-  return (<div className="keys-backdrop" onClick={() => close.current()}>
-    <div ref={box} className="keys-dialog" role="dialog" aria-modal="true" aria-label={model ? "Edit model" : "New model"} onClick={(e) => e.stopPropagation()}>
-      <h2 className="keys-dialog-title">{model ? "Edit " + model.slug : "New model"}</h2>
-      <form className="keys-form" onSubmit={submit}>
-        {model ? null : <label className="keys-field"><span>Provider</span>
-          <select className="select" name="providerId" required defaultValue={providers[0]?.id ?? ""}>
+  return (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => close.current()}>
+    <div ref={box} className="grid max-h-[calc(100vh-2rem)] w-full max-w-md gap-4 overflow-y-auto surface p-6" role="dialog" aria-modal="true" aria-label={model ? "Edit model" : "New model"} onClick={(e) => e.stopPropagation()}>
+      <h2 className="my-0 text-lg">{model ? "Edit " + model.slug : "New model"}</h2>
+      <form className="grid gap-4" onSubmit={submit}>
+        {model ? null : <label className="grid gap-1"><span className="eyebrow">Provider</span>
+          <select className={SELECT} name="providerId" required defaultValue={providers[0]?.id ?? ""}>
             {providers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         </label>}
-        <label className="keys-field"><span>Name</span><Input name="name" defaultValue={model?.name ?? ""} required /></label>
-        <label className="keys-field"><span>Slug</span><Input name="slug" defaultValue={model?.slug ?? ""} required /></label>
-        <label className="keys-field"><span>Family</span><Input name="family" defaultValue={model?.family ?? ""} /></label>
-        <label className="keys-field"><span>Developer</span><Input name="developer" defaultValue={model?.developer ?? ""} /></label>
-        <label className="keys-field"><span>Description</span><Input name="description" defaultValue={model?.description ?? ""} /></label>
-        <label className="keys-field"><span>Modality (JSON)</span><Input name="modality" defaultValue={model ? JSON.stringify(model.modality ?? {}) : ""} placeholder='{"input":["text"]}' /></label>
-        <label className="keys-field"><span>Status</span>
-          <select className="select" name="status" defaultValue={model?.status ?? "active"}>
+        <label className="grid gap-1"><span className="eyebrow">Name</span><Input name="name" defaultValue={model?.name ?? ""} required /></label>
+        <label className="grid gap-1"><span className="eyebrow">Slug</span><Input name="slug" defaultValue={model?.slug ?? ""} required /></label>
+        <label className="grid gap-1"><span className="eyebrow">Family</span><Input name="family" defaultValue={model?.family ?? ""} /></label>
+        <label className="grid gap-1"><span className="eyebrow">Developer</span><Input name="developer" defaultValue={model?.developer ?? ""} /></label>
+        <label className="grid gap-1"><span className="eyebrow">Description</span><Input name="description" defaultValue={model?.description ?? ""} /></label>
+        <label className="grid gap-1"><span className="eyebrow">Modality (JSON)</span><Input name="modality" defaultValue={model ? JSON.stringify(model.modality ?? {}) : ""} placeholder='{"input":["text"]}' /></label>
+        <label className="grid gap-1"><span className="eyebrow">Status</span>
+          <select className={SELECT} name="status" defaultValue={model?.status ?? "active"}>
             {MODEL_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </label>
-        <label className="keys-field"><span>Currency</span><Input name="currency" defaultValue={model?.currency ?? "USD"} maxLength={3} /></label>
-        <label className="keys-field"><span>Context</span><Input name="context" type="number" min={1} defaultValue={model?.context ?? ""} /></label>
-        <label className="keys-field"><span>Max output</span><Input name="maxOutput" type="number" min={1} defaultValue={model?.maxOutput ?? ""} /></label>
+        <label className="grid gap-1"><span className="eyebrow">Currency</span><Input name="currency" defaultValue={model?.currency ?? "USD"} maxLength={3} /></label>
+        <label className="grid gap-1"><span className="eyebrow">Context</span><Input name="context" type="number" min={1} defaultValue={model?.context ?? ""} /></label>
+        <label className="grid gap-1"><span className="eyebrow">Max output</span><Input name="maxOutput" type="number" min={1} defaultValue={model?.maxOutput ?? ""} /></label>
         {model ? null : <>
-          <label className="keys-field"><span>Input $/1M</span><Input name="inputUsd" defaultValue="0" required /></label>
-          <label className="keys-field"><span>Output $/1M</span><Input name="outputUsd" defaultValue="0" required /></label>
-          <label className="keys-field"><span>Upstream model id</span><Input name="providerModelId" placeholder="defaults to slug" /></label>
+          <label className="grid gap-1"><span className="eyebrow">Input $/1M</span><Input name="inputUsd" defaultValue="0" required /></label>
+          <label className="grid gap-1"><span className="eyebrow">Output $/1M</span><Input name="outputUsd" defaultValue="0" required /></label>
+          <label className="grid gap-1"><span className="eyebrow">Upstream model id</span><Input name="providerModelId" placeholder="defaults to slug" /></label>
         </>}
-        <fieldset className="keys-field">
-          <span>Capabilities</span>
-          <div className="row" style={{ flexWrap: "wrap" }}>
+        <fieldset className="grid gap-1">
+          <span className="eyebrow">Capabilities</span>
+          <div className="flex flex-wrap items-center gap-2">
             {CAPABILITY_FLAGS.map((c) => (
-              <label key={c} className="ps-check">
+              <label key={c} className="inline-flex items-center gap-2 text-sm text-muted-foreground">
                 <input type="checkbox" checked={!!caps[c]} onChange={(e) => setCaps((m) => ({ ...m, [c]: e.currentTarget.checked }))} />
                 {c.replace(/_/g, " ")}
               </label>
             ))}
           </div>
         </fieldset>
-        {err ? <p className="error" role="alert">{err}</p> : null}
-        <div className="row">
-          <Button type="submit" variant="primary" disabled={busy}>{busy ? "Saving…" : model ? "Save" : "Create"}</Button>
+        {err ? <p className="error-text" role="alert">{err}</p> : null}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="submit" variant="default" disabled={busy}>{busy ? "Saving…" : model ? "Save" : "Create"}</Button>
           <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
         </div>
       </form>
@@ -564,18 +617,18 @@ function PriceCell({ model, field, onApplied }: { model: ModelRow; field: "input
     } catch (e) { setErr(e instanceof Error ? e.message : "Apply failed"); }
     finally { setBusy(false); }
   };
-  if (!editing) return (<button type="button" className="usage-row-btn num" onClick={start} title="Edit price">{fmtUsd(model[field])}</button>);
-  return (<span className="mw-price">
-    <span className="row">
-      <Input aria-label={field} className="num" style={{ width: "6rem" }} value={value} onChange={(e) => setValue(e.currentTarget.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void run(); } }} />
+  if (!editing) return (<button type="button" className="cursor-pointer border-none bg-transparent p-0 text-left font-mono tabular-nums text-inherit [font:inherit] hover:underline" onClick={start} title="Edit price">{fmtUsd(model[field])}</button>);
+  return (<span className="grid min-w-[12rem] justify-items-start gap-1">
+    <span className="flex flex-wrap items-center gap-2">
+      <Input aria-label={field} className="font-mono tabular-nums whitespace-nowrap" w-24 value={value} onChange={(e) => setValue(e.currentTarget.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void run(); } }} />
       <Button size="sm" variant="secondary" disabled={busy || !value.trim()} onClick={() => void run()}>{busy ? "…" : "Preview"}</Button>
       <Button size="sm" variant="ghost" onClick={() => { setEditing(false); setPreview(null); }}>Cancel</Button>
     </span>
-    {preview ? <span className="stack" style={{ gap: "var(--space-xs)" }}>
-      <span className="meta">v{preview.current?.version ?? 0} → v{preview.nextVersion} · in {fmtUsd(preview.proposal.inputPrice)} · out {fmtUsd(preview.proposal.outputPrice)}</span>
-      <Button size="sm" variant="primary" disabled={busy} onClick={() => void apply()}>Apply v{preview.nextVersion}</Button>
+    {preview ? <span className="mt-1 grid gap-1">
+      <span className="text-xs text-muted-foreground">v{preview.current?.version ?? 0} → v{preview.nextVersion} · in {fmtUsd(preview.proposal.inputPrice)} · out {fmtUsd(preview.proposal.outputPrice)}</span>
+      <Button size="sm" variant="default" disabled={busy} onClick={() => void apply()}>Apply v{preview.nextVersion}</Button>
     </span> : null}
-    {err ? <span className="error" role="alert">{err}</span> : null}
+    {err ? <span className="error-text" role="alert">{err}</span> : null}
   </span>);
 }
 function SyncPanel({ onApplied }: { onApplied: () => void }) {
@@ -616,36 +669,36 @@ function SyncPanel({ onApplied }: { onApplied: () => void }) {
     finally { setBusy(false); }
   };
   const toggle = (json: string) => setTicked((s) => { const n = new Set(s); if (n.has(json)) n.delete(json); else n.add(json); return n; });
-  return (<Card title="Catalog sync" desc="Fetch a provider's upstream model list and apply the diff.">
-    {err ? <p className="error" role="alert">{err}</p> : null}
-    <div className="row" style={{ flexWrap: "wrap" }}>
+  return (<Card><CardHeader><CardTitle className="text-base font-semibold tracking-tight">Catalog sync</CardTitle><CardDescription className="text-sm text-muted-foreground">Fetch a provider's upstream model list and apply the diff.</CardDescription></CardHeader><CardContent>
+    {err ? <p className="error-text" role="alert">{err}</p> : null}
+    <div className="flex flex-wrap items-center gap-2">
       {(providers ?? []).map((p) => (
         <Button key={p.id} size="sm" variant="secondary" disabled={busy} onClick={() => void fetchFor(p)}>Fetch {p.name}</Button>
       ))}
-      {providers && providers.length === 0 ? <span className="muted">No providers.</span> : null}
+      {providers && providers.length === 0 ? <span className="text-muted-foreground">No providers.</span> : null}
     </div>
-    {fetched ? <div className="stack" style={{ gap: "var(--space-sm)", marginTop: "var(--space-md)" }}>
-      <p className="meta">{fetched.providerName} · {fetched.latencyMs} ms · upstream {fetched.upstreamCount} · checked {fetched.checkedCount} · +{fetched.additions.length} ~{fetched.changes.length} -{fetched.removals.length}</p>
+    {fetched ? <div className="mt-4 grid gap-2">
+      <p className="text-xs text-muted-foreground">{fetched.providerName} · {fetched.latencyMs} ms · upstream {fetched.upstreamCount} · checked {fetched.checkedCount} · +{fetched.additions.length} ~{fetched.changes.length} -{fetched.removals.length}</p>
       {fetched.additions.map((a) => (
-        <label key={a.json} className="ps-check">
+        <label key={a.json} className="inline-flex items-center gap-2 text-sm text-muted-foreground">
           <input type="checkbox" checked={ticked.has(a.json)} onChange={() => toggle(a.json)} />
-          <span><Badge tone="ok">add</Badge> {a.slug}</span>
+          <span><Badge variant="ok">add</Badge> {a.slug}</span>
         </label>
       ))}
       {fetched.changes.map((c) => (
-        <label key={c.json} className="ps-check">
+        <label key={c.json} className="inline-flex items-center gap-2 text-sm text-muted-foreground">
           <input type="checkbox" checked={ticked.has(c.json)} onChange={() => toggle(c.json)} />
-          <span><Badge tone="warn">change</Badge> {c.slug} — {c.reasons.join("; ")}</span>
+          <span><Badge variant="warn">change</Badge> {c.slug} — {c.reasons.join("; ")}</span>
         </label>
       ))}
       {fetched.removals.map((r) => (
-        <div key={r.id} className="ps-check"><Badge tone="danger">remove</Badge> {r.slug} <span className="muted">(not applied by sync)</span></div>
+        <div key={r.id} className="inline-flex items-center gap-2 text-sm text-muted-foreground"><Badge variant="destructive">remove</Badge> {r.slug} <span className="text-muted-foreground">(not applied by sync)</span></div>
       ))}
-      <div className="row">
-        <Button size="sm" variant="primary" disabled={busy} onClick={() => void apply()}>Apply ticked</Button>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" variant="default" disabled={busy} onClick={() => void apply()}>Apply ticked</Button>
       </div>
     </div> : null}
-  </Card>);
+  </CardContent></Card>);
 }
 type MappingRow = { id: string; modelId: string; providerId: string; connectionId: string | null; providerModelId: string; enabled: boolean; capabilitiesOverride: unknown; contextOverride: number | null; status: string; modelSlug: string; providerName: string; connectionName: string | null };
 type MappingsData = { rows: MappingRow[]; models: { id: string; slug: string; name: string }[]; providers: { id: string; name: string }[]; connections: { id: string; provider_id: string; name: string; region: string | null }[]; statuses: string[] };
@@ -672,23 +725,23 @@ function MappingsPanel() {
     finally { setBusy(null); }
   };
   return (<>
-    <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
-      <h2 className="dash-h">Mappings</h2>
-      <Button size="sm" variant="primary" onClick={() => setEditing("new")}>New mapping</Button>
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <h2 className="my-0 text-lg">Mappings</h2>
+      <Button size="sm" variant="default" onClick={() => setEditing("new")}>New mapping</Button>
     </div>
-    <p className="muted">A mapping binds a catalogue model to one provider&rsquo;s upstream name. Routing only walks enabled mappings whose status is available.</p>
-    {actionErr ? <p className="error" role="alert">{actionErr}</p> : null}
+    <p className="text-muted-foreground">A mapping binds a catalogue model to one provider&rsquo;s upstream name. Routing only walks enabled mappings whose status is available.</p>
+    {actionErr ? <p className="error-text" role="alert">{actionErr}</p> : null}
     <State err={err} d={d}>{(v: MappingsData) => {
       const needle = q.trim().toLowerCase();
       const rows = v.rows.filter((m) => (!provider || m.providerId === provider) && (!needle || m.modelSlug.toLowerCase().includes(needle) || m.providerModelId.toLowerCase().includes(needle) || m.providerName.toLowerCase().includes(needle)));
       return (<>
-        <div className="row" style={{ flexWrap: "wrap", alignItems: "flex-end" }}>
-          <label className="admin-field">
-            <span>Filter</span>
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="grid gap-1">
+            <span className="eyebrow">Filter</span>
             <Input aria-label="Filter mappings" placeholder="slug or upstream" value={q} onChange={(e) => { setQ(e.currentTarget.value); setLimit(60); }} />
           </label>
-          <label className="admin-field">
-            <span>Provider</span>
+          <label className="grid gap-1">
+            <span className="eyebrow">Provider</span>
             <select aria-label="Provider filter" value={provider} onChange={(e) => { setProvider(e.currentTarget.value); setLimit(60); }}>
               <option value="">All providers</option>
               {v.providers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -704,24 +757,24 @@ function MappingsPanel() {
             onCancel={() => setEditing(null)}
           />
         ) : null}
-        {rows.length === 0 ? <Card desc={v.rows.length === 0 ? "No provider mappings. Every catalogue model is unroutable until one exists." : "No mapping matches this filter."} /> : (<>
-          <Table
+        {rows.length === 0 ? <Card><CardContent>{v.rows.length === 0 ? "No provider mappings. Every catalogue model is unroutable until one exists." : "No mapping matches this filter."}</CardContent></Card> : (<>
+          <DataTable
             head={["Model", "Provider", "Connection", "Upstream", "Status", "Enabled", "Actions"]}
             rows={rows.slice(0, limit).map((m) => [
               m.modelSlug,
               m.providerName,
-              m.connectionName ?? <span key="c" className="muted">any</span>,
+              m.connectionName ?? <span key="c" className="text-muted-foreground">any</span>,
               <code key="u">{m.providerModelId}</code>,
-              <Badge key="s" tone={m.status === "available" ? "ok" : m.status === "degraded" ? "warn" : "default"}>{m.status}</Badge>,
+              <Badge key="s" variant={m.status === "available" ? "ok" : m.status === "degraded" ? "warn" : "secondary"}>{m.status}</Badge>,
               m.enabled ? "yes" : "no",
-              <span key="a" className="row">
+              <span key="a" className="flex flex-wrap items-center gap-2">
                 <Button size="sm" variant="secondary" onClick={() => setEditing(m)}>Edit</Button>
                 <Button size="sm" variant="destructive" disabled={busy === m.id} onClick={() => void del(m)}>Delete</Button>
               </span>,
             ])}
           />
-          <p className="meta">{Math.min(rows.length, limit)} of {rows.length} mappings{v.rows.length !== rows.length ? " (filtered from " + v.rows.length + ")" : ""}{rows.length > limit ? " · " : ""}
-            {rows.length > limit ? <button type="button" className="usage-row-btn" onClick={() => setLimit((n) => n + 120)}>Show more</button> : null}
+          <p className="text-xs text-muted-foreground">{Math.min(rows.length, limit)} of {rows.length} mappings{v.rows.length !== rows.length ? " (filtered from " + v.rows.length + ")" : ""}{rows.length > limit ? " · " : ""}
+            {rows.length > limit ? <button type="button" className="cursor-pointer border-none bg-transparent p-0 text-left text-inherit [font:inherit] hover:underline" onClick={() => setLimit((n) => n + 120)}>Show more</button> : null}
           </p>
         </>)}
       </>);
@@ -769,62 +822,62 @@ function MappingEditor({ mapping, data, onSaved, onCancel }: {
       setErr(x instanceof Error ? x.message : String(x));
     } finally { setBusy(false); }
   };
-  return (<Card titleAs="h3" title={mapping ? "Edit mapping: " + mapping.modelSlug + " → " + mapping.providerModelId : "New mapping"}>
-    {err ? <p className="error" role="alert">{err}</p> : null}
-    <form className="stack" onSubmit={submit}>
-      <div className="row" style={{ flexWrap: "wrap", alignItems: "flex-end" }}>
+  return (<Card><CardHeader><CardTitle className="text-lg font-semibold tracking-tight">{mapping ? "Edit mapping: " + mapping.modelSlug + " → " + mapping.providerModelId : "New mapping"}</CardTitle></CardHeader><CardContent>
+    {err ? <p className="error-text" role="alert">{err}</p> : null}
+    <form className="grid gap-4" onSubmit={submit}>
+      <div className="flex flex-wrap items-end gap-2">
         {mapping ? null : (<>
-          <label className="admin-field">
-            <span>Model</span>
+          <label className="grid gap-1">
+            <span className="eyebrow">Model</span>
             <select aria-label="Model" value={modelId} onChange={(e) => setModelId(e.currentTarget.value)}>
               {data.models.map((m) => <option key={m.id} value={m.id}>{m.slug}</option>)}
             </select>
           </label>
-          <label className="admin-field">
-            <span>Provider</span>
+          <label className="grid gap-1">
+            <span className="eyebrow">Provider</span>
             <select aria-label="Provider" value={providerId} onChange={(e) => setProviderId(e.currentTarget.value)}>
               {data.providers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </label>
         </>)}
-        <label className="admin-field">
-          <span>Upstream model id</span>
+        <label className="grid gap-1">
+          <span className="eyebrow">Upstream model id</span>
           <Input aria-label="Upstream model id" name="providerModelId" placeholder="gpt-4o-mini" defaultValue={mapping?.providerModelId ?? ""} required />
         </label>
-        <label className="admin-field">
-          <span>Connection</span>
+        <label className="grid gap-1">
+          <span className="eyebrow">Connection</span>
           <select aria-label="Connection" name="connectionId" defaultValue={mapping?.connectionId ?? ""}>
             <option value="">any connection of this provider</option>
             {conns.map((c) => <option key={c.id} value={c.id}>{c.name}{c.region ? " · " + c.region : ""}</option>)}
           </select>
         </label>
         {mapping ? (
-          <label className="admin-field">
-            <span>Status</span>
+          <label className="grid gap-1">
+            <span className="eyebrow">Status</span>
             <select aria-label="Status" name="status" defaultValue={mapping.status}>
               {data.statuses.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </label>
         ) : null}
-        <label className="admin-field">
-          <span>Context override</span>
+        <label className="grid gap-1">
+          <span className="eyebrow">Context override</span>
           <Input aria-label="Context override" name="contextOverride" type="number" min={1} placeholder="inherit" defaultValue={mapping?.contextOverride == null ? "" : String(mapping.contextOverride)} />
         </label>
-        <div className="admin-field">
-          <span>Options</span>
-          <div className="row" style={{ minHeight: "2.25rem" }}><label className="row"><input type="checkbox" name="enabled" defaultChecked={mapping?.enabled ?? true} /> enabled</label></div>
+        <div className="grid gap-1">
+          <span className="eyebrow">Options</span>
+          <div className="flex flex-wrap items-center gap-2 min-h-9"><label className="flex flex-wrap items-center gap-2"><input type="checkbox" name="enabled" defaultChecked={mapping?.enabled ?? true} /> enabled</label></div>
         </div>
       </div>
       <details>
-        <summary className="muted">Capabilities override (JSON flags, {} = inherit from the model)</summary>
+        <summary className="text-muted-foreground">Capabilities override (JSON flags, {} = inherit from the model)</summary>
         <Input aria-label="Capabilities override" name="capabilitiesOverride" placeholder="{}" defaultValue={mapping && mapping.capabilitiesOverride ? JSON.stringify(mapping.capabilitiesOverride) : ""} />
       </details>
-      <div className="row">
+      <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" type="submit" disabled={busy}>{busy ? "Saving…" : mapping ? "Save mapping" : "Create mapping"}</Button>
         <Button size="sm" variant="ghost" type="button" onClick={onCancel}>Cancel</Button>
       </div>
     </form>
-  </Card>);
+  </CardContent></Card>);
 }
 
 type PricingRule = { id: string; modelId: string; providerModelId: string | null; scope: string; modelSlug: string; version: number; currency: string; inputPriceMicro: string; cachedInputPriceMicro: string | null; outputPriceMicro: string; reasoningPriceMicro: string | null; effectiveFrom: string; effectiveUntil: string | null; createdBy: string | null; createdAt: string; current: boolean };
@@ -845,36 +898,36 @@ function PricingPanel() {
   const path = "/api/admin/models/pricing" + (modelId ? "?model=" + encodeURIComponent(modelId) : "");
   const { d, err } = useLoad<PricingData>(path, tick);
   return (<>
-    <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
-      <h2 className="dash-h">Pricing versions</h2>
-      <Button size="sm" variant="primary" onClick={() => setForm((v) => !v)}>{form ? "Close editor" : "New price version"}</Button>
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <h2 className="my-0 text-lg">Pricing versions</h2>
+      <Button size="sm" variant="default" onClick={() => setForm((v) => !v)}>{form ? "Close editor" : "New price version"}</Button>
     </div>
-    <p className="muted">Append-only. Applying a proposal closes the open rule at now and inserts the next version, so every price a request was billed at stays reconstructible.</p>
+    <p className="text-muted-foreground">Append-only. Applying a proposal closes the open rule at now and inserts the next version, so every price a request was billed at stays reconstructible.</p>
     {form && d ? <PriceEditor data={d} onSaved={() => { setForm(false); setTick((n) => n + 1); }} onCancel={() => setForm(false)} /> : null}
-    <div className="row" style={{ flexWrap: "wrap", alignItems: "flex-end" }}>
-      <label className="admin-field">
-        <span>Model</span>
+    <div className="flex flex-wrap items-end gap-2">
+      <label className="grid gap-1">
+        <span className="eyebrow">Model</span>
         <select aria-label="Pricing model filter" value={modelId} onChange={(e) => { setModelId(e.currentTarget.value); setLimit(60); }}>
           <option value="">All models</option>
           {(d?.models ?? []).map((m) => <option key={m.id} value={m.id}>{m.slug}</option>)}
         </select>
       </label>
-      <label className="admin-field">
-        <span>Filter</span>
+      <label className="grid gap-1">
+        <span className="eyebrow">Filter</span>
         <Input aria-label="Filter pricing" placeholder="model slug" value={q} onChange={(e) => { setQ(e.currentTarget.value); setLimit(60); }} />
       </label>
     </div>
     <State err={err} d={d}>{(v: PricingData) => {
       const needle = q.trim().toLowerCase();
       const rows = v.rules.filter((r) => !needle || r.modelSlug.toLowerCase().includes(needle));
-      if (rows.length === 0) return <Card desc={v.rules.length === 0 ? "No pricing rules. Models without a rule cannot be billed." : "No rule matches this filter."} />;
+      if (rows.length === 0) return <Card><CardContent>{v.rules.length === 0 ? "No pricing rules. Models without a rule cannot be billed." : "No rule matches this filter."}</CardContent></Card>;
       return (<>
-        <Table
+        <DataTable
           head={["Model", "Scope", "Ver", "Currency", "In / 1M", "Cached", "Out / 1M", "Reasoning", "From", "Until", "State"]}
           numeric={[2, 4, 5, 6, 7]}
           rows={rows.slice(0, limit).map((r) => [
             r.modelSlug,
-            r.providerModelId ? <code key="s">{r.scope}</code> : <span key="s" className="muted">model-wide</span>,
+            r.providerModelId ? <code key="s">{r.scope}</code> : <span key="s" className="text-muted-foreground">model-wide</span>,
             "v" + r.version,
             r.currency,
             fmtUsd(r.inputPriceMicro),
@@ -883,11 +936,11 @@ function PricingPanel() {
             r.reasoningPriceMicro === null ? "—" : fmtUsd(r.reasoningPriceMicro),
             fmtDate(r.effectiveFrom),
             r.effectiveUntil ? fmtDate(r.effectiveUntil) : "open",
-            <Badge key="c" tone={r.current ? "ok" : "default"}>{r.current ? "current" : "closed"}</Badge>,
+            <Badge key="c" variant={r.current ? "ok" : "secondary"}>{r.current ? "current" : "closed"}</Badge>,
           ])}
         />
-        <p className="meta">{Math.min(rows.length, limit)} of {rows.length} rules{rows.length > limit ? " · " : ""}
-          {rows.length > limit ? <button type="button" className="usage-row-btn" onClick={() => setLimit((n) => n + 120)}>Show more</button> : null}
+        <p className="text-xs text-muted-foreground">{Math.min(rows.length, limit)} of {rows.length} rules{rows.length > limit ? " · " : ""}
+          {rows.length > limit ? <button type="button" className="cursor-pointer border-none bg-transparent p-0 text-left text-inherit [font:inherit] hover:underline" onClick={() => setLimit((n) => n + 120)}>Show more</button> : null}
         </p>
       </>);
     }}</State>
@@ -929,62 +982,62 @@ function PriceEditor({ data, onSaved, onCancel }: { data: PricingData; onSaved: 
     catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
     finally { setBusy(false); }
   };
-  return (<Card titleAs="h3" title="New price version">
-    {err ? <p className="error" role="alert">{err}</p> : null}
-    <form id="price-editor-form" className="stack" onSubmit={(e) => { e.preventDefault(); void runPreview(); }}>
-      <div className="row" style={{ flexWrap: "wrap", alignItems: "flex-end" }}>
-        <label className="admin-field">
-          <span>Model</span>
+  return (<Card><CardHeader><CardTitle className="text-lg font-semibold tracking-tight">New price version</CardTitle></CardHeader><CardContent>
+    {err ? <p className="error-text" role="alert">{err}</p> : null}
+    <form id="price-editor-form" className="grid gap-4" onSubmit={(e) => { e.preventDefault(); void runPreview(); }}>
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="grid gap-1">
+          <span className="eyebrow">Model</span>
           <select aria-label="Model" value={modelId} onChange={(e) => { setModelId(e.currentTarget.value); setScopeId(""); setPreview(null); }}>
             {data.models.map((m) => <option key={m.id} value={m.id}>{m.slug}</option>)}
           </select>
         </label>
-        <label className="admin-field">
-          <span>Scope</span>
+        <label className="grid gap-1">
+          <span className="eyebrow">Scope</span>
           <select aria-label="Scope" value={scopeId} onChange={(e) => { setScopeId(e.currentTarget.value); setPreview(null); }}>
             <option value="">model-wide (every mapping)</option>
             {scopes.map((m) => <option key={m.id} value={m.id}>{m.upstream}</option>)}
           </select>
         </label>
-        <label className="admin-field">
-          <span>Currency</span>
-          <Input aria-label="Currency" name="currency" defaultValue="USD" style={{ width: "5rem" }} />
+        <label className="grid gap-1">
+          <span className="eyebrow">Currency</span>
+          <Input aria-label="Currency" name="currency" defaultValue="USD" className="w-20" />
         </label>
-        <label className="admin-field">
-          <span>Input / 1M</span>
-          <Input aria-label="Input price" name="inputPrice" className="num" placeholder="0.15" required />
+        <label className="grid gap-1">
+          <span className="eyebrow">Input / 1M</span>
+          <Input aria-label="Input price" name="inputPrice" className="font-mono tabular-nums whitespace-nowrap" placeholder="0.15" required />
         </label>
-        <label className="admin-field">
-          <span>Cached / 1M</span>
-          <Input aria-label="Cached input price" name="cachedInputPrice" className="num" placeholder="blank = none" />
+        <label className="grid gap-1">
+          <span className="eyebrow">Cached / 1M</span>
+          <Input aria-label="Cached input price" name="cachedInputPrice" className="font-mono tabular-nums whitespace-nowrap" placeholder="blank = none" />
         </label>
-        <label className="admin-field">
-          <span>Output / 1M</span>
-          <Input aria-label="Output price" name="outputPrice" className="num" placeholder="0.60" required />
+        <label className="grid gap-1">
+          <span className="eyebrow">Output / 1M</span>
+          <Input aria-label="Output price" name="outputPrice" className="font-mono tabular-nums whitespace-nowrap" placeholder="0.60" required />
         </label>
-        <label className="admin-field">
-          <span>Reasoning / 1M</span>
-          <Input aria-label="Reasoning price" name="reasoningPrice" className="num" placeholder="blank = none" />
+        <label className="grid gap-1">
+          <span className="eyebrow">Reasoning / 1M</span>
+          <Input aria-label="Reasoning price" name="reasoningPrice" className="font-mono tabular-nums whitespace-nowrap" placeholder="blank = none" />
         </label>
-        <label className="admin-field">
-          <span>Effective from</span>
+        <label className="grid gap-1">
+          <span className="eyebrow">Effective from</span>
           <Input aria-label="Effective from" name="effectiveFrom" type="date" defaultValue={new Date().toISOString().slice(0, 10)} />
         </label>
       </div>
-      <div className="row">
+      <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" type="submit" disabled={busy || !modelId}>{busy ? "Previewing…" : "Preview"}</Button>
         <Button size="sm" variant="ghost" type="button" onClick={onCancel}>Cancel</Button>
       </div>
     </form>
-    {preview ? (<div className="stack" style={{ gap: "var(--space-xs)" }}>
-      <p className="muted">
+    {preview ? (<div className="mt-1 grid gap-1">
+      <p className="text-muted-foreground">
         {preview.modelSlug} · v{preview.current?.version ?? 0} → v{preview.nextVersion} ·{" "}
         {preview.current ? <>current {fmtUsd(preview.current.inputPriceMicro)} in / {fmtUsd(preview.current.outputPriceMicro)} out → </> : "no open rule → "}
         {fmtUsd(preview.proposal.inputPrice)} in / {fmtUsd(preview.proposal.outputPrice)} out
       </p>
-      <div className="row"><Button size="sm" variant="primary" disabled={busy} onClick={() => void apply()}>{busy ? "Applying…" : "Apply v" + preview.nextVersion}</Button></div>
+      <div className="flex flex-wrap items-center gap-2"><Button size="sm" variant="default" disabled={busy} onClick={() => void apply()}>{busy ? "Applying…" : "Apply v" + preview.nextVersion}</Button></div>
     </div>) : null}
-  </Card>);
+  </CardContent></Card>);
 }
 
 function ModelsView() {
@@ -1003,45 +1056,45 @@ function ModelsView() {
     const allSel = rows.length > 0 && rows.every((m) => sel.has(m.id));
     const toggle = (id: string) => setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
     return (<>
-      {actionErr ? <p className="error" role="alert">{actionErr}</p> : null}
-      <div className="row" style={{ flexWrap: "wrap" }}>
-        {Object.entries(v.counts).map(([k, n]) => <Card key={k} title={humanKey(k)} desc={String(n)} />)}
+      {actionErr ? <p className="error-text" role="alert">{actionErr}</p> : null}
+      <div className="flex flex-wrap items-center gap-2">
+        {Object.entries(v.counts).map(([k, n]) => <Card key={k}><CardHeader><CardTitle className="text-base font-semibold tracking-tight">{humanKey(k)}</CardTitle><CardDescription className="text-sm text-muted-foreground">{String(n)}</CardDescription></CardHeader></Card>)}
       </div>
       <h2>Per-provider</h2>
-      <Table head={["Provider", "Status", "Total", "Published", "Served"]} numeric={[2, 4]} rows={v.summary.map((s) => [s.name, s.status, String(s.total), String(s.published), String(s.served)])} />
+      <DataTable head={["Provider", "Status", "Total", "Published", "Served"]} numeric={[2, 4]} rows={v.summary.map((s) => [s.name, s.status, String(s.total), String(s.published), String(s.served)])} />
       <SyncPanel onApplied={() => setTick((n) => n + 1)} />
-      <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h2>Models</h2>
-        <Button size="sm" variant="primary" onClick={() => setModal({ model: null })}>New model</Button>
+        <Button size="sm" variant="default" onClick={() => setModal({ model: null })}>New model</Button>
       </div>
-      <form className="row" onSubmit={(e) => e.preventDefault()} style={{ flexWrap: "wrap" }}>
+      <form className="flex flex-wrap items-center gap-2" onSubmit={(e) => e.preventDefault()}>
         <Input aria-label="model filter" placeholder="filter by slug, name or provider" value={q} onChange={(e) => setQ(e.currentTarget.value)} />
-        <select className="select" aria-label="status filter" style={{ width: "auto" }} value={status} onChange={(e) => setStatus(e.currentTarget.value)}>
+        <select className={SELECT} aria-label="status filter" value={status} onChange={(e) => setStatus(e.currentTarget.value)}>
           <option value="">All statuses</option>
           {MODEL_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
       </form>
-      {sel.size > 0 ? <form className="row" onSubmit={(e) => { e.preventDefault(); if (!window.confirm(`Set status to ${bulkStatus} on ${sel.size} model(s)?`)) return; void run(async () => { await postJSON("/api/admin/models/bulk", { ids: [...sel], status: bulkStatus }); setSel(new Set()); }); }} style={{ flexWrap: "wrap" }}>
-        <span className="meta">{sel.size} selected</span>
-        <select className="select" aria-label="bulk status" style={{ width: "auto" }} value={bulkStatus} onChange={(e) => setBulkStatus(e.currentTarget.value)}>
+      {sel.size > 0 ? <form className="flex flex-wrap items-center gap-2" onSubmit={(e) => { e.preventDefault(); if (!window.confirm(`Set status to ${bulkStatus} on ${sel.size} model(s)?`)) return; void run(async () => { await postJSON("/api/admin/models/bulk", { ids: [...sel], status: bulkStatus }); setSel(new Set()); }); }}>
+        <span className="text-xs text-muted-foreground">{sel.size} selected</span>
+        <select className={SELECT} aria-label="bulk status" value={bulkStatus} onChange={(e) => setBulkStatus(e.currentTarget.value)}>
           {MODEL_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
-        <Button size="sm" variant="primary" type="submit">Apply status</Button>
+        <Button size="sm" variant="default" type="submit">Apply status</Button>
         <Button size="sm" variant="ghost" type="button" onClick={() => setSel(new Set())}>Clear</Button>
       </form> : null}
-      <Table head={["", "Slug", "Provider", "Status", "Served", "In / 1M", "Out / 1M", "Mappings", "Actions"]} numeric={[4, 5, 6, 7]} rows={rows.map((m) => [
-        <input key={m.id} type="checkbox" className="mw-check" aria-label={"select " + m.slug} checked={sel.has(m.id)} onChange={() => toggle(m.id)} />,
-        <span key="s" className="keys-name">{m.slug}{m.name !== m.slug ? <span className="muted"> · {m.name}</span> : null}</span>,
+      <DataTable head={["", "Slug", "Provider", "Status", "Served", "In / 1M", "Out / 1M", "Mappings", "Actions"]} numeric={[4, 5, 6, 7]} rows={rows.map((m) => [
+        <input key={m.id} type="checkbox" className="w-10" aria-label={"select " + m.slug} checked={sel.has(m.id)} onChange={() => toggle(m.id)} />,
+        <span key="s" className="inline-flex items-center gap-2">{m.slug}{m.name !== m.slug ? <span className="text-muted-foreground"> · {m.name}</span> : null}</span>,
         m.providerName, m.status, String(m.served),
         <PriceCell key="i" model={m} field="inputPriceMicro" onApplied={() => setTick((n) => n + 1)} />,
         <PriceCell key="o" model={m} field="outputPriceMicro" onApplied={() => setTick((n) => n + 1)} />,
         String(m.mappingCount),
-        <span key="a" className="row">
+        <span key="a" className="flex flex-wrap items-center gap-2">
           <Button size="sm" variant="secondary" onClick={() => setModal({ model: m })}>Edit</Button>
           <Button size="sm" variant="destructive" onClick={() => { if (window.confirm(`Delete model ${m.slug}? Models with request history cannot be deleted.`)) void run(() => postJSON("/api/admin/models/delete", { id: m.id })); }}>Delete</Button>
         </span>,
       ])} />
-      <p className="meta">{rows.length} of {v.models.length} models · <button type="button" className="usage-row-btn" onClick={() => setSel(allSel ? new Set() : new Set(rows.map((m) => m.id)))}>{allSel ? "Clear selection" : "Select all (filtered)"}</button></p>
+      <p className="text-xs text-muted-foreground">{rows.length} of {v.models.length} models · <button type="button" className="cursor-pointer border-none bg-transparent p-0 text-left text-inherit [font:inherit] hover:underline" onClick={() => setSel(allSel ? new Set() : new Set(rows.map((m) => m.id)))}>{allSel ? "Clear selection" : "Select all (filtered)"}</button></p>
       {modal ? <ModelModal model={modal.model} providers={v.providers} onClose={() => setModal(null)} onSaved={() => setTick((n) => n + 1)} /> : null}
       <MappingsPanel />
       <PricingPanel />
@@ -1089,31 +1142,31 @@ function ProviderModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
       .catch((ex) => setErr(ex instanceof Error ? ex.message : "Create failed"))
       .finally(() => setBusy(false));
   };
-  return (<div className="keys-backdrop" onClick={() => close.current()}>
-    <div ref={box} className="keys-dialog" role="dialog" aria-modal="true" aria-label="New provider" onClick={(e) => e.stopPropagation()}>
-      <h2 className="keys-dialog-title">New provider</h2>
-      <form className="keys-form" onSubmit={submit}>
-        <label className="keys-field"><span>Name</span><Input name="name" required /></label>
-        <label className="keys-field"><span>Slug</span><Input name="slug" required /></label>
-        <label className="keys-field"><span>Description</span><Input name="description" /></label>
-        <label className="keys-field"><span>Type</span><Input name="type" placeholder="e.g. openai-compatible" /></label>
-        <label className="keys-field"><span>Status</span>
-          <select className="select" name="status" defaultValue="operational">
+  return (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => close.current()}>
+    <div ref={box} className="grid max-h-[calc(100vh-2rem)] w-full max-w-md gap-4 overflow-y-auto surface p-6" role="dialog" aria-modal="true" aria-label="New provider" onClick={(e) => e.stopPropagation()}>
+      <h2 className="my-0 text-lg">New provider</h2>
+      <form className="grid gap-4" onSubmit={submit}>
+        <label className="grid gap-1"><span className="eyebrow">Name</span><Input name="name" required /></label>
+        <label className="grid gap-1"><span className="eyebrow">Slug</span><Input name="slug" required /></label>
+        <label className="grid gap-1"><span className="eyebrow">Description</span><Input name="description" /></label>
+        <label className="grid gap-1"><span className="eyebrow">Type</span><Input name="type" placeholder="e.g. openai-compatible" /></label>
+        <label className="grid gap-1"><span className="eyebrow">Status</span>
+          <select className={SELECT} name="status" defaultValue="operational">
             {PROVIDER_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </label>
-        <label className="keys-field"><span>Tier</span>
-          <select className="select" name="tier" defaultValue="commercial">
+        <label className="grid gap-1"><span className="eyebrow">Tier</span>
+          <select className={SELECT} name="tier" defaultValue="commercial">
             {PROVIDER_TIERS.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
         </label>
-        <label className="keys-field"><span>Priority</span><Input name="priority" type="number" defaultValue="100" required /></label>
-        <label className="keys-field"><span>Homepage</span><Input name="homepage" placeholder="https://…" /></label>
-        <label className="keys-field"><span>Documentation URL</span><Input name="documentationUrl" placeholder="https://…" /></label>
-        <label className="ps-check"><input type="checkbox" name="enabled" defaultChecked /> Enabled</label>
-        {err ? <p className="error" role="alert">{err}</p> : null}
-        <div className="row">
-          <Button type="submit" variant="primary" disabled={busy}>{busy ? "Creating…" : "Create"}</Button>
+        <label className="grid gap-1"><span className="eyebrow">Priority</span><Input name="priority" type="number" defaultValue="100" required /></label>
+        <label className="grid gap-1"><span className="eyebrow">Homepage</span><Input name="homepage" placeholder="https://…" /></label>
+        <label className="grid gap-1"><span className="eyebrow">Documentation URL</span><Input name="documentationUrl" placeholder="https://…" /></label>
+        <label className="inline-flex items-center gap-2 text-sm text-muted-foreground"><input type="checkbox" name="enabled" defaultChecked /> Enabled</label>
+        {err ? <p className="error-text" role="alert">{err}</p> : null}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="submit" variant="default" disabled={busy}>{busy ? "Creating…" : "Create"}</Button>
           <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
         </div>
       </form>
@@ -1133,26 +1186,26 @@ function ProvidersView() {
     const needle = q.trim().toLowerCase();
     const rows = v.providers.filter((p) => (!status || p.status === status) && (!needle || p.name.toLowerCase().includes(needle) || (p.slug ?? "").toLowerCase().includes(needle)));
     return (<>
-      {actionErr ? <p className="error" role="alert">{actionErr}</p> : null}
-      <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
+      {actionErr ? <p className="error-text" role="alert">{actionErr}</p> : null}
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h2>Providers</h2>
-        <Button size="sm" variant="primary" onClick={() => setModal(true)}>New provider</Button>
+        <Button size="sm" variant="default" onClick={() => setModal(true)}>New provider</Button>
       </div>
-      <form className="row" onSubmit={(e) => e.preventDefault()} style={{ flexWrap: "wrap" }}>
+      <form className="flex flex-wrap items-center gap-2" onSubmit={(e) => e.preventDefault()}>
         <Input aria-label="provider filter" placeholder="filter by name or slug" value={q} onChange={(e) => setQ(e.currentTarget.value)} />
-        <select className="select" aria-label="status filter" style={{ width: "auto" }} value={status} onChange={(e) => setStatus(e.currentTarget.value)}>
+        <select className={SELECT} aria-label="status filter" value={status} onChange={(e) => setStatus(e.currentTarget.value)}>
           <option value="">All statuses</option>
           {/* Legacy rows can carry a status outside the declared vocabulary
               (the test DB has "active"), so the options are the union: an
               observed status must stay selectable or its rows vanish. */}
           {PROVIDER_STATUSES.concat(v.providers.map((p) => p.status)).filter((s, i, all) => all.indexOf(s) === i).map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
-        <span className="muted">Showing {rows.length} of {v.providers.length} providers</span>
+        <span className="text-muted-foreground">Showing {rows.length} of {v.providers.length} providers</span>
       </form>
-      <Table head={["Provider", "Slug", "Status", "Tier", "Prio", "Models", "Conns", "Creds ok/total/bad", "Actions"]} numeric={[4, 5, 6, 7]} rows={rows.map((p) => [
-        <button key="n" type="button" className="usage-row-btn" onClick={() => setOpen(p)} aria-label={"Open details for provider " + p.name}>{p.name}</button>,
+      <DataTable head={["Provider", "Slug", "Status", "Tier", "Prio", "Models", "Conns", "Creds ok/total/bad", "Actions"]} numeric={[4, 5, 6, 7]} rows={rows.map((p) => [
+        <button key="n" type="button" className="cursor-pointer border-none bg-transparent p-0 text-left text-inherit [font:inherit] hover:underline" onClick={() => setOpen(p)} aria-label={"Open details for provider " + p.name}>{p.name}</button>,
         p.slug ?? "—", p.status, p.tier, String(p.priority), String(p.modelCount), String(p.connectionCount), p.credentials.healthy + "/" + p.credentials.total + "/" + p.credentials.bad,
-        <span key="a" className="row">
+        <span key="a" className="flex flex-wrap items-center gap-2">
           {/* `disable`/`enable` are MODEL-level endpoints (disable 400s without
               a slug list; enable publishes model payloads), so the provider's
               own `enabled` flag is only writable through `update` — and update
@@ -1178,7 +1231,7 @@ type ProviderCredentials = { provider: { id: string; name: string }; connections
 // Raw `select *` rows: Postgres column names, not the camelCase the
 // drizzle-typed endpoints return.
 type Breakers = { breakers: { id: string; target: string; target_id: string; failure_threshold: number; window_seconds: number; open_ms: number; half_open_probes: number; enabled: boolean; state: string }[] };
-const CRED_TONE: Record<string, "ok" | "warn" | "danger" | "default"> = { healthy: "ok", rate_limited: "warn", cooldown: "warn", auth_failed: "danger", invalid: "danger", disabled: "default", unknown: "default" };
+const CRED_TONE: Record<string, "ok" | "warn" | "destructive" | "default"> = { healthy: "ok", rate_limited: "warn", cooldown: "warn", auth_failed: "destructive", invalid: "destructive", disabled: "default", unknown: "default" };
 function ProviderDetail({ provider, tick, onClose, onChanged }: { provider: ProviderRow; tick: number; onClose: () => void; onChanged: () => void }) {
   const [actionErr, setActionErr] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -1205,21 +1258,21 @@ function ProviderDetail({ provider, tick, onClose, onChanged }: { provider: Prov
   // Returns false when the server rejected the action, so callers can keep the
   // operator's typed secret in place instead of clearing it on a failure.
   const run = async (fn: () => Promise<unknown>) => { setActionErr(null); setBusy(true); try { await fn(); onChanged(); return true; } catch (e) { setActionErr(e instanceof Error ? e.message : String(e)); return false; } finally { setBusy(false); } };
-  return (<div className="usage-drawer-backdrop" onClick={onClose}>
-    <div ref={box} className="usage-drawer usage-drawer--wide" role="dialog" aria-modal="true" aria-label={"Provider " + provider.name} onClick={(e) => e.stopPropagation()}>
-      <div className="row usage-drawer-head">
-        <h3>{provider.name}</h3>
+  return (<div className="fixed inset-0 z-50 flex justify-end bg-black/50" onClick={onClose}>
+    <div ref={box} className="grid h-full w-full max-w-[48rem] content-start gap-2 overflow-y-auto border-l border-border bg-[var(--card)] p-6" role="dialog" aria-modal="true" aria-label={"Provider " + provider.name} onClick={(e) => e.stopPropagation()}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-lg">{provider.name}</h3>
         <Button size="sm" variant="ghost" onClick={onClose}>Close</Button>
       </div>
-      {actionErr ? <p className="error" role="alert">{actionErr}</p> : null}
-      {notice ? <p className="ps-ok" role="status">{notice}</p> : null}
+      {actionErr ? <p className="error-text" role="alert">{actionErr}</p> : null}
+      {notice ? <p className="my-0 text-sm text-[var(--chart-1)]" role="status">{notice}</p> : null}
       <State err={detail.err} d={detail.d}>{(v: ProviderDetailData) => (<>
-        <h4>Provider</h4>
-        <dl className="usage-drawer-grid">
+        <h4 className="text-base">Provider</h4>
+        <dl className="m-0 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm">
           <dt>Slug</dt><dd>{v.provider.slug ?? "—"}</dd>
           <dt>Status</dt><dd>{v.provider.status}</dd>
           <dt>Tier</dt><dd>{v.provider.tier}</dd>
-          <dt>Priority</dt><dd className="num">{v.provider.priority}</dd>
+          <dt>Priority</dt><dd className="font-mono tabular-nums whitespace-nowrap">{v.provider.priority}</dd>
           <dt>Enabled</dt><dd>{v.provider.enabled ? "yes" : "no"}</dd>
           <dt>Type</dt><dd>{v.provider.type ?? "—"}</dd>
           <dt>Base URL</dt><dd>{v.provider.baseUrl ?? "—"}</dd>
@@ -1227,15 +1280,15 @@ function ProviderDetail({ provider, tick, onClose, onChanged }: { provider: Prov
           <dt>Docs</dt><dd>{v.provider.documentationUrl ?? "—"}</dd>
           <dt>Created</dt><dd>{fmtDate(v.provider.createdAt)}</dd>
         </dl>
-        {v.provider.description ? <p className="muted">{v.provider.description}</p> : null}
+        {v.provider.description ? <p className="text-muted-foreground">{v.provider.description}</p> : null}
       </>)}</State>
-      <h4>Connections</h4>
+      <h4 className="text-base">Connections</h4>
       <State err={conns.err} d={conns.d}>{(v: ProviderConnections) => (
-        v.connections.length === 0 ? <p className="muted">No connections.</p> : (
-          <Table head={["Connection", "Base URL", "Region", "Prio", "Enabled", "Health", "Creds ok/total"]} numeric={[3, 6]} rows={v.connections.map((c) => [c.name, c.baseUrl, c.region ?? "—", String(c.priority), String(c.enabled), c.healthStatus, c.credentialHealthy + "/" + c.credentialCount])} />
+        v.connections.length === 0 ? <p className="text-muted-foreground">No connections.</p> : (
+          <DataTable head={["Connection", "Base URL", "Region", "Prio", "Enabled", "Health", "Creds ok/total"]} numeric={[3, 6]} rows={v.connections.map((c) => [c.name, c.baseUrl, c.region ?? "—", String(c.priority), String(c.enabled), c.healthStatus, c.credentialHealthy + "/" + c.credentialCount])} />
         )
       )}</State>
-      <h4>Credentials</h4>
+      <h4 className="text-base">Credentials</h4>
       <State err={creds.err} d={creds.d}>{(v: ProviderCredentials) => {
         // testCredential probes the FIRST connection's pool by POSITION
         // (admin.mjs: it picks that connection ordered by priority,id and
@@ -1247,19 +1300,19 @@ function ProviderDetail({ provider, tick, onClose, onChanged }: { provider: Prov
         const probeConn = [...(conns.d?.connections ?? [])].sort(byPriorityId)[0]?.id ?? "";
         const probePool = v.credentials.filter((c) => c.connectionId === probeConn).sort(byPriorityId);
         return (<>
-        {v.credentials.length === 0 ? <p className="muted">No credentials.</p> : (
-          <Table head={["Name", "Key", "Status", "Last success", "Cooldown", "Prio", "Actions"]} numeric={[5]} rows={v.credentials.map((c) => {
+        {v.credentials.length === 0 ? <p className="text-muted-foreground">No credentials.</p> : (
+          <DataTable head={["Name", "Key", "Status", "Last success", "Cooldown", "Prio", "Actions"]} numeric={[5]} rows={v.credentials.map((c) => {
             const index = probePool.findIndex((x) => x.id === c.id);
             return [
-              <span key="n" className="keys-name">{c.name}</span>,
+              <span key="n" className="inline-flex items-center gap-2">{c.name}</span>,
               // The endpoints never return key material — only the name and
               // status — so the mask is the whole display, not a redaction.
-              <code key="k" className="keys-prefix">••••••••••••</code>,
-              <Badge key="s" tone={CRED_TONE[c.status] ?? "default"}>{c.status}</Badge>,
+              <code key="k" className="font-mono text-sm">••••••••••••</code>,
+              <Badge key="s" variant={CRED_TONE[c.status] ?? "default"}>{c.status}</Badge>,
               <span key="v">{c.lastSuccessAt ? fmtDate(c.lastSuccessAt) : c.lastUsedAt ? "used " + fmtDate(c.lastUsedAt) : "—"}</span>,
               <span key="q">{c.cooldownUntil && new Date(c.cooldownUntil).getTime() > Date.now() ? "until " + fmtDate(c.cooldownUntil) : "—"}</span>,
-              <span key="p" className="num">{c.priority}</span>,
-              <span key="a" className="row">
+              <span key="p" className="font-mono tabular-nums whitespace-nowrap">{c.priority}</span>,
+              <span key="a" className="flex flex-wrap items-center gap-2">
                 <Button size="sm" variant="secondary" disabled={busy || index < 0} title={index < 0 ? "Validation probes the first connection's pool only" : undefined} onClick={() => void (async () => {
                   setActionErr(null); setNotice(null); setBusy(true);
                   try {
@@ -1276,7 +1329,7 @@ function ProviderDetail({ provider, tick, onClose, onChanged }: { provider: Prov
             ];
           })} />
         )}
-        <form className="keys-form" onSubmit={(e) => {
+        <form className="grid gap-4" onSubmit={(e) => {
           e.preventDefault();
           const form = e.currentTarget;
           const f = new FormData(form);
@@ -1291,26 +1344,26 @@ function ProviderDetail({ provider, tick, onClose, onChanged }: { provider: Prov
             weight: String(f.get("weight") ?? ""),
           })).then((ok) => { if (ok) form.reset(); });
         }}>
-          <h4>Add credential</h4>
-          <label className="keys-field"><span>Connection</span>
-            <select className="select" name="connectionId" required defaultValue={v.connections[0]?.id ?? ""}>
+          <h4 className="text-base">Add credential</h4>
+          <label className="grid gap-1"><span className="eyebrow">Connection</span>
+            <select className={SELECT} name="connectionId" required defaultValue={v.connections[0]?.id ?? ""}>
               {v.connections.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </label>
-          <label className="keys-field"><span>Name</span><Input name="name" required /></label>
-          <label className="keys-field"><span>Secret</span><Input name="secret" type="password" autoComplete="off" required /></label>
-          <label className="keys-field"><span>Priority</span><Input name="priority" type="number" defaultValue="100" required /></label>
-          <label className="keys-field"><span>Weight</span><Input name="weight" type="number" defaultValue="100" required /></label>
-          <Button type="submit" variant="primary" size="sm" disabled={busy || v.connections.length === 0}>Add credential</Button>
-          {v.connections.length === 0 ? <span className="muted">A connection is required before a credential can be added.</span> : null}
+          <label className="grid gap-1"><span className="eyebrow">Name</span><Input name="name" required /></label>
+          <label className="grid gap-1"><span className="eyebrow">Secret</span><Input name="secret" type="password" autoComplete="off" required /></label>
+          <label className="grid gap-1"><span className="eyebrow">Priority</span><Input name="priority" type="number" defaultValue="100" required /></label>
+          <label className="grid gap-1"><span className="eyebrow">Weight</span><Input name="weight" type="number" defaultValue="100" required /></label>
+          <Button type="submit" variant="default" size="sm" disabled={busy || v.connections.length === 0}>Add credential</Button>
+          {v.connections.length === 0 ? <span className="text-muted-foreground">A connection is required before a credential can be added.</span> : null}
         </form>
         </>);
       }}</State>
-      {rotating ? (<div className="keys-form">
-        <h4>Rotate {rotating.name}</h4>
-        <label className="keys-field"><span>New secret</span><Input type="password" autoComplete="off" value={newSecret} onChange={(e) => setNewSecret(e.currentTarget.value)} /></label>
-        <div className="row">
-          <Button size="sm" variant="primary" disabled={busy || !newSecret.trim()} onClick={() => {
+      {rotating ? (<div className="grid gap-4">
+        <h4 className="text-base">Rotate {rotating.name}</h4>
+        <label className="grid gap-1"><span className="eyebrow">New secret</span><Input type="password" autoComplete="off" value={newSecret} onChange={(e) => setNewSecret(e.currentTarget.value)} /></label>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button size="sm" variant="default" disabled={busy || !newSecret.trim()} onClick={() => {
             if (!window.confirm(`Rotate credential ${rotating.name}? The current secret stops working immediately.`)) return;
             // `secretOnce` in the response is dropped on purpose (see create).
             void run(() => postJSON("/api/admin/providers/credentials/rotate", { id: rotating.id, secret: newSecret, confirm: "on" })).then((ok) => { if (ok) { setRotating(null); setNewSecret(""); } });
@@ -1318,23 +1371,23 @@ function ProviderDetail({ provider, tick, onClose, onChanged }: { provider: Prov
           <Button size="sm" variant="ghost" onClick={() => setRotating(null)}>Cancel</Button>
         </div>
       </div>) : null}
-      <h4>Circuit breakers</h4>
+      <h4 className="text-base">Circuit breakers</h4>
       <State err={breakers.err} d={breakers.d}>{(v: Breakers) => {
         const rows = v.breakers.filter((x) => x.target === "provider" && x.target_id === provider.id);
-        return rows.length === 0 ? <p className="muted">No breaker configured for this provider.</p> : (
-          <Table head={["State", "Failures", "Window s", "Open ms", "Half-open probes", "Enabled"]} numeric={[1, 2, 3, 4]} rows={rows.map((b) => [b.state, String(b.failure_threshold), String(b.window_seconds), String(b.open_ms), String(b.half_open_probes), String(b.enabled)])} />
+        return rows.length === 0 ? <p className="text-muted-foreground">No breaker configured for this provider.</p> : (
+          <DataTable head={["State", "Failures", "Window s", "Open ms", "Half-open probes", "Enabled"]} numeric={[1, 2, 3, 4]} rows={rows.map((b) => [b.state, String(b.failure_threshold), String(b.window_seconds), String(b.open_ms), String(b.half_open_probes), String(b.enabled)])} />
         );
       }}</State>
-      <h4>Observed outcomes (24h)</h4>
+      <h4 className="text-base">Observed outcomes (24h)</h4>
       <State err={health.err} d={health.d}>{(v: Health) => {
         const p = v.providers.find((x) => x.id === provider.id);
-        if (!p) return <p className="muted">No requests logged for this provider in the last 24h.</p>;
+        if (!p) return <p className="text-muted-foreground">No requests logged for this provider in the last 24h.</p>;
         return (<>
-          <Table head={["Requests / successes", "p95 ms", "Error mix"]} numeric={[0, 1, 2]} rows={[[p.requests + " / " + p.successes, String(p.p95), p.errorMix.map((e) => e.code + "×" + e.n).join(", ") || "—"]]} />
+          <DataTable head={["Requests / successes", "p95 ms", "Error mix"]} numeric={[0, 1, 2]} rows={[[p.requests + " / " + p.successes, String(p.p95), p.errorMix.map((e) => e.code + "×" + e.n).join(", ") || "—"]]} />
           {/* The health endpoint aggregates the 24h window per provider and
               carries no hourly series, so a per-hour chart would be drawn from
               invented points. The aggregates are the honest surface. */}
-          <p className="muted">Hourly latency and error series are not available — the health endpoint reports 24h aggregates only.</p>
+          <p className="text-muted-foreground">Hourly latency and error series are not available — the health endpoint reports 24h aggregates only.</p>
         </>);
       }}</State>
     </div>
@@ -1347,12 +1400,12 @@ function RequestsView() {
   const qs = [status ? "status=" + encodeURIComponent(status) : "", model ? "model=" + encodeURIComponent(model) : ""].filter(Boolean).join("&");
   const { d, err } = useLoad<Requests>("/api/admin/requests" + (qs ? "?" + qs : ""));
   return (<>
-    <form className="row" onSubmit={(e) => e.preventDefault()}>
+    <form className="flex flex-wrap items-center gap-2" onSubmit={(e) => e.preventDefault()}>
       <Input aria-label="status filter" placeholder="status filter" value={status} onChange={(e) => setStatus(e.currentTarget.value)} />
       <Input aria-label="model filter" placeholder="model filter" value={model} onChange={(e) => setModel(e.currentTarget.value)} />
     </form>
     <State err={err} d={d}>{(v: Requests) => (
-      <Table head={["ID", "At", "User", "Model", "Provider", "Status", "Latency", "Tokens", "Cost"]} numeric={[6, 7, 8]} rows={v.rows.map((r) => [r.id.slice(0, 12) + "…", fmtDate(r.createdAt), r.email ?? "—", r.modelSlug ?? r.requestedModel ?? "—", r.providerName ?? "—", r.errorCode ? r.status + ":" + r.errorCode : r.status, String(r.latencyMs), (r.tokensIn + r.tokensOut).toString(), fmtUsd(r.cost)])} />
+      <DataTable head={["ID", "At", "User", "Model", "Provider", "Status", "Latency", "Tokens", "Cost"]} numeric={[6, 7, 8]} rows={v.rows.map((r) => [r.id.slice(0, 12) + "…", fmtDate(r.createdAt), r.email ?? "—", r.modelSlug ?? r.requestedModel ?? "—", r.providerName ?? "—", r.errorCode ? r.status + ":" + r.errorCode : r.status, String(r.latencyMs), (r.tokensIn + r.tokensOut).toString(), fmtUsd(r.cost)])} />
     )}</State>
   </>);
 }
@@ -1412,71 +1465,71 @@ function PolicyEditor({ policy, strategies, accounts, onSaved, onCancel }: {
       setErr(x instanceof Error ? x.message : String(x));
     } finally { setBusy(false); }
   };
-  return (<Card titleAs="h2" title={policy ? "Edit policy: " + policy.name : "New policy"}>
-    {err ? <p className="error" role="alert">{err}</p> : null}
-    <form className="stack" onSubmit={submit}>
+  return (<Card><CardHeader><CardTitle className="text-lg font-semibold tracking-tight">{policy ? "Edit policy: " + policy.name : "New policy"}</CardTitle></CardHeader><CardContent>
+    {err ? <p className="error-text" role="alert">{err}</p> : null}
+    <form className="grid gap-4" onSubmit={submit}>
       {/* Every control carries a visible label. A row of bare inputs read as
           "6" and "30000" with no unit, and the two selects looked like static
           text with a chevron. */}
-      <div className="row" style={{ flexWrap: "wrap", alignItems: "flex-end" }}>
-        <label className="admin-field">
-          <span className="muted">Name</span>
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="grid gap-1">
+          <span className="text-muted-foreground">Name</span>
           <Input aria-label="Policy name" name="name" placeholder="e.g. cheap-first" defaultValue={policy?.name ?? ""} required />
         </label>
-        <label className="admin-field">
-          <span className="muted">Scope</span>
+        <label className="grid gap-1">
+          <span className="text-muted-foreground">Scope</span>
           <select aria-label="Scope" value={scope} onChange={(e) => setScope(e.currentTarget.value)}>
             <option value="platform">platform (everyone)</option>
             <option value="account">account (one user)</option>
           </select>
         </label>
         {scope === "account" ? (
-          <label className="admin-field">
-            <span className="muted">Account</span>
+          <label className="grid gap-1">
+            <span className="text-muted-foreground">Account</span>
             <select aria-label="Account" name="scopeId" defaultValue={policy?.account_id ?? ""} required>
               <option value="">pick an account…</option>
               {accounts.map((a) => <option key={a.id} value={a.id}>{a.email}</option>)}
             </select>
           </label>
         ) : null}
-        <label className="admin-field">
-          <span className="muted">Strategy</span>
+        <label className="grid gap-1">
+          <span className="text-muted-foreground">Strategy</span>
           <select aria-label="Strategy" name="strategy" value={strategy} onChange={(e) => setStrategy(e.currentTarget.value)}>
             {strategies.map((s) => <option key={s.key} value={s.key} title={s.uses}>{s.key}</option>)}
           </select>
         </label>
-        <label className="admin-field">
-          <span className="muted">Max attempts</span>
+        <label className="grid gap-1">
+          <span className="text-muted-foreground">Max attempts</span>
           <Input aria-label="Max attempts" name="maxAttempts" type="number" min={1} max={10} defaultValue={String(policy?.max_attempts ?? 6)} />
         </label>
-        <label className="admin-field">
-          <span className="muted">Timeout (ms)</span>
+        <label className="grid gap-1">
+          <span className="text-muted-foreground">Timeout (ms)</span>
           <Input aria-label="Request timeout ms" name="requestTimeoutMs" type="number" min={1} max={600000} defaultValue={String(policy?.request_timeout_ms ?? 30000)} />
         </label>
-        <div className="admin-field">
-          <span>Options</span>
-          <div className="row" style={{ minHeight: "2.25rem" }}>
-            <label className="row"><input type="checkbox" name="fallbackEnabled" defaultChecked={policy?.fallback_enabled ?? true} /> fallback</label>
-            <label className="row"><input type="checkbox" name="enabled" defaultChecked={policy?.enabled ?? true} /> enabled</label>
+        <div className="grid gap-1">
+          <span className="eyebrow">Options</span>
+          <div className="flex flex-wrap items-center gap-2 min-h-9">
+            <label className="flex flex-wrap items-center gap-2"><input type="checkbox" name="fallbackEnabled" defaultChecked={policy?.fallback_enabled ?? true} /> fallback</label>
+            <label className="flex flex-wrap items-center gap-2"><input type="checkbox" name="enabled" defaultChecked={policy?.enabled ?? true} /> enabled</label>
           </div>
         </div>
       </div>
-      <p className="muted">{strategies.find((s) => s.key === strategy)?.uses}</p>
+      <p className="text-muted-foreground">{strategies.find((s) => s.key === strategy)?.uses}</p>
       <details>
-        <summary className="muted">Advanced (JSON: provider/model preferences, constraints, weights)</summary>
-        <div className="row" style={{ flexWrap: "wrap" }}>
+        <summary className="text-muted-foreground">Advanced (JSON: provider/model preferences, constraints, weights)</summary>
+        <div className="flex flex-wrap items-center gap-2">
           <Input aria-label="providerPreferences" name="providerPreferences" placeholder="providerPreferences {}" defaultValue={policy && policy.provider_preferences ? JSON.stringify(policy.provider_preferences) : ""} />
           <Input aria-label="modelPreferences" name="modelPreferences" placeholder="modelPreferences {}" defaultValue={policy && policy.model_preferences ? JSON.stringify(policy.model_preferences) : ""} />
           <Input aria-label="constraints" name="constraints" placeholder="constraints {}" defaultValue={policy && policy.constraints ? JSON.stringify(policy.constraints) : ""} />
           <Input aria-label="weights" name="weights" placeholder="weights {}" defaultValue={policy && policy.weights ? JSON.stringify(policy.weights) : ""} />
         </div>
       </details>
-      <div className="row">
+      <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" type="submit" disabled={busy}>{busy ? "Saving…" : policy ? "Save changes" : "Create policy"}</Button>
         <Button size="sm" variant="ghost" type="button" onClick={onCancel}>Cancel</Button>
       </div>
     </form>
-  </Card>);
+  </CardContent></Card>);
 }
 
 // Simulation is the only place the routing score is observable before it
@@ -1516,47 +1569,47 @@ function SimulationPanel() {
       setErr(x instanceof Error ? x.message : String(x));
     } finally { setBusy(false); }
   };
-  return (<Card titleAs="h2" title="Simulate a route">
-    {err ? <p className="error" role="alert">{err}</p> : null}
-    <div className="row" style={{ flexWrap: "wrap", alignItems: "flex-end" }}>
-      <label className="admin-field">
-        <span>Find</span>
+  return (<Card><CardHeader><CardTitle className="text-lg font-semibold tracking-tight">Simulate a route</CardTitle></CardHeader><CardContent>
+    {err ? <p className="error-text" role="alert">{err}</p> : null}
+    <div className="flex flex-wrap items-end gap-2">
+      <label className="grid gap-1">
+        <span className="eyebrow">Find</span>
         <Input aria-label="Filter models" placeholder="filter models…" value={q} onChange={(e) => setQ(e.currentTarget.value)} />
       </label>
-      <label className="admin-field">
-        <span>Model</span>
+      <label className="grid gap-1">
+        <span className="eyebrow">Model</span>
         <select aria-label="Model" value={modelId} onChange={(e) => setModelId(e.currentTarget.value)}>
           <option value="">pick a model…</option>
           {models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
         </select>
       </label>
-      <label className="admin-field">
-        <span>Strategy</span>
+      <label className="grid gap-1">
+        <span className="eyebrow">Strategy</span>
         <select aria-label="Strategy" value={strategy} onChange={(e) => setStrategy(e.currentTarget.value)}>
           {(d?.strategies ?? []).map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
       </label>
-      <label className="admin-field">
-        <span>Input tokens</span>
+      <label className="grid gap-1">
+        <span className="eyebrow">Input tokens</span>
         <Input aria-label="Input tokens" type="number" min={0} value={inTok} onChange={(e) => setInTok(e.currentTarget.value)} />
       </label>
-      <label className="admin-field">
-        <span>Output tokens</span>
+      <label className="grid gap-1">
+        <span className="eyebrow">Output tokens</span>
         <Input aria-label="Output tokens" type="number" min={0} value={outTok} onChange={(e) => setOutTok(e.currentTarget.value)} />
       </label>
       <Button size="sm" disabled={busy || !modelId} onClick={() => void run()}>{busy ? "Simulating…" : "Simulate"}</Button>
     </div>
     {res ? (res.rows.length === 0 ? (
-      <p className="muted">No candidates: {res.candidatesConsidered} provider/model rows exist for this model, and none survived the strategy's filters.</p>
+      <p className="text-muted-foreground">No candidates: {res.candidatesConsidered} provider/model rows exist for this model, and none survived the strategy's filters.</p>
     ) : (<>
-      <p className="muted">{res.rows.length} candidate{res.rows.length === 1 ? "" : "s"} in score order · strategy {res.strategy}{res.region ? " · region " + res.region : ""}</p>
-      <Table
+      <p className="text-muted-foreground">{res.rows.length} candidate{res.rows.length === 1 ? "" : "s"} in score order · strategy {res.strategy}{res.region ? " · region " + res.region : ""}</p>
+      <DataTable
         head={["#", "Provider", "Connection", "Est. cost", "Health", "Score", "Why"]}
         numeric={[0, 3, 5]}
         rows={res.rows.map((r, i) => [String(i + 1), r.providerName, r.connectionName, fmtUsd(r.estimatedCostMicro), r.healthStatus, String(r.score), <span key="w" title={r.reason}>{clip(r.reason, 60)}</span>])}
       />
     </>)) : null}
-  </Card>);
+  </CardContent></Card>);
 }
 
 function RoutingView() {
@@ -1578,13 +1631,13 @@ function RoutingView() {
   };
   return (<>
     <State err={err} d={d}>{(v: RoutingPolicies) => (<>
-      {actionErr ? <p className="error" role="alert">{actionErr}</p> : null}
-      <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
-        <h2 className="dash-h">Policies</h2>
-        <Button size="sm" variant="primary" onClick={() => setEditing("new")}>New policy</Button>
+      {actionErr ? <p className="error-text" role="alert">{actionErr}</p> : null}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="my-0 text-lg">Policies</h2>
+        <Button size="sm" variant="default" onClick={() => setEditing("new")}>New policy</Button>
       </div>
-      {v.policies.length === 0 ? <Card desc="No routing policies. Every request uses the built-in default strategy." /> : (
-        <Table
+      {v.policies.length === 0 ? <Card><CardContent>No routing policies. Every request uses the built-in default strategy.</CardContent></Card> : (
+        <DataTable
           head={["Name", "Scope", "Strategy", "Attempts", "Timeout", "Fallback", "Enabled", "Actions"]}
           numeric={[3, 4]}
           rows={v.policies.map((p) => [
@@ -1594,8 +1647,8 @@ function RoutingView() {
             String(p.max_attempts),
             p.request_timeout_ms + " ms",
             p.fallback_enabled ? "on" : "off",
-            <Badge key="e" tone={p.enabled ? "ok" : "default"}>{p.enabled ? "enabled" : "disabled"}</Badge>,
-            <span key="a" className="row">
+            <Badge key="e" variant={p.enabled ? "ok" : "secondary"}>{p.enabled ? "enabled" : "disabled"}</Badge>,
+            <span key="a" className="flex flex-wrap items-center gap-2">
               <Button size="sm" variant="secondary" onClick={() => setEditing(p)}>Edit</Button>
               <Button size="sm" variant="destructive" onClick={() => void del(p)}>Delete</Button>
             </span>,
@@ -1612,24 +1665,24 @@ function RoutingView() {
           onCancel={() => setEditing(null)}
         />
       ) : null}
-      <h2 className="dash-h">Strategies</h2>
-      <Table head={["Strategy", "What it optimises"]} rows={strategies.map((s) => [s.key, s.uses])} />
-      <h2 className="dash-h">Resolution chain (account → policy)</h2>
-      <Card desc="A policy scoped to an account wins over the platform default. Anything without a match uses the default policy set in Settings." />
+      <h2 className="my-0 text-lg">Strategies</h2>
+      <DataTable head={["Strategy", "What it optimises"]} rows={strategies.map((s) => [s.key, s.uses])} />
+      <h2 className="my-0 text-lg">Resolution chain (account → policy)</h2>
+      <Card><CardContent>A policy scoped to an account wins over the platform default. Anything without a match uses the default policy set in Settings.</CardContent></Card>
     </>)}</State>
     <State err={fb.err} d={fb.d}>{(f: Fallbacks) => (<>
-      <h2 className="dash-h">Fallback</h2>
-      <Table head={["Policy", "Max attempts", "Fallback", "Enabled"]} numeric={[1]} rows={f.policies.map((p) => [p.name, String(p.maxAttempts), p.fallbackEnabled ? "on" : "off", p.enabled ? "enabled" : "disabled"])} />
-      <div className="row" style={{ flexWrap: "wrap", alignItems: "flex-start" }}>
-        <Card titleAs="h3" title="Retried">
-          <div className="row" style={{ flexWrap: "wrap" }}>{f.retryable.map((c) => <code key={c}>{c}</code>)}</div>
-        </Card>
-        <Card titleAs="h3" title="Never retried">
-          <div className="row" style={{ flexWrap: "wrap" }}>{f.neverRetry.map((c) => <code key={c}>{c}</code>)}</div>
-        </Card>
+      <h2 className="my-0 text-lg">Fallback</h2>
+      <DataTable head={["Policy", "Max attempts", "Fallback", "Enabled"]} numeric={[1]} rows={f.policies.map((p) => [p.name, String(p.maxAttempts), p.fallbackEnabled ? "on" : "off", p.enabled ? "enabled" : "disabled"])} />
+      <div className="flex flex-wrap items-start gap-2">
+        <Card><CardHeader><CardTitle className="text-lg font-semibold tracking-tight">Retried</CardTitle></CardHeader><CardContent>
+          <div className="flex flex-wrap items-center gap-2">{f.retryable.map((c) => <code key={c}>{c}</code>)}</div>
+        </CardContent></Card>
+        <Card><CardHeader><CardTitle className="text-lg font-semibold tracking-tight">Never retried</CardTitle></CardHeader><CardContent>
+          <div className="flex flex-wrap items-center gap-2">{f.neverRetry.map((c) => <code key={c}>{c}</code>)}</div>
+        </CardContent></Card>
       </div>
     </>)}</State>
-    <h2 className="dash-h">Simulation</h2>
+    <h2 className="my-0 text-lg">Simulation</h2>
     <SimulationPanel />
   </>);
 }
@@ -1698,18 +1751,18 @@ function SecurityLists({ onChanged }: { onChanged: () => void }) {
     void run("key", () => postJSON("/api/admin/security/blocked-keys/add", { key_id: fd.get("key_id"), name: fd.get("name") })).then(() => form.reset());
   };
   return (<>
-    {err ? <p className="error" role="alert">{err}</p> : null}
+    {err ? <p className="error-text" role="alert">{err}</p> : null}
 
-    <h2 className="dash-h">Blocked addresses</h2>
-    <form className="row" style={{ flexWrap: "wrap" }} onSubmit={addIp}>
+    <h2 className="my-0 text-lg">Blocked addresses</h2>
+    <form className="flex flex-wrap items-center gap-2" onSubmit={addIp}>
       <Input aria-label="IP or CIDR" name="cidr" placeholder="IP or CIDR, e.g. 203.0.113.0/24" required />
       <Input aria-label="Rule name" name="name" placeholder="name (optional)" />
       <Button size="sm" type="submit" disabled={busy === "ip"}>{busy === "ip" ? "Adding…" : "Block address"}</Button>
     </form>
     <State err={ips.err} d={ips.d}>{(v: BlockedIps) => v.rules.length === 0 ? (
-      <Card desc="No blocked addresses. Requests from every IP are accepted unless another rule refuses them." />
+      <Card><CardContent>No blocked addresses. Requests from every IP are accepted unless another rule refuses them.</CardContent></Card>
     ) : (
-      <Table
+      <DataTable
         head={["Address / CIDR", "Name", "Added", ""]}
         rows={v.rules.map((r) => [
           <code key="c">{r.cidr}</code>,
@@ -1720,8 +1773,8 @@ function SecurityLists({ onChanged }: { onChanged: () => void }) {
       />
     )}</State>
 
-    <h2 className="dash-h">Blocked keys</h2>
-    <form className="row" style={{ flexWrap: "wrap" }} onSubmit={addKey}>
+    <h2 className="my-0 text-lg">Blocked keys</h2>
+    <form className="flex flex-wrap items-center gap-2" onSubmit={addKey}>
       <select aria-label="Key to block" name="key_id" required defaultValue="">
         <option value="">pick a key…</option>
         {(keys.d?.keys ?? []).map((k) => <option key={k.id} value={k.id}>{k.name} · {k.prefix} · {k.status}</option>)}
@@ -1730,9 +1783,9 @@ function SecurityLists({ onChanged }: { onChanged: () => void }) {
       <Button size="sm" type="submit" disabled={busy === "key"}>{busy === "key" ? "Adding…" : "Block key"}</Button>
     </form>
     <State err={keys.err} d={keys.d}>{(v: BlockedKeys) => v.rules.length === 0 ? (
-      <Card desc="No blocked keys. Every active key is accepted." />
+      <Card><CardContent>No blocked keys. Every active key is accepted.</CardContent></Card>
     ) : (
-      <Table
+      <DataTable
         head={["Key", "Prefix", "Rule", "Added", ""]}
         rows={v.rules.map((r) => {
           return [
@@ -1761,7 +1814,7 @@ function SecurityView() {
   const changes = (x: unknown) => x == null ? "—" : JSON.stringify(x).slice(0, 80);
   return (<>
     <State err={err} d={d}>{(v: Security) => (<>
-      <div className="row row--cards" style={{ flexWrap: "wrap" }}>
+      <div className="flex flex-wrap items-center gap-2">
         {/* Two pairs, each labelled with its own noun: "Abuse rules / Enabled"
             read as one ambiguous count next to a second "rules" pair. */}
         <StatCard title="Abuse rules" value={String(v.rules.length)} />
@@ -1769,19 +1822,19 @@ function SecurityView() {
         <StatCard title="Signal rules" value={abuse.d ? String(abuse.d.ruleCount) : "—"} />
         <StatCard title="Signals enabled" value={abuse.d ? String(abuse.d.enabledRuleCount) : "—"} />
       </div>
-      <h2 className="dash-h">Rules</h2>
+      <h2 className="my-0 text-lg">Rules</h2>
       {v.rules.length === 0
-        ? <Card desc="No abuse-signal rules. Only the blocked address and key lists below refuse traffic." />
-        : <Table head={["Name", "Kind", "Action", "Enabled", "Config"]} rows={v.rules.map((r) => [r.name, r.kind, r.action, String(r.enabled), clip(JSON.stringify(r.config ?? {}), 60)])} />}
+        ? <Card><CardContent>No abuse-signal rules. Only the blocked address and key lists below refuse traffic.</CardContent></Card>
+        : <DataTable head={["Name", "Kind", "Action", "Enabled", "Config"]} rows={v.rules.map((r) => [r.name, r.kind, r.action, String(r.enabled), clip(JSON.stringify(r.config ?? {}), 60)])} />}
     </>)}</State>
 
     <SecurityLists onChanged={() => setTick((n) => n + 1)} />
 
-    <h2 className="dash-h">Abuse signals, last 24h</h2>
+    <h2 className="my-0 text-lg">Abuse signals, last 24h</h2>
     <State err={abuse.err} d={abuse.d}>{(v: Abuse) => (<>
-      {v.watchedActions.length > 0 ? <p className="muted">Watching key lifecycle actions: {v.watchedActions.join(", ")}.</p> : null}
-      {v.windows.length === 0 ? <Card desc="No request activity in the last 24 hours." /> : (
-        <Table
+      {v.watchedActions.length > 0 ? <p className="text-muted-foreground">Watching key lifecycle actions: {v.watchedActions.join(", ")}.</p> : null}
+      {v.windows.length === 0 ? <Card><CardContent>No request activity in the last 24 hours.</CardContent></Card> : (
+        <DataTable
           head={["Window", "Requests", "Auth failures", "Errors", "Distinct IPs", "Top IP share", "Key rotations", "Cred. failures"]}
           numeric={[1, 2, 3, 4, 5, 6, 7]}
           rows={v.windows.map((w) => [
@@ -1798,21 +1851,21 @@ function SecurityView() {
       )}
     </>)}</State>
 
-    <h2 className="dash-h">Audit log</h2>
-    <form className="row" onSubmit={(e) => e.preventDefault()}>
+    <h2 className="my-0 text-lg">Audit log</h2>
+    <form className="flex flex-wrap items-center gap-2" onSubmit={(e) => e.preventDefault()}>
       <select aria-label="Filter by action" value={action} onChange={(e) => { setAction(e.currentTarget.value); setPage(1); }}>
         <option value="">All actions</option>
         {a.d ? a.d.actions.map((x) => <option key={x.action} value={x.action}>{x.action} ({x.n})</option>) : null}
       </select>
     </form>
     <State err={a.err} d={a.d}>{(w: Audit) => (<>
-      <Table head={["At", "Actor", "Action", "Resource", "IP", "Changes"]} rows={w.rows.map((r) => {
+      <DataTable head={["At", "Actor", "Action", "Resource", "IP", "Changes"]} rows={w.rows.map((r) => {
         const b = changes(r.before); const f = changes(r.after);
         return [fmtDate(r.createdAt), r.actorEmail ?? r.actorKind, r.action, (r.resource ?? "—") + (r.resourceId ? "/" + r.resourceId : ""), r.ip ?? "—", b === "—" && f === "—" ? "—" : b + " → " + f];
       })} />
-      <div className="row">
+      <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>Prev</Button>
-        <span className="muted">Page {w.page}</span>
+        <span className="text-muted-foreground">Page {w.page}</span>
         {/* The endpoint reports no total, so a short page is the only end-of-data signal. */}
         <Button size="sm" disabled={w.rows.length < 100} onClick={() => setPage((p) => p + 1)}>Next</Button>
       </div>
@@ -1835,63 +1888,63 @@ function SettingsView() {
   const submit = (path: string, build: (fd: FormData) => unknown) => (e: React.FormEvent<HTMLFormElement>) => { e.preventDefault(); run(() => postJSON(path, build(new FormData(e.currentTarget)))); };
   const on = (fd: FormData, k: string) => fd.get(k) === "on";
   return (<State err={err} d={d}>{(v: Settings) => (<>
-    {actionErr ? <p className="error" role="alert">{actionErr}</p> : null}
+    {actionErr ? <p className="error-text" role="alert">{actionErr}</p> : null}
     <h2>General</h2>
-    <form className="row" onSubmit={submit("/api/admin/settings/updateGeneral", (fd) => ({ maintenance: on(fd, "maintenance"), generic_passthrough: on(fd, "generic_passthrough") }))}>
-      <label className="row"><input type="checkbox" name="maintenance" defaultChecked={v.maintenance} /> maintenance</label>
-      <label className="row"><input type="checkbox" name="generic_passthrough" defaultChecked={v.genericPassthrough} /> generic_passthrough</label>
+    <form className="flex flex-wrap items-center gap-2" onSubmit={submit("/api/admin/settings/updateGeneral", (fd) => ({ maintenance: on(fd, "maintenance"), generic_passthrough: on(fd, "generic_passthrough") }))}>
+      <label className="flex flex-wrap items-center gap-2"><input type="checkbox" name="maintenance" defaultChecked={v.maintenance} /> maintenance</label>
+      <label className="flex flex-wrap items-center gap-2"><input type="checkbox" name="generic_passthrough" defaultChecked={v.genericPassthrough} /> generic_passthrough</label>
       <Button size="sm" type="submit">Save</Button>
     </form>
     <h2>Registration</h2>
-    <form className="row" onSubmit={submit("/api/admin/settings/updateRegistration", (fd) => ({ registration: on(fd, "registration") }))}>
-      <label className="row"><input type="checkbox" name="registration" defaultChecked={v.registration} /> open registration</label>
+    <form className="flex flex-wrap items-center gap-2" onSubmit={submit("/api/admin/settings/updateRegistration", (fd) => ({ registration: on(fd, "registration") }))}>
+      <label className="flex flex-wrap items-center gap-2"><input type="checkbox" name="registration" defaultChecked={v.registration} /> open registration</label>
       <Button size="sm" type="submit">Save</Button>
     </form>
     <h2>Retention (days)</h2>
-    <form className="row" onSubmit={submit("/api/admin/settings/updateRetention", (fd) => ({ request_metadata_days: fd.get("request_metadata_days"), request_content_days: fd.get("request_content_days"), system_events_days: fd.get("system_events_days"), audit_logs_days: fd.get("audit_logs_days") }))}>
+    <form className="flex flex-wrap items-center gap-2" onSubmit={submit("/api/admin/settings/updateRetention", (fd) => ({ request_metadata_days: fd.get("request_metadata_days"), request_content_days: fd.get("request_content_days"), system_events_days: fd.get("system_events_days"), audit_logs_days: fd.get("audit_logs_days") }))}>
       {Object.entries(v.retention).map(([k, n]) => <Input key={k} aria-label={k} name={k} type="number" defaultValue={String(n)} />)}
       <Button size="sm" type="submit">Save</Button>
     </form>
     <h2>Default routing policy</h2>
-    <form className="row" onSubmit={submit("/api/admin/settings/updateDefaultRouting", (fd) => ({ policyId: fd.get("policyId") }))}>
+    <form className="flex flex-wrap items-center gap-2" onSubmit={submit("/api/admin/settings/updateDefaultRouting", (fd) => ({ policyId: fd.get("policyId") }))}>
       <select aria-label="Default routing policy" name="policyId" defaultValue={v.defaultRoutingPolicyId}>
         {v.policies.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
       </select>
       <Button size="sm" type="submit">Save</Button>
     </form>
     <h2>Hard limits</h2>
-    <form className="row" onSubmit={submit("/api/admin/settings/updateHardLimits", (fd) => ({ rpm: fd.get("rpm"), tpm: fd.get("tpm"), concurrency: fd.get("concurrency") }))}>
+    <form className="flex flex-wrap items-center gap-2" onSubmit={submit("/api/admin/settings/updateHardLimits", (fd) => ({ rpm: fd.get("rpm"), tpm: fd.get("tpm"), concurrency: fd.get("concurrency") }))}>
       <Input aria-label="rpm" name="rpm" type="number" defaultValue={String(v.hardLimits.rpm)} />
       <Input aria-label="tpm" name="tpm" type="number" defaultValue={String(v.hardLimits.tpm)} />
       <Input aria-label="concurrency" name="concurrency" type="number" defaultValue={String(v.hardLimits.concurrency)} />
       <Button size="sm" type="submit">Save</Button>
     </form>
     <h2>Provider health check</h2>
-    <form className="row" onSubmit={submit("/api/admin/settings/updateHealthCheckCadence", (fd) => ({ minutes: fd.get("minutes") }))}>
+    <form className="flex flex-wrap items-center gap-2" onSubmit={submit("/api/admin/settings/updateHealthCheckCadence", (fd) => ({ minutes: fd.get("minutes") }))}>
       <Input aria-label="Health check interval in minutes" name="minutes" type="number" min={1} max={30} defaultValue={String(v.healthCheckMinutes ?? 5)} />
-      <span className="muted">minutes, 1–30 — applies on the next scheduler tick (no restart)</span>
+      <span className="text-muted-foreground">minutes, 1–30 — applies on the next scheduler tick (no restart)</span>
       <Button size="sm" type="submit">Save</Button>
     </form>
     <h2>Billing defaults</h2>
-    <form className="row" onSubmit={submit("/api/admin/settings/setBillingDefaults", (fd) => ({ warningUsd: fd.get("warningUsd"), hardStopUsd: fd.get("hardStopUsd") }))}>
+    <form className="flex flex-wrap items-center gap-2" onSubmit={submit("/api/admin/settings/setBillingDefaults", (fd) => ({ warningUsd: fd.get("warningUsd"), hardStopUsd: fd.get("hardStopUsd") }))}>
       <Input aria-label="Warning USD" name="warningUsd" defaultValue={usd(v.accounts[0]?.warningMicro ?? "0")} />
       <Input aria-label="Hard stop USD" name="hardStopUsd" defaultValue={usd(v.accounts[0]?.hardStopMicro ?? "0")} />
       <Button size="sm" type="submit">Save</Button>
     </form>
     <h2>Routing policies</h2>
-    <Table head={["Name", "Strategy"]} rows={v.policies.map((p) => [p.name, p.strategy])} />
+    <DataTable head={["Name", "Strategy"]} rows={v.policies.map((p) => [p.name, p.strategy])} />
     <h2>Feature flags</h2>
     <State err={f.err} d={f.d}>{(w: Flags) => (<>
-      <Table head={["Name", "Description", "Enabled", "Rollout", "Updated", "Actions"]} numeric={[3]} rows={w.flags.map((x) => [x.name, x.description, String(x.enabled), JSON.stringify(x.rollout), fmtDate(x.updatedAt),
-        <span key={x.id} className="row">
+      <DataTable head={["Name", "Description", "Enabled", "Rollout", "Updated", "Actions"]} numeric={[3]} rows={w.flags.map((x) => [x.name, x.description, String(x.enabled), JSON.stringify(x.rollout), fmtDate(x.updatedAt),
+        <span key={x.id} className="flex flex-wrap items-center gap-2">
           <Button size="sm" onClick={() => run(() => postJSON("/api/admin/settings/feature-flags/toggle", { id: x.id }))}>{x.enabled ? "Disable" : "Enable"}</Button>
           <Button size="sm" variant="destructive" onClick={() => { if (window.confirm("Delete feature flag " + x.name + "?")) run(() => postJSON("/api/admin/settings/feature-flags/delete", { id: x.id })); }}>Delete</Button>
         </span>])} />
-      <form className="row" onSubmit={submit("/api/admin/settings/feature-flags/create", (fd) => ({ name: fd.get("name"), description: fd.get("description"), enabled: on(fd, "enabled"), rollout: fd.get("rollout") }))}>
+      <form className="flex flex-wrap items-center gap-2" onSubmit={submit("/api/admin/settings/feature-flags/create", (fd) => ({ name: fd.get("name"), description: fd.get("description"), enabled: on(fd, "enabled"), rollout: fd.get("rollout") }))}>
         <Input aria-label="Flag name" name="name" placeholder="name" />
         <Input aria-label="Flag description" name="description" placeholder="description" />
         <Input aria-label="Rollout JSON" name="rollout" defaultValue="{}" />
-        <label className="row"><input type="checkbox" name="enabled" /> enabled</label>
+        <label className="flex flex-wrap items-center gap-2"><input type="checkbox" name="enabled" /> enabled</label>
         <Button size="sm" type="submit">Create</Button>
       </form>
     </>)}</State>
@@ -1922,30 +1975,30 @@ function JobsPanel({ onChanged }: { onChanged: () => void }) {
     finally { setBusy(null); }
   };
   return (<>
-    {actionErr ? <p className="error" role="alert">{actionErr}</p> : null}
-    <div className="row" style={{ flexWrap: "wrap" }}>
-      <select className="usage-select" aria-label="Filter jobs by status" value={status} onChange={(e) => setStatus(e.currentTarget.value)}>
+    {actionErr ? <p className="error-text" role="alert">{actionErr}</p> : null}
+    <div className="flex flex-wrap items-center gap-2">
+      <select className={SELECT} aria-label="Filter jobs by status" value={status} onChange={(e) => setStatus(e.currentTarget.value)}>
         <option value="">all statuses</option>
         {(d?.statuses ?? ["failed", "pending", "running", "completed", "cancelled"]).map((s) => <option key={s} value={s}>{s}</option>)}
       </select>
-      <select className="usage-select" aria-label="Filter jobs by type" value={type} onChange={(e) => setType(e.currentTarget.value)}>
+      <select className={SELECT} aria-label="Filter jobs by type" value={type} onChange={(e) => setType(e.currentTarget.value)}>
         <option value="">all types</option>
         {(d?.types ?? []).map((t) => <option key={t} value={t}>{t}</option>)}
       </select>
     </div>
     <State err={err} d={d}>{(v: Jobs) => v.rows.length === 0 ? (
-      <Card desc={`No jobs with status "${status || "any"}"${type ? ` of type ${type}` : ""}.`} />
+      <Card><CardContent>{`No jobs with status "${status || "any"}"${type ? ` of type ${type}` : ""}.`}</CardContent></Card>
     ) : (
-      <Table
+      <DataTable
         head={["Type", "Status", "Attempts", "Created", "Error", "Actions"]}
         numeric={[2]}
         rows={v.rows.map((j) => [
           j.type,
-          <Badge key="s" tone={j.status === "failed" ? "warn" : j.status === "completed" ? "ok" : "default"}>{j.status}</Badge>,
+          <Badge key="s" variant={j.status === "failed" ? "warn" : j.status === "completed" ? "ok" : "secondary"}>{j.status}</Badge>,
           j.attempts + " / " + j.maxAttempts,
           fmtDate(j.createdAt),
           j.error ? <span title={String(j.error)}>{clip(String(j.error))}</span> : "—",
-          <span key="a" className="row">
+          <span key="a" className="flex flex-wrap items-center gap-2">
             {v.retryable.includes(j.status) ? <Button size="sm" variant="secondary" disabled={busy === j.id} onClick={() => void act("/api/admin/system/jobs/retry", j.id)}>Retry</Button> : null}
             {v.cancellable.includes(j.status) ? <Button size="sm" variant="ghost" disabled={busy === j.id} onClick={() => void act("/api/admin/system/jobs/cancel", j.id)}>Cancel</Button> : null}
           </span>,
@@ -1959,22 +2012,22 @@ function SystemView() {
   const [tick, setTick] = useState(0);
   const { d, err } = useLoad<System>("/api/admin/system", tick);
   return (<State err={err} d={d}>{(v: System) => (<>
-    <div className="row row--cards" style={{ flexWrap: "wrap" }}>
+    <div className="flex flex-wrap items-center gap-2">
       <StatCard title="Database" value={v.database ? v.database.size : "—"} />
       <StatCard title="DB connections" value={v.database ? String(v.database.connections) : "—"} />
       <StatCard title="Valkey" value={v.valkey} />
       <StatCard title="Job backlog" value={String(v.backlog)} />
     </div>
-    <h2 className="dash-h">Jobs by status</h2>
-    <Table head={["Status", "Count"]} numeric={[1]} rows={v.jobCounts.map((j) => [j.status, String(j.n)])} />
-    <h2 className="dash-h">Job queue</h2>
+    <h2 className="my-0 text-lg">Jobs by status</h2>
+    <DataTable head={["Status", "Count"]} numeric={[1]} rows={v.jobCounts.map((j) => [j.status, String(j.n)])} />
+    <h2 className="my-0 text-lg">Job queue</h2>
     <JobsPanel onChanged={() => setTick((n) => n + 1)} />
-    <h2 className="dash-h">Open incidents</h2>
+    <h2 className="my-0 text-lg">Open incidents</h2>
     {v.openIncidents.length === 0
-      ? <Card desc="No open incidents — every component is reporting normal." />
-      : <Table head={["Title", "Component", "Severity", "Status", "Started"]} rows={v.openIncidents.map((i) => [i.title, i.component, i.severity, i.status, fmtDate(i.startedAt)])} />}
-    <h2 className="dash-h">Recent system events</h2>
-    <Table head={["Type", "Resource", "At"]} rows={v.events.map((e) => [e.type, (e.resource ?? "") + (e.resourceId ? "/" + e.resourceId : "") || "—", fmtDate(e.createdAt)])} />
+      ? <Card><CardContent>No open incidents — every component is reporting normal.</CardContent></Card>
+      : <DataTable head={["Title", "Component", "Severity", "Status", "Started"]} rows={v.openIncidents.map((i) => [i.title, i.component, i.severity, i.status, fmtDate(i.startedAt)])} />}
+    <h2 className="my-0 text-lg">Recent system events</h2>
+    <DataTable head={["Type", "Resource", "At"]} rows={v.events.map((e) => [e.type, (e.resource ?? "") + (e.resourceId ? "/" + e.resourceId : "") || "—", fmtDate(e.createdAt)])} />
   </>)}</State>);
 }
 
@@ -2008,15 +2061,15 @@ function TrafficView() {
   return (<>
     <State err={traffic.err} d={traffic.d}>{(v: Traffic) => (<>
       {v.hard ? (
-        <div className="row row--cards" style={{ flexWrap: "wrap" }}>
+        <div className="flex flex-wrap items-center gap-2">
           <StatCard title="Requests / min cap" value={cap(v.hard.rpm)} />
           <StatCard title="Tokens / min cap" value={cap(v.hard.tpm)} />
           <StatCard title="Concurrency cap" value={cap(v.hard.concurrency)} />
         </div>
-      ) : <Card titleAs="h2" title="Platform hard limits" desc="Not set — no platform ceiling is configured, so every scope is unbounded by default." />}
+      ) : <Card><CardHeader><CardTitle className="text-lg font-semibold tracking-tight">Platform hard limits</CardTitle><CardDescription className="text-sm text-muted-foreground">Not set — no platform ceiling is configured, so every scope is unbounded by default.</CardDescription></CardHeader></Card>}
     </>)}</State>
 
-    <h2 className="dash-h">Queue</h2>
+    <h2 className="my-0 text-lg">Queue</h2>
     <State err={queues.err} d={queues.d}>{(q: Queues) => {
       const byStatus = (s: string) => q.counts.filter((c) => c.status === s).reduce((a, c) => a + c.n, 0);
       // One row per job type with its pending/failed counts: the flat
@@ -2025,20 +2078,20 @@ function TrafficView() {
       const types = [...new Set(q.counts.map((c) => c.type))].sort();
       const cell = (t: string, s: string) => q.counts.filter((c) => c.type === t && c.status === s).reduce((a, c) => a + c.n, 0);
       return (<>
-        <div className="row row--cards" style={{ flexWrap: "wrap" }}>
+        <div className="flex flex-wrap items-center gap-2">
           <StatCard title="Pending" value={byStatus("pending").toLocaleString("en-US")} />
           <StatCard title="Running" value={byStatus("running").toLocaleString("en-US")} />
           <StatCard title="Failed" value={byStatus("failed").toLocaleString("en-US")} />
           <StatCard title="In flight, last 60s" value={q.inFlightLastMinute.toLocaleString("en-US")} />
         </div>
-        <Table
+        <DataTable
           head={["Job type", "Pending", "Running", "Failed", "Completed"]}
           numeric={[1, 2, 3, 4]}
           rows={types.map((t) => [t, String(cell(t, "pending")), String(cell(t, "running")), String(cell(t, "failed")), String(cell(t, "completed"))])}
         />
         {q.live.length > 0 ? (<>
-          <h2 className="dash-h">Live jobs</h2>
-          <Table
+          <h2 className="my-0 text-lg">Live jobs</h2>
+          <DataTable
             head={["Type", "Status", "Attempts", "Available", "Error"]}
             numeric={[2]}
             rows={q.live.map((j) => [j.type, j.status, j.attempts + " / " + j.maxAttempts, j.availableAt ? fmtDate(j.availableAt) : "—", j.error ?? "—"])}
@@ -2047,20 +2100,20 @@ function TrafficView() {
       </>);
     }}</State>
 
-    <h2 className="dash-h">Per-scope rate limits</h2>
+    <h2 className="my-0 text-lg">Per-scope rate limits</h2>
     <State err={limits.err} d={limits.d}>{(r: RateLimits) => (<>
       {r.limits.length === 0 ? (
-        <Card desc={`No per-scope limits configured (scopes available: ${r.scopes.join(", ")}). Only the platform caps above apply.`} />
+        <Card><CardContent>{`No per-scope limits configured (scopes available: ${r.scopes.join(", ")}). Only the platform caps above apply.`}</CardContent></Card>
       ) : (
-        <Table
+        <DataTable
           head={["Scope", "Scope id", "RPM", "TPM", "RPD", "TPD", "Concurrency", "Daily $", "Monthly $"]}
           numeric={[2, 3, 4, 5, 6, 7, 8]}
           rows={r.limits.map((l) => [l.scope, l.scopeId, optNum(l.rpm), optNum(l.tpm), optNum(l.rpd), optNum(l.tpd), optNum(l.concurrency), l.dailySpendUsd === null ? "—" : fmtUsd(l.dailySpendUsd), l.monthlySpendUsd === null ? "—" : fmtUsd(l.monthlySpendUsd)])}
         />
       )}
-      <h2 className="dash-h">Budgets</h2>
-      {r.budgets.length === 0 ? <Card desc="No budgets configured." /> : (
-        <Table
+      <h2 className="my-0 text-lg">Budgets</h2>
+      {r.budgets.length === 0 ? <Card><CardContent>No budgets configured.</CardContent></Card> : (
+        <DataTable
           head={["Scope", "Scope id", "Period", "Amount", "Warn %", "Critical %", "At 100%"]}
           numeric={[3, 4, 5]}
           rows={r.budgets.map((b) => [b.scope, b.scopeId, b.period, fmtUsd(b.amountMicro), b.warnPercent === null ? "—" : b.warnPercent + "%", b.criticalPercent === null ? "—" : b.criticalPercent + "%", b.actionAt100 ?? "—"])}
@@ -2109,25 +2162,25 @@ function UsersView() {
     const allSel = ids.length > 0 && ids.every((id) => sel.includes(id));
     const bannedSel = sel.filter((id) => v.users.find((u) => u.id === id)?.banned).length;
     return (<>
-    {actionErr ? <p className="error" role="alert">{actionErr}</p> : null}
-    <form className="row" onSubmit={(e) => e.preventDefault()}>
+    {actionErr ? <p className="error-text" role="alert">{actionErr}</p> : null}
+    <form className="flex flex-wrap items-center gap-2" onSubmit={(e) => e.preventDefault()}>
       <Input aria-label="search users" placeholder="Search email or name" value={q} onChange={(e) => setQ(e.currentTarget.value)} />
-      <select className="select" aria-label="role filter" value={role} onChange={(e) => setRole(e.currentTarget.value)}>
+      <select className={SELECT} aria-label="role filter" value={role} onChange={(e) => setRole(e.currentTarget.value)}>
         <option value="">All roles</option>
         {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
       </select>
-      <select className="select" aria-label="status filter" value={status} onChange={(e) => setStatus(e.currentTarget.value)}>
+      <select className={SELECT} aria-label="status filter" value={status} onChange={(e) => setStatus(e.currentTarget.value)}>
         <option value="">All statuses</option>
         <option value="active">Active</option>
         <option value="banned">Banned</option>
       </select>
       {active > 0 ? <Button size="sm" variant="ghost" onClick={reset}>Reset</Button> : null}
-      <span className="muted">Showing {rows.length} of {v.users.length} users</span>
+      <span className="text-muted-foreground">Showing {rows.length} of {v.users.length} users</span>
     </form>
     {sel.length > 0 ? (
-      <div className="row" role="group" aria-label="Bulk actions">
-        <span className="muted">{sel.length} selected</span>
-        <select className="select" aria-label="bulk role" value={bulkRole} onChange={(e) => setBulkRole(e.currentTarget.value)}>
+      <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Bulk actions">
+        <span className="text-muted-foreground">{sel.length} selected</span>
+        <select className={SELECT} aria-label="bulk role" value={bulkRole} onChange={(e) => setBulkRole(e.currentTarget.value)}>
           {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
         </select>
         <Button size="sm" onClick={() => bulk((id) => postJSON("/api/admin/users/setRole", { id, role: bulkRole }))}>Set role</Button>
@@ -2136,19 +2189,19 @@ function UsersView() {
       </div>
     ) : null}
     {rows.length === 0 ? (
-      <div className="ps-empty">
-        <p className="muted">No users match these filters</p>
+      <div className="flex flex-wrap items-center gap-4">
+        <p className="text-muted-foreground">No users match these filters</p>
         <Button size="sm" variant="secondary" onClick={reset}>Reset</Button>
       </div>
     ) : (
-    <Table head={[<input key="all" type="checkbox" aria-label="Select all filtered users" checked={allSel} onChange={(e) => setSel(e.currentTarget.checked ? ids : [])} />, "Email", "Name", "Role", "Banned", "Keys", "Req", "Cost", "Last activity", "Actions"]} numeric={[5, 6, 7]} rows={rows.map((u) => [
+    <DataTable head={[<input key="all" type="checkbox" aria-label="Select all filtered users" checked={allSel} onChange={(e) => setSel(e.currentTarget.checked ? ids : [])} />, "Email", "Name", "Role", "Banned", "Keys", "Req", "Cost", "Last activity", "Actions"]} numeric={[5, 6, 7]} rows={rows.map((u) => [
       <input key={u.id} type="checkbox" aria-label={"Select " + u.email} checked={sel.includes(u.id)} onChange={(e) => setSel((s) => e.currentTarget.checked ? [...s, u.id] : s.filter((x) => x !== u.id))} />,
       u.email, u.name,
       <select key={u.id} value={u.role ?? ""} onChange={(e) => run(() => postJSON("/api/admin/users/setRole", { id: u.id, role: e.currentTarget.value }))}>
         {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
       </select>,
       String(!!u.banned), String(u.keys), String(u.requests), fmtUsd(u.cost), u.lastSeenAt ? fmtDate(u.lastSeenAt) : "—",
-      <span key={u.id} className="row">
+      <span key={u.id} className="flex flex-wrap items-center gap-2">
         <Button size="sm" onClick={() => run(() => postJSON("/api/admin/users/toggleBan", { id: u.id }))}>{u.banned ? "Unban" : "Ban"}</Button>
         <Button size="sm" onClick={() => { if (window.confirm("Suspend " + u.email + "? Their sessions are revoked.")) run(() => postJSON("/api/admin/users/suspend", { id: u.id, confirm: "on" })); }}>Suspend</Button>
         <Button size="sm" onClick={() => { if (window.confirm("Disable all access for " + u.email + "? This also disables every API key they own.")) run(() => postJSON("/api/admin/users/disableAccess", { id: u.id, confirm: "on" })); }}>Disable access</Button>
@@ -2182,9 +2235,10 @@ export function AdminSectionRoute() {
 
 export function AdminSection({ name }: { name: string }) {
   const v = VIEWS[name];
-  if (!v) return (<Page title={"Admin / " + name} lede="Unknown section."><Card desc="No such admin section." /></Page>);
+  if (!v) return (<Page title={"Admin / " + name} lede="Unknown section."><Card><CardContent>No such admin section.</CardContent></Card></Page>);
   const El = v.el;
-  return (<Page title={"Admin / " + name} lede={v.lede}><El /></Page>);
+  const lede = v["lede"];
+  return (<Page title={"Admin / " + name} lede={lede}><El /></Page>);
 }
 
 const LIST_KEYS = ["incidents", "connections", "providers", "models", "users", "keys", "policies", "rules", "rows", "accounts", "recent", "topConsumers", "openIncidents", "events"] as const;
@@ -2212,11 +2266,11 @@ function AdminPlainDetail({ section, id }: { section: string; id: string }) {
           if (found) break;
         }
       }
-      if (!found) return (<Card desc={"No record " + id + " in section " + section + "."} />);
+      if (!found) return (<Card><CardContent>{"No record " + id + " in section " + section + "."}</CardContent></Card>);
       const entries = Object.entries(found).filter(([k]) => k !== "updates");
       return (<>
-        <Table head={["Field", "Value"]} rows={entries.map(([k, val]) => [k, typeof val === "object" ? JSON.stringify(val) : String(val ?? "—")])} />
-        {"updates" in found && Array.isArray(found.updates) ? <Table head={["At", "Status", "Message"]} rows={found.updates.map((u) => {
+        <DataTable head={["Field", "Value"]} rows={entries.map(([k, val]) => [k, typeof val === "object" ? JSON.stringify(val) : String(val ?? "—")])} />
+        {"updates" in found && Array.isArray(found.updates) ? <DataTable head={["At", "Status", "Message"]} rows={found.updates.map((u) => {
           if (u && typeof u === "object" && "createdAt" in u && "status" in u && "message" in u) {
             const uu = u as { createdAt: unknown; status: unknown; message: unknown };
             return [fmtDate(uu.createdAt), String(uu.status ?? "—"), String(uu.message ?? "—")];

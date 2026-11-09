@@ -154,6 +154,25 @@ whether the endpoint requires a JSON body carrying `model`.
 
 **Score: 2 fully native, 4 conditionally forwarded, 9 broken.**
 
+### 3.2 The media surface — 2026-11-03
+
+`/v1/images/*` and `/v1/videos/*` were listed as non-goals in §8 and were served
+by nothing. They are now a **native surface** (`internal/proxy/media.go`) because
+a real bridge was onboarded that answers six shapes the router had no home for:
+
+| Method | Endpoint | Status | Note |
+|---|---|---|---|
+| POST | `/v1/images/generations` | ✅ **native** | Billed lifecycle; returned media URL rewritten onto `PUBLIC_API_BASE_URL`. |
+| POST | `/v1/images/edits` | ✅ **native** | Multipart verbatim; `model` read from the form field. |
+| GET | `/v1/images/generations/{id}` | ✅ **native** | Task poll. Not servable by the catch-all at ANY hatch setting — the catch-all reads a JSON body, so a body-less GET was `400` regardless. |
+| POST | `/v1/videos` | ✅ **native** | Always an async task upstream. |
+| GET | `/v1/videos/{id}` | ✅ **native** | Task poll, same reason as the image poll. |
+| GET | `/v1/media/{name}` | ✅ **native, public, UNBILLED** | The only `/v1` handler that does not call `begin()`. The generation was already billed; charging delivery would make fetching what you bought cost extra. Name validated against the bridge's own pattern. |
+
+Still non-goals: `/v1/audio/*`, `/v1/rerank`, `/v1/fine_tuning/*`.
+Pinned by `TestPublicSurfaceIsPinned` (6 rows), `TestMediaRouteIsNotTheCatchAll`,
+and the six assertions in `internal/proxy/media_test.go`.
+
 ### 3.1 The catch-all also swallows endpoints that were never requested
 `POST /v1/audio/speech`, `POST /v1/images/generations` and `POST /v1/rerank` all
 return `401` for a bad key — identical to the endpoints above — despite having no
@@ -304,9 +323,11 @@ gap is closed**, or a release will run new code against an old schema.
 
 ## 8. Non-goals / open questions
 
-- **Not in scope:** `/v1/audio/*`, `/v1/images/*`, `/v1/rerank`, `/v1/fine_tuning/*`
+- **Not in scope:** `/v1/audio/*`, `/v1/rerank`, `/v1/fine_tuning/*`
   — not requested, not designed, and currently indistinguishable from the
   supported surface because of the catch-all.
+  ~~`/v1/images/*`~~ — **now implemented as a native surface**, see §3.2 and
+  `internal/proxy/media.go` (2026-11-03).
 - **Open:** should the catch-all return `404` for unimplemented `/v1/*` paths?
   It would be honest, but it would also break the "forward anything to the
   upstream" escape hatch that makes ad-hoc endpoints work today. Decide

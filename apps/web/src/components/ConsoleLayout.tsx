@@ -1,8 +1,11 @@
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { NavLink, useLocation } from "react-router-dom";
+import { Menu, X, ChevronLeft, ChevronRight, PanelLeft, ArrowLeft } from "lucide-react";
 import { ADMIN_NAV, CONSOLE_NAV, filterNav } from "../lib/navigation";
 import { hasCap } from "../lib/caps";
 import { useSession } from "./guards";
+import { cn } from "cn";
+import { Sheet, SheetClose, SheetContent, SheetTitle } from "@/components/ui/sheet";
 
 // The console bar is the registry's "console" scope filtered by the session's
 // role -- the same caps the server enforces (requireCap/section caps). A nav
@@ -12,9 +15,10 @@ import { useSession } from "./guards";
 //
 // Below 720px the sidebar does not stack -- it stacked at 468px, 62% of a
 // 390x844 screen spent before any data. It is replaced by a 44px section bar
-// (hidden on desktop) whose Menu button opens the same bottom-sheet pattern the
-// public header uses (.pub-sheet styles are shared on purpose; one sheet
-// implementation means one place for focus, Escape and scroll-lock behaviour).
+// (hidden on desktop) whose Menu button opens the same bottom sheet the public
+// header uses (one sheet implementation means one place for focus, Escape and
+// scroll-lock behaviour; here it is the shadcn Sheet, whose Radix Dialog owns
+// all three).
 export function ConsoleLayout({ children }: { children: ReactNode }) {
   const user = useSession();
   const { pathname } = useLocation();
@@ -27,12 +31,11 @@ export function ConsoleLayout({ children }: { children: ReactNode }) {
   const items = filterNav(isAdminTree ? ADMIN_NAV : CONSOLE_NAV, user?.role ?? null);
   const [collapsed, setCollapsed] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
-  const burgerRef = useRef<HTMLButtonElement>(null);
-  const sheetRef = useRef<HTMLDivElement>(null);
   const current = isAdminTree
     ? "Admin"
     : items.find((i) => (i.to === "/dashboard" ? pathname === "/dashboard" : pathname.startsWith(i.to)))
         ?.label ?? "Dashboard";
+
   // /admin had no inbound link anywhere in the app: the 17-section registry was
   // only reachable by typing the URL, so the surface existed but nobody could
   // find it. One entry, gated by the same cap the route guard enforces.
@@ -44,105 +47,137 @@ export function ConsoleLayout({ children }: { children: ReactNode }) {
     setSheetOpen(false);
   }, [pathname]);
 
-  useEffect(() => {
-    if (!sheetOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setSheetOpen(false);
-    };
-    document.addEventListener("keydown", onKey);
-    // The sheet is fixed; the page behind it must not scroll under a thumb.
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    const first = sheetRef.current?.querySelector<HTMLElement>(".pub-sheet-link");
-    first?.focus();
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prevOverflow;
-      // Focus returns to the button that opened the sheet so a keyboard user
-      // does not land at the top of the document.
-      burgerRef.current?.focus();
-    };
-  }, [sheetOpen]);
-
   return (
-    <div className={"console-shell" + (collapsed ? " collapsed" : "")}>
-      <aside className="console-side">
+    <div
+      className={cn(
+        "mx-auto w-full max-w-(--shell-max) px-4 py-8 md:px-6",
+        "grid items-start gap-8",
+        collapsed ? "grid-cols-[auto_minmax(0,1fr)]" : "md:grid-cols-[14rem_minmax(0,1fr)]",
+      )}
+    >
+      <aside className={cn("sticky top-6 hidden gap-4 md:grid", collapsed ? "md:grid-cols-1" : "")}>
         <button
           type="button"
-          className="console-side-toggle"
+          className="justify-self-start rounded-md border border-border px-2 py-0.5 text-sm text-muted-foreground hover:border-border-strong hover:text-foreground"
           aria-expanded={!collapsed}
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           onClick={() => setCollapsed((c) => !c)}
         >
-          {collapsed ? "»" : "«"}
+          {collapsed ? <PanelLeft className="size-4" /> : <PanelLeft className="size-4" />}
         </button>
         {!collapsed && (
-          <nav className="console-side-nav" aria-label={isAdminTree ? "Admin sections" : "Dashboard"}>
+          <nav className="grid gap-2" aria-label={isAdminTree ? "Admin sections" : "Dashboard"}>
             {isAdminTree ? (
-              <NavLink to="/dashboard" className="console-side-back">← Console</NavLink>
+              <NavLink
+                to="/dashboard"
+                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm text-muted-foreground hover:text-foreground"
+              >
+                <ArrowLeft className="size-4" /> Console
+              </NavLink>
             ) : null}
             {items.map((i) => (
-              <NavLink key={i.to} to={i.to} end={i.to === "/dashboard" || i.to === "/admin"} className={({ isActive }) => (isActive ? "current" : undefined)}>
-                {i.label}
-              </NavLink>
-            ))}
-            {!isAdminTree && isAdmin ? (
-              <NavLink to="/admin" end className="console-side-admin">Admin console →</NavLink>
-            ) : null}
-          </nav>
-        )}
-      </aside>
-      <div className="console-mobile-bar">
-        <span className="console-mobile-title">{current}</span>
-        <button
-          ref={burgerRef}
-          type="button"
-          className="console-mobile-btn"
-          aria-haspopup="dialog"
-          aria-expanded={sheetOpen}
-          onClick={() => setSheetOpen(true)}
-        >
-          Menu
-        </button>
-      </div>
-      <div className="pub-sheet" data-open={sheetOpen} aria-hidden={!sheetOpen}>
-        <button type="button" className="pub-sheet-backdrop" aria-label="Close menu" tabIndex={-1} onClick={() => setSheetOpen(false)} />
-        <div ref={sheetRef} className="pub-sheet-panel" role="dialog" aria-modal="true" aria-label={isAdminTree ? "Admin sections" : "Console menu"}>
-          <div className="pub-sheet-grip" aria-hidden="true" />
-          <nav className="pub-sheet-nav" aria-label={isAdminTree ? "Admin sections" : "Console"}>
-            {isAdminTree ? (
-              <NavLink to="/dashboard" style={{ "--i": 0 } as CSSProperties} className="pub-sheet-link">
-                ← Console
-                <span className="pub-sheet-chevron" aria-hidden="true">→</span>
-              </NavLink>
-            ) : null}
-            {items.map((i, n) => (
               <NavLink
                 key={i.to}
                 to={i.to}
                 end={i.to === "/dashboard" || i.to === "/admin"}
-                style={{ "--i": n + (isAdminTree ? 1 : 0) } as CSSProperties}
-                className={({ isActive }) => (isActive ? "pub-sheet-link active" : "pub-sheet-link")}
+                className={({ isActive }) =>
+                  cn(
+                    "rounded-md px-2 py-1 text-sm text-muted-foreground hover:bg-[var(--accent)] hover:text-foreground",
+                    isActive && "bg-[var(--accent)] font-semibold text-foreground",
+                  )
+                }
               >
                 {i.label}
-                <span className="pub-sheet-chevron" aria-hidden="true">→</span>
               </NavLink>
             ))}
             {!isAdminTree && isAdmin ? (
               <NavLink
                 to="/admin"
                 end
-                style={{ "--i": items.length } as CSSProperties}
-                className={({ isActive }) => (isActive ? "pub-sheet-link active" : "pub-sheet-link")}
+                className="mt-2 inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm text-muted-foreground hover:text-foreground"
               >
-                Admin console
-                <span className="pub-sheet-chevron" aria-hidden="true">→</span>
+                Admin console <ChevronRight className="size-4" />
               </NavLink>
             ) : null}
           </nav>
-        </div>
+        )}
+      </aside>
+
+      <div className="flex h-11 items-center justify-between border-b border-border md:hidden">
+        <span className="text-sm font-medium text-foreground">{current}</span>
+        <button
+          type="button"
+          className="inline-grid size-11 flex-none place-items-center rounded-md border border-border text-foreground"
+          aria-haspopup="dialog"
+          aria-expanded={sheetOpen}
+          aria-label="Open menu"
+          onClick={() => setSheetOpen(true)}
+        >
+          <Menu className="size-5" />
+        </button>
       </div>
-      <div className="console-main">{children}</div>
+
+      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+        <SheetContent side="bottom" showCloseButton={false} className="gap-0 bg-background px-4 pb-6 pt-4">
+          <SheetTitle className="sr-only">{isAdminTree ? "Admin sections" : "Console menu"}</SheetTitle>
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium text-foreground">{current}</span>
+            <SheetClose asChild>
+              <button
+                type="button"
+                className="inline-grid size-11 place-items-center rounded-md border border-border text-muted-foreground hover:text-foreground"
+                aria-label="Close menu"
+              >
+                <X className="size-5" />
+              </button>
+            </SheetClose>
+          </div>
+          <div className="mx-auto mt-1 h-1 w-12 flex-none rounded-full bg-muted" aria-hidden="true" />
+          <nav className="mt-2 grid gap-1" aria-label={isAdminTree ? "Admin sections" : "Console"}>
+            {isAdminTree ? (
+              <SheetClose asChild>
+                <NavLink
+                  to="/dashboard"
+                  className="flex min-h-[44px] items-center gap-1 rounded-md px-3 text-base text-muted-foreground hover:bg-[var(--accent)] hover:text-foreground"
+                >
+                  <ArrowLeft className="size-4" /> Console
+                </NavLink>
+              </SheetClose>
+            ) : null}
+            {items.map((i) => (
+              <SheetClose asChild key={i.to}>
+                <NavLink
+                  to={i.to}
+                  end={i.to === "/dashboard" || i.to === "/admin"}
+                  className={({ isActive }) =>
+                    cn(
+                      "flex min-h-[44px] items-center justify-between rounded-md px-3 text-base text-muted-foreground hover:bg-[var(--accent)] hover:text-foreground",
+                      isActive && "bg-[var(--accent)] font-semibold text-foreground",
+                    )
+                  }
+                >
+                  {i.label}
+                  <ChevronRight className="size-4 text-muted-foreground" />
+                </NavLink>
+              </SheetClose>
+            ))}
+            {!isAdminTree && isAdmin ? (
+              <SheetClose asChild>
+                <NavLink
+                  to="/admin"
+                  end
+                  className="flex min-h-[44px] items-center justify-between rounded-md px-3 text-base text-muted-foreground hover:bg-[var(--accent)] hover:text-foreground"
+                >
+                  Admin console
+                  <ChevronRight className="size-4 text-muted-foreground" />
+                </NavLink>
+              </SheetClose>
+            ) : null}
+          </nav>
+        </SheetContent>
+      </Sheet>
+
+      <div className="console-main min-w-0 md:col-start-2">{children}</div>
     </div>
   );
 }

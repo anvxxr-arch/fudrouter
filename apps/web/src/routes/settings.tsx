@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { ConsoleLayout } from "../components/ConsoleLayout";
 
 function Page({ title, lede, children }: { title: string; lede: string; children?: ReactNode }) {
-  return (<div className="stack"><h1>{title}</h1><p className="lede muted">{lede}</p>{children}</div>);
+  return (<div className="grid gap-6"><h1>{title}</h1><p className="measure text-base text-muted-foreground">{lede}</p>{children}</div>);
 }
 
 // Hub only: every card links to a surface that already exists.
@@ -18,11 +18,11 @@ export function SettingsHub() {
     { label: "Aliases", to: "/dashboard/aliases", desc: "Stable model aliases" },
   ];
   return (<ConsoleLayout><Page title="Settings" lede="Account, billing and routing surfaces.">
-    <div className="cat-grid">
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {cards.map((c) => (
-        <Link key={c.label} className="cat-card" to={c.to}>
+        <Link key={c.label} className="grid content-start gap-1 rounded-md border border-border bg-[var(--card)] p-4 text-foreground hover:border-border-strong hover:no-underline" to={c.to}>
           <strong>{c.label}</strong>
-          <span className="muted">{c.desc}</span>
+          <span className="text-muted-foreground">{c.desc}</span>
         </Link>
       ))}
     </div>

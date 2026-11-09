@@ -1,10 +1,19 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { api, formatMs } from "../lib/api";
-import type { RunMetrics } from "../lib/api";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { api, formatMs, type RunMetrics } from "../lib/api";
 import { compareChunk, type CompareFrame } from "../lib/compare-frame";
 import { ConsoleLayout } from "../components/ConsoleLayout";
+import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
-import "./playground.css";
+import { Input } from "../components/ui/input";
+import { Textarea } from "../components/ui/textarea";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "../components/ui/table";
 
 // Rebuilt playground: the server already streams the full run (SSE data
 // frames plus one trailing `event: metrics` frame) and this page finally
@@ -79,6 +88,8 @@ type CompareRun = {
   error: string | null;
   done: boolean;
 };
+
+const selectCls = "form-control w-full";
 
 export function PlaygroundPage2() {
   const [groups, setGroups] = useState<PricingGroup[] | null>(null);
@@ -298,30 +309,37 @@ export function PlaygroundPage2() {
   const allDone = runs?.length ? runs.every((r) => r.done) : false;
   const allFailed = allDone && (runs ?? []).every((r) => r.error);
 
+  const statusBadge = (s: "streaming" | "failed" | "complete" | "idle") =>
+    s === "failed" ? <Badge variant="destructive">failed</Badge>
+      : s === "complete" ? <Badge variant="ok">complete</Badge>
+      : s === "streaming" ? <Badge variant="info">streaming</Badge>
+      : <Badge variant="secondary">idle</Badge>;
+
   return (<ConsoleLayout>
-    <div className="stack">
+    <div className="grid gap-6">
       <div>
         <h1>Playground</h1>
-        <p className="lede muted">Run a streamed completion against the live router.</p>
+        <p className="measure text-base text-muted-foreground">Run a streamed completion against the live router.</p>
       </div>
-      <div className="pg-panels">
-        <section className="card pg-panel" aria-label="Request">
-          <label className="pg-inline">
+      <div className="grid gap-4 lg:grid-cols-2">
+        <section className="surface p-5" aria-label="Request">
+          <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
               checked={compare}
               onChange={(e) => setCompare(e.target.checked)}
               disabled={busy}
+              className="accent-[var(--primary)]"
             />
             Compare models
           </label>
           {compare ? (
-            <div className="pg-picks">
+            <div className="mt-3 grid gap-3">
               {compareModels.map((slug, i) => (
-                <label className="pg-field" key={i}>
-                  <span>Model {i + 1}</span>
+                <label className="grid gap-1" key={i}>
+                  <span className="eyebrow">Model {i + 1}</span>
                   <select
-                    className="select"
+                    className={selectCls}
                     value={slug}
                     onChange={(e) => setCompareAt(i, e.target.value)}
                     disabled={busy || groups === null}
@@ -343,7 +361,7 @@ export function PlaygroundPage2() {
               {compareModels.length < 3 ? (
                 <Button
                   type="button"
-                  variant="secondary"
+                  variant="outline"
                   size="sm"
                   disabled={busy || groups === null}
                   onClick={() => setCompareModels((cur) => [...cur, ""])}
@@ -353,10 +371,10 @@ export function PlaygroundPage2() {
               ) : null}
             </div>
           ) : (
-            <label className="pg-field">
-              <span>Model</span>
+            <label className="mt-3 grid gap-1">
+              <span className="eyebrow">Model</span>
               <select
-                className="select"
+                className={selectCls}
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
                 disabled={busy || groups === null}
@@ -375,34 +393,33 @@ export function PlaygroundPage2() {
               </select>
             </label>
           )}
-          {pricingError ? <p className="error" role="alert">{pricingError}</p> : null}
-          <details className="pg-details">
-            <summary>System prompt</summary>
-            <textarea
-              className="pg-textarea pg-textarea--system"
+          {pricingError ? <p className="mt-2 error-text" role="alert">{pricingError}</p> : null}
+          <details className="mt-3 rounded-md border border-border">
+            <summary className="cursor-pointer px-3 py-2 text-sm font-semibold">System prompt</summary>
+            <Textarea
+              className="min-h-24 rounded-none border-x-0 border-b-0 font-mono"
               value={system}
               onChange={(e) => setSystem(e.target.value)}
               placeholder="Optional instructions for the model…"
               aria-label="System prompt"
             />
           </details>
-          <label className="pg-field">
-            <span>Prompt</span>
-            <textarea
-              className="pg-textarea"
+          <label className="mt-3 grid gap-1">
+            <span className="eyebrow">Prompt</span>
+            <Textarea
+              className="min-h-32 font-mono"
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               placeholder="Ask anything…"
               aria-label="Prompt"
             />
           </label>
-          <details className="pg-details">
-            <summary>Advanced</summary>
-            <div className="pg-details-body">
-              <label className="pg-field">
-                <span>Temperature (0–2)</span>
-                <input
-                  className="input"
+          <details className="mt-3 rounded-md border border-border">
+            <summary className="cursor-pointer px-3 py-2 text-sm font-semibold">Advanced</summary>
+            <div className="grid gap-3 border-t border-border p-3">
+              <label className="grid gap-1">
+                <span className="eyebrow">Temperature (0–2)</span>
+                <Input
                   type="number"
                   min={0}
                   max={2}
@@ -413,10 +430,9 @@ export function PlaygroundPage2() {
                   aria-label="Temperature"
                 />
               </label>
-              <label className="pg-field">
-                <span>Max tokens</span>
-                <input
-                  className="input"
+              <label className="grid gap-1">
+                <span className="eyebrow">Max tokens</span>
+                <Input
                   type="number"
                   min={1}
                   step={1}
@@ -426,102 +442,101 @@ export function PlaygroundPage2() {
                   aria-label="Max tokens"
                 />
               </label>
-              <label className="pg-inline">
+              <label className="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
                   checked={jsonMode}
                   onChange={(e) => setJsonMode(e.target.checked)}
+                  className="accent-[var(--primary)]"
                 />
                 JSON mode
               </label>
             </div>
           </details>
-          <p className="pg-estimate">~{estimate.toLocaleString("en-US")} tokens (estimate)</p>
-          <div className="pg-actions">
+          <p className="mt-2 text-xs text-muted-foreground">~{estimate.toLocaleString("en-US")} tokens (estimate)</p>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
             <Button type="button" onClick={() => void run()} disabled={compare ? !canRunCompare : !canRun}>{busy ? "Running…" : "Run"}</Button>
             {busy ? <Button type="button" variant="secondary" onClick={stop}>Stop</Button> : null}
-            <Button type="button" variant="secondary" onClick={clear} disabled={busy}>Clear</Button>
+            <Button type="button" variant="outline" onClick={clear} disabled={busy}>Clear</Button>
           </div>
-          {error ? <p className="error" role="alert">{error}</p> : null}
+          {error ? <p className="mt-2 error-text" role="alert">{error}</p> : null}
         </section>
         {compare ? (
-          <section className="card pg-panel" aria-label="Comparison" aria-live="polite">
-            <div className="pg-response-head">
-              <h2 className="card-title">Comparison</h2>
-              <span className={`badge ${busy ? "badge-info" : allDone && !allFailed ? "badge-ok" : ""}`}>
-                {busy ? "streaming" : allFailed ? "failed" : allDone ? "complete" : runs?.length ? "streaming" : "idle"}
-              </span>
+          <section className="surface p-5" aria-label="Comparison" aria-live="polite">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-lg">Comparison</h2>
+              {statusBadge(busy ? "streaming" : allFailed ? "failed" : allDone ? "complete" : runs?.length ? "streaming" : "idle")}
             </div>
-            <div className="pg-compare-grid" style={{ "--pg-cols": compareModels.length } as React.CSSProperties}>
+            <div className="mt-3 grid gap-3" style={{ gridTemplateColumns: `repeat(${Math.max(compareModels.length, 1)}, minmax(0,1fr))` }}>
               {(runs ?? compareModels.map((m) => ({ model: m, output: "", metrics: null, error: null, done: false }))).map((r) => (
-                <div className={`pg-compare-col${r.model === fastest ? " pg-fast" : ""}${r.model === cheapest ? " pg-cheap" : ""}`} key={r.model}>
-                  <div className="pg-response-head">
-                    <h3 className="card-title">{r.model}</h3>
-                    {r.model === fastest ? <span className="badge badge-ok">fastest</span> : null}
-                    {r.model === cheapest ? <span className="badge badge-info">cheapest</span> : null}
+                <div key={r.model} className="flex min-w-0 flex-col gap-2 rounded-md border border-border bg-[var(--muted)] p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="text-sm">{r.model}</h3>
+                    {r.model === fastest ? <Badge variant="ok">fastest</Badge> : null}
+                    {r.model === cheapest ? <Badge variant="info">cheapest</Badge> : null}
                   </div>
-                  {r.error ? <p className="error" role="alert">{r.error}</p> : null}
-                  {r.output ? <pre className="pg-output pg-output--col">{r.output}</pre> : (
-                    <p className="pg-empty">{r.done ? "No output." : busy ? "Generating…" : "Idle."}</p>
+                  {r.error ? <p className="error-text" role="alert">{r.error}</p> : null}
+                  {r.output ? (
+                    <pre className="m-0 min-w-0 overflow-x-auto whitespace-pre-wrap font-mono text-xs leading-relaxed text-foreground">{r.output}</pre>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">{r.done ? "No output." : busy ? "Generating…" : "Idle."}</p>
                   )}
                 </div>
               ))}
             </div>
             {runs?.some((r) => r.metrics) ? (
-              <div className="table-wrap">
-                <table className="fr">
-                  <thead>
-                    <tr>
-                      <th>Model</th>
-                      <th>Latency</th>
-                      <th>Tokens in / out</th>
-                      <th>Cost</th>
-                      <th>Finish</th>
-                    </tr>
-                  </thead>
-                  <tbody>
+              <div className="mt-3">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="border-b border-border">
+                      <TableHead>Model</TableHead>
+                      <TableHead>Latency</TableHead>
+                      <TableHead>Tokens in/out</TableHead>
+                      <TableHead>Cost</TableHead>
+                      <TableHead>Finish</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
                     {runs.map((r) => (
-                      <tr key={r.model}>
-                        <td>{r.model}</td>
-                        <td className="num">{formatMs(r.metrics?.latencyMs ?? null)}</td>
-                        <td className="num">{r.metrics ? `${r.metrics.tokensIn ?? "—"} / ${r.metrics.tokensOut ?? "—"}` : "—"}</td>
-                        <td className="num">{fmtMicro(r.metrics?.costMicro)}</td>
-                        <td>{r.metrics?.status ?? r.error ?? "—"}</td>
-                      </tr>
+                      <TableRow key={r.model}>
+                        <TableCell>{r.model}</TableCell>
+                        <TableCell className="font-mono tabular-nums">{formatMs(r.metrics?.latencyMs ?? null)}</TableCell>
+                        <TableCell className="font-mono tabular-nums">{r.metrics ? `${r.metrics.tokensIn ?? "—"} / ${r.metrics.tokensOut ?? "—"}` : "—"}</TableCell>
+                        <TableCell className="font-mono tabular-nums">{fmtMicro(r.metrics?.costMicro)}</TableCell>
+                        <TableCell>{r.metrics?.status ?? r.error ?? "—"}</TableCell>
+                      </TableRow>
                     ))}
-                  </tbody>
-                </table>
+                  </TableBody>
+                </Table>
               </div>
             ) : null}
           </section>
         ) : (
-        <section className="card pg-panel" aria-label="Response" aria-live="polite">
-          <div className="pg-response-head">
-            <h2 className="card-title">Response</h2>
-            <span className={`badge ${busy ? "badge-info" : metrics ? "badge-ok" : ""}`}>
-              {busy ? "streaming" : metrics ? "complete" : "idle"}
-            </span>
+        <section className="surface p-5" aria-label="Response" aria-live="polite">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-lg">Response</h2>
+            {statusBadge(busy ? "streaming" : metrics ? "complete" : "idle")}
           </div>
-          <dl className="pg-metrics">
-            <div><dt>Model</dt><dd className="num">{metrics?.actualModel ?? (busy ? model : "—")}</dd></div>
-            <div><dt>Provider</dt><dd>{metrics?.provider ?? "—"}</dd></div>
-            <div><dt>Tokens in / out</dt><dd className="num">{metrics ? `${metrics.tokensIn ?? "—"} / ${metrics.tokensOut ?? "—"}` : "—"}</dd></div>
-            <div><dt>TTFT</dt><dd className="num">{formatMs(metrics?.ttftMs ?? null)}</dd></div>
-            <div><dt>Latency</dt><dd className="num">{formatMs(metrics?.latencyMs ?? null)}</dd></div>
-            <div><dt>Cost</dt><dd className="num">{fmtMicro(metrics?.costMicro)}</dd></div>
-            <div><dt>Attempts</dt><dd className="num">{metrics?.attempts ?? "—"}</dd></div>
-            <div><dt>Fallback</dt><dd>{metrics?.fallback == null ? "—" : metrics.fallback ? "yes" : "no"}</dd></div>
+          <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-4">
+            <div><dt className="eyebrow">Model</dt><dd className="m-0 font-mono tabular-nums">{metrics?.actualModel ?? (busy ? model : "—")}</dd></div>
+            <div><dt className="eyebrow">Provider</dt><dd className="m-0">{metrics?.provider ?? "—"}</dd></div>
+            <div><dt className="eyebrow">Tokens in/out</dt><dd className="m-0 font-mono tabular-nums">{metrics ? `${metrics.tokensIn ?? "—"} / ${metrics.tokensOut ?? "—"}` : "—"}</dd></div>
+            <div><dt className="eyebrow">TTFT</dt><dd className="m-0 font-mono tabular-nums">{formatMs(metrics?.ttftMs ?? null)}</dd></div>
+            <div><dt className="eyebrow">Latency</dt><dd className="m-0 font-mono tabular-nums">{formatMs(metrics?.latencyMs ?? null)}</dd></div>
+            <div><dt className="eyebrow">Cost</dt><dd className="m-0 font-mono tabular-nums">{fmtMicro(metrics?.costMicro)}</dd></div>
+            <div><dt className="eyebrow">Attempts</dt><dd className="m-0 font-mono tabular-nums">{metrics?.attempts ?? "—"}</dd></div>
+            <div><dt className="eyebrow">Fallback</dt><dd className="m-0">{metrics?.fallback == null ? "—" : metrics.fallback ? "yes" : "no"}</dd></div>
           </dl>
-          {busy ? <p className="pg-generating" role="status">Generating…</p> : null}
+          {busy ? <p className="mt-3 text-sm text-muted-foreground" role="status">Generating…</p> : null}
           {output ? (
-            <>
-              <pre className="pg-output">{output}</pre>
-              <div className="pg-actions">
+            <div className="mt-3">
+              <pre className="m-0 min-h-32 overflow-x-auto whitespace-pre-wrap rounded-md border border-border bg-[var(--muted)] p-3 font-mono text-sm leading-relaxed text-foreground">{output}</pre>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
                 <Button type="button" variant="secondary" size="sm" onClick={() => void copy()}>{copied ? "Copied" : "Copy"}</Button>
               </div>
-            </>
+            </div>
           ) : !busy && !metrics ? (
-            <p className="pg-empty">A run uses your account&apos;s key and appears in the request log.</p>
+            <p className="text-sm text-muted-foreground">A run uses your account&apos;s key and appears in the request log.</p>
           ) : null}
         </section>
         )}

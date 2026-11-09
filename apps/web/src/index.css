@@ -1,0 +1,338 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/*
+ * DESIGN.md §Responsive / §Motion — the two numeric scales Tailwind owns
+ * through theme tokens.
+ *
+ * `md` was Tailwind's 768px, but the design contract is "below 720px the
+ * member/admin sidebar is replaced by a 44px bar" (the original styles.css
+ * used `@media (max-width: 720px)`). Pinning `md` to 45rem restores that
+ * collapse point for every `md:`/`lg:` variant at once.
+ *
+ * The motion scale is two durations + one ease-out: a click lands in 120ms
+ * (durFast), entrances take 320ms (durMed), one `cubic-bezier(0.16, 1, 0.3, 1)`
+ * ease-out. Tailwind's defaults are 150ms ease-in-out; overriding the two
+ * theme keys below routes every `transition-*` utility through the spec'd
+ * curve. JS-driven motion (Reveal, CountUp) keeps its own constants at the
+ * same numbers — see Reveal.tsx / CountUp.tsx, which are the source there.
+ */
+@theme {
+  --breakpoint-md: 45rem;
+  --default-transition-duration: 120ms;
+  --default-transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/*
+ * MASTER.md dark theme — single source of truth is
+ * design-system/fudrouter/MASTER.md. These tokens replace the shadcn defaults
+ * token-for-token: green primary #22C55E on slate surfaces, JetBrains Mono
+ * headings + IBM Plex Sans body. Dark theme only by design (current behaviour);
+ * a future light mode is one `.light` variant block here, no page markup.
+ */
+:root {
+  /* Sticky-header / anchor-offset budget: 56px by default, stepping to 68px
+     at the 720px desktop boundary (see the `min-width: 45rem` rule below).
+     One token, consumed by `[id] { scroll-margin-top }` and the header. */
+  --header-h: 56px;
+
+  --background: #020617;
+  --foreground: #f8fafc;
+  --card: #0e1223;
+  --card-foreground: #f8fafc;
+  --popover: #0e1223;
+  --popover-foreground: #f8fafc;
+  --primary: #22c55e;
+  --primary-foreground: #0f172a;
+  --secondary: #1e293b;
+  --secondary-foreground: #ffffff;
+  --muted: #1a1e2f;
+  --muted-foreground: #94a3b8;
+  /* shadcn hover surface, NOT a CTA: components tint their hover with the
+     accent token, so it must stay a quiet slate rather than the green. */
+  --accent: #1e293b;
+  --accent-foreground: #ffffff;
+  --destructive: #ef4444;
+  --destructive-foreground: #000000;
+  --border: #334155;
+  --border-strong: #475569;
+  --input: #334155;
+  --ring: #ffffff;
+  --chart-1: #22c55e;
+  --chart-2: #38bdf8;
+  --chart-3: #f59e0b;
+  --chart-4: #a78bfa;
+  --chart-5: #fb7185;
+
+  /* Fluid heading ramp (floors at 320px, ceilings at 1280px). Consumed by the
+     unlayered h1..h6 rules below, not by Tailwind utilities. */
+  --text-h6: 1.125rem;
+  --text-h5: 1.25rem;
+  --text-h4: clamp(1.5rem, 1.4792rem + 0.1042vw, 1.5625rem);
+  --text-h3: clamp(1.75rem, 1.6667rem + 0.4167vw, 2rem);
+  --text-h2: clamp(2rem, 1.8333rem + 0.8333vw, 2.5rem);
+  --text-h1: clamp(2.25rem, 2rem + 1.25vw, 3rem);
+  --text-display: clamp(2.5rem, 2.0833rem + 2.0833vw, 3.75rem);
+  --text-display-xl: clamp(3rem, 2.4167rem + 2.9167vw, 4.75rem);
+  /* Stat figures are display numbers, not a heading level: larger than a card
+     title at every width but not a heading step. `--text-stat` replaces the
+     `text-[22px]` literal that used to drift around the tree. */
+  --text-stat: clamp(1.375rem, 1.25rem + 0.625vw, 1.75rem);
+  /* Mono text size (DESIGN.md `mono.fontSize`). The one static cut with no
+     Tailwind equivalent: `text-xs`/`text-sm`/`text-base`/`text-lg` already map
+     1:1 to caption/sm/base/lg (12/14/16/18px), so only 13px needs a token. */
+  --text-mono: 0.8125rem;
+  /* One content measure, one shell width: the header/footer rail and every
+     page column share these so the left edge never drifts. */
+  --shell-max: 1100px;
+  /* One content measure: body copy never runs wider than this. */
+  --measure: 65ch;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    color-scheme: dark;
+    /* Decorative full-bleeds (hero glows sized in 100vw) must not open a
+       horizontal scrollbar; clip keeps the sticky header working where
+       `hidden` would turn the root into a scroll container. */
+    overflow-x: clip;
+  }
+  body {
+    @apply bg-background text-foreground;
+    overflow-x: clip;
+  }
+  /* The header is sticky, so an anchor or skip-link target would sit hidden
+     under it; offset by the header height plus a breath. */
+  [id] {
+    scroll-margin-top: calc(var(--header-h) + 1rem);
+  }
+  button {
+    cursor: pointer;
+  }
+  /* WCAG 2.5.8: standalone form controls clear 24x24. Native checkboxes and
+     radios render ~13px and miss the floor; size the box and route its checked
+     state through the primary accent so the marker is a theme colour, not the
+     OS blue. One rule — every checkbox/radio in the tree inherits it. */
+  input[type='checkbox'] {
+    inline-size: 1.5rem;
+    block-size: 1.5rem;
+    accent-color: var(--primary);
+    flex: none;
+  }
+  input[type='radio'] {
+    inline-size: 1.5rem;
+    block-size: 1.5rem;
+    accent-color: var(--primary);
+    flex: none;
+  }
+  /* Bare `code`/`pre`/`kbd` (prose, code lists, block snippets) fall back to
+     Tailwind Preflight's generic `ui-monospace` stack. Route them to the
+     branded JetBrains Mono so every code glyph — classed or not — reads from
+     DESIGN.md's `mono` cut instead of the OS default. */
+  code,
+  pre,
+  kbd,
+  samp {
+    font-family: var(--font-mono);
+  }
+}
+
+/*
+ * Heading system — DELIBERATELY unlayered.
+ *
+ * Tailwind utilities (`text-3xl`, `tracking-tight`) live in `@layer utilities`,
+ * which outranks `@layer base`. The first conversion pass put explicit size and
+ * tracking utilities on every heading element, so the base `h1{}` rules never
+ * won and every page rendered static 30px/24px with negative mono tracking.
+ * Unlayered author CSS beats every layer regardless of order, so moving the
+ * ramp here restores the fluid hierarchy globally — one rule per level, no
+ * per-page size utilities to keep in lockstep.
+ *
+ * Two-face rule (Impeccable): display/headline glyphs run the humanist sans
+ * (IBM Plex Sans) so large text reads crisp rather than as a monospace field;
+ * JetBrains Mono is reserved for the small technical texture — eyebrows,
+ * labels, code, figures — where the fixed-width cut carries meaning. MASTER.md
+ * keeps JetBrains Mono as the "heading" family for the *mood*; the legibility
+ * rule pushes the actual display cut to the sans face.
+ */
+h1, h2, h3, h4, h5, h6 { font-family: var(--font-sans); letter-spacing: -0.015em; color: var(--foreground); text-wrap: balance; }
+h1 { font-size: var(--text-h1); font-weight: 700; letter-spacing: -0.015em; line-height: 1.15; }
+h2 { font-size: var(--text-h2); font-weight: 600; letter-spacing: -0.012em; line-height: 1.2; }
+h3 { font-size: var(--text-h3); font-weight: 600; letter-spacing: -0.008em; line-height: 1.3; }
+h4 { font-size: var(--text-h4); font-weight: 600; line-height: 1.35; }
+h5 { font-size: var(--text-h5); font-weight: 600; line-height: 1.4; }
+h6 { font-size: var(--text-h6); font-weight: 600; line-height: 1.4; }
+/* Hero display: one class, sized above h1 for the landing headline. */
+.display-xl { font-size: var(--text-display-xl); font-weight: 700; line-height: 1.05; letter-spacing: -0.02em; }
+.display { font-size: var(--text-display); font-weight: 700; line-height: 1.1; letter-spacing: -0.02em; }
+
+/*
+ * Console density. Console pages are scanned, not read: the marketing h1
+ * (36→48px) left a page title and a section heading 8px apart and spent 87px
+ * before any data. The console ladder is monotonic and compressed — page title
+ * at the h3 step, section at h4, sub at h5 — so the "one headline per page"
+ * idea survives without the marketing ramp. Scoped to the ConsoleLayout
+ * content wrapper so public pages keep the full ladder.
+ */
+.console-main h1 { font-size: var(--text-h3); line-height: 1.2; margin: 0; }
+.console-main h2 { font-size: var(--text-h4); }
+.console-main h3 { font-size: var(--text-h5); }
+
+/*
+ * Shared content rail. One gutter + one measure, applied to the sticky header,
+ * the page shell, and the footer, so the brand, the hero headline and the
+ * footer brand sit on one left edge at every width. The `max()` keeps a plain
+ * 24px gutter when the 1100px measure still fits; past that it centres the
+ * measure so content never rides the viewport edge. (Ported from the
+ * hand-rolled `--shell-max`/`--gutter` pair.)
+ */
+.shell-gutter {
+  padding-inline: max(24px, calc((100% - var(--shell-max)) / 2 + 24px));
+}
+
+/* Brand mark: a live green dot, not a logo file. Its pulse is the page's only
+   always-on motion and is disabled under prefers-reduced-motion with everything
+   else. Ported from the hand-rolled `brand::before`. */
+.brand-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--primary);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 45%, transparent);
+  animation: brand-pulse 2.8s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+@keyframes brand-pulse {
+  0%, 70%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 45%, transparent); }
+  35% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--primary) 0%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .brand-dot { animation: none; }
+  /* Collapse every transition the moment motion is off — the resting states
+     already look correct, so a skipped transition must render them instantly. */
+  * {
+    transition-duration: 0ms !important;
+    animation-duration: 0ms !important;
+  }
+}
+
+/* DESIGN.md §Responsive: below 720px the header thins from 68px to 56px. The
+   `min-width: 45rem` boundary is the same one `--breakpoint-md` drives, so the
+   header height, the nav collapse and `[id]` scroll-margin flip together — one
+   token, no boundary drifting a pixel off its neighbour. */
+@media (min-width: 45rem) {
+  :root { --header-h: 68px; }
+}
+
+/*
+ * Design atoms — the single source of truth for the class strings the pages
+ * repeated. The directives are: reusable components, never write a new one.
+ * A page needs a field/select/card surface? Import TODO the atom below, do not
+ * paste a `h-10 rounded-md border …` string per page — that was the duplication
+ * surface that let pages drift (admin/dashboard/playground each held a near-
+ * identical SELECT constant, and one omitted `w-full`).
+ *
+ * These are semantic aliases over Tailwind utilities, DELIBERATELY unlayered so
+ * they outrank `@layer utilities` the same way the heading ramp does. The one
+ * numeric scale is the 4px rhythm: a value off the scale is a decision to fix.
+ */
+.form-control {
+  height: 2.75rem;             /* 44px — the control height (DESIGN.md `input.height`) */
+  border-radius: var(--radius-md);
+  border: 1px solid var(--input);
+  background: var(--card);
+  padding-inline: 0.75rem;
+  font-size: 0.875rem;
+  color: var(--foreground);
+  /* No width here: selects in a filter row size to their content, fields in a
+     stack take `w-full` — the page composes the width, the atom owns the box. */
+}
+.form-control:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent);
+}
+.form-control[multiple] { height: auto; }
+.form-textarea {
+  min-height: 6rem;            /* 96px — the compact code/textarea floor */
+  padding-block: 0.5rem;
+  font-family: var(--font-mono);
+  resize: vertical;
+}
+
+/* Card surface: one recipe, shared by every bespoke card the pages draw. */
+.surface {
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background: var(--card);
+}
+
+/* Stat figure: the display-number step (`--text-stat`), tabular so a column of
+   figures holds its advance. Replaces the `text-[22px] font-mono tabular-nums`
+   run that used to drift between dashboard/admin/playground. */
+.stat-figure {
+  font-size: var(--text-stat);
+  font-weight: 600;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+}
+
+/* Body measure: the 65ch column long-form copy caps to. */
+.measure { max-width: var(--measure); }
+
+/* Eyebrow / field label: the small mono-caps marker. One class — it appeared as
+   the identical `text-xs font-semibold uppercase tracking-[0.08em]
+   text-muted-foreground` string in ~90 places, which means "change the label
+   voice" was a 90-line edit and every copy drifted a token at a time. */
+.eyebrow {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted-foreground);
+}
+
+/* Error prose: the one way a page states a failure. Weight/font inherited. */
+.error-text { font-size: 0.875rem; color: var(--destructive); }
+
+/* Brand/inline link: green and underlined at rest, matching the prose `a`
+   rule (WCAG 1.4.1 — colour must not be the only cue). Hover keeps the
+   underline and nudges nothing else. */
+.link { color: var(--primary); text-decoration: underline; }
+.link:hover { text-decoration-color: color-mix(in srgb, var(--primary) 60%, transparent); }

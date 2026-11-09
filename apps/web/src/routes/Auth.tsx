@@ -1,6 +1,12 @@
 import { useState } from 'react';
 import { Button } from '../components/ui/button';
-import { Card } from '../components/ui/card';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '../components/ui/card';
 
 // Discord is the ONLY sign-in method for fudrouter — there is no email or
 // password path and no separate signup page. `emailAndPassword: { enabled: false }`
@@ -40,7 +46,7 @@ function DiscordButton({ label }: { label: string }) {
 
   return (
     <>
-      {error && <p role="alert"><strong>{error}</strong></p>}
+      {error && <p role="alert"><strong className="text-[var(--destructive)]">{error}</strong></p>}
       <Button
         variant="secondary"
         disabled={pending}
@@ -63,14 +69,20 @@ function DiscordButton({ label }: { label: string }) {
 
 export function LoginPage() {
   return (
-    <div className="stack" style={{ maxWidth: 420, margin: '0 auto' }}>
+    <div className="mx-auto grid w-full max-w-[420px] gap-6">
       <h1>Log in</h1>
       <Card>
-        <DiscordButton label="Continue with Discord" />
-        {/* One line, because the button already says what it does. The previous
-            version ran three sentences explaining provisioning, roles and
-            signup — every one of them restated the button. */}
-        <p className="muted">No account needed — Discord makes one.</p>
+        <CardHeader>
+          <CardTitle>Log in</CardTitle>
+          <CardDescription>Continue with your Discord account.</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-2">
+          <DiscordButton label="Continue with Discord" />
+          {/* One line, because the button already says what it does. The previous
+              version ran three sentences explaining provisioning, roles and
+              signup — every one of them restated the button. */}
+          <p className="text-sm text-muted-foreground">No account needed — Discord makes one.</p>
+        </CardContent>
       </Card>
     </div>
   );

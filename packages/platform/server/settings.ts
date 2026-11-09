@@ -20,6 +20,14 @@ export type SystemSettings = {
 		// 0/negative keeps them forever, same opt-in rule as the rest. Absent on
 		// rows written before the key existed, so readers default it.
 		job_days?: number;
+		/**
+		 * Dead (`status = 'invalid'`) credentials older than this many days by
+		 * `updated_at`, and never referenced by `request_log`/`request_attempt`,
+		 * are deleted; 0/negative keeps them forever (same opt-in rule as
+		 * `job_days`). Absent on rows written before the key existed, so readers
+		 * default it.
+		 */
+		credential_days?: number;
 	} | null;
 	registration: { enabled: boolean } | null;
 	maintenance: { enabled: boolean } | null;

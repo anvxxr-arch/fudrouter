@@ -1,6 +1,20 @@
 import { Link } from 'react-router-dom';
-import { Badge, type Tone } from '../components/ui/badge';
-import { Card } from '../components/ui/card';
+import { Badge } from '../components/ui/badge';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '../components/ui/card';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../components/ui/table';
 
 // Six claims, each one a mechanism the deployment actually carries rather than
 // an adjective. The compliance cards below are the only place a status is
@@ -55,26 +69,26 @@ const LAYERS: [string, string][] = [
   ['Reverse proxy', 'Caddy with automatic HTTPS'],
 ];
 
-const COMPLIANCE: { name: string; status: string; tone: Tone; body: string }[] = [
+const COMPLIANCE: { name: string; status: string; variant: 'ok' | 'warn' | 'default' | 'info'; body: string }[] = [
   {
     name: 'GDPR',
     // "Ready" implied a self-serve export/erasure path. There is none: no
     // account-deletion, data-export or danger-zone route exists in
     // pages.mjs or anywhere in the tree — a human does it after an email.
     status: 'On request',
-    tone: 'info',
-    body: 'Access, export and erasure requests are handled manually by the operator on request — email privacy@your-domain with your account email. There is no self-serve export tool yet.',
+    variant: 'info',
+    body: 'Access, export and erasure requests are handled manually by the operator on request — email privacy@fudrouter.my.id with your account email. There is no self-serve export tool yet.',
   },
   {
     name: 'SOC 2 Type II',
     status: 'In progress',
-    tone: 'warn',
+    variant: 'warn',
     body: 'The controls are being documented and evidenced. We are not certified, and this page will not claim otherwise until an auditor says so.',
   },
   {
     name: 'Penetration test',
     status: 'Not yet scheduled',
-    tone: 'default',
+    variant: 'default',
     body: 'No external test has been commissioned yet. When one is booked the date goes here, not before.',
   },
 ];
@@ -87,82 +101,103 @@ const DISCLOSURE_SCOPE = [
   'Please do not test against another customer\u2019s data, and do not run automated scans against the shared host.',
 ];
 
+// Restores list markers and prose spacing for the native <ul> below — the base
+// reset strips markers, and a scoped sheet is the one way to reach them.
+const PROSE_STYLES = `
+.security-prose { display: grid; gap: 1rem; max-width: 34rem; align-content: start; }
+.security-prose > * { min-width: 0; }
+.security-prose p { margin: 0; color: #e2e8f0; }
+.security-prose ul { margin: 0; padding-left: 1.5rem; list-style: disc; color: #cbd5e1; }
+.security-prose li + li { margin-top: 0.25rem; }
+.security-prose li::marker { color: #64748b; }
+.security-prose code { font-family: var(--font-mono); font-size: 0.85em; color: #e2e8f0; }
+`;
+
 export function SecurityPage() {
   return (
-    <div className="stack">
-      <section aria-labelledby="security-hero">
+    <div className="grid gap-6">
+      <style dangerouslySetInnerHTML={{ __html: PROSE_STYLES }} />
+      <section className="grid gap-2" aria-labelledby="security-hero">
         <h1 id="security-hero">Security you can hand to your CISO</h1>
-        <p className="lede">
+        <p className="measure text-lg text-muted-foreground">
           FUDRouter is a hosted AI router: one API key, many upstream providers, metered per request. This page is the short
           version of how it is deployed and what it does with your data — the long version, with the code paths named, is in
           the security documentation.
         </p>
         <p>
-          <Link to="/docs/security">Read the security documentation</Link>
+          <Link className="link" to="/docs/security">Read the security documentation</Link>
         </p>
       </section>
 
-      <section aria-labelledby="security-trust">
+      <section className="grid gap-2" aria-labelledby="security-trust">
         <h2 id="security-trust">At a glance</h2>
-        <div className="row flex-wrap">
+        <div className="flex flex-wrap items-center gap-2">
           {TRUST.map((t) => (
-            <Badge key={t}>{t}</Badge>
+            <Badge key={t} variant="outline">{t}</Badge>
           ))}
         </div>
       </section>
 
-      <section aria-labelledby="security-pillars">
+      <section className="grid gap-2" aria-labelledby="security-pillars">
         <h2 id="security-pillars">What that means for you</h2>
-        <div className="cat-grid">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {PILLARS.map((p) => (
-            <Card key={p.title} title={p.title} desc={p.body} />
-          ))}
-        </div>
-      </section>
-
-      <section aria-labelledby="security-infra">
-        <h2 id="security-infra">Infrastructure</h2>
-        <div className="table-wrap">
-          <table className="fr">
-            <thead>
-              <tr>
-                <th>Layer</th>
-                <th>Measure</th>
-              </tr>
-            </thead>
-            <tbody>
-              {LAYERS.map(([layer, measure]) => (
-                <tr key={layer}>
-                  <td>{layer}</td>
-                  <td>{measure}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section aria-labelledby="security-compliance">
-        <h2 id="security-compliance">Compliance status</h2>
-        <div className="cat-grid">
-          {COMPLIANCE.map((c) => (
-            <Card key={c.name} title={c.name}>
-              <p className="row">
-                <Badge tone={c.tone}>{c.status}</Badge>
-              </p>
-              <p className="card-desc">{c.body}</p>
+            <Card key={p.title}>
+              <CardHeader>
+                <CardTitle>{p.title}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <CardDescription>{p.body}</CardDescription>
+              </CardContent>
             </Card>
           ))}
         </div>
       </section>
 
-      <section aria-labelledby="security-disclosure">
+      <section className="grid gap-2" aria-labelledby="security-infra">
+        <h2 id="security-infra">Infrastructure</h2>
+        <Table>
+          <TableHeader>
+            <TableRow className="border-b border-border">
+              <TableHead>Layer</TableHead>
+              <TableHead>Measure</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {LAYERS.map(([layer, measure]) => (
+              <TableRow key={layer}>
+                <TableCell>{layer}</TableCell>
+                <TableCell className="text-muted-foreground">{measure}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </section>
+
+      <section className="grid gap-2" aria-labelledby="security-compliance">
+        <h2 id="security-compliance">Compliance status</h2>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {COMPLIANCE.map((c) => (
+            <Card key={c.name}>
+              <CardHeader>
+                <CardTitle>{c.name}</CardTitle>
+                <CardDescription>
+                  <Badge variant={c.variant}>{c.status}</Badge>
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <CardDescription>{c.body}</CardDescription>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </section>
+
+      <section className="grid gap-2" aria-labelledby="security-disclosure">
         <h2 id="security-disclosure">Reporting a vulnerability</h2>
-        {/* .doc-prose is the repo's existing prose class (Docs.css) and the only
-            one that restores list markers the base reset strips. */}
-        <div className="doc-prose">
+        <div className="security-prose">
           <p>
-            Email <code>security@your-domain</code> with a description of the issue and how to reproduce it. We would rather
+            Email <code>security@fudrouter.my.id</code> with a description of the issue and how to reproduce it. We would rather
             hear about something small than read about it later.
           </p>
           <ul>

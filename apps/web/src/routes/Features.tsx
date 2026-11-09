@@ -1,15 +1,29 @@
 import { Link } from 'react-router-dom';
 import { Reveal } from '../components/Reveal';
-import { Badge, type Tone } from '../components/ui/badge';
+import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
-import { Card } from '../components/ui/card';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '../components/ui/card';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../components/ui/table';
 
-type FeatureStatus = 'GA' | 'Beta' | 'Planned';
+type FeatureStatus = 'GA' | 'Beta';
 
-// Badge tone per status: GA is the shipped default (ok), Beta is a warning to
-// a buyer, Planned is informational. One map so a status rename cannot leave a
-// card with the wrong color.
-const STATUS_TONE: Record<FeatureStatus, Tone> = { GA: 'ok', Beta: 'warn', Planned: 'info' };
+// Badge variant per status: GA is the shipped default (ok), Beta is a warning
+// to a buyer. One map so a status rename cannot leave a card with the wrong
+// color.
+const STATUS_VARIANT: Record<FeatureStatus, 'ok' | 'warn'> = { GA: 'ok', Beta: 'warn' };
 
 interface Feature {
   title: string;
@@ -28,11 +42,6 @@ const FEATURES: Feature[] = [
     title: 'Automatic fallback',
     desc: 'When a provider fails, the request walks the candidate list and retries the next provider without client involvement.',
     status: 'GA',
-  },
-  {
-    title: 'Combo routing',
-    desc: 'Compose an ordered fallback chain of models per request, with per-step conditions. On the roadmap for Q4 2026 — the data plane routes by capability and health today, not by a user-authored combo.',
-    status: 'Planned',
   },
   {
     title: 'Credit billing',
@@ -63,21 +72,6 @@ const FEATURES: Feature[] = [
     title: 'Model rewrite (alias)',
     desc: 'ResolveModel maps aliases to canonical slugs, so a client can keep its model name while the backend moves.',
     status: 'GA',
-  },
-  {
-    title: 'Token compression',
-    desc: 'Compress request context before it is billed or forwarded. On the roadmap for Q4 2026.',
-    status: 'Planned',
-  },
-  {
-    title: 'Batch API',
-    desc: 'Submit a batch of completions and let the router schedule them against provider rate limits. On the roadmap for Q4 2026.',
-    status: 'Planned',
-  },
-  {
-    title: 'MCP / A2A',
-    desc: 'Serve MCP and agent-to-agent protocols natively from the gateway. On the roadmap for Q1 2027.',
-    status: 'Planned',
   },
 ];
 
@@ -124,73 +118,75 @@ const ROADMAP: { quarter: string; items: string[] }[] = [
 export function FeaturesPage() {
   return (
     <Reveal>
-      <div className="stack">
+      <div className="grid gap-6">
         <h1>Features</h1>
-        <p className="lede muted">Everything in the router, and what's coming.</p>
+        <p className="measure text-lg text-muted-foreground">Everything in the router, and what's coming.</p>
 
-        <section aria-labelledby="features-grid">
+        <section className="grid gap-2" aria-labelledby="features-grid">
           <h2 id="features-grid">What ships today</h2>
-          <div className="cat-grid">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {FEATURES.map((f) => (
               <Card key={f.title}>
-                <div className="row" style={{ justifyContent: 'space-between' }}>
-                  <h3 className="card-title">{f.title}</h3>
-                  <Badge tone={STATUS_TONE[f.status]}>{f.status}</Badge>
-                </div>
-                <p className="card-desc">{f.desc}</p>
+                <CardHeader>
+                  <div className="flex items-center justify-between gap-2">
+                    <CardTitle>{f.title}</CardTitle>
+                    <Badge variant={STATUS_VARIANT[f.status]}>{f.status}</Badge>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <CardDescription>{f.desc}</CardDescription>
+                </CardContent>
               </Card>
             ))}
           </div>
         </section>
 
-        <section aria-labelledby="features-compare">
+        <section className="grid gap-2" aria-labelledby="features-compare">
           <h2 id="features-compare">How we compare</h2>
-          <div className="table-wrap">
-            <table className="fr">
-              <thead>
-                <tr>
-                  <th>Feature</th>
-                  <th>fudrouter</th>
-                  <th>9Router</th>
-                  <th>OmniRoute</th>
-                  <th>LiteLLM</th>
-                </tr>
-              </thead>
-              <tbody>
-                {COMPARISON.map((r) => (
-                  <tr key={r.feature}>
-                    <td>{r.feature}</td>
-                    <td>{r.us}</td>
-                    <td>{r.nine}</td>
-                    <td>{r.omni}</td>
-                    <td>{r.lite}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="muted text-sm">
+          <Table>
+            <TableHeader>
+              <TableRow className="border-b border-border">
+                <TableHead>Feature</TableHead>
+                <TableHead>fudrouter</TableHead>
+                <TableHead>9Router</TableHead>
+                <TableHead>OmniRoute</TableHead>
+                <TableHead>LiteLLM</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {COMPARISON.map((r) => (
+                <TableRow key={r.feature}>
+                  <TableCell className="whitespace-normal">{r.feature}</TableCell>
+                  <TableCell>{r.us}</TableCell>
+                  <TableCell>{r.nine}</TableCell>
+                  <TableCell>{r.omni}</TableCell>
+                  <TableCell>{r.lite}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          <p className="measure text-sm text-muted-foreground">
             Cells marked — are capabilities this project has not verified against the vendor's own documentation. Only the 9Router column carries
             entries, because the migration guide in this repository documents exactly what imports from it.
           </p>
         </section>
 
-        <section aria-labelledby="features-roadmap">
+        <section className="grid gap-2" aria-labelledby="features-roadmap">
           <h2 id="features-roadmap">Roadmap</h2>
-          <ol>
+          <ol className="m-0 grid gap-2 p-0">
             {ROADMAP.map((q) => (
-              <li key={q.quarter}>
-                <strong>{q.quarter}:</strong> {q.items.join(', ')}
+              <li key={q.quarter} className="text-muted-foreground">
+                <strong className="text-foreground">{q.quarter}:</strong> {q.items.join(', ')}
               </li>
             ))}
           </ol>
         </section>
 
-        <section className="pricing-cta" aria-labelledby="features-cta">
+        <section className="border-t border-border pt-6" aria-labelledby="features-cta">
           <h2 id="features-cta">Read the details</h2>
-          <div className="row">
+          <div className="flex flex-wrap items-center gap-3">
             <Link to="/docs">
-              <Button>Read the docs →</Button>
+              <Button>Read the docs</Button>
             </Link>
           </div>
         </section>

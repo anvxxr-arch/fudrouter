@@ -1,28 +1,40 @@
-import { useLayoutEffect, useRef, type CSSProperties, type HTMLAttributes, type ReactNode } from 'react';
+import { motion, useReducedMotion, type HTMLMotionProps } from 'motion/react';
+import type { ComponentType, ReactNode } from 'react';
 
 /**
  * Scroll entrance for a block.
  *
- * Why IntersectionObserver rather than the mount animation this replaced: a
- * mount fade only ever played for the first screenful. Everything below the fold
- * — which on the landing page is most of it — arrived already settled, so the
- * page read as a static document with one animated header. Observing the element
- * means each block animates when it is actually looked at.
+ * Why whileInView rather than a mount animation: a mount fade only ever played
+ * for the first screenful. Everything below the fold — which on the landing page
+ * is most of it — arrived already settled, so the page read as a static document
+ * with one animated header. An element animates when it is actually looked at.
  *
- * Correctness rules this keeps:
- *  - The hidden state is applied in useLayoutEffect, before paint, so a block
- *    never flashes at full opacity and then jumps to hidden.
- *  - A 1.2 s fallback reveals unconditionally. A browser without
- *    IntersectionObserver, or an element that never intersects, must show
- *    content, never hide it.
- *  - Reduced motion skips the whole thing: no hidden state, no observer.
+ * Correctness rules this keeps (from the IntersectionObserver version it
+ * replaced):
+ *  - Reduced motion skips the whole thing: `useReducedMotion` renders the final
+ *    state immediately — no hidden state, no observer.
  *  - Only opacity/transform animate, so nothing here can cause layout shift.
+ *  - A block below the fold simply waits for its viewport threshold; the
+ *    initial state is applied on mount, and a block that never intersects is
+ *    still animated in by the viewport observer, so content is never hidden.
  */
+export type RevealTag = 'div' | 'section' | 'article' | 'li';
+
+const MOTION_EASE = [0.16, 1, 0.3, 1] as const;
+const MOTION_MED_MS = 320;
+
+const TAG_MAP = {
+  div: motion.div,
+  section: motion.section,
+  article: motion.article,
+  li: motion.li,
+} as const;
+
 export function Reveal({
   children,
   delay = 0,
   className,
-  as: Tag = 'div',
+  as = 'div',
   ...rest
 }: {
   children: ReactNode;
@@ -31,52 +43,20 @@ export function Reveal({
   /** Extra classes (e.g. a card surface) so the reveal element IS the grid item. */
   className?: string;
   /** Render as the semantic element the content needs (section, li, article). */
-  as?: 'div' | 'section' | 'article' | 'li';
-} & Omit<HTMLAttributes<HTMLElement>, 'className' | 'children'>) {
-  const ref = useRef<HTMLElement>(null);
-
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    if (typeof IntersectionObserver === 'undefined') return;
-
-    el.dataset.reveal = 'hidden';
-    let done = false;
-    const show = () => {
-      if (done) return;
-      done = true;
-      el.dataset.reveal = 'shown';
-    };
-    const io = new IntersectionObserver(
-      (entries) => {
-        for (const e of entries) {
-          if (e.isIntersecting) {
-            show();
-            io.disconnect();
-          }
-        }
-      },
-      // Fire a little before the block is fully in view so the motion finishes
-      // as it settles, rather than starting when it is already being read.
-      { rootMargin: '0px 0px -8% 0px', threshold: 0.08 }
-    );
-    io.observe(el);
-    const fallback = window.setTimeout(show, 1200);
-    return () => {
-      io.disconnect();
-      window.clearTimeout(fallback);
-    };
-  }, []);
-
+  as?: RevealTag;
+} & Omit<HTMLMotionProps<RevealTag>, 'className' | 'children'>) {
+  const reduced = useReducedMotion();
+  const MotionTag = TAG_MAP[as] as ComponentType<HTMLMotionProps<RevealTag>>;
   return (
-    <Tag
-      ref={ref as never}
-      className={className ? `reveal ${className}` : 'reveal'}
-      style={{ '--reveal-delay': `${delay}ms` } as CSSProperties}
+    <MotionTag
+      initial={reduced ? false : { opacity: 0, y: 16 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: '0px 0px -8% 0px' }}
+      transition={{ duration: MOTION_MED_MS / 1000, delay: delay / 1000, ease: MOTION_EASE }}
+      className={className}
       {...rest}
     >
       {children}
-    </Tag>
+    </MotionTag>
   );
 }

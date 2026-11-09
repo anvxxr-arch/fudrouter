@@ -26,6 +26,7 @@ import {
 	encodeCallbackData,
 	decodeCallbackData,
 	handleTelegramWebhook,
+	createUpdateIdDedup,
 	TELEGRAM_SECRET_TOKEN_HEADER
 } from './telegram-transport.mjs';
 
@@ -91,19 +92,44 @@ test('verifySecretToken: matching token passes, mismatch fails', () => {
 	assert.equal(verifySecretToken(SECRET, undefined), false);
 });
 
-test('decodeCallbackData: round-trips an answer+claim and refuses garbage', () => {
-	const claim = { paymentId: 'pay_1', memberChatId: '100', memberName: '@member' };
-	const data = encodeCallbackData('yes', claim);
+test('decodeCallbackData: round-trips the compact {a,p} contract and refuses garbage', () => {
+	const data = encodeCallbackData('yes', { paymentId: 'pay_1' });
 	assert.equal(typeof data, 'string');
 
 	const decoded = decodeCallbackData(data);
 	assert.equal(decoded.answer, 'yes');
-	assert.deepEqual(decoded.claim, claim);
+	assert.deepEqual(decoded.claim, { paymentId: 'pay_1' }, 'claim carries ONLY paymentId (C1)');
 
 	assert.equal(decodeCallbackData(''), null);
 	assert.equal(decodeCallbackData('not-json'), null);
-	assert.equal(decodeCallbackData(JSON.stringify({ a: 'maybe' })), null, 'non-yes/no fails closed');
+	assert.equal(decodeCallbackData(JSON.stringify({ a: 'maybe', p: 'pay_1' })), null, 'non-yes/no fails closed');
 	assert.equal(decodeCallbackData(JSON.stringify({ a: 'yes' })), null, 'missing paymentId fails closed');
+	assert.equal(
+		decodeCallbackData(JSON.stringify({ a: 'yes', p: 'pay_1', c: '100', n: '@member' })),
+		null,
+		'legacy long-format {a,p,c,n} fails closed (C1)'
+	);
+});
+
+test('C1: a realistic 40-char payment id still fits the 64-byte callback_data limit', () => {
+	const paymentId = 'pay_' + 'x'.repeat(36);
+	assert.equal(paymentId.length, 40);
+	const data = encodeCallbackData('yes', { paymentId });
+	// EXACT byte count, not just "<= 64": the compact 2-key payload with a
+	// realistic 40-char payment id is 58 bytes. The old 4-field payload
+	// ({a,p,c,n}) was 67+ bytes — over Telegram's limit on every real payment,
+	// so every approval button was rejected by the Bot API.
+	assert.equal(Buffer.byteLength(data, 'utf8'), 58, `callback_data is ${Buffer.byteLength(data, 'utf8')} bytes`);
+	assert.ok(Buffer.byteLength(data, 'utf8') <= 64, 'must fit Telegram\'s 64-byte inline-button limit');
+	// And it must still round-trip.
+	assert.deepEqual(decodeCallbackData(data), { answer: 'yes', claim: { paymentId } });
+});
+
+test('C1: an over-limit payment id is refused loudly, never silently truncated', () => {
+	// `encodeApprovalCallbackData` (core) throws rather than truncate the
+	// idempotency anchor; the transport's encodeCallbackData surfaces it.
+	const paymentId = 'pay_' + 'x'.repeat(60); // 64-char id -> payload well over 64
+	assert.throws(() => encodeCallbackData('no', { paymentId }));
 });
 
 test('webhook: a message update is normalised and dispatched to the handler', async () => {
@@ -134,8 +160,7 @@ test('webhook: a message update is normalised and dispatched to the handler', as
 	assert.equal(seen[0].text, '/pay sub_7d');
 });
 
-test('webhook: a callback query is decoded and dispatched to the handler', async () => {
-	const claim = { paymentId: 'pay_1', memberChatId: '100', memberName: '@member' };
+test('webhook: a callback query is decoded and dispatched with the actor id (C2)', async () => {
 	const seen = [];
 	const c = ctx({
 		handleCallbackQuery: async (deps, query) => {
@@ -144,7 +169,14 @@ test('webhook: a callback query is decoded and dispatched to the handler', async
 		}
 	});
 	const req = makeReq(
-		{ update_id: 43, callback_query: { id: 'cb_1', data: encodeCallbackData('yes', claim) } },
+		{
+			update_id: 43,
+			callback_query: {
+				id: 'cb_1',
+				from: { id: 7000 },
+				data: encodeCallbackData('yes', { paymentId: 'pay_1' })
+			}
+		},
 		{ [TELEGRAM_SECRET_TOKEN_HEADER]: SECRET }
 	);
 
@@ -158,6 +190,7 @@ test('webhook: a callback query is decoded and dispatched to the handler', async
 	assert.equal(seen[0].id, 'cb_1');
 	assert.equal(seen[0].answer, 'yes');
 	assert.equal(seen[0].claim.paymentId, 'pay_1');
+	assert.equal(seen[0].actorId, '7000', 'the actor id is forwarded from callback_query.from.id (C2)');
 });
 
 test('webhook: unknown callback_data acks "Unknown action", never reaches the handler', async () => {
@@ -258,4 +291,36 @@ test('webhook: a proof upload flows through the REAL core handler into the claim
 		sent.some((s) => s.chatId === '9000' && /Payment claim/.test(s.text)),
 		'the primary approver receives the core approval prompt'
 	);
+});
+
+test('C5: a replayed (same-or-lower) update_id is short-circuited before dispatch', async () => {
+	const dedup = createUpdateIdDedup();
+	const nexted = [];
+	const body = { update_id: 77, message: { chat: { id: 100 }, from: { id: 5 }, text: '/plans' } };
+	const res = makeRes();
+
+	// First sighting passes through.
+	let n = 0;
+	dedup({ body }, res, () => { n++; });
+	assert.equal(n, 1, 'the first update passes');
+
+	// The same update_id replays -> dedup responds 200 and does NOT call next.
+	const res2 = makeRes();
+	let n2 = 0;
+	dedup({ body }, res2, () => { n2++; });
+	assert.equal(n2, 0, 'a replayed update_id must not reach the handler');
+	assert.equal(res2.statusCode, 200);
+	assert.equal(res2.body.result.reason, 'duplicate_update');
+
+	// A lower update_id (out-of-order/replay) is also refused.
+	const res3 = makeRes();
+	let n3 = 0;
+	dedup({ body: { ...body, update_id: 70 } }, res3, () => { n3++; });
+	assert.equal(n3, 0, 'a lower update_id must not reach the handler');
+
+	// A newer update_id passes.
+	const res4 = makeRes();
+	let n4 = 0;
+	dedup({ body: { ...body, update_id: 78 } }, res4, () => { n4++; });
+	assert.equal(n4, 1, 'a newer update passes');
 });

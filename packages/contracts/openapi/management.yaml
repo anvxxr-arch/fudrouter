@@ -9,7 +9,7 @@ info:
     Regenerate: npm run extract -w @fudrouter/contracts && npm run gen -w @fudrouter/contracts
     
     Paths, methods, path parameters and security are mechanically derived and therefore
-    exact. Request/response BODIES are intentionally NOT modelled — all 176 handlers return
+    exact. Request/response BODIES are intentionally NOT modelled — all 175 handlers return
     Drizzle result objects, and a fabricated schema would be worse than none. Each
     operation carries `x-source` pointing at the line that implements it.
     
@@ -30,7 +30,6 @@ tags:
   - name: models
   - name: pages
   - name: palette
-  - name: payment
   - name: playground
   - name: pricing
   - name: providers
@@ -45,7 +44,7 @@ paths:
       tags: [app]
       summary: "GET {*path}"
       description: |
-        Registered at apps/web/server/index.mjs:986.
+        Registered at apps/web/server/index.mjs:1066.
         Express 5 splat route: the trailing path segment is greedy.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
@@ -57,7 +56,7 @@ paths:
         - session: []
       x-source:
         file: apps/web/server/index.mjs
-        line: 986
+        line: 1066
       x-body-schema: unmodelled
       responses:
         "200":
@@ -76,13 +75,13 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/analytics"
       description: |
-        Registered at apps/web/server/admin.mjs:431.
+        Registered at apps/web/server/admin.mjs:437.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 431
+        line: 437
       x-body-schema: unmodelled
       responses:
         "200":
@@ -101,13 +100,13 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/billing"
       description: |
-        Registered at apps/web/server/admin.mjs:495.
+        Registered at apps/web/server/admin.mjs:501.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 495
+        line: 501
       x-body-schema: unmodelled
       responses:
         "200":
@@ -126,7 +125,7 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/billing/{accountId}"
       description: |
-        Registered at apps/web/server/admin.mjs:553.
+        Registered at apps/web/server/admin.mjs:559.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: accountId
@@ -137,7 +136,7 @@ paths:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 553
+        line: 559
       x-body-schema: unmodelled
       responses:
         "200":
@@ -156,13 +155,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/billing/credit"
       description: |
-        Registered at apps/web/server/admin.mjs:595.
+        Registered at apps/web/server/admin.mjs:601.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 595
+        line: 601
       x-body-schema: unmodelled
       responses:
         "200":
@@ -181,13 +180,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/billing/resync"
       description: |
-        Registered at apps/web/server/admin.mjs:642.
+        Registered at apps/web/server/admin.mjs:648.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 642
+        line: 648
       x-body-schema: unmodelled
       responses:
         "200":
@@ -206,13 +205,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/billing/status"
       description: |
-        Registered at apps/web/server/admin.mjs:664.
+        Registered at apps/web/server/admin.mjs:670.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 664
+        line: 670
       x-body-schema: unmodelled
       responses:
         "200":
@@ -231,13 +230,13 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/connections"
       description: |
-        Registered at apps/web/server/admin.mjs:680.
+        Registered at apps/web/server/admin.mjs:686.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 680
+        line: 686
       x-body-schema: unmodelled
       responses:
         "200":
@@ -256,13 +255,13 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/health"
       description: |
-        Registered at apps/web/server/admin.mjs:695.
+        Registered at apps/web/server/admin.mjs:701.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 695
+        line: 701
       x-body-schema: unmodelled
       responses:
         "200":
@@ -281,13 +280,13 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/incidents"
       description: |
-        Registered at apps/web/server/admin.mjs:724.
+        Registered at apps/web/server/admin.mjs:730.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 724
+        line: 730
       x-body-schema: unmodelled
       responses:
         "200":
@@ -306,13 +305,13 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/keys"
       description: |
-        Registered at apps/web/server/admin.mjs:739.
+        Registered at apps/web/server/admin.mjs:745.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 739
+        line: 745
       x-body-schema: unmodelled
       responses:
         "200":
@@ -331,13 +330,13 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/models"
       description: |
-        Registered at apps/web/server/admin.mjs:760.
+        Registered at apps/web/server/admin.mjs:766.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 760
+        line: 766
       x-body-schema: unmodelled
       responses:
         "200":
@@ -356,7 +355,7 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/models/{id}"
       description: |
-        Registered at apps/web/server/admin.mjs:1052.
+        Registered at apps/web/server/admin.mjs:1058.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: id
@@ -367,7 +366,7 @@ paths:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1052
+        line: 1058
       x-body-schema: unmodelled
       responses:
         "200":
@@ -386,7 +385,7 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/models/{id}/mapping"
       description: |
-        Registered at apps/web/server/admin.mjs:1304.
+        Registered at apps/web/server/admin.mjs:1310.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: id
@@ -397,7 +396,7 @@ paths:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1304
+        line: 1310
       x-body-schema: unmodelled
       responses:
         "200":
@@ -416,7 +415,7 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/models/{id}/update"
       description: |
-        Registered at apps/web/server/admin.mjs:1276.
+        Registered at apps/web/server/admin.mjs:1282.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: id
@@ -427,7 +426,7 @@ paths:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1276
+        line: 1282
       x-body-schema: unmodelled
       responses:
         "200":
@@ -446,13 +445,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/models/bulk"
       description: |
-        Registered at apps/web/server/admin.mjs:1074.
+        Registered at apps/web/server/admin.mjs:1080.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1074
+        line: 1080
       x-body-schema: unmodelled
       responses:
         "200":
@@ -471,13 +470,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/models/create"
       description: |
-        Registered at apps/web/server/admin.mjs:1107.
+        Registered at apps/web/server/admin.mjs:1113.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1107
+        line: 1113
       x-body-schema: unmodelled
       responses:
         "200":
@@ -496,13 +495,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/models/delete"
       description: |
-        Registered at apps/web/server/admin.mjs:1177.
+        Registered at apps/web/server/admin.mjs:1183.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1177
+        line: 1183
       x-body-schema: unmodelled
       responses:
         "200":
@@ -521,13 +520,13 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/models/mappings"
       description: |
-        Registered at apps/web/server/admin.mjs:1031.
+        Registered at apps/web/server/admin.mjs:1037.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1031
+        line: 1037
       x-body-schema: unmodelled
       responses:
         "200":
@@ -546,13 +545,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/models/mappings/create"
       description: |
-        Registered at apps/web/server/admin.mjs:1195.
+        Registered at apps/web/server/admin.mjs:1201.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1195
+        line: 1201
       x-body-schema: unmodelled
       responses:
         "200":
@@ -571,13 +570,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/models/mappings/delete"
       description: |
-        Registered at apps/web/server/admin.mjs:1262.
+        Registered at apps/web/server/admin.mjs:1268.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1262
+        line: 1268
       x-body-schema: unmodelled
       responses:
         "200":
@@ -596,13 +595,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/models/mappings/update"
       description: |
-        Registered at apps/web/server/admin.mjs:1231.
+        Registered at apps/web/server/admin.mjs:1237.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1231
+        line: 1237
       x-body-schema: unmodelled
       responses:
         "200":
@@ -621,13 +620,13 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/models/pricing"
       description: |
-        Registered at apps/web/server/admin.mjs:1038.
+        Registered at apps/web/server/admin.mjs:1044.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1038
+        line: 1044
       x-body-schema: unmodelled
       responses:
         "200":
@@ -646,13 +645,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/models/pricing/apply"
       description: |
-        Registered at apps/web/server/admin.mjs:1350.
+        Registered at apps/web/server/admin.mjs:1356.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1350
+        line: 1356
       x-body-schema: unmodelled
       responses:
         "200":
@@ -671,13 +670,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/models/pricing/preview"
       description: |
-        Registered at apps/web/server/admin.mjs:1338.
+        Registered at apps/web/server/admin.mjs:1344.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1338
+        line: 1344
       x-body-schema: unmodelled
       responses:
         "200":
@@ -696,13 +695,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/models/provider"
       description: |
-        Registered at apps/web/server/admin.mjs:1090.
+        Registered at apps/web/server/admin.mjs:1096.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1090
+        line: 1096
       x-body-schema: unmodelled
       responses:
         "200":
@@ -721,13 +720,13 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/models/sync"
       description: |
-        Registered at apps/web/server/admin.mjs:1048.
+        Registered at apps/web/server/admin.mjs:1054.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1048
+        line: 1054
       x-body-schema: unmodelled
       responses:
         "200":
@@ -746,13 +745,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/models/sync/apply"
       description: |
-        Registered at apps/web/server/admin.mjs:1416.
+        Registered at apps/web/server/admin.mjs:1422.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1416
+        line: 1422
       x-body-schema: unmodelled
       responses:
         "200":
@@ -771,13 +770,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/models/sync/fetch"
       description: |
-        Registered at apps/web/server/admin.mjs:1374.
+        Registered at apps/web/server/admin.mjs:1380.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1374
+        line: 1380
       x-body-schema: unmodelled
       responses:
         "200":
@@ -796,13 +795,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/models/update"
       description: |
-        Registered at apps/web/server/admin.mjs:1147.
+        Registered at apps/web/server/admin.mjs:1153.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1147
+        line: 1153
       x-body-schema: unmodelled
       responses:
         "200":
@@ -846,13 +845,13 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/providers"
       description: |
-        Registered at apps/web/server/admin.mjs:825.
+        Registered at apps/web/server/admin.mjs:831.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 825
+        line: 831
       x-body-schema: unmodelled
       responses:
         "200":
@@ -871,7 +870,7 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/providers/{id}"
       description: |
-        Registered at apps/web/server/admin.mjs:1553.
+        Registered at apps/web/server/admin.mjs:1559.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: id
@@ -882,7 +881,7 @@ paths:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1553
+        line: 1559
       x-body-schema: unmodelled
       responses:
         "200":
@@ -901,7 +900,7 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/providers/{id}/chat"
       description: |
-        Registered at apps/web/server/admin.mjs:1777.
+        Registered at apps/web/server/admin.mjs:1783.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: id
@@ -912,7 +911,7 @@ paths:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1777
+        line: 1783
       x-body-schema: unmodelled
       responses:
         "200":
@@ -931,7 +930,7 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/providers/{id}/connections"
       description: |
-        Registered at apps/web/server/admin.mjs:1525.
+        Registered at apps/web/server/admin.mjs:1531.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: id
@@ -942,7 +941,7 @@ paths:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1525
+        line: 1531
       x-body-schema: unmodelled
       responses:
         "200":
@@ -961,7 +960,7 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/providers/{id}/connections/create"
       description: |
-        Registered at apps/web/server/admin.mjs:1831.
+        Registered at apps/web/server/admin.mjs:1837.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: id
@@ -972,7 +971,7 @@ paths:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1831
+        line: 1837
       x-body-schema: unmodelled
       responses:
         "200":
@@ -991,7 +990,7 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/providers/{id}/credentials"
       description: |
-        Registered at apps/web/server/admin.mjs:1534.
+        Registered at apps/web/server/admin.mjs:1540.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: id
@@ -1002,7 +1001,7 @@ paths:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1534
+        line: 1540
       x-body-schema: unmodelled
       responses:
         "200":
@@ -1021,7 +1020,7 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/providers/{id}/disable"
       description: |
-        Registered at apps/web/server/admin.mjs:1700.
+        Registered at apps/web/server/admin.mjs:1706.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: id
@@ -1032,7 +1031,7 @@ paths:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1700
+        line: 1706
       x-body-schema: unmodelled
       responses:
         "200":
@@ -1051,7 +1050,7 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/providers/{id}/enable"
       description: |
-        Registered at apps/web/server/admin.mjs:1652.
+        Registered at apps/web/server/admin.mjs:1658.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: id
@@ -1062,7 +1061,7 @@ paths:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1652
+        line: 1658
       x-body-schema: unmodelled
       responses:
         "200":
@@ -1081,7 +1080,7 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/providers/{id}/fetchCatalog"
       description: |
-        Registered at apps/web/server/admin.mjs:1634.
+        Registered at apps/web/server/admin.mjs:1640.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: id
@@ -1092,7 +1091,7 @@ paths:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1634
+        line: 1640
       x-body-schema: unmodelled
       responses:
         "200":
@@ -1111,7 +1110,7 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/providers/{id}/strategy"
       description: |
-        Registered at apps/web/server/admin.mjs:1804.
+        Registered at apps/web/server/admin.mjs:1810.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: id
@@ -1122,7 +1121,7 @@ paths:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1804
+        line: 1810
       x-body-schema: unmodelled
       responses:
         "200":
@@ -1141,7 +1140,7 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/providers/{id}/testAll"
       description: |
-        Registered at apps/web/server/admin.mjs:1733.
+        Registered at apps/web/server/admin.mjs:1739.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: id
@@ -1152,7 +1151,7 @@ paths:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1733
+        line: 1739
       x-body-schema: unmodelled
       responses:
         "200":
@@ -1171,7 +1170,7 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/providers/{id}/testCredential"
       description: |
-        Registered at apps/web/server/admin.mjs:1713.
+        Registered at apps/web/server/admin.mjs:1719.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: id
@@ -1182,7 +1181,7 @@ paths:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1713
+        line: 1719
       x-body-schema: unmodelled
       responses:
         "200":
@@ -1201,7 +1200,7 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/providers/{id}/testModel"
       description: |
-        Registered at apps/web/server/admin.mjs:1752.
+        Registered at apps/web/server/admin.mjs:1758.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: id
@@ -1212,7 +1211,7 @@ paths:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1752
+        line: 1758
       x-body-schema: unmodelled
       responses:
         "200":
@@ -1231,7 +1230,7 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/providers/{id}/verification"
       description: |
-        Registered at apps/web/server/admin.mjs:1591.
+        Registered at apps/web/server/admin.mjs:1597.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: id
@@ -1242,7 +1241,7 @@ paths:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1591
+        line: 1597
       x-body-schema: unmodelled
       responses:
         "200":
@@ -1261,7 +1260,7 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/providers/{id}/verify"
       description: |
-        Registered at apps/web/server/admin.mjs:1619.
+        Registered at apps/web/server/admin.mjs:1625.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: id
@@ -1272,7 +1271,7 @@ paths:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1619
+        line: 1625
       x-body-schema: unmodelled
       responses:
         "200":
@@ -1291,13 +1290,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/providers/connections/delete"
       description: |
-        Registered at apps/web/server/admin.mjs:1871.
+        Registered at apps/web/server/admin.mjs:1877.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1871
+        line: 1877
       x-body-schema: unmodelled
       responses:
         "200":
@@ -1316,13 +1315,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/providers/connections/update"
       description: |
-        Registered at apps/web/server/admin.mjs:1852.
+        Registered at apps/web/server/admin.mjs:1858.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1852
+        line: 1858
       x-body-schema: unmodelled
       responses:
         "200":
@@ -1341,13 +1340,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/providers/create"
       description: |
-        Registered at apps/web/server/admin.mjs:1463.
+        Registered at apps/web/server/admin.mjs:1469.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1463
+        line: 1469
       x-body-schema: unmodelled
       responses:
         "200":
@@ -1366,13 +1365,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/providers/credentials/create"
       description: |
-        Registered at apps/web/server/admin.mjs:1893.
+        Registered at apps/web/server/admin.mjs:1899.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1893
+        line: 1899
       x-body-schema: unmodelled
       responses:
         "200":
@@ -1391,13 +1390,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/providers/credentials/delete"
       description: |
-        Registered at apps/web/server/admin.mjs:1981.
+        Registered at apps/web/server/admin.mjs:1987.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1981
+        line: 1987
       x-body-schema: unmodelled
       responses:
         "200":
@@ -1416,13 +1415,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/providers/credentials/disable"
       description: |
-        Registered at apps/web/server/admin.mjs:1952.
+        Registered at apps/web/server/admin.mjs:1958.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1952
+        line: 1958
       x-body-schema: unmodelled
       responses:
         "200":
@@ -1441,13 +1440,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/providers/credentials/enable"
       description: |
-        Registered at apps/web/server/admin.mjs:1953.
+        Registered at apps/web/server/admin.mjs:1959.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1953
+        line: 1959
       x-body-schema: unmodelled
       responses:
         "200":
@@ -1466,13 +1465,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/providers/credentials/revoke"
       description: |
-        Registered at apps/web/server/admin.mjs:1969.
+        Registered at apps/web/server/admin.mjs:1975.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1969
+        line: 1975
       x-body-schema: unmodelled
       responses:
         "200":
@@ -1491,13 +1490,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/providers/credentials/rotate"
       description: |
-        Registered at apps/web/server/admin.mjs:1954.
+        Registered at apps/web/server/admin.mjs:1960.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1954
+        line: 1960
       x-body-schema: unmodelled
       responses:
         "200":
@@ -1516,13 +1515,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/providers/credentials/update"
       description: |
-        Registered at apps/web/server/admin.mjs:1920.
+        Registered at apps/web/server/admin.mjs:1926.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1920
+        line: 1926
       x-body-schema: unmodelled
       responses:
         "200":
@@ -1541,13 +1540,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/providers/delete"
       description: |
-        Registered at apps/web/server/admin.mjs:1510.
+        Registered at apps/web/server/admin.mjs:1516.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1510
+        line: 1516
       x-body-schema: unmodelled
       responses:
         "200":
@@ -1566,13 +1565,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/providers/update"
       description: |
-        Registered at apps/web/server/admin.mjs:1486.
+        Registered at apps/web/server/admin.mjs:1492.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1486
+        line: 1492
       x-body-schema: unmodelled
       responses:
         "200":
@@ -1591,13 +1590,13 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/requests"
       description: |
-        Registered at apps/web/server/admin.mjs:861.
+        Registered at apps/web/server/admin.mjs:867.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 861
+        line: 867
       x-body-schema: unmodelled
       responses:
         "200":
@@ -1616,7 +1615,7 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/requests/{id}"
       description: |
-        Registered at apps/web/server/admin.mjs:1994.
+        Registered at apps/web/server/admin.mjs:2000.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: id
@@ -1627,7 +1626,7 @@ paths:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 1994
+        line: 2000
       x-body-schema: unmodelled
       responses:
         "200":
@@ -1646,13 +1645,13 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/routing"
       description: |
-        Registered at apps/web/server/admin.mjs:893.
+        Registered at apps/web/server/admin.mjs:899.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 893
+        line: 899
       x-body-schema: unmodelled
       responses:
         "200":
@@ -1671,13 +1670,13 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/routing/circuit-breakers"
       description: |
-        Registered at apps/web/server/admin.mjs:2007.
+        Registered at apps/web/server/admin.mjs:2013.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2007
+        line: 2013
       x-body-schema: unmodelled
       responses:
         "200":
@@ -1696,13 +1695,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/routing/circuit-breakers/create"
       description: |
-        Registered at apps/web/server/admin.mjs:2045.
+        Registered at apps/web/server/admin.mjs:2051.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2045
+        line: 2051
       x-body-schema: unmodelled
       responses:
         "200":
@@ -1721,13 +1720,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/routing/circuit-breakers/delete"
       description: |
-        Registered at apps/web/server/admin.mjs:2072.
+        Registered at apps/web/server/admin.mjs:2078.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2072
+        line: 2078
       x-body-schema: unmodelled
       responses:
         "200":
@@ -1746,13 +1745,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/routing/circuit-breakers/update"
       description: |
-        Registered at apps/web/server/admin.mjs:2059.
+        Registered at apps/web/server/admin.mjs:2065.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2059
+        line: 2065
       x-body-schema: unmodelled
       responses:
         "200":
@@ -1771,13 +1770,13 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/routing/fallbacks"
       description: |
-        Registered at apps/web/server/admin.mjs:2084.
+        Registered at apps/web/server/admin.mjs:2090.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2084
+        line: 2090
       x-body-schema: unmodelled
       responses:
         "200":
@@ -1796,13 +1795,13 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/routing/policies"
       description: |
-        Registered at apps/web/server/admin.mjs:2089.
+        Registered at apps/web/server/admin.mjs:2095.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2089
+        line: 2095
       x-body-schema: unmodelled
       responses:
         "200":
@@ -1821,13 +1820,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/routing/policies/create"
       description: |
-        Registered at apps/web/server/admin.mjs:2115.
+        Registered at apps/web/server/admin.mjs:2121.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2115
+        line: 2121
       x-body-schema: unmodelled
       responses:
         "200":
@@ -1846,13 +1845,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/routing/policies/delete"
       description: |
-        Registered at apps/web/server/admin.mjs:2142.
+        Registered at apps/web/server/admin.mjs:2148.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2142
+        line: 2148
       x-body-schema: unmodelled
       responses:
         "200":
@@ -1871,13 +1870,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/routing/policies/update"
       description: |
-        Registered at apps/web/server/admin.mjs:2127.
+        Registered at apps/web/server/admin.mjs:2133.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2127
+        line: 2133
       x-body-schema: unmodelled
       responses:
         "200":
@@ -1896,13 +1895,13 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/routing/simulations"
       description: |
-        Registered at apps/web/server/admin.mjs:2159.
+        Registered at apps/web/server/admin.mjs:2165.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2159
+        line: 2165
       x-body-schema: unmodelled
       responses:
         "200":
@@ -1921,13 +1920,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/routing/simulations/simulate"
       description: |
-        Registered at apps/web/server/admin.mjs:2163.
+        Registered at apps/web/server/admin.mjs:2169.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2163
+        line: 2169
       x-body-schema: unmodelled
       responses:
         "200":
@@ -1946,13 +1945,13 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/routing/strategies"
       description: |
-        Registered at apps/web/server/admin.mjs:2154.
+        Registered at apps/web/server/admin.mjs:2160.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2154
+        line: 2160
       x-body-schema: unmodelled
       responses:
         "200":
@@ -1971,13 +1970,13 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/security"
       description: |
-        Registered at apps/web/server/admin.mjs:919.
+        Registered at apps/web/server/admin.mjs:925.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 919
+        line: 925
       x-body-schema: unmodelled
       responses:
         "200":
@@ -1996,13 +1995,13 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/security/abuse"
       description: |
-        Registered at apps/web/server/admin.mjs:2273.
+        Registered at apps/web/server/admin.mjs:2279.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2273
+        line: 2279
       x-body-schema: unmodelled
       responses:
         "200":
@@ -2021,13 +2020,13 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/security/audit-log"
       description: |
-        Registered at apps/web/server/admin.mjs:2289.
+        Registered at apps/web/server/admin.mjs:2295.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2289
+        line: 2295
       x-body-schema: unmodelled
       responses:
         "200":
@@ -2046,13 +2045,13 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/security/blocked-ips"
       description: |
-        Registered at apps/web/server/admin.mjs:2301.
+        Registered at apps/web/server/admin.mjs:2307.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2301
+        line: 2307
       x-body-schema: unmodelled
       responses:
         "200":
@@ -2071,13 +2070,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/security/blocked-ips/add"
       description: |
-        Registered at apps/web/server/admin.mjs:2305.
+        Registered at apps/web/server/admin.mjs:2311.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2305
+        line: 2311
       x-body-schema: unmodelled
       responses:
         "200":
@@ -2096,13 +2095,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/security/blocked-ips/remove"
       description: |
-        Registered at apps/web/server/admin.mjs:2320.
+        Registered at apps/web/server/admin.mjs:2326.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2320
+        line: 2326
       x-body-schema: unmodelled
       responses:
         "200":
@@ -2121,13 +2120,13 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/security/blocked-keys"
       description: |
-        Registered at apps/web/server/admin.mjs:2332.
+        Registered at apps/web/server/admin.mjs:2338.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2332
+        line: 2338
       x-body-schema: unmodelled
       responses:
         "200":
@@ -2146,13 +2145,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/security/blocked-keys/add"
       description: |
-        Registered at apps/web/server/admin.mjs:2345.
+        Registered at apps/web/server/admin.mjs:2351.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2345
+        line: 2351
       x-body-schema: unmodelled
       responses:
         "200":
@@ -2171,13 +2170,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/security/blocked-keys/remove"
       description: |
-        Registered at apps/web/server/admin.mjs:2359.
+        Registered at apps/web/server/admin.mjs:2365.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2359
+        line: 2365
       x-body-schema: unmodelled
       responses:
         "200":
@@ -2196,13 +2195,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/security/create"
       description: |
-        Registered at apps/web/server/admin.mjs:2218.
+        Registered at apps/web/server/admin.mjs:2224.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2218
+        line: 2224
       x-body-schema: unmodelled
       responses:
         "200":
@@ -2221,13 +2220,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/security/delete"
       description: |
-        Registered at apps/web/server/admin.mjs:2261.
+        Registered at apps/web/server/admin.mjs:2267.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2261
+        line: 2267
       x-body-schema: unmodelled
       responses:
         "200":
@@ -2246,13 +2245,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/security/update"
       description: |
-        Registered at apps/web/server/admin.mjs:2239.
+        Registered at apps/web/server/admin.mjs:2245.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2239
+        line: 2245
       x-body-schema: unmodelled
       responses:
         "200":
@@ -2271,13 +2270,13 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/settings"
       description: |
-        Registered at apps/web/server/admin.mjs:929.
+        Registered at apps/web/server/admin.mjs:935.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 929
+        line: 935
       x-body-schema: unmodelled
       responses:
         "200":
@@ -2296,13 +2295,13 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/settings/feature-flags"
       description: |
-        Registered at apps/web/server/admin.mjs:2465.
+        Registered at apps/web/server/admin.mjs:2471.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2465
+        line: 2471
       x-body-schema: unmodelled
       responses:
         "200":
@@ -2321,13 +2320,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/settings/feature-flags/create"
       description: |
-        Registered at apps/web/server/admin.mjs:2469.
+        Registered at apps/web/server/admin.mjs:2475.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2469
+        line: 2475
       x-body-schema: unmodelled
       responses:
         "200":
@@ -2346,13 +2345,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/settings/feature-flags/delete"
       description: |
-        Registered at apps/web/server/admin.mjs:2520.
+        Registered at apps/web/server/admin.mjs:2526.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2520
+        line: 2526
       x-body-schema: unmodelled
       responses:
         "200":
@@ -2371,13 +2370,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/settings/feature-flags/toggle"
       description: |
-        Registered at apps/web/server/admin.mjs:2508.
+        Registered at apps/web/server/admin.mjs:2514.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2508
+        line: 2514
       x-body-schema: unmodelled
       responses:
         "200":
@@ -2396,13 +2395,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/settings/feature-flags/update"
       description: |
-        Registered at apps/web/server/admin.mjs:2487.
+        Registered at apps/web/server/admin.mjs:2493.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2487
+        line: 2493
       x-body-schema: unmodelled
       responses:
         "200":
@@ -2421,13 +2420,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/settings/setBillingDefaults"
       description: |
-        Registered at apps/web/server/admin.mjs:2451.
+        Registered at apps/web/server/admin.mjs:2457.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2451
+        line: 2457
       x-body-schema: unmodelled
       responses:
         "200":
@@ -2446,13 +2445,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/settings/updateDefaultRouting"
       description: |
-        Registered at apps/web/server/admin.mjs:2425.
+        Registered at apps/web/server/admin.mjs:2431.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2425
+        line: 2431
       x-body-schema: unmodelled
       responses:
         "200":
@@ -2471,13 +2470,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/settings/updateGeneral"
       description: |
-        Registered at apps/web/server/admin.mjs:2373.
+        Registered at apps/web/server/admin.mjs:2379.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2373
+        line: 2379
       x-body-schema: unmodelled
       responses:
         "200":
@@ -2496,13 +2495,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/settings/updateHardLimits"
       description: |
-        Registered at apps/web/server/admin.mjs:2438.
+        Registered at apps/web/server/admin.mjs:2444.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2438
+        line: 2444
       x-body-schema: unmodelled
       responses:
         "200":
@@ -2521,13 +2520,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/settings/updateHealthCheckCadence"
       description: |
-        Registered at apps/web/server/admin.mjs:2414.
+        Registered at apps/web/server/admin.mjs:2420.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2414
+        line: 2420
       x-body-schema: unmodelled
       responses:
         "200":
@@ -2546,13 +2545,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/settings/updateRegistration"
       description: |
-        Registered at apps/web/server/admin.mjs:2386.
+        Registered at apps/web/server/admin.mjs:2392.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2386
+        line: 2392
       x-body-schema: unmodelled
       responses:
         "200":
@@ -2571,13 +2570,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/settings/updateRetention"
       description: |
-        Registered at apps/web/server/admin.mjs:2395.
+        Registered at apps/web/server/admin.mjs:2401.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2395
+        line: 2401
       x-body-schema: unmodelled
       responses:
         "200":
@@ -2596,13 +2595,13 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/system"
       description: |
-        Registered at apps/web/server/admin.mjs:955.
+        Registered at apps/web/server/admin.mjs:961.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 955
+        line: 961
       x-body-schema: unmodelled
       responses:
         "200":
@@ -2621,13 +2620,13 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/system/database"
       description: |
-        Registered at apps/web/server/admin.mjs:2534.
+        Registered at apps/web/server/admin.mjs:2540.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2534
+        line: 2540
       x-body-schema: unmodelled
       responses:
         "200":
@@ -2646,13 +2645,13 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/system/events"
       description: |
-        Registered at apps/web/server/admin.mjs:2548.
+        Registered at apps/web/server/admin.mjs:2554.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2548
+        line: 2554
       x-body-schema: unmodelled
       responses:
         "200":
@@ -2671,13 +2670,13 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/system/health"
       description: |
-        Registered at apps/web/server/admin.mjs:2558.
+        Registered at apps/web/server/admin.mjs:2564.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2558
+        line: 2564
       x-body-schema: unmodelled
       responses:
         "200":
@@ -2696,13 +2695,13 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/system/jobs"
       description: |
-        Registered at apps/web/server/admin.mjs:2591.
+        Registered at apps/web/server/admin.mjs:2597.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2591
+        line: 2597
       x-body-schema: unmodelled
       responses:
         "200":
@@ -2721,13 +2720,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/system/jobs/cancel"
       description: |
-        Registered at apps/web/server/admin.mjs:2622.
+        Registered at apps/web/server/admin.mjs:2628.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2622
+        line: 2628
       x-body-schema: unmodelled
       responses:
         "200":
@@ -2746,13 +2745,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/system/jobs/retry"
       description: |
-        Registered at apps/web/server/admin.mjs:2607.
+        Registered at apps/web/server/admin.mjs:2613.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2607
+        line: 2613
       x-body-schema: unmodelled
       responses:
         "200":
@@ -2771,13 +2770,13 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/system/metrics"
       description: |
-        Registered at apps/web/server/admin.mjs:2638.
+        Registered at apps/web/server/admin.mjs:2644.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2638
+        line: 2644
       x-body-schema: unmodelled
       responses:
         "200":
@@ -2796,13 +2795,13 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/system/valkey"
       description: |
-        Registered at apps/web/server/admin.mjs:2651.
+        Registered at apps/web/server/admin.mjs:2657.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2651
+        line: 2657
       x-body-schema: unmodelled
       responses:
         "200":
@@ -2821,13 +2820,13 @@ paths:
       tags: [admin]
       summary: "GET /api/admin/system/workers"
       description: |
-        Registered at apps/web/server/admin.mjs:2686.
+        Registered at apps/web/server/admin.mjs:2692.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2686
+        line: 2692
       x-body-schema: unmodelled
       responses:
         "200":
@@ -2845,206 +2844,6 @@ paths:
       operationId: getapiAdminTraffic
       tags: [admin]
       summary: "GET /api/admin/traffic"
-      description: |
-        Registered at apps/web/server/admin.mjs:978.
-        Requires authentication; /api/admin routes additionally require an admin capability.
-      security:
-        - session: []
-      x-source:
-        file: apps/web/server/admin.mjs
-        line: 978
-      x-body-schema: unmodelled
-      responses:
-        "200":
-          description: Handler-defined JSON. Body not modelled — read x-source.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-        default:
-          description: Handler-defined error envelope.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-  "/api/admin/traffic/queues":
-    get:
-      operationId: getapiAdminTrafficQueues
-      tags: [admin]
-      summary: "GET /api/admin/traffic/queues"
-      description: |
-        Registered at apps/web/server/admin.mjs:2710.
-        Requires authentication; /api/admin routes additionally require an admin capability.
-      security:
-        - session: []
-      x-source:
-        file: apps/web/server/admin.mjs
-        line: 2710
-      x-body-schema: unmodelled
-      responses:
-        "200":
-          description: Handler-defined JSON. Body not modelled — read x-source.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-        default:
-          description: Handler-defined error envelope.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-  "/api/admin/traffic/rate-limits":
-    get:
-      operationId: getapiAdminTrafficRate-limits
-      tags: [admin]
-      summary: "GET /api/admin/traffic/rate-limits"
-      description: |
-        Registered at apps/web/server/admin.mjs:2720.
-        Requires authentication; /api/admin routes additionally require an admin capability.
-      security:
-        - session: []
-      x-source:
-        file: apps/web/server/admin.mjs
-        line: 2720
-      x-body-schema: unmodelled
-      responses:
-        "200":
-          description: Handler-defined JSON. Body not modelled — read x-source.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-        default:
-          description: Handler-defined error envelope.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-  "/api/admin/traffic/rate-limits/create":
-    post:
-      operationId: postapiAdminTrafficRate-limitsCreate
-      tags: [admin]
-      summary: "POST /api/admin/traffic/rate-limits/create"
-      description: |
-        Registered at apps/web/server/admin.mjs:2734.
-        Requires authentication; /api/admin routes additionally require an admin capability.
-      security:
-        - session: []
-      x-source:
-        file: apps/web/server/admin.mjs
-        line: 2734
-      x-body-schema: unmodelled
-      responses:
-        "200":
-          description: Handler-defined JSON. Body not modelled — read x-source.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-        default:
-          description: Handler-defined error envelope.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-  "/api/admin/traffic/rate-limits/delete":
-    post:
-      operationId: postapiAdminTrafficRate-limitsDelete
-      tags: [admin]
-      summary: "POST /api/admin/traffic/rate-limits/delete"
-      description: |
-        Registered at apps/web/server/admin.mjs:2762.
-        Requires authentication; /api/admin routes additionally require an admin capability.
-      security:
-        - session: []
-      x-source:
-        file: apps/web/server/admin.mjs
-        line: 2762
-      x-body-schema: unmodelled
-      responses:
-        "200":
-          description: Handler-defined JSON. Body not modelled — read x-source.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-        default:
-          description: Handler-defined error envelope.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-  "/api/admin/traffic/rate-limits/update":
-    post:
-      operationId: postapiAdminTrafficRate-limitsUpdate
-      tags: [admin]
-      summary: "POST /api/admin/traffic/rate-limits/update"
-      description: |
-        Registered at apps/web/server/admin.mjs:2749.
-        Requires authentication; /api/admin routes additionally require an admin capability.
-      security:
-        - session: []
-      x-source:
-        file: apps/web/server/admin.mjs
-        line: 2749
-      x-body-schema: unmodelled
-      responses:
-        "200":
-          description: Handler-defined JSON. Body not modelled — read x-source.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-        default:
-          description: Handler-defined error envelope.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-  "/api/admin/traffic/save":
-    post:
-      operationId: postapiAdminTrafficSave
-      tags: [admin]
-      summary: "POST /api/admin/traffic/save"
-      description: |
-        Registered at apps/web/server/admin.mjs:2696.
-        Requires authentication; /api/admin routes additionally require an admin capability.
-      security:
-        - session: []
-      x-source:
-        file: apps/web/server/admin.mjs
-        line: 2696
-      x-body-schema: unmodelled
-      responses:
-        "200":
-          description: Handler-defined JSON. Body not modelled — read x-source.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-        default:
-          description: Handler-defined error envelope.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-  "/api/admin/traffic/throttling":
-    get:
-      operationId: getapiAdminTrafficThrottling
-      tags: [admin]
-      summary: "GET /api/admin/traffic/throttling"
-      description: |
-        Registered at apps/web/server/admin.mjs:2774.
-        Requires authentication; /api/admin routes additionally require an admin capability.
-      security:
-        - session: []
-      x-source:
-        file: apps/web/server/admin.mjs
-        line: 2774
-      x-body-schema: unmodelled
-      responses:
-        "200":
-          description: Handler-defined JSON. Body not modelled — read x-source.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-        default:
-          description: Handler-defined error envelope.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-  "/api/admin/users":
-    get:
-      operationId: getapiAdminUsers
-      tags: [admin]
-      summary: "GET /api/admin/users"
       description: |
         Registered at apps/web/server/admin.mjs:984.
         Requires authentication; /api/admin routes additionally require an admin capability.
@@ -3065,13 +2864,213 @@ paths:
           content:
             application/json:
               schema: { type: object, additionalProperties: true }
+  "/api/admin/traffic/queues":
+    get:
+      operationId: getapiAdminTrafficQueues
+      tags: [admin]
+      summary: "GET /api/admin/traffic/queues"
+      description: |
+        Registered at apps/web/server/admin.mjs:2716.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/admin.mjs
+        line: 2716
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/traffic/rate-limits":
+    get:
+      operationId: getapiAdminTrafficRate-limits
+      tags: [admin]
+      summary: "GET /api/admin/traffic/rate-limits"
+      description: |
+        Registered at apps/web/server/admin.mjs:2726.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/admin.mjs
+        line: 2726
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/traffic/rate-limits/create":
+    post:
+      operationId: postapiAdminTrafficRate-limitsCreate
+      tags: [admin]
+      summary: "POST /api/admin/traffic/rate-limits/create"
+      description: |
+        Registered at apps/web/server/admin.mjs:2740.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/admin.mjs
+        line: 2740
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/traffic/rate-limits/delete":
+    post:
+      operationId: postapiAdminTrafficRate-limitsDelete
+      tags: [admin]
+      summary: "POST /api/admin/traffic/rate-limits/delete"
+      description: |
+        Registered at apps/web/server/admin.mjs:2768.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/admin.mjs
+        line: 2768
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/traffic/rate-limits/update":
+    post:
+      operationId: postapiAdminTrafficRate-limitsUpdate
+      tags: [admin]
+      summary: "POST /api/admin/traffic/rate-limits/update"
+      description: |
+        Registered at apps/web/server/admin.mjs:2755.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/admin.mjs
+        line: 2755
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/traffic/save":
+    post:
+      operationId: postapiAdminTrafficSave
+      tags: [admin]
+      summary: "POST /api/admin/traffic/save"
+      description: |
+        Registered at apps/web/server/admin.mjs:2702.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/admin.mjs
+        line: 2702
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/traffic/throttling":
+    get:
+      operationId: getapiAdminTrafficThrottling
+      tags: [admin]
+      summary: "GET /api/admin/traffic/throttling"
+      description: |
+        Registered at apps/web/server/admin.mjs:2780.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/admin.mjs
+        line: 2780
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/admin/users":
+    get:
+      operationId: getapiAdminUsers
+      tags: [admin]
+      summary: "GET /api/admin/users"
+      description: |
+        Registered at apps/web/server/admin.mjs:990.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/admin.mjs
+        line: 990
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
   "/api/admin/users/{id}":
     get:
       operationId: getapiAdminUsersId
       tags: [admin]
       summary: "GET /api/admin/users/{id}"
       description: |
-        Registered at apps/web/server/admin.mjs:2842.
+        Registered at apps/web/server/admin.mjs:2848.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
         - name: id
@@ -3082,7 +3081,7 @@ paths:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2842
+        line: 2848
       x-body-schema: unmodelled
       responses:
         "200":
@@ -3101,13 +3100,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/users/disableAccess"
       description: |
-        Registered at apps/web/server/admin.mjs:2894.
+        Registered at apps/web/server/admin.mjs:2900.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2894
+        line: 2900
       x-body-schema: unmodelled
       responses:
         "200":
@@ -3126,13 +3125,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/users/setRole"
       description: |
-        Registered at apps/web/server/admin.mjs:2810.
+        Registered at apps/web/server/admin.mjs:2816.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2810
+        line: 2816
       x-body-schema: unmodelled
       responses:
         "200":
@@ -3151,13 +3150,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/users/suspend"
       description: |
-        Registered at apps/web/server/admin.mjs:2864.
+        Registered at apps/web/server/admin.mjs:2870.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2864
+        line: 2870
       x-body-schema: unmodelled
       responses:
         "200":
@@ -3176,13 +3175,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/users/toggleBan"
       description: |
-        Registered at apps/web/server/admin.mjs:2825.
+        Registered at apps/web/server/admin.mjs:2831.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2825
+        line: 2831
       x-body-schema: unmodelled
       responses:
         "200":
@@ -3201,13 +3200,13 @@ paths:
       tags: [admin]
       summary: "POST /api/admin/users/unsuspend"
       description: |
-        Registered at apps/web/server/admin.mjs:2880.
+        Registered at apps/web/server/admin.mjs:2886.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/admin.mjs
-        line: 2880
+        line: 2886
       x-body-schema: unmodelled
       responses:
         "200":
@@ -3226,7 +3225,7 @@ paths:
       tags: [auth]
       summary: "ALL /api/auth/{*path}"
       description: |
-        Registered at apps/web/server/index.mjs:578.
+        Registered at apps/web/server/index.mjs:580.
         Express 5 splat route: the trailing path segment is greedy.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
@@ -3238,7 +3237,7 @@ paths:
         - session: []
       x-source:
         file: apps/web/server/index.mjs
-        line: 578
+        line: 580
       x-body-schema: unmodelled
       responses:
         "200":
@@ -3310,13 +3309,13 @@ paths:
       tags: [discord]
       summary: "POST /api/discord/interactions"
       description: |
-        Registered at apps/web/server/discord-transport.mjs:482.
+        Registered at apps/web/server/discord-transport.mjs:455.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/discord-transport.mjs
-        line: 482
+        line: 455
       x-body-schema: unmodelled
       responses:
         "200":
@@ -3389,13 +3388,13 @@ paths:
       tags: [health]
       summary: "GET /api/health"
       description: |
-        Registered at apps/web/server/index.mjs:560.
+        Registered at apps/web/server/index.mjs:562.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/index.mjs
-        line: 560
+        line: 562
       x-body-schema: unmodelled
       responses:
         "200":
@@ -3539,7 +3538,7 @@ paths:
       tags: [pages]
       summary: "GET /api/pages/{*path}"
       description: |
-        Registered at apps/web/server/index.mjs:909.
+        Registered at apps/web/server/index.mjs:958.
         Express 5 splat route: the trailing path segment is greedy.
         Requires authentication; /api/admin routes additionally require an admin capability.
       parameters:
@@ -3551,7 +3550,7 @@ paths:
         - session: []
       x-source:
         file: apps/web/server/index.mjs
-        line: 909
+        line: 958
       x-body-schema: unmodelled
       responses:
         "200":
@@ -3570,13 +3569,13 @@ paths:
       tags: [pages]
       summary: "GET /api/pages/alerts"
       description: |
-        Registered at apps/web/server/pages.mjs:1137.
+        Registered at apps/web/server/pages.mjs:1168.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/pages.mjs
-        line: 1137
+        line: 1168
       x-body-schema: unmodelled
       responses:
         "200":
@@ -3595,13 +3594,13 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/alerts/create"
       description: |
-        Registered at apps/web/server/pages.mjs:1146.
+        Registered at apps/web/server/pages.mjs:1177.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/pages.mjs
-        line: 1146
+        line: 1177
       x-body-schema: unmodelled
       responses:
         "200":
@@ -3620,13 +3619,13 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/alerts/remove"
       description: |
-        Registered at apps/web/server/pages.mjs:1178.
+        Registered at apps/web/server/pages.mjs:1209.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/pages.mjs
-        line: 1178
+        line: 1209
       x-body-schema: unmodelled
       responses:
         "200":
@@ -3645,13 +3644,13 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/alerts/update"
       description: |
-        Registered at apps/web/server/pages.mjs:1157.
+        Registered at apps/web/server/pages.mjs:1188.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/pages.mjs
-        line: 1157
+        line: 1188
       x-body-schema: unmodelled
       responses:
         "200":
@@ -3670,13 +3669,13 @@ paths:
       tags: [pages]
       summary: "GET /api/pages/aliases"
       description: |
-        Registered at apps/web/server/pages.mjs:954.
+        Registered at apps/web/server/pages.mjs:974.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/pages.mjs
-        line: 954
+        line: 974
       x-body-schema: unmodelled
       responses:
         "200":
@@ -3695,13 +3694,13 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/aliases/create"
       description: |
-        Registered at apps/web/server/pages.mjs:973.
+        Registered at apps/web/server/pages.mjs:993.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/pages.mjs
-        line: 973
+        line: 993
       x-body-schema: unmodelled
       responses:
         "200":
@@ -3720,13 +3719,13 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/aliases/delete"
       description: |
-        Registered at apps/web/server/pages.mjs:1004.
+        Registered at apps/web/server/pages.mjs:1035.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/pages.mjs
-        line: 1004
+        line: 1035
       x-body-schema: unmodelled
       responses:
         "200":
@@ -3745,13 +3744,13 @@ paths:
       tags: [pages]
       summary: "GET /api/pages/budgets"
       description: |
-        Registered at apps/web/server/pages.mjs:881.
+        Registered at apps/web/server/pages.mjs:901.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/pages.mjs
-        line: 881
+        line: 901
       x-body-schema: unmodelled
       responses:
         "200":
@@ -3770,13 +3769,13 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/budgets/remove"
       description: |
-        Registered at apps/web/server/pages.mjs:935.
+        Registered at apps/web/server/pages.mjs:955.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/pages.mjs
-        line: 935
+        line: 955
       x-body-schema: unmodelled
       responses:
         "200":
@@ -3795,13 +3794,13 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/budgets/save"
       description: |
-        Registered at apps/web/server/pages.mjs:906.
+        Registered at apps/web/server/pages.mjs:926.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/pages.mjs
-        line: 906
+        line: 926
       x-body-schema: unmodelled
       responses:
         "200":
@@ -3820,13 +3819,13 @@ paths:
       tags: [pages]
       summary: "GET /api/pages/combos"
       description: |
-        Registered at apps/web/server/pages.mjs:1297.
+        Registered at apps/web/server/pages.mjs:1328.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/pages.mjs
-        line: 1297
+        line: 1328
       x-body-schema: unmodelled
       responses:
         "200":
@@ -3845,13 +3844,13 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/combos/create"
       description: |
-        Registered at apps/web/server/pages.mjs:1316.
+        Registered at apps/web/server/pages.mjs:1347.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/pages.mjs
-        line: 1316
+        line: 1347
       x-body-schema: unmodelled
       responses:
         "200":
@@ -3870,13 +3869,13 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/combos/remove"
       description: |
-        Registered at apps/web/server/pages.mjs:1369.
+        Registered at apps/web/server/pages.mjs:1400.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/pages.mjs
-        line: 1369
+        line: 1400
       x-body-schema: unmodelled
       responses:
         "200":
@@ -3895,13 +3894,13 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/combos/update"
       description: |
-        Registered at apps/web/server/pages.mjs:1340.
+        Registered at apps/web/server/pages.mjs:1371.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/pages.mjs
-        line: 1340
+        line: 1371
       x-body-schema: unmodelled
       responses:
         "200":
@@ -3945,13 +3944,13 @@ paths:
       tags: [pages]
       summary: "GET /api/pages/injections"
       description: |
-        Registered at apps/web/server/pages.mjs:1214.
+        Registered at apps/web/server/pages.mjs:1245.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/pages.mjs
-        line: 1214
+        line: 1245
       x-body-schema: unmodelled
       responses:
         "200":
@@ -3970,13 +3969,13 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/injections/create"
       description: |
-        Registered at apps/web/server/pages.mjs:1235.
+        Registered at apps/web/server/pages.mjs:1266.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/pages.mjs
-        line: 1235
+        line: 1266
       x-body-schema: unmodelled
       responses:
         "200":
@@ -3995,13 +3994,13 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/injections/remove"
       description: |
-        Registered at apps/web/server/pages.mjs:1280.
+        Registered at apps/web/server/pages.mjs:1311.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/pages.mjs
-        line: 1280
+        line: 1311
       x-body-schema: unmodelled
       responses:
         "200":
@@ -4020,13 +4019,13 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/injections/update"
       description: |
-        Registered at apps/web/server/pages.mjs:1260.
+        Registered at apps/web/server/pages.mjs:1291.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/pages.mjs
-        line: 1260
+        line: 1291
       x-body-schema: unmodelled
       responses:
         "200":
@@ -4045,13 +4044,13 @@ paths:
       tags: [pages]
       summary: "GET /api/pages/limits"
       description: |
-        Registered at apps/web/server/pages.mjs:746.
+        Registered at apps/web/server/pages.mjs:766.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/pages.mjs
-        line: 746
+        line: 766
       x-body-schema: unmodelled
       responses:
         "200":
@@ -4070,13 +4069,13 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/limits/remove"
       description: |
-        Registered at apps/web/server/pages.mjs:850.
+        Registered at apps/web/server/pages.mjs:870.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/pages.mjs
-        line: 850
+        line: 870
       x-body-schema: unmodelled
       responses:
         "200":
@@ -4095,13 +4094,13 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/limits/save"
       description: |
-        Registered at apps/web/server/pages.mjs:811.
+        Registered at apps/web/server/pages.mjs:831.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/pages.mjs
-        line: 811
+        line: 831
       x-body-schema: unmodelled
       responses:
         "200":
@@ -4120,13 +4119,13 @@ paths:
       tags: [pages]
       summary: "GET /api/pages/routing"
       description: |
-        Registered at apps/web/server/pages.mjs:1026.
+        Registered at apps/web/server/pages.mjs:1057.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/pages.mjs
-        line: 1026
+        line: 1057
       x-body-schema: unmodelled
       responses:
         "200":
@@ -4145,13 +4144,13 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/routing/create"
       description: |
-        Registered at apps/web/server/pages.mjs:1043.
+        Registered at apps/web/server/pages.mjs:1074.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/pages.mjs
-        line: 1043
+        line: 1074
       x-body-schema: unmodelled
       responses:
         "200":
@@ -4170,13 +4169,13 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/routing/delete"
       description: |
-        Registered at apps/web/server/pages.mjs:1085.
+        Registered at apps/web/server/pages.mjs:1116.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/pages.mjs
-        line: 1085
+        line: 1116
       x-body-schema: unmodelled
       responses:
         "200":
@@ -4195,13 +4194,13 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/routing/update"
       description: |
-        Registered at apps/web/server/pages.mjs:1060.
+        Registered at apps/web/server/pages.mjs:1091.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/pages.mjs
-        line: 1060
+        line: 1091
       x-body-schema: unmodelled
       responses:
         "200":
@@ -4220,13 +4219,13 @@ paths:
       tags: [pages]
       summary: "GET /api/pages/shell"
       description: |
-        Registered at apps/web/server/index.mjs:859.
+        Registered at apps/web/server/index.mjs:909.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/index.mjs
-        line: 859
+        line: 909
       x-body-schema: unmodelled
       responses:
         "200":
@@ -4245,7 +4244,7 @@ paths:
       tags: [palette]
       summary: "GET /api/palette/{type}"
       description: |
-        Registered at apps/web/server/index.mjs:734.
+        Registered at apps/web/server/index.mjs:784.
         PUBLIC — rate-limited by client IP (_publicRead).
       parameters:
         - name: type
@@ -4255,32 +4254,7 @@ paths:
       security: []
       x-source:
         file: apps/web/server/index.mjs
-        line: 734
-      x-body-schema: unmodelled
-      responses:
-        "200":
-          description: Handler-defined JSON. Body not modelled — read x-source.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-        default:
-          description: Handler-defined error envelope.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-  "/api/payment/confirm":
-    post:
-      operationId: postapiPaymentConfirm
-      tags: [payment]
-      summary: "POST /api/payment/confirm"
-      description: |
-        Registered at apps/web/server/payment-confirm.mjs:37.
-        Requires authentication; /api/admin routes additionally require an admin capability.
-      security:
-        - session: []
-      x-source:
-        file: apps/web/server/payment-confirm.mjs
-        line: 37
+        line: 784
       x-body-schema: unmodelled
       responses:
         "200":
@@ -4479,13 +4453,13 @@ paths:
       tags: [telegram]
       summary: "POST /api/telegram/webhook"
       description: |
-        Registered at apps/web/server/telegram-transport.mjs:385.
+        Registered at apps/web/server/telegram-transport.mjs:400.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/telegram-transport.mjs
-        line: 385
+        line: 400
       x-body-schema: unmodelled
       responses:
         "200":
@@ -4529,13 +4503,13 @@ paths:
       tags: [seo]
       summary: "GET /robots.txt"
       description: |
-        Registered at apps/web/server/index.mjs:922.
+        Registered at apps/web/server/index.mjs:1002.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/index.mjs
-        line: 922
+        line: 1002
       x-body-schema: unmodelled
       responses:
         "200":
@@ -4554,13 +4528,13 @@ paths:
       tags: [seo]
       summary: "GET /sitemap.xml"
       description: |
-        Registered at apps/web/server/index.mjs:937.
+        Registered at apps/web/server/index.mjs:1017.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/index.mjs
-        line: 937
+        line: 1017
       x-body-schema: unmodelled
       responses:
         "200":

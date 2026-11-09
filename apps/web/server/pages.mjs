@@ -4,7 +4,7 @@ import { sql } from 'drizzle-orm';
 import { rowsOf, big, num, iso, okBody } from './lib/validate.mjs';
 import { clientIp } from './lib/ip.mjs';
 import { PLANS, PLAN_IDS, planOf, qrisFor, isChannel } from '@fudrouter/platform/server/payments.ts';
-import { validateAddCreditAmount, addCreditError, addCreditKey, validateAddCreditKey, addCreditKeyError, parseAmountToMicro as parseAmountToMicroShared, drizzleClaimWriter, capsFor } from './lib/platform-ts.mjs';
+import { parseAmountToMicro as parseAmountToMicroShared, drizzleClaimWriter } from './lib/platform-ts.mjs';
 
 // DB-backed dashboard page loads + POST actions for the member dashboard
 // routes. All routes require auth (anon 401).
@@ -445,26 +445,24 @@ export function registerPages(app, ctx) {
 		const period = rowsOf(
 			await database.execute(sql`select coalesce(-sum(amount_micro),0)::text as total, count(*)::int as requests from credit_ledger where billing_account_id = ${account.id} and type = 'usage_charge' and created_at >= ${ps.toISOString()} and created_at < ${pe.toISOString()}`)
 		)[0] ?? {};
-		// The account is the tenant, but threshold writes are admin.billing (F3): the
-		// SPA reads canWrite to hide the form from members rather than surfacing a
-		// 403 the API now returns.
-		res.json({ currency: String(account.currency ?? 'USD').trim(), status: account.status, canWrite: capsFor(userRow.role).has('admin.billing'), balanceMicro: balance.toString(), warningThresholdMicro: String(account.warning_threshold_micro ?? account.warningThresholdMicro ?? '0'), hardStopThresholdMicro: String(account.hard_stop_threshold_micro ?? account.hardStopThresholdMicro ?? '0'), period: { start: ps.toISOString(), end: pe.toISOString(), spentMicro: String(period.total ?? '0'), requests: num(period.requests) } });
+		// The account is the tenant: the caller owns the billing account, so
+		// canWrite is always true (the SPA's threshold form reads this flag).
+		res.json({ currency: String(account.currency ?? 'USD').trim(), status: account.status, canWrite: true, balanceMicro: balance.toString(), warningThresholdMicro: String(account.warning_threshold_micro ?? account.warningThresholdMicro ?? '0'), hardStopThresholdMicro: String(account.hard_stop_threshold_micro ?? account.hardStopThresholdMicro ?? '0'), period: { start: ps.toISOString(), end: pe.toISOString(), spentMicro: String(period.total ?? '0'), requests: num(period.requests) } });
 	}));
 	app.post(['/api/pages/billing/thresholds', '/api/pages/dashboard/billing/thresholds'], wrap(async (req, res) => {
 		const database = needDb(res);
 		if (!database) return;
 		const userRow = await mustAuth(req);
-		// F3 (live): a member must never set their own hard-stop/warning
-		// thresholds (a 0 hard-stop mints free service). Operator action only.
-		requireCap(userRow, 'admin.billing');
 		const b = okBody(req);
+		// W5: the HARD-STOP threshold is server-side, admin-only. A member may
+		// tune their own warning threshold, but a body-supplied hard-stop is
+		// IGNORED (never written), so a member cannot self-lower the gate that
+		// would hard-stop their own metered spend.
 		const warning = parseAmountToMicro(b.warn ?? b.warning ?? '');
-		const hardStop = parseAmountToMicro(b.suspend ?? b.hard_stop ?? b.hardStop ?? '');
-		if (warning === null || hardStop === null) return fail(res, 400, 'Thresholds must be dollar amounts, e.g. 10 or 0.50.');
-		if (warning < 0n || hardStop < 0n) return fail(res, 400, 'Thresholds cannot be negative.');
-		if (hardStop > warning) return fail(res, 400, 'The hard-stop threshold must be at or below the warning threshold.');
-		await database.execute(sql`update billing_account set warning_threshold_micro = ${warning.toString()}, hard_stop_threshold_micro = ${hardStop.toString()}, updated_at = now() where user_id = ${userRow.id}`);
-		await audit(database, { actorUserId: userRow.id, action: 'billing.thresholds.update', resource: 'billing_account', after: { warning_threshold_micro: warning.toString(), hard_stop_threshold_micro: hardStop.toString() } });
+		if (warning === null) return fail(res, 400, 'Threshold must be a dollar amount, e.g. 10 or 0.50.');
+		if (warning < 0n) return fail(res, 400, 'Threshold cannot be negative.');
+		await database.execute(sql`update billing_account set warning_threshold_micro = ${warning.toString()}, updated_at = now() where user_id = ${userRow.id}`);
+		await audit(database, { actorUserId: userRow.id, action: 'billing.thresholds.update', resource: 'billing_account', after: { warning_threshold_micro: warning.toString() } });
 		res.json({ saved: true });
 	}));
 	app.get(['/api/pages/billing/credits', '/api/pages/dashboard/billing/credits'], wrap(async (req, res) => {
@@ -511,45 +509,14 @@ export function registerPages(app, ctx) {
 		const byModel = rowsOf(
 			await database.execute(sql`select coalesce(m.slug, 'Unresolved') as label, coalesce(r.model_id,'') as key, count(*)::int as requests, coalesce(sum(r.tokens_in + r.tokens_out),0)::int as tokens, coalesce(sum(r.cost),0)::text as cost from request_log r left join model m on m.id = r.model_id where ${window} group by m.slug, r.model_id order by sum(r.cost) desc limit 10`)
 		).map((r) => ({ key: r.key, label: r.label || 'Unresolved', requests: num(r.requests), totalTokens: num(r.tokens), costMicro: String(r.cost ?? '0') }));
-		res.json({ currency: String(account.currency ?? 'USD').trim(), balanceMicro: balance.toString(), rows, addCreditKey: addCreditKey(newId(prefixFor(ctx, 'creditLedger'))), page, pages, total, thresholds: { warningMicro: String(account.warning_threshold_micro ?? account.warningThresholdMicro ?? '0'), hardStopMicro: String(account.hard_stop_threshold_micro ?? account.hardStopThresholdMicro ?? '0') }, series, breakdowns: { byModel } });
+		res.json({ currency: String(account.currency ?? 'USD').trim(), balanceMicro: balance.toString(), rows, page, pages, total, thresholds: { warningMicro: String(account.warning_threshold_micro ?? account.warningThresholdMicro ?? '0'), hardStopMicro: String(account.hard_stop_threshold_micro ?? account.hardStopThresholdMicro ?? '0') }, series, breakdowns: { byModel } });
 	}));
-	app.post(['/api/pages/billing/credits/add', '/api/pages/dashboard/billing/credits/add'], wrap(async (req, res) => {
-		const database = needDb(res);
-		if (!database) return;
-		const userRow = await mustAuth(req);
-		// F2 (live): this endpoint minted free credit — a member POSTed an amount
-		// and the ledger grew by it. Manual credit is an admin.billing action;
-		// the QRIS gateway is the only member-facing money-in path.
-		requireCap(userRow, 'admin.billing');
-		const b = okBody(req);
-		const parsed = validateAddCreditAmount(b.amount);
-		if (!parsed.ok) {
-			const { code, message } = addCreditError(parsed.error);
-			const acct = rowsOf(await database.execute(sql`select id from billing_account where user_id = ${userRow.id} limit 1`))[0];
-			if (acct) await audit(database, { actorUserId: userRow.id, action: 'billing.credit.add.rejected', resource: 'billing_account', resourceId: acct.id, metadata: { error: code, amount: String(b.amount ?? '') } });
-			return res.status(400).json({ error: message, code });
-		}
-		const amount = parsed.amountMicro;
-		const account = await billingAccountFor(database, userRow.id);
-		const key = String(b.key ?? addCreditKey(newId(prefixFor(ctx, 'creditLedger')))).trim();
-		const keyParsed = validateAddCreditKey(key);
-		if (!keyParsed.ok) {
-			const { code, message } = addCreditKeyError(keyParsed.error);
-			const acctAudit = rowsOf(await database.execute(sql`select id from billing_account where user_id = ${userRow.id} limit 1`))[0];
-			if (acctAudit) await audit(database, { actorUserId: userRow.id, action: 'billing.credit.add.rejected', resource: 'billing_account', resourceId: acctAudit.id, metadata: { error: code, amount: String(b.amount ?? '') } });
-			return res.status(400).json({ error: message, code });
-		}
-		const id = newId(prefixFor(ctx, 'creditLedger'));
-		const ins = rowsOf(
-			await database.execute(sql`insert into credit_ledger (id, billing_account_id, type, amount_micro, currency, idempotency_key, description, created_by) values (${id}, ${account.id}, 'credit_purchase', ${amount.toString()}, ${String(account.currency ?? 'USD').trim()}, ${key}, ${String(b.description ?? '').trim() || 'Credit purchase'}, ${userRow.id}) on conflict (idempotency_key) do nothing returning id`)
-		);
-		if (!ins.length) {
-			const ex = rowsOf(await database.execute(sql`select id from credit_ledger where idempotency_key = ${key} limit 1`))[0];
-			return res.json({ already: true, id: ex?.id });
-		}
-		await database.execute(sql`update billing_account set balance_micro = balance_micro + ${amount.toString()}, updated_at = now() where id = ${account.id}`);
-		res.json({ added: true, id });
-	}));
+	// W4: member self-credit route removed. A member was able to write
+	// `credit_purchase` + a bare `balance_micro += …` themselves — minting
+	// spendable balance with no payment behind it (the amount ceiling applied
+	// per call, not cumulatively). Member top-up now flows exclusively through
+	// the payment loop (createPayment → QRIS → proof → confirmAndGrant). The
+	// admin ledger surface (/api/admin/billing/credit) is unchanged.
 	app.get(['/api/pages/billing/invoices', '/api/pages/dashboard/billing/invoices'], wrap(async (req, res) => {
 		const database = needDb(res);
 		if (!database) return;
@@ -994,13 +961,16 @@ export function registerPages(app, ctx) {
 		const b = okBody(req);
 		const name = String(b.name ?? '').trim();
 		if (!name) return fail(res, 400, 'Alias name is required');
+		// W1: a global alias (account_id NULL) resolves for EVERY tenant, so
+		// minting one is an admin concern, not a member one — a member who could
+		// register scope="global" could hijack a slug like `gpt-4o` platform-wide.
 		const scope = String(b.scope ?? 'account') === 'global' ? 'global' : 'account';
-		// F1 (live): a global alias shadows the canonical slug platform-wide.
-		// Minting one is operator-only (admin.models); a member may create only
-		// account-scoped aliases.
-		if (scope === 'global' && !capsFor(userRow.role).has('admin.models')) {
-			return fail(res, 403, 'Global aliases are operator-only.');
-		}
+		if (scope === 'global') requireCap(userRow, 'admin.models');
+		// W1: cap + control-char strip — a name is interpolated into Go's
+		// catalog resolver (ResolveModel); an unbounded or control-laden name is
+		// refused before it is written.
+		if (name.length > 200) return fail(res, 400, 'Alias name must be 200 characters or fewer.');
+		if (/[\u0000-\u001f\u007f]/.test(name)) return fail(res, 400, 'Alias name contains invalid characters.');
 		// modelIds is the contract field name; targets is what the SPA sent
 		// before the flatten — accept both during the cutover.
 		const targets = (Array.isArray(b.modelIds) ? b.modelIds : Array.isArray(b.targets) ? b.targets : []).filter((t) => typeof t === 'string');

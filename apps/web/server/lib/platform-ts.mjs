@@ -149,6 +149,7 @@ export const httpStatusForReject = inboundWebhook.httpStatusForReject;
 // `{ record(paymentId, proofUrl), resolve(paymentId) }` - the two seams the
 // bot adapters already declare (`recordClaim`/`resolveClaim` map 1:1).
 export const drizzleClaimWriter = claimWriter.drizzleClaimWriter;
+export const drizzleApprovalAnswerWriter = claimWriter.drizzleApprovalAnswerWriter;
 
 export const parseApprovers = approval.parseApprovers;
 export const parseApprovalTtlMs = approval.parseApprovalTtlMs;
@@ -161,6 +162,8 @@ export const APPROVAL_TTL_ENV = approvalEnv.APPROVAL_TTL_ENV;
 export const approvalApprovers = () => approvalEnv.approvers();
 export const approvalTtlMs = () => approvalEnv.approvalTtlMs();
 export const approvalConfig = () => approvalEnv.approvalConfig();
+export const telegramApproverUsers = () => approvalEnv.telegramApproverUsers();
+export const discordApproverUsers = () => approvalEnv.discordApproverUsers();
 
 // Telegram bot adapter (C1): the thin-I/O handlers and pure renderers live in
 // packages/platform/server/telegram-bot.ts. The bridge re-exports them so a
@@ -174,6 +177,8 @@ export const handleMessage = telegramBot.handleMessage;
 export const handleCallbackQuery = telegramBot.handleCallbackQuery;
 export const deliverWarning = telegramBot.deliverWarning;
 export const telegramApprovalMessage = telegramBot.approvalMessage;
+export const encodeApprovalCallbackData = telegramBot.encodeApprovalCallbackData;
+export const assertCallbackDataFits = telegramBot.assertCallbackDataFits;
 
 // Discord payment bot adapter (C2): pure renderers + routers live in
 // packages/platform/server/discord-bot.ts; the transport wires them to real

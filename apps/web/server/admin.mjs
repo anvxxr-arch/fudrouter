@@ -398,7 +398,13 @@ export function registerAdminRoutes(app, ctx) {
 			const r = byDay.get(day);
 			return { day, requests: _num(r?.requests), tokens: _num(r?.tokens), costMicro: String(r?.cost_micro ?? '0') };
 		});
-		const [rev] = _rowsOf(await database.execute(sql`select coalesce(sum(amount_micro), 0)::text as total from credit_ledger where type in ('credit_purchase', 'promotion') and created_at >= date_trunc('month', now())`));
+		// W6: a member self-credit (credit_purchase) is NOT revenue — it minted
+		// spendable balance with no payment behind it, and an admin manual grant
+		// is compensation, not income. `promotion` is retained as the only
+		// recognized non-settlement credit that still counts toward the month's
+		// revenue figure; the abuse path that inflated it (member add-credit) is
+		// gone with W4.
+		const [rev] = _rowsOf(await database.execute(sql`select coalesce(sum(amount_micro), 0)::text as total from credit_ledger where type = 'promotion' and created_at >= date_trunc('month', now())`));
 		const topConsumers = await database
 			.select({
 				keyId: rl.apiKeyId,

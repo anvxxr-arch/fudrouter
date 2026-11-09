@@ -24,6 +24,8 @@
 
 import { timingSafeEqual } from 'node:crypto';
 import { sql } from 'drizzle-orm';
+import { rateLimit } from './rate-limit.mjs';
+import { clientIp } from './lib/ip.mjs';
 
 import {
 	handleMessage,
@@ -31,13 +33,15 @@ import {
 	parseApprovers,
 	APPROVERS_ENV,
 	drizzleClaimWriter,
+	drizzleApprovalAnswerWriter,
+	telegramApproverUsers,
+	encodeApprovalCallbackData,
+	assertCallbackDataFits,
 	newId
 } from './lib/platform-ts.mjs';
 import { drizzlePaymentConfirmStore } from '@fudrouter/platform/server/payment-confirm.ts';
 import { drizzleGatewayStore } from '@fudrouter/platform/server/gateway-store.ts';
 import { drizzleSubscriptionWriter } from '@fudrouter/platform/server/grant.ts';
-import { telegramApproverUsers } from '@fudrouter/platform/server/approval-env.ts';
-import { drizzleApprovalAnswerWriter } from '@fudrouter/platform/server/claim.ts';
 
 /** Header Telegram sets on every webhook delivery when a secret token is set. */
 export const TELEGRAM_SECRET_TOKEN_HEADER = 'x-telegram-bot-api-secret-token';
@@ -62,36 +66,42 @@ export function verifySecretToken(headerValue, expected) {
 }
 
 /**
- * Encode the admin Yes/No answer plus its claim into a callback button's
- * `callback_data` string. The claim is untrusted transport-encoded display
- * facts (paymentId is the idempotency anchor re-fetched by `resolveClaim`);
- * `memberName` is carried only so a follow-up can keep referring to the member.
+ * Encode an approval button's `callback_data` using the core's C1 encoder:
+ * `{"a":"yes"|"no","p":"<paymentId>"}` only — member chat and name are
+ * RESOLVED SERVER-SIDE, never trusted from the button, and the payload is
+ * bound to Telegram's 64-byte inline-button limit. The encoder THROWS (loudly)
+ * when a payment id renders an over-limit payload rather than silently
+ * truncating — a truncation would corrupt the idempotency anchor.
  */
 export function encodeCallbackData(answer, claim) {
-	return JSON.stringify({ a: answer, p: claim?.paymentId, c: claim?.memberChatId, n: claim?.memberName ?? '' });
+	return encodeApprovalCallbackData(answer, claim?.paymentId);
 }
 
 /**
- * Decode a callback button's `callback_data` back into `{ answer, claim }`, or
- * null when it is not one of ours / malformed (fail closed: an unknown button
- * is answered with "Unknown action", never treated as a grant).
+ * Decode an approval button's `callback_data` back into `{ answer, claim }`,
+ * or null when it is not ours / malformed. The C1 compact contract is EXACTLY
+ * `{"a","p"}`; a legacy long-format `{"a","p","c","n"}` button is fail-closed
+ * (answered "Unknown action") rather than treated as a grant, and anything over
+ * 64 bytes is refused before a parse.
  */
 export function decodeCallbackData(data) {
 	if (typeof data !== 'string' || data.trim() === '') return null;
 	try {
+		assertCallbackDataFits(data);
+	} catch {
+		return null;
+	}
+	try {
 		const v = JSON.parse(data);
-		const answer = v?.a;
-		const paymentId = v?.p;
+		if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+		const answer = v.a;
+		const paymentId = v.p;
 		if (answer !== 'yes' && answer !== 'no') return null;
 		if (typeof paymentId !== 'string' || paymentId.trim() === '') return null;
-		return {
-			answer,
-			claim: {
-				paymentId,
-				memberChatId: String(v?.c ?? ''),
-				memberName: String(v?.n ?? '')
-			}
-		};
+		// Exact-shape: the C1 contract has exactly two keys. A reconstructed
+		// legacy button with c/n extras is not a valid compact payload.
+		if (Object.keys(v).length !== 2) return null;
+		return { answer, claim: { paymentId } };
 	} catch {
 		return null;
 	}
@@ -162,7 +172,7 @@ function makeAnswerCallback(tokenGetter, log) {
 
 // ---------------------------------------------------------------------------
 // durable seams (raw SQL so real columns work regardless of the minimal drizzle
-// copies in index.mjs; the same pattern webhook.mjs / payment-confirm.mjs use)
+// copies in index.mjs; the same pattern webhook.mjs uses)
 // ---------------------------------------------------------------------------
 
 function rowsOf(r) {
@@ -200,16 +210,28 @@ function findPendingPayment(db, accountId) {
 	})();
 }
 
+/** C1: resolve the member's Telegram chat id from the payment's platform
+ * account, server-side — `payment.account_id -> account.account_id` (the
+ * inverse of accountIdForTelegram). Never trusted from the button. */
+function memberChatIdForTelegram(db, accountId) {
+	if (!db) return Promise.resolve(null);
+	return (async () => {
+		const rows = rowsOf(
+			await db.execute(
+				sql`select account_id from account where provider_id = 'telegram' and user_id = ${accountId} limit 1`
+			)
+		);
+		const r = rows[0];
+		return r ? String(r.account_id) : null;
+	})();
+}
+
 // ---------------------------------------------------------------------------
 // deps + dispatch
 // ---------------------------------------------------------------------------
 
 function defaultApprovers() {
 	return parseApprovers(process.env[APPROVERS_ENV]);
-}
-
-function defaultTelegramApproverUsers() {
-	return telegramApproverUsers();
 }
 
 /** Build the adapter's TelegramBotDeps from ctx overrides + the real durable seams. */
@@ -223,20 +245,29 @@ function buildDeps(opts, db) {
 			: () => Promise.resolve({ ok: false, reason: 'no_claim_writer' }));
 	const resolveClaim =
 		opts.resolveClaim ?? (claimWriter ? (paymentId) => claimWriter.resolve(paymentId) : () => Promise.resolve(null));
+	// C3: WHO answered + WHEN, and the "no"→reject flip — the ONE durable
+	// writer both bot adapters inject (claim.ts drizzleApprovalAnswerWriter).
+	const approvalWriter = opts.approvalWriter ?? (db ? drizzleApprovalAnswerWriter(db) : null);
+	const answerApproval =
+		opts.answerApproval ??
+		(approvalWriter ? (paymentId, answeredBy, answeredAt) => approvalWriter.answer(paymentId, answeredBy, answeredAt) : undefined);
+	const rejectPayment =
+		opts.rejectPayment ?? (approvalWriter ? (paymentId) => approvalWriter.reject(paymentId) : undefined);
 	const tokenGetter = opts.botToken ?? (() => process.env[TELEGRAM_BOT_TOKEN_ENV] ?? null);
-	const answerWriter = db ? drizzleApprovalAnswerWriter(db) : null;
 	return {
 		send: opts.send ?? makeSend(tokenGetter, opts.log),
 		answerCallback: opts.answerCallback ?? makeAnswerCallback(tokenGetter, opts.log),
 		approvers: opts.approvers ?? defaultApprovers(),
-		approverUsers: opts.approverUsers ?? defaultTelegramApproverUsers(),
-		answerApproval: opts.answerApproval ?? (answerWriter ? (paymentId, answeredBy, answeredAt) => answerWriter.answer(paymentId, answeredBy, answeredAt) : undefined),
-		rejectPayment: opts.rejectPayment ?? (answerWriter ? (paymentId) => answerWriter.reject(paymentId) : undefined),
+		// C2: the actor allow-list (Telegram USER ids), fail-closed deny-all when unset.
+		approverUsers: opts.approverUsers ?? telegramApproverUsers(),
 		now: opts.now,
 		accountIdFor: opts.accountIdFor ?? ((chatId) => accountIdForTelegram(db, chatId)),
 		findPendingPayment: opts.findPendingPayment ?? ((accountId) => findPendingPayment(db, accountId)),
+		memberChatIdFor: opts.memberChatIdFor ?? ((accountId) => memberChatIdForTelegram(db, accountId)),
 		recordClaim,
 		resolveClaim,
+		answerApproval,
+		rejectPayment,
 		gatewayStore: opts.gatewayStore ?? (db ? drizzleGatewayStore(db, idfn) : null),
 		paymentConfirmStore: opts.paymentConfirmStore ?? (db ? drizzlePaymentConfirmStore(db) : null),
 		subscriptionWriter: opts.subscriptionWriter ?? (db ? drizzleSubscriptionWriter(db) : null)
@@ -261,6 +292,10 @@ export async function dispatchUpdate(handlers, deps, update) {
 			data: String(cq.data ?? ''),
 			answer: decoded.answer,
 			claim: decoded.claim,
+			// C2: the identity of whoever pressed the button — the core checks it
+			// against deps.approverUsers before any money decision. Taken from the
+			// update, NEVER from the callback data (that is the button's own,
+			// attacker-trivial field).
 			actorId: String(cq.from?.id ?? '')
 		});
 		return result;
@@ -330,8 +365,13 @@ export async function handleTelegramWebhook(req, res, opts = {}) {
  * Register `POST /api/telegram/webhook`.
  *
  * The body is parsed by index.mjs's global `express.json` (this route is
- * registered after it, exactly like registerPaymentConfirm), so no local
+ * registered after it), so no local
  * body parser is needed — the secret token travels in a header, not the body.
+ *
+ * C5: the route is rate-limited (per client IP and per acting Telegram user)
+ * and replayed update_ids are deduplicated before dispatch. Without these, a
+ * leaked secret-token header could replay one signed update unbounded and
+ * amplify outbound bot-API sends / admin-prompt spam.
  *
  * @param {import('express').Express} app
  * @param {{ getDb?: () => any, getSecret?: () => string|null, newId?: (p:string)=>string, log?: any } & object} ctx
@@ -343,7 +383,60 @@ export function registerTelegramWebhook(app, ctx = {}) {
 		log.warn?.('[telegram] TELEGRAM_WEBHOOK_SECRET is not set; Telegram webhook is DISABLED');
 	}
 
-	app.post('/api/telegram/webhook', (req, res) =>
+	// C5: per-client-IP bucket. Generous (Telegram retries are legitimate), but a
+	// static-token replay cannot hit the endpoint on a loop for free.
+	const ipLimit =
+		ctx.ipLimit ??
+		rateLimit({ windowMs: 60_000, max: 600, key: async (req) => `tg:ip:${clientIp(req) ?? 'unknown'}` });
+	// C5: per-acting-user bucket (member for a message, approver for a button).
+	// Different from the IP bucket so one abusive user does not throttle a NAT.
+	const actorLimit =
+		ctx.actorLimit ??
+		rateLimit({
+			windowMs: 60_000,
+			max: 120,
+			key: async (req) => {
+				const b = req.body;
+				const fromId = b?.message?.from?.id ?? b?.callback_query?.from?.id;
+				return fromId != null ? `tg:user:${fromId}` : `tg:ip:${clientIp(req) ?? 'unknown'}`;
+			}
+		});
+
+	// C5: monotonic update_id replay gate (single-instance, bounded LRU — the
+	// same one-process assumption as rate-limit.mjs). Telegram's update_id
+	// increases per bot; an update at or below the last seen id for a chat is a
+	// redelivery/replay and is short-circuited BEFORE the handler runs.
+	const dedup = ctx.dedup ?? createUpdateIdDedup();
+
+	app.post('/api/telegram/webhook', ipLimit, actorLimit, dedup, (req, res) =>
 		handleTelegramWebhook(req, res, { ...ctx, getSecret, log })
 	);
+}
+
+/** C5: build the update_id replay-gate middleware (exported for tests). */
+export function createUpdateIdDedup() {
+	const last = new Map();
+	return (req, res, next) => {
+		const update = req.body && typeof req.body === 'object' ? req.body : {};
+		const updateId = Number(update.update_id) || 0;
+		if (!updateId) return next();
+		const fromId = update.message?.from?.id ?? update.callback_query?.from?.id;
+		const chatId = update.message?.chat?.id ?? update.callback_query?.message?.chat?.id;
+		const key = fromId != null ? `f:${fromId}` : chatId != null ? `c:${chatId}` : 'global';
+		const seen = last.get(key);
+		if (seen !== undefined && updateId <= seen) {
+			// Replay: acknowledge (200, no re-dispatch, no outbound send) so the
+			// gateway stops retrying, but the handler — and any money decision
+			// it would make — never runs again on the same update.
+			return res.status(200).json({ ok: true, result: { kind: 'ignored', reason: 'duplicate_update' } });
+		}
+		last.set(key, updateId);
+		if (last.size > 5000) {
+			for (const k of last.keys()) {
+				last.delete(k);
+				if (last.size <= 4000) break;
+			}
+		}
+		return next();
+	};
 }

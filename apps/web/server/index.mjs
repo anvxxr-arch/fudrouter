@@ -29,7 +29,6 @@ import { compress } from './lib/compress.mjs';
 import { clientIp, requestOrigin } from './lib/ip.mjs';
 import { readShell, withHead, seo } from './lib/head.mjs';
 import { registerInboundWebhook } from './webhook.mjs';
-import { registerPaymentConfirm } from './payment-confirm.mjs';
 import { registerTelegramWebhook, makeSend as telegramMakeSend } from './telegram-transport.mjs';
 import { registerDiscordInteractions, discordSendDirect } from './discord-transport.mjs';
 import { createEscalationLoop } from '@fudrouter/platform/server/approval-loop.ts';
@@ -641,7 +640,11 @@ app.all('/api/auth/{*path}', async (req, res) => {
 		// browser keeps a live session until the cookie expires. The app's own
 		// endpoints (/api/pages/*, /api/admin/*) already go through
 		// getSessionUser, which carries the same check.
-		if (req.originalUrl.replace(/^\/api\/auth/, '') === '/get-session' && webRes.status === 200) {
+		// W2: compare the PATHNAME, not the raw URL string — `?x=1` (or any
+		// query) used to make `req.originalUrl.replace(...) === '/get-session'`
+		// false, so the ban gate and the revoked-session→401 both silently
+		// skipped for a banned user polling /get-session with a query string.
+		if (new URL(req.originalUrl, ORIGIN).pathname.replace(/^\/api\/auth/, '') === '/get-session' && webRes.status === 200) {
 			const payload = await webRes.json().catch(() => null);
 			if (payload?.user) {
 				const [row] = await db
@@ -718,7 +721,10 @@ if (_approverList.length >= 2 && (_tgLive || _dgLive)) {
 			if (payment.channel === 'telegram' && _tgLive) {
 				await _tgSend(approver, prompt.text, {
 					buttons: prompt.buttons,
-					claim: { paymentId: payment.id, memberChatId: '', memberName: payment.memberName }
+					// C1: compact claim — { paymentId } only. Member chat/name are
+					// resolved server-side (memberChatIdFor) from the payment row,
+					// never carried inside the 64-byte-button callback_data.
+					claim: { paymentId: payment.id }
 				});
 			} else if (_dgLive) {
 				await discordSendDirect(approver, prompt.text);
@@ -939,7 +945,20 @@ registerPlayground(app, {
 
 registerAdminRoutes(app, { needDb, authedUser, requireCap, HttpError });
 registerPages(app, { getDb: () => db, needDb, authedUser, requireCap, parseCookies, newId, writeAudit, ID_PREFIXES, HttpError });
-registerPaymentConfirm(app, { getDb: () => db });
+// W8: the public `POST /api/payment/confirm` route is REMOVED. It was an ORPHAN
+// transport: the legitimate settlement path (B3a webhook.mjs) calls
+// `confirmAndGrant` IN-PROCESS after gateway-HMAC + anti-replay verification —
+// it never went through HTTP. The orphan route read `{paymentId, gatewayRef,
+// amountIdr}` from an UNAUTHENTICATED, UNRATE-LIMITED JSON body and drove
+// `confirmAndGrant` with an attacker-supplied amount, so anyone who could name
+// a payment row could mint an frsubs window with no payment, no gateway HMAC
+// and no admin approval.
+//
+// This is NOT "removing a feature": the published OpenAPI contract described
+// this route as "Requires authentication", a guarantee the code never had. The
+// route contradicted its own contract; deleting it makes the surface honest.
+// There is no caller left (the SPA never called it) and the route file is
+// deleted with it.
 
 // Telegram webhook transport (CS3). Registered after express.json so the update
 // body is already parsed; the X-Telegram-Bot-Api-Secret-Token header is compared
@@ -963,11 +982,42 @@ app.get('/api/pages/{*path}', (req, res) => {
 // it could not carry a priority or a change frequency. The registry is the same
 // table the head renderer below and the SPA's Meta component read, so all three
 // agree by construction.
+// W3: the Host header is client-controlled. requestOrigin() returns it verbatim
+// and robots.txt/sitemap.xml used to interpolate that value UNESCAPED, so a Host
+// like `evil.com"><script>` reflected raw into an XML document (sitemap) and a
+// crawler-readable file (robots). The head renderer escapes (lib/head.mjs); these
+// two did not. Rather than XML-escape a value crawlers must read as a URL, the
+// host is allow-listed: a request whose Host is not a known product host (nor
+// ORIGIN's own host) falls back to ORIGIN, so an attacker's host is never written
+// into either file.
+const HOST_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+const escapeXml = (v) => String(v).replace(/[&<>"']/g, (c) => HOST_ESCAPES[c] ?? c);
+function safePublicOrigin(req) {
+	const origin = requestOrigin(req);
+	let host;
+	try {
+		host = new URL(origin).host;
+	} catch {
+		return ORIGIN;
+	}
+	let allowed;
+	try {
+		const known = new Set([
+			new URL(ORIGIN).host.toLowerCase(),
+			'fudrouter.my.id',
+			'www.fudrouter.my.id'
+		]);
+		allowed = known.has(host.toLowerCase());
+	} catch {
+		allowed = false;
+	}
+	return allowed ? origin : ORIGIN;
+}
 app.get('/robots.txt', (req, res) => {
   // requestOrigin, not req.protocol: the tunnel terminates TLS and caddy dials
   // this server in plaintext, so req.protocol alone is 'http' and the Sitemap
   // line advertised an HSTS redirect. See lib/ip.mjs.
-  const origin = requestOrigin(req);
+  const origin = safePublicOrigin(req);
   // The Disallow list is not decoration: the SPA fallback below 303-redirects
   // /dashboard*, /admin* and /invite* to /login for an anonymous request
   // (index.mjs:989-993, verified live), so allowing them spends crawl budget on
@@ -979,7 +1029,7 @@ app.get('/robots.txt', (req, res) => {
   );
 });
 app.get('/sitemap.xml', (req, res) => {
-  const origin = requestOrigin(req);
+  const origin = safePublicOrigin(req);
   // lastmod is the deploy's own build time, not "now": a sitemap that claims
   // every URL changed on every crawl is the signal crawlers learn to ignore.
   const lastmod = new Date(BUILD_TIME).toISOString().slice(0, 10);
@@ -993,7 +1043,7 @@ app.get('/sitemap.xml', (req, res) => {
       ]
         .filter(Boolean)
         .join('');
-      return `  <url><loc>${origin}${p === '/' ? '/' : p}</loc><lastmod>${lastmod}</lastmod>${hints}</url>`;
+      return `  <url><loc>${escapeXml(origin)}${p === '/' ? '/' : p}</loc><lastmod>${lastmod}</lastmod>${hints}</url>`;
     })
     .join('\n');
   res.type('application/xml').send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>`);

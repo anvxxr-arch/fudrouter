@@ -73,6 +73,15 @@ export function verifyDiscordRequest({ rawBody, signature, timestamp, publicKeyH
 	const hex = String(publicKeyHex ?? '').trim();
 	if (!body || !sig || !ts || !hex) return false;
 
+	// W7: Discord's signature covers timestamp+body, but a VALID signed
+	// interaction (a signed approval "yes" included) could otherwise be replayed
+	// without limit. Reject a timestamp older than 5 minutes (Discord's own
+	// recommendation) before any key/verify work.
+	const DISCORD_SIGNATURE_MAX_AGE_MS = 5 * 60 * 1000;
+	const tsNum = Number(ts);
+	if (!Number.isFinite(tsNum)) return false;
+	if (Math.abs(Date.now() - tsNum * 1000) > DISCORD_SIGNATURE_MAX_AGE_MS) return false;
+
 	const rawKey = Buffer.from(hex, 'hex');
 	if (rawKey.length !== 32) return false;
 
@@ -232,6 +241,7 @@ export async function handleDiscordInteraction(interaction, deps) {
 		grant: deps.grant,
 		claim: deps.claim,
 		approvers: deps.approvers ?? [],
+		// C2: the actor allow-list (Discord USER ids); C3 answer/reject writers.
 		approverUsers: deps.approverUsers ?? [],
 		answerApproval: deps.answerApproval,
 		rejectPayment: deps.rejectPayment,
@@ -273,18 +283,21 @@ export async function handleDiscordInteraction(interaction, deps) {
 // Production seams (drizzle-backed, env-read). Only reached at runtime.
 // ---------------------------------------------------------------------------
 
-/** CS1's claim writer is added to @fudrouter/platform/server/claim.ts; load it
- * lazily so this module still imports while that sibling lands. */
+/** CS1's claim writer + C3's approval-answer writer both live in
+ * packages/platform/server/claim.ts; load it lazily so this module still
+ * imports while that sibling lands. */
 let _claimWriterModule;
-let _answerWriterModule;
 async function claimWriterFactory() {
 	if (typeof _claimWriterModule === 'undefined') {
 		try {
 			const mod = await import('@fudrouter/platform/server/claim.ts');
-			_claimWriterModule = typeof mod.drizzleClaimWriter === 'function' ? mod.drizzleClaimWriter : null;
-			if (typeof mod.drizzleApprovalAnswerWriter === 'function') _answerWriterModule = mod.drizzleApprovalAnswerWriter;
+			_claimWriterModule = {
+				drizzleClaimWriter: typeof mod.drizzleClaimWriter === 'function' ? mod.drizzleClaimWriter : null,
+				drizzleApprovalAnswerWriter:
+					typeof mod.drizzleApprovalAnswerWriter === 'function' ? mod.drizzleApprovalAnswerWriter : null
+			};
 		} catch {
-			_claimWriterModule = null;
+			_claimWriterModule = { drizzleClaimWriter: null, drizzleApprovalAnswerWriter: null };
 		}
 	}
 	return _claimWriterModule;
@@ -317,7 +330,14 @@ export async function discordSendDirect(channelId, message, token = process.env.
 		await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
 			method: 'POST',
 			headers: { authorization: `Bot ${token}`, 'content-type': 'application/json' },
-			body: JSON.stringify({ content: message }),
+			// C4: disable ALL mention parsing — a member-controlled display name or
+			// proof URL containing @everyone/@here (or a raw <@id>) must not ping
+			// every admin on each claim. `replied_user: false` also stops the reply
+			// mention when Discord treats this as a reply.
+			body: JSON.stringify({
+				content: message,
+				allowed_mentions: { parse: [], roles: [], users: [], replied_user: false }
+			}),
 			signal: AbortSignal.timeout(5000)
 		});
 	} catch (err) {
@@ -329,23 +349,24 @@ export async function discordSendDirect(channelId, message, token = process.env.
 async function buildProductionSeams({ getDb, approvers, approverUsers, now }) {
 	const db = getDb ? getDb() : null;
 
-	const claimWriter = await claimWriterFactory();
-	const answerWriter = db && _answerWriterModule ? _answerWriterModule(db) : null;
+	const writers = await claimWriterFactory();
+	const dcw = writers?.drizzleClaimWriter ?? null;
+	const daw = writers?.drizzleApprovalAnswerWriter ?? null;
 	const claim =
-		db && claimWriter
+		db && dcw
 			? {
 					record: async (paymentId, proofUrl) => {
-						const r = await claimWriter(db).record(paymentId, proofUrl);
+						const r = await dcw(db).record(paymentId, proofUrl);
 						return { ok: r.ok };
 					}
 				}
 			: undefined;
 
 	const grant =
-		db && claimWriter
+		db && dcw
 			? {
 					confirmAndGrant: async (payment) => {
-						const record = await claimWriter(db).resolve(payment.paymentId);
+						const record = await dcw(db).resolve(payment.paymentId);
 						if (!record) return { ok: false, reason: 'claim_not_found' };
 						const result = await confirmAndGrant(
 							{ store: drizzlePaymentConfirmStore(db) },
@@ -363,21 +384,29 @@ async function buildProductionSeams({ getDb, approvers, approverUsers, now }) {
 				}
 			: undefined;
 
+	// C3: WHO answered + WHEN and the "no"→reject flip — the ONE durable writer
+	// both bot adapters inject (claim.ts drizzleApprovalAnswerWriter).
+	const answerApproval =
+		db && daw ? (paymentId, answeredBy, answeredAt) => daw(db).answer(paymentId, answeredBy, answeredAt) : undefined;
+	const rejectPayment =
+		db && daw ? (paymentId) => daw(db).reject(paymentId) : undefined;
+
 	return {
 		send: (channelId, message) => discordSendDirect(channelId, message),
 		grant,
 		claim,
 		approvers: approvers(),
+		// C2: the actor allow-list (Discord USER ids), fail-closed deny-all when unset.
 		approverUsers: approverUsers(),
-		answerApproval: answerWriter ? (paymentId, answeredBy, answeredAt) => answerWriter.answer(paymentId, answeredBy, answeredAt) : undefined,
-		rejectPayment: answerWriter ? (paymentId) => answerWriter.reject(paymentId) : undefined,
 		now: now(),
+		answerApproval,
+		rejectPayment,
 		accountIdFor: (userId) => discordAccountUserId(db, userId),
 		findPendingPayment: (accountId) => discordPendingPayment(db, accountId),
 		gatewayStore: drizzleGatewayStore(db),
 		resolveClaim: async (paymentId) => {
-			if (!db || !claimWriter) return null;
-			return claimWriter(db).resolve(paymentId);
+			if (!db || !dcw) return null;
+			return dcw(db).resolve(paymentId);
 		}
 	};
 }
@@ -435,7 +464,7 @@ export function registerDiscordInteractions(app, ctx = {}) {
 	const getPublicKey = ctx.getPublicKey ?? (() => process.env.FLEXYROUTE_PUBLIC_KEY ?? null);
 	const getDb = ctx.getDb ?? (() => null);
 	const approvers = ctx.approvers ?? (() => parseApprovers(process.env[APPROVERS_ENV]));
-	const approverUsers = ctx.approverUsers ?? (() => discordApproverUsers());
+	const approverUsers = ctx.approverUsers ?? discordApproverUsers;
 	const now = ctx.now ?? (() => new Date());
 
 	const publicKey = getPublicKey();

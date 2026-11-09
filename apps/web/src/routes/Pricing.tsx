@@ -43,7 +43,7 @@ const TIERS: Tier[] = [
     blurb: 'A single day of access.',
     features: ['All models', '1 API key', 'Up to 3 IPs', '5 concurrent requests'],
     cta: 'Buy 1 day',
-    to: '/login',
+    to: '/dashboard/subscription',
   },
   {
     name: '3 Days',
@@ -53,7 +53,7 @@ const TIERS: Tier[] = [
     blurb: 'A long weekend of access.',
     features: ['All models', '1 API key', 'Up to 3 IPs', '5 concurrent requests'],
     cta: 'Buy 3 days',
-    to: '/login',
+    to: '/dashboard/subscription',
   },
   {
     name: '7 Days',
@@ -63,7 +63,7 @@ const TIERS: Tier[] = [
     blurb: 'A full week, the most popular plan.',
     features: ['All models', '1 API key', 'Up to 3 IPs', '5 concurrent requests'],
     cta: 'Buy 7 days',
-    to: '/login',
+    to: '/dashboard/subscription',
     highlight: true,
   },
   {
@@ -74,7 +74,7 @@ const TIERS: Tier[] = [
     blurb: 'Two weeks of access.',
     features: ['All models', '1 API key', 'Up to 3 IPs', '5 concurrent requests'],
     cta: 'Buy 14 days',
-    to: '/login',
+    to: '/dashboard/subscription',
   },
   {
     name: '28 Days',
@@ -84,7 +84,7 @@ const TIERS: Tier[] = [
     blurb: 'A full month, the best value.',
     features: ['All models', '1 API key', 'Up to 3 IPs', '5 concurrent requests'],
     cta: 'Buy 28 days',
-    to: '/login',
+    to: '/dashboard/subscription',
   },
 ];
 

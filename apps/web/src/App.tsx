@@ -41,6 +41,7 @@ const PromptInjectionPage = lazy(() => import('./routes/dashboard').then((m) => 
 const RoutingPage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.RoutingPage })));
 const SettingsHub = lazy(() => import('./routes/settings').then((m) => ({ default: m.SettingsHub })));
 const UsagePage = lazy(() => import('./routes/dashboard').then((m) => ({ default: m.UsagePage })));
+const SubscriptionPage = lazy(() => import('./routes/subscription').then((m) => ({ default: m.SubscriptionPage })));
 
 // Route metadata is NOT re-listed here. It lives in lib/seo.ts, the registry the
 // Express server reads for /sitemap.xml and for the head it renders on the first
@@ -134,6 +135,7 @@ export default function App() {
           <Route path="dashboard/combos" element={<RequireAuth><CombosPage /></RequireAuth>} />
           <Route path="dashboard/injections" element={<RequireAuth><PromptInjectionPage /></RequireAuth>} />
           <Route path="dashboard/playground" element={<RequireAuth><PlaygroundPage2 /></RequireAuth>} />
+          <Route path="dashboard/subscription" element={<RequireAuth><SubscriptionPage /></RequireAuth>} />
           <Route path="admin" element={<RequireRouteCap><AdminHome /></RequireRouteCap>} />
           <Route path="admin/:name" element={<RequireRouteCap><AdminSectionRoute /></RequireRouteCap>} />
           <Route path="admin/:section/:id" element={<RequireRouteCap><AdminDetail /></RequireRouteCap>} />

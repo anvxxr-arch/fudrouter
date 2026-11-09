@@ -145,3 +145,22 @@ export function decideClaim(
 	}
 	return { grant: true, publishKey: true, followUp: false, reason: 'granted' };
 }
+
+/**
+ * The member-facing plans list text (rules 3, 4, 17), rendered ONCE here so
+ * Discord and Telegram emit the exact same string. Both adapters call this —
+ * the two channels cannot disagree about a price or a plan name.
+ */
+export function plansMessage(): string {
+	const listing = marketplaceListing();
+	const lines = listing.items.map((i) => `• ${i.label} — ${formatIdr(i.priceIdr)}`);
+	return `${listing.title}\n${lines.join('\n')}`;
+}
+
+/**
+ * The reply when a member names a plan we do not sell. Rendered once so both
+ * bots refuse a typo with the same wording rather than a broken QR.
+ */
+export function unknownPlanMessage(): string {
+	return 'Unknown plan. Send /plans to see the plans we sell.';
+}

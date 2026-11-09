@@ -28,6 +28,8 @@ const limits = await import('@fudrouter/platform/server/admin-limits.ts');
 const money = await import('@fudrouter/platform/server/money.ts');
 const addCredit = await import('@fudrouter/platform/server/add-credit.ts');
 const inboundWebhook = await import('@fudrouter/platform/server/webhook-receiver.ts');
+const discordBot = await import('@fudrouter/platform/server/discord-bot.ts');
+const telegramBot = await import('@fudrouter/platform/server/telegram-bot.ts');
 
 // SSRF: the platform module OWNS the rule, including the literal blocklist --
 // isBlockedIp and the range arithmetic are re-exported below for the request
@@ -134,6 +136,31 @@ export const verifyInbound = inboundWebhook.verifyInbound;
 export const claimDelivery = inboundWebhook.claimDelivery;
 export const assertInboundPublic = inboundWebhook.assertInboundPublic;
 export const httpStatusForReject = inboundWebhook.httpStatusForReject;
+
+// Telegram bot adapter (C1): the thin-I/O handlers and pure renderers live in
+// packages/platform/server/telegram-bot.ts. The bridge re-exports them so a
+// future Telegram webhook route reuses the same renderers + handlers instead of
+// carrying .mjs copies — the same split as the inbound-webhook block above.
+export const plansText = telegramBot.plansText;
+export const unknownPlanText = telegramBot.unknownPlanText;
+export const grantedText = telegramBot.grantedText;
+export const paymentErrorText = telegramBot.paymentErrorText;
+export const handleMessage = telegramBot.handleMessage;
+export const handleCallbackQuery = telegramBot.handleCallbackQuery;
+export const deliverWarning = telegramBot.deliverWarning;
+
+// Discord payment bot adapter (C2): pure renderers + routers live in
+// packages/platform/server/discord-bot.ts; the transport wires them to real
+// DiscordReply/DiscordSend/slash-command dispatch. One rendering source (bots.ts).
+export const discordRenderPlans = discordBot.renderPlans;
+export const discordRenderPay = discordBot.renderPay;
+export const discordRenderApproval = discordBot.renderApproval;
+export const discordParseApprovalCustomId = discordBot.parseApprovalCustomId;
+export const discordApprovalCustomId = discordBot.approvalCustomId;
+export const discordHandlePlans = discordBot.handlePlans;
+export const discordHandlePay = discordBot.handlePay;
+export const discordHandleProof = discordBot.handleProof;
+export const discordHandleApproval = discordBot.handleApproval;
 
 // Job queue: enqueue() validates the type against JOB_TYPES (a typo'd type
 // string would become a forever-pending row no handler claims — the exact bug

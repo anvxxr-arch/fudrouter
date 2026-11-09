@@ -812,15 +812,9 @@ export function CreditsPage() {
 				.then(() => { (e.target as HTMLFormElement).reset(); setTick((t) => t + 1); })
 				.catch((ex) => setErr(ex instanceof Error ? ex.message : "Add failed"));
 		}}>
-<<<<<<< Updated upstream
-			<div className="row"><Input aria-label="Amount" name="amount" placeholder="Amount" required /><Button type="submit">Add</Button></div>
-		</form>) : <p className="muted">Manual credit is operator-only.</p>}
-		{err ? <p className="error">{err}</p> : null}
-=======
 			<div className="flex flex-wrap items-center gap-2"><Input aria-label="Amount" name="amount" placeholder="Amount" required /><Button type="submit">Add</Button></div>
-		</form>
+		</form>) : <p className="muted">Manual credit is operator-only.</p>}
 		{err ? <p className="error-text">{err}</p> : null}
->>>>>>> Stashed changes
 		{d && d.series.length > 0 ? (
 			<div className="min-w-0 surface p-5">
 				<h2 className="text-base">Spend by model · last 30 days</h2>

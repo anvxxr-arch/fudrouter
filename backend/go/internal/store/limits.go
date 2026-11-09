@@ -76,9 +76,24 @@ const (
 //
 // A var, not a const, because the spec §10 tests pin the gated behaviour: they
 // set it false for the gate's duration and restore the ship default deferred
-// (budget_gate_test.go, admission_cache_test.go). Production always boots with
-// the value below; the payment-gateway cutover is editing this line.
+// (budget_gate_test.go, admission_cache_test.go).
+//
+// The ship default is now env-driven, resolved ONCE at package load (init,
+// below) so the operator flips it with an env var + restart rather than a
+// rebuild (runbook docs/specs/2026-11-09-flip-billing-runbook.md §3). The var
+// name reads negated: `true` = free access = gate OFF. The env name reads
+// positive ("enforce"): a truthy FUDROUTER_BILLING_ENFORCE (1/true/yes/on)
+// turns the gate ON. Unset/falsey keeps the legacy free-access default, so an
+// existing deployment that never sets the var behaves exactly as before.
 var FreeAccessNoPaymentGateway = true
+
+func init() {
+	// Read once, not per request: an os.Getenv in the hot path would be a syscall
+	// per admission and a config-change race. envBool is fail-closed (falsey on
+	// anything but 1/true/yes/on), matching the dev-provider gate in store.go.
+	// NB the inversion: enforce=ON means FreeAccess=false.
+	FreeAccessNoPaymentGateway = !envBool("FUDROUTER_BILLING_ENFORCE")
+}
 
 // minInto folds a level's value into the running minimum.
 func minInto(dst **int64, v *int64) {

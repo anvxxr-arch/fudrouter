@@ -461,19 +461,15 @@ export const auth = betterAuth({
 						// sign-in for every user on every hostname.
 						scope: ['guilds.join']
 					},
-					// Telegram Login (owner rule 11). Telegram is not OAuth2 —
-					// it signs a payload with the bot token — so better-auth's
-					// generic `telegram` provider is used, which verifies the
-					// HMAC against TELEGRAM_BOT_TOKEN. Gated on the token being
-					// present so a deployment without a bot still boots.
-					...(process.env.TELEGRAM_BOT_TOKEN
-						? {
-								telegram: {
-									clientId: process.env.TELEGRAM_BOT_USERNAME ?? '',
-									clientSecret: process.env.TELEGRAM_BOT_TOKEN
-								}
-							}
-						: {})
+					// NOTE: better-auth 1.7.7 has NO built-in `telegram`
+					// social provider — `socialProviders['telegram']` is
+					// undefined and createAuthContext() throws
+					// "socialProviders[key] is not a function" the moment the
+					// key is present, which took down the console on boot when
+					// TELEGRAM_BOT_TOKEN was set. Telegram authentication here
+					// is NOT an OAuth social sign-in: it is the bot webhook
+					// flow (telegram-transport.mjs -> /api/telegram/webhook),
+					// which needs no socialProviders entry. Removed.
 				}
 			}
 		: {})

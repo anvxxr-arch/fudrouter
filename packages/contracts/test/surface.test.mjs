@@ -41,6 +41,15 @@ const INFERENCE_PATH_MAP = {
   'POST /v1/chat/completions': '/v1/chat/completions',
   'POST /v1/messages': '/v1/messages',
   'POST /v1/messages/count_tokens': '/v1/messages/count_tokens',
+  // The media surface (internal/proxy/media.go, 2026-11-03). The two task
+  // polls are ServeMux PREFIX patterns (hence the x-route-pattern note) and the
+  // media fetch is the one /v1 handler that never bills.
+  'POST /v1/images/generations': '/v1/images/generations',
+  'POST /v1/images/edits': '/v1/images/edits',
+  'GET /v1/images/generations/': '/v1/images/generations/{task_id}',
+  'POST /v1/videos': '/v1/videos',
+  'GET /v1/videos/': '/v1/videos/{task_id}',
+  'GET /v1/media/': '/v1/media/{name}',
   'GET /v1beta/models': '/v1beta/models',
   '* /v1beta/models/': '/v1beta/models/{model}', // ServeMux prefix; serves the :verb forms
   '* /v1/': '/v1/{path}', // registered with no method

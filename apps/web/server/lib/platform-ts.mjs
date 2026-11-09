@@ -30,6 +30,8 @@ const addCredit = await import('@fudrouter/platform/server/add-credit.ts');
 const inboundWebhook = await import('@fudrouter/platform/server/webhook-receiver.ts');
 const discordBot = await import('@fudrouter/platform/server/discord-bot.ts');
 const telegramBot = await import('@fudrouter/platform/server/telegram-bot.ts');
+const approval = await import('@fudrouter/platform/server/approval.ts');
+const approvalEnv = await import('@fudrouter/platform/server/approval-env.ts');
 
 // SSRF: the platform module OWNS the rule, including the literal blocklist --
 // isBlockedIp and the range arithmetic are re-exported below for the request
@@ -137,6 +139,22 @@ export const claimDelivery = inboundWebhook.claimDelivery;
 export const assertInboundPublic = inboundWebhook.assertInboundPublic;
 export const httpStatusForReject = inboundWebhook.httpStatusForReject;
 
+// Approver fallback/eskalasi (B5): the pure DECISIONS live in approval.ts and
+// the env reads in approval-env.ts. The transports re-use these through the
+// bridge instead of carrying .mjs copies — one escalation rule for Telegram and
+// Discord. `escalate` is the state transition a transport's TTL tick calls.
+export const parseApprovers = approval.parseApprovers;
+export const parseApprovalTtlMs = approval.parseApprovalTtlMs;
+export const approvalRoute = approval.approvalRoute;
+export const nextApprover = approval.nextApprover;
+export const escalate = approval.escalate;
+export const DEFAULT_APPROVAL_TTL_MS = approval.DEFAULT_APPROVAL_TTL_MS;
+export const APPROVERS_ENV = approvalEnv.APPROVERS_ENV;
+export const APPROVAL_TTL_ENV = approvalEnv.APPROVAL_TTL_ENV;
+export const approvalApprovers = () => approvalEnv.approvers();
+export const approvalTtlMs = () => approvalEnv.approvalTtlMs();
+export const approvalConfig = () => approvalEnv.approvalConfig();
+
 // Telegram bot adapter (C1): the thin-I/O handlers and pure renderers live in
 // packages/platform/server/telegram-bot.ts. The bridge re-exports them so a
 // future Telegram webhook route reuses the same renderers + handlers instead of
@@ -148,6 +166,7 @@ export const paymentErrorText = telegramBot.paymentErrorText;
 export const handleMessage = telegramBot.handleMessage;
 export const handleCallbackQuery = telegramBot.handleCallbackQuery;
 export const deliverWarning = telegramBot.deliverWarning;
+export const telegramApprovalMessage = telegramBot.approvalMessage;
 
 // Discord payment bot adapter (C2): pure renderers + routers live in
 // packages/platform/server/discord-bot.ts; the transport wires them to real

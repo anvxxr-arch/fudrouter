@@ -43,7 +43,7 @@ test('handleApproval: yes — a matching payment calls the grant seam once', asy
 				return { ok: true, subscriptionId: 'sub_1', plan: p.plan, days: 7 };
 			}
 		},
-		adminChannelId: 'admin-1',
+		approvers: ['admin-1'],
 		now: NOW
 	};
 	const interaction = { id: 'i1', userId: 'admin', userDisplayName: 'admin', channelId: 'admin-1' };
@@ -72,7 +72,7 @@ test('handleApproval: no — follows up and never grants', async () => {
 				throw new Error('grant must not be called on "no"');
 			}
 		},
-		adminChannelId: 'admin-1',
+		approvers: ['admin-1'],
 		now: NOW
 	};
 	const interaction = {

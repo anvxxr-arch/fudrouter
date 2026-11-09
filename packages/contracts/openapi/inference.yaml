@@ -280,6 +280,201 @@ paths:
         default:
           $ref: "#/components/responses/Error"
 
+  /v1/images/generations:
+    post:
+      operationId: createImage
+      tags: [inference]
+      summary: Image generation (native media surface)
+      description: |
+        Billed like any other model-addressed call (auth → limits → budget →
+        resolve → route → bill). The response's media URL is **rewritten onto
+        the router's own public base** (`PUBLIC_API_BASE_URL`) before it leaves,
+        because the upstream bridge mints its URLs from the Host header it saw
+        and would otherwise hand the client an unreachable `127.0.0.1` address.
+
+        The `model` field selects the image model (`muse-image` for the
+        muse2api bridge); a chat-only slug is rejected upstream, not here.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                model: { type: string }
+                prompt: { type: string }
+                n: { type: integer }
+                size: { type: string }
+              required: [prompt]
+              additionalProperties: true
+      responses:
+        "200":
+          description: |
+            The image answer (forwarded). Each media URL points back at this
+            router's `GET /v1/media/{name}`, which serves the bytes unbilled.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        default:
+          $ref: "#/components/responses/Error"
+
+  /v1/images/generations/{task_id}:
+    x-route-pattern: "/v1/images/generations/"
+    get:
+      operationId: getImageGeneration
+      tags: [inference]
+      summary: Image task poll
+      description: |
+        Body-less GET. It could not be served by the `/v1/` catch-all at ANY
+        passthrough setting: that handler parses a JSON body, so a GET without
+        one was a `400 INVALID_REQUEST` regardless of the hatch. It therefore
+        has its own exact registration ahead of the catch-all.
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: The task's current state (forwarded).
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        default:
+          $ref: "#/components/responses/Error"
+
+  /v1/images/edits:
+    post:
+      operationId: editImage
+      tags: [inference]
+      summary: Image edit (multipart, native media surface)
+      description: |
+        A `multipart/form-data` body — the file parts are forwarded verbatim and
+        the `model` field is read from the form, not from JSON. Registered
+        exactly, so the JSON-reading catch-all never sees it.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                model: { type: string }
+                prompt: { type: string }
+                image:
+                  type: string
+                  format: binary
+              additionalProperties: true
+      responses:
+        "200":
+          description: The edited image answer (forwarded).
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        default:
+          $ref: "#/components/responses/Error"
+
+  /v1/videos:
+    post:
+      operationId: createVideo
+      tags: [inference]
+      summary: Video generation (native media surface)
+      description: |
+        Always a task upstream — the immediate answer is a task id, never the
+        finished video. The router allows 300s for the submit round trip; the
+        poll that follows is a separate request.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                model: { type: string }
+                prompt: { type: string }
+              required: [prompt]
+              additionalProperties: true
+      responses:
+        "200":
+          description: The submitted task (forwarded).
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        default:
+          $ref: "#/components/responses/Error"
+
+  /v1/videos/{task_id}:
+    x-route-pattern: "/v1/videos/"
+    get:
+      operationId: getVideo
+      tags: [inference]
+      summary: Video task poll
+      description: |
+        Body-less GET, exact-registered for the same reason as the image poll —
+        the catch-all would parse it as JSON and answer `400`.
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: The task's current state (forwarded).
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        default:
+          $ref: "#/components/responses/Error"
+
+  /v1/media/{name}:
+    x-route-pattern: "/v1/media/"
+    get:
+      operationId: fetchMedia
+      tags: [inference]
+      summary: Media bytes (public, UNBILLED)
+      description: |
+        The **only** `/v1` handler that does not run the billing lifecycle. The
+        generation was already billed; charging the fetch that delivers it would
+        make retrieving what you already bought cost extra, and a drained
+        balance would make an already-generated image undownloadable.
+
+        The name is validated against the bridge's own pattern before any
+        upstream call, and an unsafe or unknown name returns the same
+        `MODEL_NOT_FOUND` the bridge would, so a probe learns nothing here that
+        it would not learn upstream. Response headers are allowlisted
+        (`Content-Type`, `Cache-Control` — the upstream's `public, max-age=86400`
+        survives, so a repeat fetch is served from the client's cache).
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: { type: string }
+          description: A media filename as minted by a generation.
+      responses:
+        "200":
+          description: The media bytes.
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+            image/png:
+              schema: { type: string, format: binary }
+            image/jpeg:
+              schema: { type: string, format: binary }
+            video/mp4:
+              schema: { type: string, format: binary }
+        default:
+          $ref: "#/components/responses/Error"
+
   /v1/{path}:
     x-route-pattern: "/v1/"
     post:

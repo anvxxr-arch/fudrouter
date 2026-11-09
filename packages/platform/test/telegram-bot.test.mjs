@@ -87,7 +87,7 @@ function makeDeps(overrides = {}) {
 	const sent = [];
 	const answered = [];
 	const deps = {
-		adminChatId: '9000',
+		approvers: ['9000'],
 		now: () => NOW,
 		accountIdFor: async () => 'acc_1',
 		findPendingPayment: async () => null,

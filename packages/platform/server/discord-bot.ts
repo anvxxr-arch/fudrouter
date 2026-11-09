@@ -156,8 +156,14 @@ export interface DiscordBotContext {
 	send: DiscordSend;
 	grant: DiscordGrant;
 	claim?: DiscordClaimRecorder;
-	/** The admin approval channel the prompt is sent to. */
-	adminChannelId: string;
+	/**
+	 * The approver channels that receive the approval prompt, in escalation
+	 * order: `approvers[0]` is the primary, `approvers[1]` the first fallback —
+	 * same rule and same env source as the Telegram adapter, so both channels
+	 * share one escalation contract (approval.ts). One list = one source of
+	 * truth; no compat alias.
+	 */
+	approvers: string[];
 	/** Frozen clock for `decideClaim` (tests only; defaults to wall clock). */
 	now?: Date;
 }
@@ -180,7 +186,7 @@ export async function handlePay(
 	await ctx.reply(interaction, renderPay(interaction.planId ?? '').text);
 }
 
-/** Member uploaded payment proof — record the claim and prompt the admin. */
+/** Member uploaded payment proof — record the claim and prompt the primary. */
 export async function handleProof(
 	interaction: DiscordInteraction,
 	ctx: DiscordBotContext,
@@ -194,7 +200,14 @@ export async function handleProof(
 		proofUrl
 	);
 	if (ctx.claim) await ctx.claim.record(proof.paymentId, proofUrl);
-	await ctx.send(ctx.adminChannelId, prompt.text);
+
+	// B5: the primary approver gets the prompt; no approver -> fail closed.
+	const approver = ctx.approvers[0];
+	if (!approver) {
+		await ctx.reply(interaction, 'Proof received. No approver is configured to confirm it yet.');
+		return;
+	}
+	await ctx.send(approver, prompt.text);
 	await ctx.reply(
 		interaction,
 		'Proof received. An admin will confirm it and publish your API key.'

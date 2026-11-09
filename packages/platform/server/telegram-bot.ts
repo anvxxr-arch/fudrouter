@@ -11,6 +11,7 @@
 //   - minting a pending payment               -> gateway.ts createPayment (B1)
 //   - confirm → grant (idempotent, frsubs)    -> payment-confirm.ts confirmAndGrant (B3b),
 //                                               which reaches grantForPayment → resolveGrant
+//   - WHICH approver holds the prompt (B5)    -> approval.ts approvalRoute / escalate
 //
 // The split matches bots.ts's header (DECISIONS here, adapters own I/O) and the
 // "core ≠ transport" pattern gateway.ts uses: `TelegramBotDeps` carries the
@@ -116,8 +117,15 @@ export interface PendingPayment {
 export interface TelegramBotDeps {
 	send: TelegramSend;
 	answerCallback: TelegramAnswerCallback;
-	/** The admin chat that receives the approval prompt (owner rule 8/21). */
-	adminChatId: string;
+	/**
+	 * The approver chats that receive the approval prompt, in escalation order:
+	 * `approvers[0]` is the primary, `approvers[1]` the first fallback, and so
+	 * on (owner rule 8/21; escalation rule S9/P1.3). One list — a single source
+	 * of truth — populated from `FUDROUTER_APPROVERS` by the transport (see
+	 * approval-env.ts). Empty means no approver is configured: fail closed,
+	 * the proof is still recorded but no prompt is sent.
+	 */
+	approvers: string[];
 	/** Frozen clock for tests; defaults to wall clock. */
 	now?: () => Date;
 	/** Member chat → platform account id. Owned by the transport (Telegram OAuth link). */
@@ -134,6 +142,11 @@ export interface TelegramBotDeps {
 	paymentConfirmStore: PaymentConfirmStore;
 	/** grant.ts SubscriptionWriter (B2) — persists the frsubs window. */
 	subscriptionWriter: SubscriptionWriter;
+}
+
+/** The single approver that currently holds the prompt, or null when none. */
+export function primaryApprover(deps: TelegramBotDeps): string | null {
+	return deps.approvers[0] ?? null;
 }
 
 /** What an admin callback produced. */
@@ -241,6 +254,26 @@ async function handlePay(deps: TelegramBotDeps, msg: TelegramMessage, planId: st
 	await deps.send(msg.chatId, prompt.text, { qris: prompt.qris });
 }
 
+/**
+ * Render the approval prompt that goes to ONE approver chat, from core facts
+ * only. This stays here (not duplicated in the transport) so the initial prompt
+ * and every B5 escalation use the exact same text, buttons and claim. The
+ * transport's escalation loop is:
+ *
+ *   const next = escalate(state, approvers, Date.now(), ttlMs);
+ *   if (next) await deps.send(approvers[next.promptedIndex], ...approvalMessage(...));
+ */
+export function approvalMessage(
+	approverChatId: string,
+	member: string,
+	planId: string,
+	proofUrl: string,
+	claim: TelegramClaim
+): { chatId: string; text: string; opts: TelegramSendOptions } {
+	const prompt = adminApprovalPrompt(member, planId, proofUrl);
+	return { chatId: approverChatId, text: prompt.text, opts: { buttons: prompt.buttons, claim } };
+}
+
 async function handleProof(deps: TelegramBotDeps, msg: TelegramMessage): Promise<void> {
 	const accountId = await deps.accountIdFor(msg.chatId);
 	if (!accountId) {
@@ -262,13 +295,21 @@ async function handleProof(deps: TelegramBotDeps, msg: TelegramMessage): Promise
 	}
 
 	const name = msg.username ?? 'a member';
-	const prompt = adminApprovalPrompt(name, pending.planId, proofUrl);
 	const claim: TelegramClaim = {
 		paymentId: pending.paymentId,
 		memberChatId: msg.chatId,
 		memberName: name
 	};
-	await deps.send(deps.adminChatId, prompt.text, { buttons: prompt.buttons, claim });
+
+	// B5: prompt the PRIMARY approver. No approver configured -> fail closed
+	// (the proof is recorded, but nothing routes a yes/no to nowhere).
+	const approver = primaryApprover(deps);
+	if (!approver) {
+		await deps.send(msg.chatId, 'Proof received. No approver is configured to confirm it yet.');
+		return;
+	}
+	const routed = approvalMessage(approver, name, pending.planId, proofUrl, claim);
+	await deps.send(routed.chatId, routed.text, routed.opts);
 }
 
 /**

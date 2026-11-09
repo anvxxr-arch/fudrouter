@@ -122,6 +122,15 @@ func (lc *lifecycle) exchangeCFP(ctx context.Context, cand *routing.Candidate, a
 	ready := make(chan error, 1)
 	var started atomic.Bool
 
+	// The stream goroutine runs cfpChatWithRetry, whose retry loop can hold an
+	// upstream connection for up to 120s x retries. When the first-token wait
+	// below times out (or the caller gives up and fails over), this attempt is
+	// abandoned: without our own cancel the goroutine would keep the upstream
+	// dial alive until its own deadline, outliving the attempt. streamCtx is
+	// cancelled on BOTH paths (abandon and normal return via defer).
+	streamCtx, streamCancel := context.WithCancel(ctx)
+	defer streamCancel()
+
 	go func() {
 		emit := func(v any) error {
 			b, err := json.Marshal(v)
@@ -151,7 +160,7 @@ func (lc *lifecycle) exchangeCFP(ctx context.Context, cand *routing.Candidate, a
 			})
 		}
 		opt.OnDelta = delta
-		res, err := cfpChatWithRetry(ctx, opt, func() bool { return started.Load() })
+		res, err := cfpChatWithRetry(streamCtx, opt, func() bool { return started.Load() })
 		if err != nil {
 			if !started.Load() {
 				markReady(err)

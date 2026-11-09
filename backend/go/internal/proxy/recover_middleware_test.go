@@ -1,9 +1,11 @@
 package proxy
 
 import (
+	"bufio"
 	"bytes"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -71,4 +73,54 @@ func TestRecoverMiddleware(t *testing.T) {
 			t.Errorf("second WriteHeader attempted after a committed status: %q", logBuf.String())
 		}
 	})
+}
+
+// TestRecoverMiddlewarePreservesFlusher pins the P0 streaming regression: the
+// middleware wraps the whole mux in production, and `wroteHeader` embedded
+// http.ResponseWriter WITHOUT a Flush method, so every stream relay's
+// `w.(http.Flusher)` type-assert failed and all SSE responses were buffered.
+// A Flush on the wrapped writer must reach the underlying Flusher.
+func TestRecoverMiddlewarePreservesFlusher(t *testing.T) {
+	p := &Handler{}
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		f, ok := w.(http.Flusher)
+		if !ok {
+			t.Errorf("wrapped writer does not satisfy http.Flusher; streaming would be buffered")
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		f.Flush()
+	})
+	srv := httptest.NewUnstartedServer(RecoverMiddleware(p, next))
+	srv.Config.ConnState = nil
+	srv.Start()
+	t.Cleanup(srv.Close)
+
+	// A raw client so we can observe the flush on the wire (a flushed empty
+	// chunk arrives before the body completes).
+	conn, err := net.Dial("tcp", strings.TrimPrefix(srv.URL, "http://"))
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+	if _, err := io.WriteString(conn, "GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"); err != nil {
+		t.Fatalf("write request: %v", err)
+	}
+	br := bufio.NewReader(conn)
+	var statusSeen bool
+	for {
+		line, err := br.ReadString('\n')
+		if err != nil {
+			break
+		}
+		if strings.HasPrefix(line, "HTTP/1.1 200") {
+			statusSeen = true
+		}
+		if strings.TrimSpace(line) == "" {
+			break
+		}
+	}
+	if !statusSeen {
+		t.Fatalf("no 200 status seen; the Flush did not produce a status line")
+	}
 }

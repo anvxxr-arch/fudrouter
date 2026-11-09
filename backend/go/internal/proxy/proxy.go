@@ -449,6 +449,20 @@ func (w *wroteHeader) Write(b []byte) (int, error) {
 	return w.ResponseWriter.Write(b)
 }
 
+// Flush makes wroteHeader satisfy http.Flusher when (and only when) the
+// underlying writer does. RecoverMiddleware wraps the WHOLE mux in production
+// (cmd/gateway main.go), and without this the wrapped writer fails
+// `w.(http.Flusher)` in every stream relay (stream.go, anthropic.go, gemini.go),
+// so all SSE/streaming responses were buffered to >=4KB batches or the end of
+// the stream. Flushing through keeps streaming interactive. Nothing is written
+// here; the caller's own Flush is forwarded so a panic-recover can still emit a
+// taxonomy error when nothing has been written yet.
+func (w *wroteHeader) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
 // RecoverMiddleware turns a handler panic into a taxonomy error instead of a
 // truncated response (F7). A panic propagates to
 // net/http's per-connection recover, which closes the connection and skips the

@@ -1342,7 +1342,15 @@ func (lc *lifecycle) finish() {
 			deadline := time.Now().Add(window)
 			backoff := ledgerWriteBackoff
 			for attempt := 1; ; attempt++ {
-				releaseSlot, acquired := lc.h.acquireLedgerSlot(lc.r.Context())
+				// Detach from the request context: a client disconnect cancels
+				// lc.r.Context(), and acquireLedgerSlot selects on the parent's
+				// Done() — passing the live request context lets a disconnect
+				// race the slot's availability and SHED the ledger row (~50% when
+				// a slot is free, 100% when the cap is full). That is exactly the
+				// charge-failure + disconnect path this detached writer exists to
+				// protect. The insert below already uses WithoutCancel; the
+				// acquire must match it.
+				releaseSlot, acquired := lc.h.acquireLedgerSlot(context.WithoutCancel(lc.r.Context()))
 				if !acquired {
 					n := lc.h.ledgerWritersShed.Add(1)
 					log.Printf("[proxy] ledger write for %s shed after %v waiting for a slot: "+

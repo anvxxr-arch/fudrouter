@@ -1,4 +1,4 @@
-import { and, eq, inArray, lte, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql, type SQL } from 'drizzle-orm';
 import type { PostgresJsDatabase, PostgresJsQueryResultHKT } from 'drizzle-orm/postgres-js';
 import type { PgTransaction } from 'drizzle-orm/pg-core';
 import { db } from './db/index.ts';
@@ -135,6 +135,10 @@ async function pokeWakeup(type: string): Promise<void> {
 /**
  * Queue a job. `type` must be a known PRD §76 job type — a typo must fail
  * loudly at enqueue time, not become a forever-pending row no handler matches.
+ * `maxAttempts < 1` and a NaN `availableAt` would otherwise paste a job into a
+ * state no claim or sweep can ever leave (see the queasy-set rule in
+ * `claimJobs`/`requeueStaleJobs`), so they are rejected at the same boundary
+ * instead of being discovered dead.
  */
 export async function enqueue(
 	type: JobType,
@@ -143,6 +147,12 @@ export async function enqueue(
 	handle: JobHandle = db
 ): Promise<string> {
 	if (!JOB_TYPES.includes(type)) throw new Error(`unknown job type: ${JSON.stringify(type)}`);
+	if (options.maxAttempts !== undefined && Math.floor(options.maxAttempts) < 1) {
+		throw new Error(`maxAttempts must be >= 1, got ${JSON.stringify(options.maxAttempts)}`);
+	}
+	if (options.availableAt !== undefined && Number.isNaN(options.availableAt.getTime())) {
+		throw new Error('availableAt must be a valid Date');
+	}
 	const id = newId('job_');
 	await handle.insert(job).values({
 		id,
@@ -158,6 +168,19 @@ export async function enqueue(
 }
 
 /**
+ * The set of job types the fleet can serve. Also the "queasy set": a row whose
+ * `type` is outside it can never be claimed, so `claimJobs` skips it (leaving
+ * it `pending`, visible) and `requeueStaleJobs` fails a stale one terminally —
+ * neither poisons the queue by inventing a row outside the set.
+ */
+function knownTypeSql(): SQL {
+	return inArray(
+		job.type,
+		JOB_TYPES.map((t) => t as string)
+	);
+}
+
+/**
  * Atomically hand up to `limit` runnable jobs to ONE claimer (PRD §75).
  *
  * The claim is a single statement — `SELECT … FOR UPDATE SKIP LOCKED` followed
@@ -168,7 +191,9 @@ export async function enqueue(
  *
  * Each claim also bumps `attempts`, which is what `failJob`'s backoff and the
  * max-attempts cutoff count. A claimed job that is then skipped (its dedup lock
- * is held elsewhere) is returned to `pending` immediately.
+ * is held elsewhere) is returned to `pending` immediately. A row whose type no
+ * handler can ever serve is likewise skipped, not invented into `running`: an
+ * unknown type must not park a job outside the sweep that clears it.
  */
 export async function claimJobs(
 	types: readonly JobType[],
@@ -181,6 +206,7 @@ export async function claimJobs(
 			select id from "job"
 			where "status" = 'pending'
 			  and "type" in (${sql.join(types.map((t) => sql`${t}`), sql`, `)})
+			  and ${knownTypeSql()}
 			  and "available_at" <= now()
 			order by "available_at", "created_at"
 			limit ${limit}
@@ -299,7 +325,7 @@ export async function cancelJob(id: string, handle: JobHandle = db): Promise<voi
  * `coalesce(started_at, created_at)` because started_at is NULLABLE while the
  * column is `running`: a row whose worker died between the claim's UPDATE and
  * the started_at write — or any row inserted straight as `running` by an
- * operator or a future migration — is invisible to `lte(started_at, cutoff)`
+ * operator or a future migration — is invisible to `started_at <= cutoff`
  * and stays `running` FOREVER. A pending row with started_at NULL is already
  * ignored (the status predicate filters it), so the coalesce cannot resurrect
  * something that was never claimed.
@@ -307,6 +333,11 @@ export async function cancelJob(id: string, handle: JobHandle = db): Promise<voi
  * The caller must keep the dedup-lock TTL above this threshold (see
  * claimJobs): a job requeued while its original handler is still running is
  * only safe because the lock hint stops the second claimer.
+ *
+ * Rows whose `type` is outside the handler set are never resurrected to
+ * `pending` (where a later claim would invent them into `running` with no
+ * handler, parking them): they are marked `failed` terminally. A typo'd row is
+ * exactly this, and at the old code it simply never left the table.
  */
 export async function requeueStaleJobs(
 	staleAfterMs = STALE_AFTER_MS_DEFAULT,
@@ -323,10 +354,17 @@ export async function requeueStaleJobs(
 		.where(
 			and(
 				eq(job.status, 'running'),
+				knownTypeSql(),
 				sql`coalesce(${job.startedAt}, ${job.createdAt}) <= ${cutoff.toISOString()}`
 			)
 		)
 		.returning({ id: job.id });
+	// A stale running job whose type no handler serves can never be claimed or
+	// swept back to a live state; terminate it instead of leaving it running.
+	await handle
+		.update(job)
+		.set({ status: 'failed', finishedAt: new Date(), error: 'unknown job type: no handler registered' })
+		.where(and(eq(job.status, 'running'), sql`not (${knownTypeSql()})`));
 	return rows.length;
 }
 

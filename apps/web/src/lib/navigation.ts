@@ -79,6 +79,7 @@ export const CONSOLE_NAV: readonly NavItem[] = [
   { to: "/dashboard/routing", label: "Routing", scope: "console", cap: "member", nav: true },
   { to: "/dashboard/alerts", label: "Alerts", scope: "console", cap: "member", nav: true },
   { to: "/dashboard/billing", label: "Billing", scope: "console", cap: "member", nav: true },
+  { to: "/dashboard/subscription", label: "Subscription", scope: "console", cap: "member", nav: true },
   { to: "/dashboard/billing/credits", label: "Credits", scope: "console", cap: "member", nav: false },
   { to: "/dashboard/billing/invoices", label: "Invoices", scope: "console", cap: "member", nav: false },
   { to: "/dashboard/billing/payment-methods", label: "Payment methods", scope: "console", cap: "member", nav: false },

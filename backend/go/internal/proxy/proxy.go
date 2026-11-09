@@ -523,6 +523,13 @@ func (h *Handler) ServeCompletions(w http.ResponseWriter, r *http.Request) {
 	// client-supplied stream_options instead of replacing it: the contract
 	// forwards the body essentially verbatim (inference.yaml), and
 	// include_usage is forced true — billing depends on it.
+	//
+	// upBody starts as the ORIGINAL bytes for a non-stream request: the body
+	// was decoded only to read `model`/`stream`, and re-marshalling it would
+	// both pay a full re-encode per request and shuffle the client's key order
+	// (map iteration order is random), which is not "verbatim" forwarding. Only
+	// a stream request mutates the map (stream_options), so only it re-marshals.
+	upBody := body
 	if stream {
 		so, _ := req["stream_options"].(map[string]any)
 		if so == nil {
@@ -530,8 +537,8 @@ func (h *Handler) ServeCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 		so["include_usage"] = true
 		req["stream_options"] = so
+		upBody, _ = json.Marshal(req)
 	}
-	upBody, _ := json.Marshal(req)
 
 	lc.stream = stream
 	// Compress oversized tool results before dispatch (compress.go). The

@@ -2,12 +2,22 @@ package proxy
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
+)
+
+// Byte markers for the SSE relay loop. The relay scans every token chunk, so
+// the "is this a usage/boundary line" tests run per token; keeping them as
+// []byte lets the whole loop operate on the scanner's buffer without a single
+// string conversion (see the streamSSE write-path comment).
+var (
+	dataPrefix  = []byte("data: ")
+	doneMarker  = []byte("[DONE]")
+	usageMarker = []byte(`"usage"`)
+	backslash   = []byte(`\`)
 )
 
 // streamSSE copies the upstream SSE to the client line-group by line-group,
@@ -35,11 +45,22 @@ func (lc *lifecycle) streamSSE(w http.ResponseWriter, body io.Reader) {
 
 	sc := bufio.NewScanner(body)
 	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
+	// A write of line + "\n" avoids two per-line allocations the old path
+	// paid: sc.Text() allocates a fresh string per scanned line, and then
+	// fmt.Fprintln(w, line) re-parses the format verb and boxes the string
+	// through []any on every token. Scanner.Bytes() returns the underlying
+	// buffer for one iteration, so writing it directly (bytes.HasPrefix /
+	// bytes.TrimPrefix on the byte view, one Write per line) removes the
+	// string conversion, the format parse and the interface boxing from the
+	// per-token loop entirely.
+	newline := []byte{'\n'}
 	for sc.Scan() {
-		line := sc.Text()
-		if _, err := fmt.Fprintln(w, line); err != nil {
-			// The write failed: the client is gone. Record the disconnect and
-			// stop — the usage reported so far is still billed (PRD §87).
+		line := sc.Bytes()
+		if _, err := w.Write(line); err != nil {
+			lc.clientDisconnected = true
+			break
+		}
+		if _, err := w.Write(newline); err != nil {
 			lc.clientDisconnected = true
 			break
 		}
@@ -52,9 +73,9 @@ func (lc *lifecycle) streamSSE(w http.ResponseWriter, body io.Reader) {
 		// the client had seen no token yet, corrupting every dashboard
 		// percentile over that column. Only a `data:` frame that is not the
 		// terminal [DONE] means a token could have arrived.
-		if strings.HasPrefix(line, "data: ") {
-			payload := strings.TrimPrefix(line, "data: ")
-			if payload == "[DONE]" {
+		if bytes.HasPrefix(line, dataPrefix) {
+			payload := bytes.TrimPrefix(line, dataPrefix)
+			if bytes.Equal(payload, doneMarker) {
 				continue
 			}
 			if ttft == 0 {
@@ -67,7 +88,7 @@ func (lc *lifecycle) streamSSE(w http.ResponseWriter, body io.Reader) {
 			// backslash), so skipping the parse when it fails changes nothing
 			// observable — it just stops the relay from paying a full JSON
 			// unmarshal per token chunk.
-			if !strings.Contains(payload, `"usage"`) && !strings.Contains(payload, `\`) {
+			if !bytes.Contains(payload, usageMarker) && !bytes.Contains(payload, backslash) {
 				continue
 			}
 			var chunk struct {
@@ -85,7 +106,7 @@ func (lc *lifecycle) streamSSE(w http.ResponseWriter, body io.Reader) {
 					} `json:"completion_tokens_details"`
 				} `json:"usage"`
 			}
-			if err := json.Unmarshal([]byte(payload), &chunk); err == nil && chunk.Usage != nil {
+			if err := json.Unmarshal(payload, &chunk); err == nil && chunk.Usage != nil {
 				usage = usageCounts{
 					TokensIn:          chunk.Usage.PromptTokens,
 					TokensOut:         chunk.Usage.CompletionTokens,

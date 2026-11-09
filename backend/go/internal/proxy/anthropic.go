@@ -16,6 +16,7 @@ package proxy
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -587,20 +588,20 @@ func (lc *lifecycle) anthropicStreamSSE(w http.ResponseWriter, body io.Reader, m
 	sc := bufio.NewScanner(body)
 	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
 	for sc.Scan() {
-		line := sc.Text()
+		line := sc.Bytes()
 		// H5: ttft is stamped on the first content_block_delta EMIT below,
 		// not on the first non-empty line — message_start and
 		// content_block_start are protocol framing the client receives before
 		// any token exists, and stamping them reported ttft_ms ≈ 0.
-		if !strings.HasPrefix(line, "data: ") {
+		if !bytes.HasPrefix(line, dataPrefix) {
 			continue
 		}
-		payload := strings.TrimPrefix(line, "data: ")
-		if payload == "[DONE]" {
+		payload := bytes.TrimPrefix(line, dataPrefix)
+		if bytes.Equal(payload, doneMarker) {
 			continue
 		}
 		var chunk oiStreamChunk
-		if json.Unmarshal([]byte(payload), &chunk) != nil {
+		if json.Unmarshal(payload, &chunk) != nil {
 			continue
 		}
 		if chunk.Usage != nil {

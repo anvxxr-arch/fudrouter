@@ -21,6 +21,13 @@
 // Fail-closed: when `MAYAR_WEBHOOK_ENABLED !== 'true'` (the default) or
 // `MAYAR_API_KEY` is unset, the route answers 404 — no new surface exists until
 // an operator turns it on.
+//
+// Middleware order (mandate #8): the enabled gate runs FIRST so an OFF route
+// 404s WITHOUT consuming a rate-limit slot, then the IP rate-limit, and LAST
+// express.raw — a flood is rejected by the limiter before its 64KB body is ever
+// buffered/parsed. `express.raw` stays mounted here (a route list entry) rather
+// than moved to a global `app.use`, so its scope never widens; it steps to the
+// end of the chain so it only buffers bytes a request was allowed to reach.
 
 import express from 'express';
 import { sql } from 'drizzle-orm';
@@ -119,17 +126,26 @@ export function registerMayarWebhook(app, ctx = {}) {
 			key: async (req) => `mayar:ip:${clientIp(req) ?? 'unknown'}`
 		});
 
+	// The enabled gate is a middleware (NOT an in-handler check) so an OFF route
+	// is rejected before the rate-limiter (no slot consumed while disabled) and
+	// before express.raw (no body buffered while disabled). Named so tests can
+	// assert its position in the middleware chain.
+	function mayarWebhookEnabledGate(req, res, next) {
+		// Checked per-request (not just at registration) so a live-reload of env
+		// never exposes a disabled path.
+		if (!enabled()) return res.status(404).json({ error: 'Not found' });
+		next();
+	}
+
 	app.post(
 		'/api/mayar/webhook',
-		express.raw({ type: () => true, limit: MAYAR_WEBHOOK_BODY_LIMIT }),
+		mayarWebhookEnabledGate,
 		ipLimit,
+		express.raw({ type: () => true, limit: MAYAR_WEBHOOK_BODY_LIMIT }),
 		async (req, res) => {
-			// The enabled gate is checked per-request (not just at registration)
-			// so a live-reload of env never exposes a disabled path.
-			if (!enabled()) return res.status(404).json({ error: 'Not found' });
-
-			const rawBuffer = Buffer.isBuffer(req.body) ? req.body : null;
-			const raw = rawBuffer ? rawBuffer.toString('utf8') : typeof req.body === 'string' ? req.body : '';
+			// express.raw leaves `req.body` as a Buffer; accept the string/absent
+			// shapes a test seam may hand through.
+			const raw = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : (typeof req.body === 'string' ? req.body : '');
 			let body = null;
 			try {
 				body = raw ? JSON.parse(raw) : null;

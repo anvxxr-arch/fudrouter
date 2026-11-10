@@ -3414,13 +3414,13 @@ paths:
       tags: [mayar]
       summary: "POST /api/mayar/webhook"
       description: |
-        Registered at apps/web/server/mayar-webhook.mjs:95.
+        Registered at apps/web/server/mayar-webhook.mjs:140.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/mayar-webhook.mjs
-        line: 95
+        line: 140
       x-body-schema: unmodelled
       responses:
         "200":
@@ -3595,13 +3595,13 @@ paths:
       tags: [pages]
       summary: "GET /api/pages/alerts"
       description: |
-        Registered at apps/web/server/pages.mjs:1130.
+        Registered at apps/web/server/pages.mjs:1161.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/pages.mjs
-        line: 1130
+        line: 1161
       x-body-schema: unmodelled
       responses:
         "200":
@@ -3620,13 +3620,13 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/alerts/create"
       description: |
-        Registered at apps/web/server/pages.mjs:1139.
+        Registered at apps/web/server/pages.mjs:1170.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/pages.mjs
-        line: 1139
+        line: 1170
       x-body-schema: unmodelled
       responses:
         "200":
@@ -3645,13 +3645,13 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/alerts/remove"
       description: |
-        Registered at apps/web/server/pages.mjs:1171.
+        Registered at apps/web/server/pages.mjs:1202.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/pages.mjs
-        line: 1171
+        line: 1202
       x-body-schema: unmodelled
       responses:
         "200":
@@ -3670,13 +3670,13 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/alerts/update"
       description: |
-        Registered at apps/web/server/pages.mjs:1150.
+        Registered at apps/web/server/pages.mjs:1181.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/pages.mjs
-        line: 1150
+        line: 1181
       x-body-schema: unmodelled
       responses:
         "200":
@@ -3695,13 +3695,13 @@ paths:
       tags: [pages]
       summary: "GET /api/pages/aliases"
       description: |
-        Registered at apps/web/server/pages.mjs:938.
+        Registered at apps/web/server/pages.mjs:969.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/pages.mjs
-        line: 938
+        line: 969
       x-body-schema: unmodelled
       responses:
         "200":
@@ -3720,13 +3720,13 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/aliases/create"
       description: |
-        Registered at apps/web/server/pages.mjs:957.
+        Registered at apps/web/server/pages.mjs:988.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/pages.mjs
-        line: 957
+        line: 988
       x-body-schema: unmodelled
       responses:
         "200":
@@ -3745,13 +3745,13 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/aliases/delete"
       description: |
-        Registered at apps/web/server/pages.mjs:997.
+        Registered at apps/web/server/pages.mjs:1028.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/pages.mjs
-        line: 997
+        line: 1028
       x-body-schema: unmodelled
       responses:
         "200":
@@ -3769,6 +3769,331 @@ paths:
       operationId: getapiPagesBudgets
       tags: [pages]
       summary: "GET /api/pages/budgets"
+      description: |
+        Registered at apps/web/server/pages.mjs:896.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 896
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/budgets/remove":
+    post:
+      operationId: postapiPagesBudgetsRemove
+      tags: [pages]
+      summary: "POST /api/pages/budgets/remove"
+      description: |
+        Registered at apps/web/server/pages.mjs:950.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 950
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/budgets/save":
+    post:
+      operationId: postapiPagesBudgetsSave
+      tags: [pages]
+      summary: "POST /api/pages/budgets/save"
+      description: |
+        Registered at apps/web/server/pages.mjs:921.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 921
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/combos":
+    get:
+      operationId: getapiPagesCombos
+      tags: [pages]
+      summary: "GET /api/pages/combos"
+      description: |
+        Registered at apps/web/server/pages.mjs:1321.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 1321
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/combos/create":
+    post:
+      operationId: postapiPagesCombosCreate
+      tags: [pages]
+      summary: "POST /api/pages/combos/create"
+      description: |
+        Registered at apps/web/server/pages.mjs:1340.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 1340
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/combos/remove":
+    post:
+      operationId: postapiPagesCombosRemove
+      tags: [pages]
+      summary: "POST /api/pages/combos/remove"
+      description: |
+        Registered at apps/web/server/pages.mjs:1393.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 1393
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/combos/update":
+    post:
+      operationId: postapiPagesCombosUpdate
+      tags: [pages]
+      summary: "POST /api/pages/combos/update"
+      description: |
+        Registered at apps/web/server/pages.mjs:1364.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 1364
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/dashboard":
+    get:
+      operationId: getapiPagesDashboard
+      tags: [pages]
+      summary: "GET /api/pages/dashboard"
+      description: |
+        Registered at apps/web/server/pages.mjs:224.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 224
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/injections":
+    get:
+      operationId: getapiPagesInjections
+      tags: [pages]
+      summary: "GET /api/pages/injections"
+      description: |
+        Registered at apps/web/server/pages.mjs:1238.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 1238
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/injections/create":
+    post:
+      operationId: postapiPagesInjectionsCreate
+      tags: [pages]
+      summary: "POST /api/pages/injections/create"
+      description: |
+        Registered at apps/web/server/pages.mjs:1259.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 1259
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/injections/remove":
+    post:
+      operationId: postapiPagesInjectionsRemove
+      tags: [pages]
+      summary: "POST /api/pages/injections/remove"
+      description: |
+        Registered at apps/web/server/pages.mjs:1304.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 1304
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/injections/update":
+    post:
+      operationId: postapiPagesInjectionsUpdate
+      tags: [pages]
+      summary: "POST /api/pages/injections/update"
+      description: |
+        Registered at apps/web/server/pages.mjs:1284.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 1284
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/limits":
+    get:
+      operationId: getapiPagesLimits
+      tags: [pages]
+      summary: "GET /api/pages/limits"
+      description: |
+        Registered at apps/web/server/pages.mjs:761.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 761
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/limits/remove":
+    post:
+      operationId: postapiPagesLimitsRemove
+      tags: [pages]
+      summary: "POST /api/pages/limits/remove"
       description: |
         Registered at apps/web/server/pages.mjs:865.
         Requires authentication; /api/admin routes additionally require an admin capability.
@@ -3789,344 +4114,19 @@ paths:
           content:
             application/json:
               schema: { type: object, additionalProperties: true }
-  "/api/pages/budgets/remove":
-    post:
-      operationId: postapiPagesBudgetsRemove
-      tags: [pages]
-      summary: "POST /api/pages/budgets/remove"
-      description: |
-        Registered at apps/web/server/pages.mjs:919.
-        Requires authentication; /api/admin routes additionally require an admin capability.
-      security:
-        - session: []
-      x-source:
-        file: apps/web/server/pages.mjs
-        line: 919
-      x-body-schema: unmodelled
-      responses:
-        "200":
-          description: Handler-defined JSON. Body not modelled — read x-source.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-        default:
-          description: Handler-defined error envelope.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-  "/api/pages/budgets/save":
-    post:
-      operationId: postapiPagesBudgetsSave
-      tags: [pages]
-      summary: "POST /api/pages/budgets/save"
-      description: |
-        Registered at apps/web/server/pages.mjs:890.
-        Requires authentication; /api/admin routes additionally require an admin capability.
-      security:
-        - session: []
-      x-source:
-        file: apps/web/server/pages.mjs
-        line: 890
-      x-body-schema: unmodelled
-      responses:
-        "200":
-          description: Handler-defined JSON. Body not modelled — read x-source.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-        default:
-          description: Handler-defined error envelope.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-  "/api/pages/combos":
-    get:
-      operationId: getapiPagesCombos
-      tags: [pages]
-      summary: "GET /api/pages/combos"
-      description: |
-        Registered at apps/web/server/pages.mjs:1290.
-        Requires authentication; /api/admin routes additionally require an admin capability.
-      security:
-        - session: []
-      x-source:
-        file: apps/web/server/pages.mjs
-        line: 1290
-      x-body-schema: unmodelled
-      responses:
-        "200":
-          description: Handler-defined JSON. Body not modelled — read x-source.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-        default:
-          description: Handler-defined error envelope.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-  "/api/pages/combos/create":
-    post:
-      operationId: postapiPagesCombosCreate
-      tags: [pages]
-      summary: "POST /api/pages/combos/create"
-      description: |
-        Registered at apps/web/server/pages.mjs:1309.
-        Requires authentication; /api/admin routes additionally require an admin capability.
-      security:
-        - session: []
-      x-source:
-        file: apps/web/server/pages.mjs
-        line: 1309
-      x-body-schema: unmodelled
-      responses:
-        "200":
-          description: Handler-defined JSON. Body not modelled — read x-source.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-        default:
-          description: Handler-defined error envelope.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-  "/api/pages/combos/remove":
-    post:
-      operationId: postapiPagesCombosRemove
-      tags: [pages]
-      summary: "POST /api/pages/combos/remove"
-      description: |
-        Registered at apps/web/server/pages.mjs:1362.
-        Requires authentication; /api/admin routes additionally require an admin capability.
-      security:
-        - session: []
-      x-source:
-        file: apps/web/server/pages.mjs
-        line: 1362
-      x-body-schema: unmodelled
-      responses:
-        "200":
-          description: Handler-defined JSON. Body not modelled — read x-source.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-        default:
-          description: Handler-defined error envelope.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-  "/api/pages/combos/update":
-    post:
-      operationId: postapiPagesCombosUpdate
-      tags: [pages]
-      summary: "POST /api/pages/combos/update"
-      description: |
-        Registered at apps/web/server/pages.mjs:1333.
-        Requires authentication; /api/admin routes additionally require an admin capability.
-      security:
-        - session: []
-      x-source:
-        file: apps/web/server/pages.mjs
-        line: 1333
-      x-body-schema: unmodelled
-      responses:
-        "200":
-          description: Handler-defined JSON. Body not modelled — read x-source.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-        default:
-          description: Handler-defined error envelope.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-  "/api/pages/dashboard":
-    get:
-      operationId: getapiPagesDashboard
-      tags: [pages]
-      summary: "GET /api/pages/dashboard"
-      description: |
-        Registered at apps/web/server/pages.mjs:216.
-        Requires authentication; /api/admin routes additionally require an admin capability.
-      security:
-        - session: []
-      x-source:
-        file: apps/web/server/pages.mjs
-        line: 216
-      x-body-schema: unmodelled
-      responses:
-        "200":
-          description: Handler-defined JSON. Body not modelled — read x-source.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-        default:
-          description: Handler-defined error envelope.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-  "/api/pages/injections":
-    get:
-      operationId: getapiPagesInjections
-      tags: [pages]
-      summary: "GET /api/pages/injections"
-      description: |
-        Registered at apps/web/server/pages.mjs:1207.
-        Requires authentication; /api/admin routes additionally require an admin capability.
-      security:
-        - session: []
-      x-source:
-        file: apps/web/server/pages.mjs
-        line: 1207
-      x-body-schema: unmodelled
-      responses:
-        "200":
-          description: Handler-defined JSON. Body not modelled — read x-source.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-        default:
-          description: Handler-defined error envelope.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-  "/api/pages/injections/create":
-    post:
-      operationId: postapiPagesInjectionsCreate
-      tags: [pages]
-      summary: "POST /api/pages/injections/create"
-      description: |
-        Registered at apps/web/server/pages.mjs:1228.
-        Requires authentication; /api/admin routes additionally require an admin capability.
-      security:
-        - session: []
-      x-source:
-        file: apps/web/server/pages.mjs
-        line: 1228
-      x-body-schema: unmodelled
-      responses:
-        "200":
-          description: Handler-defined JSON. Body not modelled — read x-source.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-        default:
-          description: Handler-defined error envelope.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-  "/api/pages/injections/remove":
-    post:
-      operationId: postapiPagesInjectionsRemove
-      tags: [pages]
-      summary: "POST /api/pages/injections/remove"
-      description: |
-        Registered at apps/web/server/pages.mjs:1273.
-        Requires authentication; /api/admin routes additionally require an admin capability.
-      security:
-        - session: []
-      x-source:
-        file: apps/web/server/pages.mjs
-        line: 1273
-      x-body-schema: unmodelled
-      responses:
-        "200":
-          description: Handler-defined JSON. Body not modelled — read x-source.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-        default:
-          description: Handler-defined error envelope.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-  "/api/pages/injections/update":
-    post:
-      operationId: postapiPagesInjectionsUpdate
-      tags: [pages]
-      summary: "POST /api/pages/injections/update"
-      description: |
-        Registered at apps/web/server/pages.mjs:1253.
-        Requires authentication; /api/admin routes additionally require an admin capability.
-      security:
-        - session: []
-      x-source:
-        file: apps/web/server/pages.mjs
-        line: 1253
-      x-body-schema: unmodelled
-      responses:
-        "200":
-          description: Handler-defined JSON. Body not modelled — read x-source.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-        default:
-          description: Handler-defined error envelope.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-  "/api/pages/limits":
-    get:
-      operationId: getapiPagesLimits
-      tags: [pages]
-      summary: "GET /api/pages/limits"
-      description: |
-        Registered at apps/web/server/pages.mjs:730.
-        Requires authentication; /api/admin routes additionally require an admin capability.
-      security:
-        - session: []
-      x-source:
-        file: apps/web/server/pages.mjs
-        line: 730
-      x-body-schema: unmodelled
-      responses:
-        "200":
-          description: Handler-defined JSON. Body not modelled — read x-source.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-        default:
-          description: Handler-defined error envelope.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-  "/api/pages/limits/remove":
-    post:
-      operationId: postapiPagesLimitsRemove
-      tags: [pages]
-      summary: "POST /api/pages/limits/remove"
-      description: |
-        Registered at apps/web/server/pages.mjs:834.
-        Requires authentication; /api/admin routes additionally require an admin capability.
-      security:
-        - session: []
-      x-source:
-        file: apps/web/server/pages.mjs
-        line: 834
-      x-body-schema: unmodelled
-      responses:
-        "200":
-          description: Handler-defined JSON. Body not modelled — read x-source.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
-        default:
-          description: Handler-defined error envelope.
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
   "/api/pages/limits/save":
     post:
       operationId: postapiPagesLimitsSave
       tags: [pages]
       summary: "POST /api/pages/limits/save"
       description: |
-        Registered at apps/web/server/pages.mjs:795.
+        Registered at apps/web/server/pages.mjs:826.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/pages.mjs
-        line: 795
+        line: 826
       x-body-schema: unmodelled
       responses:
         "200":
@@ -4145,13 +4145,13 @@ paths:
       tags: [pages]
       summary: "GET /api/pages/routing"
       description: |
-        Registered at apps/web/server/pages.mjs:1019.
+        Registered at apps/web/server/pages.mjs:1050.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/pages.mjs
-        line: 1019
+        line: 1050
       x-body-schema: unmodelled
       responses:
         "200":
@@ -4170,13 +4170,13 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/routing/create"
       description: |
-        Registered at apps/web/server/pages.mjs:1036.
+        Registered at apps/web/server/pages.mjs:1067.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/pages.mjs
-        line: 1036
+        line: 1067
       x-body-schema: unmodelled
       responses:
         "200":
@@ -4195,13 +4195,13 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/routing/delete"
       description: |
-        Registered at apps/web/server/pages.mjs:1078.
+        Registered at apps/web/server/pages.mjs:1109.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/pages.mjs
-        line: 1078
+        line: 1109
       x-body-schema: unmodelled
       responses:
         "200":
@@ -4220,13 +4220,13 @@ paths:
       tags: [pages]
       summary: "POST /api/pages/routing/update"
       description: |
-        Registered at apps/web/server/pages.mjs:1053.
+        Registered at apps/web/server/pages.mjs:1084.
         Requires authentication; /api/admin routes additionally require an admin capability.
       security:
         - session: []
       x-source:
         file: apps/web/server/pages.mjs
-        line: 1053
+        line: 1084
       x-body-schema: unmodelled
       responses:
         "200":

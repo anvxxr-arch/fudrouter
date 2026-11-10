@@ -459,49 +459,49 @@
       "method": "GET",
       "path": "/api/pages/alerts",
       "file": "pages.mjs",
-      "line": 1130
+      "line": 1161
     },
     {
       "method": "GET",
       "path": "/api/pages/aliases",
       "file": "pages.mjs",
-      "line": 938
+      "line": 969
     },
     {
       "method": "GET",
       "path": "/api/pages/budgets",
       "file": "pages.mjs",
-      "line": 865
+      "line": 896
     },
     {
       "method": "GET",
       "path": "/api/pages/combos",
       "file": "pages.mjs",
-      "line": 1290
+      "line": 1321
     },
     {
       "method": "GET",
       "path": "/api/pages/dashboard",
       "file": "pages.mjs",
-      "line": 216
+      "line": 224
     },
     {
       "method": "GET",
       "path": "/api/pages/injections",
       "file": "pages.mjs",
-      "line": 1207
+      "line": 1238
     },
     {
       "method": "GET",
       "path": "/api/pages/limits",
       "file": "pages.mjs",
-      "line": 730
+      "line": 761
     },
     {
       "method": "GET",
       "path": "/api/pages/routing",
       "file": "pages.mjs",
-      "line": 1019
+      "line": 1050
     },
     {
       "method": "GET",
@@ -1017,7 +1017,7 @@
       "method": "POST",
       "path": "/api/mayar/webhook",
       "file": "mayar-webhook.mjs",
-      "line": 95
+      "line": 140
     },
     {
       "method": "POST",
@@ -1029,109 +1029,109 @@
       "method": "POST",
       "path": "/api/pages/alerts/create",
       "file": "pages.mjs",
-      "line": 1139
+      "line": 1170
     },
     {
       "method": "POST",
       "path": "/api/pages/alerts/remove",
       "file": "pages.mjs",
-      "line": 1171
+      "line": 1202
     },
     {
       "method": "POST",
       "path": "/api/pages/alerts/update",
       "file": "pages.mjs",
-      "line": 1150
+      "line": 1181
     },
     {
       "method": "POST",
       "path": "/api/pages/aliases/create",
       "file": "pages.mjs",
-      "line": 957
+      "line": 988
     },
     {
       "method": "POST",
       "path": "/api/pages/aliases/delete",
       "file": "pages.mjs",
-      "line": 997
+      "line": 1028
     },
     {
       "method": "POST",
       "path": "/api/pages/budgets/remove",
       "file": "pages.mjs",
-      "line": 919
+      "line": 950
     },
     {
       "method": "POST",
       "path": "/api/pages/budgets/save",
       "file": "pages.mjs",
-      "line": 890
+      "line": 921
     },
     {
       "method": "POST",
       "path": "/api/pages/combos/create",
       "file": "pages.mjs",
-      "line": 1309
+      "line": 1340
     },
     {
       "method": "POST",
       "path": "/api/pages/combos/remove",
       "file": "pages.mjs",
-      "line": 1362
+      "line": 1393
     },
     {
       "method": "POST",
       "path": "/api/pages/combos/update",
       "file": "pages.mjs",
-      "line": 1333
+      "line": 1364
     },
     {
       "method": "POST",
       "path": "/api/pages/injections/create",
       "file": "pages.mjs",
-      "line": 1228
+      "line": 1259
     },
     {
       "method": "POST",
       "path": "/api/pages/injections/remove",
       "file": "pages.mjs",
-      "line": 1273
+      "line": 1304
     },
     {
       "method": "POST",
       "path": "/api/pages/injections/update",
       "file": "pages.mjs",
-      "line": 1253
+      "line": 1284
     },
     {
       "method": "POST",
       "path": "/api/pages/limits/remove",
       "file": "pages.mjs",
-      "line": 834
+      "line": 865
     },
     {
       "method": "POST",
       "path": "/api/pages/limits/save",
       "file": "pages.mjs",
-      "line": 795
+      "line": 826
     },
     {
       "method": "POST",
       "path": "/api/pages/routing/create",
       "file": "pages.mjs",
-      "line": 1036
+      "line": 1067
     },
     {
       "method": "POST",
       "path": "/api/pages/routing/delete",
       "file": "pages.mjs",
-      "line": 1078
+      "line": 1109
     },
     {
       "method": "POST",
       "path": "/api/pages/routing/update",
       "file": "pages.mjs",
-      "line": 1053
+      "line": 1084
     },
     {
       "method": "POST",
@@ -1264,8 +1264,8 @@
     "apps/web/server/admin.mjs": "0c53cb1d9ac27a8a603e9a3a380573f65046b876e1d91d3a5619cc6d9076bec3",
     "apps/web/server/discord-transport.mjs": "744a0600a926433c46ea1e75113a132ed8cf0e4e8f85ae3ce4d6d3d06f77449c",
     "apps/web/server/index.mjs": "1233c0bba747f5a8e1297d97726fb47c57f48198f8088b82a900fe410690cbb3",
-    "apps/web/server/mayar-webhook.mjs": "acfaaac38107731e06318e68d89dec993968d649b79f2f1ae62895b30f56d170",
-    "apps/web/server/pages.mjs": "0be75bc10b9855a89883484b31e37edaffd8dd42f4a9c746adc6e1e47b207e4f",
+    "apps/web/server/mayar-webhook.mjs": "e8736d585cd72460acf1d453988daf6f8d56319b5a2c38294c808c08f0f5aca0",
+    "apps/web/server/pages.mjs": "f11932850a1d0bdd5029370ca448a45f7317403fd5da7f9fcaa8ae033fbe564e",
     "apps/web/server/playground.mjs": "60c2f846256a8a07f99769cbdb3a53ed593d1ca528ea82e64e463ebe212bf60b",
     "apps/web/server/public.mjs": "c2ee82bb63b4b0b70284ae4ad1336c8dcd46234004f5ebf22352c87930322c3e",
     "apps/web/server/rate-limit.mjs": "72545a3d910a086142a322a28938fb01b4f81cff750225afd39915e3203e3bbd",

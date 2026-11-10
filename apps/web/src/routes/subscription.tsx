@@ -5,14 +5,16 @@ import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { Input } from "../components/ui/input";
+import { checkoutKind } from "../lib/subscription-checkout";
 import "./subscription.css";
 
 // The member buys time, not tokens (owner directive 2026-10-31). The server
 // endpoints (/api/pages/dashboard/subscription + checkout/claim/payments) served
 // the Discord/Telegram bots, but no web page ever called them: Pricing's "Buy"
-// CTA is a bare link to /login and the console had no subscription route. This
-// page is that missing surface — pick a plan, see the QRIS payload to pay,
-// submit proof, and watch the approval state move pending → claimed → confirmed.
+// CTA is a bare link to /login and the console had no subscription route.
+// This page is that missing surface — pick a plan, pay (a Mayar checkout URL
+// when the gateway is configured, otherwise the legacy static QRIS), submit
+// proof, and watch the approval state move pending → claimed → confirmed.
 // It reads the same endpoints the bots call, so a payment minted here or in
 // Discord shows up in both places.
 
@@ -20,7 +22,7 @@ type Plan = { id: string; days: number; priceIdr: number };
 type CurrentSub = { id: string; plan: string; expiresAt: string; priceIdr: number } | null;
 type HistoryRow = { id: string; plan: string; status: string; startsAt: string | null; expiresAt: string | null; priceIdr: number };
 type SubscriptionData = { plans: Plan[]; current: CurrentSub; history: HistoryRow[] };
-type CheckoutResult = { gatewayRef: string; qris: string; amountIdr: number; plan: string; label: string };
+type CheckoutResult = { gatewayRef: string; qris: string | null; checkoutUrl?: string | null; gateway?: string; amountIdr: number; plan: string; label: string };
 type PaymentRow = { id: string; channel: string; gatewayRef: string; plan: string; amountIdr: number; status: string; createdAt: string };
 type PaymentsData = { rows: PaymentRow[] };
 
@@ -139,13 +141,14 @@ function SubscriptionHome() {
 	};
 
 	const copy = async () => {
-		if (!checkout) return;
+		if (!checkout?.qris) return;
 		try {
 			await navigator.clipboard?.writeText(checkout.qris);
 			setCopied(true);
 			window.setTimeout(() => setCopied(false), 1600);
 		} catch { /* clipboard unavailable: the string is on screen to select */ }
 	};
+	const kind = checkoutKind(checkout);
 
 	const current = sub?.current ?? null;
 
@@ -202,11 +205,29 @@ function SubscriptionHome() {
 
 					{checkout ? (
 						<Card title={`Pay ${checkout.label} — ${fmtIdr(checkout.amountIdr)}`} aria-live="polite">
-							<p className="muted">Scan this QRIS string in your e-wallet or banking app, then submit your proof.</p>
-							<div className="sub-qris">
-								<code>{checkout.qris}</code>
-								<Button size="sm" variant="secondary" onClick={copy}>{copied ? "Copied" : "Copy code"}</Button>
-							</div>
+							{kind === "mayar" && checkout.checkoutUrl ? (
+								<div className="sub-mayar">
+									<p className="muted">Complete your payment on the secure Mayar checkout page, then submit your proof below.</p>
+									<Button asChild variant="primary" className="sub-mayar-cta">
+										<a
+											href={checkout.checkoutUrl}
+											target="_blank"
+											rel="noopener noreferrer"
+										>
+											Continue to checkout
+											<span className="sr-only"> (opens in a new tab)</span>
+										</a>
+									</Button>
+								</div>
+							) : kind === "qris" && checkout.qris ? (
+								<div className="sub-qris">
+									<code>{checkout.qris}</code>
+									<Button size="sm" variant="secondary" onClick={copy}>{copied ? "Copied" : "Copy code"}</Button>
+								</div>
+							) : null}
+							{kind === "qris" && checkout.qris ? (
+								<p className="muted">Scan this QRIS string in your e-wallet or banking app, then submit your proof.</p>
+							) : null}
 							<form className="sub-claim" onSubmit={claim}>
 								<label className="sub-claim-label" htmlFor="proof-url">Payment proof URL</label>
 								<div className="row">

@@ -50,3 +50,13 @@
 /* Payments table caption: visually hidden but announced — the table already
  * has a labelled section heading, so a visible caption would be redundant. */
 .sub-caption { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+/* The external Mayar checkout link is announced with "opens in a new tab" via
+ * the shared .sr-only utility (styles.css), so the words never need to render. */
+
+/* Mayar checkout: a full-width primary (orange) CTA — the one action worth
+ * taking on the screen. The link inherits .btn layout so its hit target is the
+ * shared --control-h-md (40px), well above the 24px minimum. The qris-native
+ * copy button keeps its secondary surface; the branch is chosen in markup. */
+.sub-mayar { display: grid; gap: var(--space-sm); margin: var(--space-sm) 0; }
+.sub-mayar-cta { box-sizing: border-box; width: 100%; }

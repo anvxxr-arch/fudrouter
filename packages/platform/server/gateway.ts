@@ -25,12 +25,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
 import { isChannel, planOf, qrisFor } from './payments.ts';
-import {
-	grantForPayment,
-	type GrantForPaymentOk,
-	type GrantRejectReason,
-	type SubscriptionWriter
-} from './grant.ts';
 
 // ------------------------------ vocabulary ---------------------------------
 
@@ -410,79 +404,3 @@ export async function verifyCallback(
 	};
 }
 
-// -------------------------- confirmPayment ---------------------------------
-
-export interface ConfirmContext {
-	store: Pick<GatewayStore, 'findPayment'>;
-	/** The persist seam `confirmPayment` hands the settled payment to (B2). */
-	writer: SubscriptionWriter;
-}
-
-/**
- * The grant input the writer persists. `gatewayRef` is the link back to the
- * payment row; `paymentId` is B2's idempotency anchor; `bucket` is the tier the
- * live window resolves to (always `frsubs` today, derived by grantForPayment).
- */
-export interface GrantInput {
-	accountId: string;
-	/** The internal payment id — B2's idempotency anchor for the grant. */
-	paymentId: string;
-	gatewayRef: string;
-	plan: string;
-	days: number;
-	priceIdr: number;
-	expiresAt: Date;
-	bucket: string;
-}
-
-export type ConfirmPaymentResult =
-	| { ok: true; grantInput: GrantInput; grant: GrantForPaymentOk }
-	| { ok: false; reason: 'unknown_ref' | GrantRejectReason };
-
-/**
- * Turn a VERIFIED-and-settled payment into a persisted subscription grant.
- *
- * This is a bridge, not a second rule. The amount-vs-plan check, plan existence
- * and the status gate are ALL delegated to `grantForPayment` (grant.ts), which
- * itself calls `resolveGrant` (payments.ts) — the single source of truth:
- * `confirmPayment` looks the payment up by our `gatewayRef`, forwards the facts
- * to the writer, and reports what was persisted. If `resolveGrant` ever changes,
- * the gateway changes with it for free. The grant is DURABLE and idempotent here
- * (one payment_id, one subscription) so the caller needs nothing but this call.
- *
- * `unknown_ref` is the "unknown" case: a ref with no payment row must be
- * answered as unknown, never as a grant of anything.
- */
-export async function confirmPayment(
-	ctx: ConfirmContext,
-	gatewayRef: string,
-	amountIdr: number
-): Promise<ConfirmPaymentResult> {
-	if (typeof gatewayRef !== 'string' || gatewayRef.trim() === '') {
-		return { ok: false, reason: 'unknown_ref' };
-	}
-	const record = await ctx.store.findPayment(gatewayRef);
-	if (!record) return { ok: false, reason: 'unknown_ref' };
-
-	// The amount passed in is the amount the verified callback reported; the rule
-	// that it must equal the plan price now lives in grantForPayment → resolveGrant,
-	// not in this bridge.
-	const grant = await grantForPayment(
-		ctx.writer,
-		{ accountId: record.accountId, paymentId: record.id, plan: record.plan, amountIdr },
-		new Date()
-	);
-	if (!grant.ok) return { ok: false, reason: grant.reason };
-
-	const grantInput: GrantInput = {
-		accountId: record.accountId,
-		paymentId: record.id,
-		gatewayRef: record.gatewayRef,
-		plan: grant.plan,
-		days: grant.days,
-		priceIdr: grant.priceIdr,
-		expiresAt: grant.expiresAt,
-		bucket: grant.bucket
-	};
-	return { ok: true, grantInput, grant };
-}

@@ -17,6 +17,7 @@ import {
 import { _fetchCatalog } from './lib/ssrf.mjs';
 import {
 	_isBlockedLiteral, _assertPublic, _encCred, _decCred, _tokenAt, _headersFor,
+	guardedUpstreamFetch,
 	reachability as _reachability, allowDevProviders as _allowDevProviders, _enqueueJob,
 	MAX_PRICE_USD, addCreditKey, validateAddCreditAmount, addCreditError,
 	validateAddCreditKey, addCreditKeyError,
@@ -1772,13 +1773,14 @@ export function registerAdminRoutes(app, ctx) {
 		const headers = { ..._headersFor(cred, _tokenAt(cred, 0)), 'content-type': 'application/json' };
 		const t0 = Date.now();
 		try {
-			const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 60000);
-			let res; try { res = await fetch(`${String(baseUrl).trim().replace(/\/+$/, '')}/chat/completions`, { method: 'POST', headers, body: JSON.stringify({ model: slug, messages: [{ role: 'user', content: 'Say OK' }], max_tokens: 512 }), signal: ctrl.signal, redirect: 'manual' }); } finally { clearTimeout(t); }
+			const probed = await guardedUpstreamFetch(baseUrl, _allowPrivate(), '/chat/completions', { method: 'POST', headers, body: JSON.stringify({ model: slug, messages: [{ role: 'user', content: 'Say OK' }], max_tokens: 512 }), timeoutMs: 60000 });
+			if (!probed.ok) { console.error(`[admin/providers/${id}/testModel] guarded upstream fetch failed`, probed.message); return { modelTest: { ok: false, status: null, latencyMs: Date.now() - t0, tokensIn: null, tokensOut: null, content: null, reasoning: null, finishReason: null, error: 'upstream request failed', slug } }; }
+			const res = probed.response;
 			if (res.type === 'opaqueredirect' || res.status === 0 || (res.status >= 300 && res.status < 400)) { console.error(`[admin/providers/${id}/testModel] upstream returned a redirect, which is not followed`); return { modelTest: { ok: false, status: res.status, latencyMs: Date.now() - t0, tokensIn: null, tokensOut: null, content: null, reasoning: null, finishReason: null, error: 'upstream returned a redirect, which is not followed', slug } }; }
 			const data = await res.json().catch(() => null);
 			const choice = data?.choices?.[0];
 			return { modelTest: { ok: res.ok, status: res.status, latencyMs: Date.now() - t0, tokensIn: data?.usage?.prompt_tokens ?? null, tokensOut: data?.usage?.completion_tokens ?? null, content: choice?.message?.content ?? null, reasoning: choice?.message?.reasoning_content ?? null, finishReason: choice?.finish_reason ?? null, error: res.ok ? null : `HTTP ${res.status}`, slug } };
-		} catch (err) { console.error(`[admin/providers/${id}/testModel] upstream fetch failed`, err); return { modelTest: { ok: false, status: null, latencyMs: Date.now() - t0, error: 'upstream request failed', slug } }; }
+		} catch (err) { console.error(`[admin/providers/${id}/testModel] guarded upstream fetch failed`, err); return { modelTest: { ok: false, status: null, latencyMs: Date.now() - t0, error: 'upstream request failed', slug } }; }
 	}));
 	app.post('/api/admin/providers/:id/chat', poster('providers', async (database, body, userRow, req) => {
 		const id = String(req.params?.id ?? body.providerId ?? '').trim();
@@ -1799,13 +1801,14 @@ export function registerAdminRoutes(app, ctx) {
 		const headers = { ..._headersFor(cred, _tokenAt(cred, 0)), 'content-type': 'application/json' };
 		const t0 = Date.now();
 		try {
-			const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 60000);
-			let res; try { res = await fetch(`${String(baseUrl).trim().replace(/\/+$/, '')}/chat/completions`, { method: 'POST', headers, body: JSON.stringify({ model: slug, messages: [{ role: 'user', content: message }], max_tokens: 512 }), signal: ctrl.signal, redirect: 'manual' }); } finally { clearTimeout(t); }
+			const probed = await guardedUpstreamFetch(baseUrl, _allowPrivate(), '/chat/completions', { method: 'POST', headers, body: JSON.stringify({ model: slug, messages: [{ role: 'user', content: message }], max_tokens: 512 }), timeoutMs: 60000 });
+			if (!probed.ok) { console.error(`[admin/providers/${id}/chat] guarded upstream fetch failed`, probed.message); return { chat: { ok: false, status: null, latencyMs: Date.now() - t0, tokensIn: null, tokensOut: null, content: null, reasoning: null, finishReason: null, error: 'upstream request failed', slug, message } }; }
+			const res = probed.response;
 			if (res.type === 'opaqueredirect' || res.status === 0 || (res.status >= 300 && res.status < 400)) { console.error(`[admin/providers/${id}/chat] upstream returned a redirect, which is not followed`); return { chat: { ok: false, status: res.status, latencyMs: Date.now() - t0, tokensIn: null, tokensOut: null, content: null, reasoning: null, finishReason: null, error: 'upstream returned a redirect, which is not followed', slug, message } }; }
 			const data = await res.json().catch(() => null);
 			const choice = data?.choices?.[0];
 			return { chat: { ok: res.ok, status: res.status, latencyMs: Date.now() - t0, tokensIn: data?.usage?.prompt_tokens ?? null, tokensOut: data?.usage?.completion_tokens ?? null, content: choice?.message?.content ?? null, reasoning: choice?.message?.reasoning_content ?? null, finishReason: choice?.finish_reason ?? null, error: res.ok ? null : `HTTP ${res.status}`, slug, message } };
-		} catch (err) { console.error(`[admin/providers/${id}/chat] upstream fetch failed`, err); return { chat: { ok: false, status: null, latencyMs: Date.now() - t0, error: 'upstream request failed', slug, message } }; }
+		} catch (err) { console.error(`[admin/providers/${id}/chat] guarded upstream fetch failed`, err); return { chat: { ok: false, status: null, latencyMs: Date.now() - t0, error: 'upstream request failed', slug, message } }; }
 	}));
 	app.post('/api/admin/providers/:id/strategy', poster('providers', async (database, body, userRow, req) => {
 		const id = String(req.params?.id ?? body.providerId ?? '').trim();

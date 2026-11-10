@@ -3,9 +3,9 @@
   "note": "Mechanical extraction of the live HTTP surface. Regenerate with `npm run extract -w @fudrouter/contracts`. A changed hash in `sources` with an unchanged route list means the surface survived an edit; a changed route list means the public API changed and downstream clients/OpenAPI must follow. `line` is RECORDED but deliberately NOT part of the staleness comparison: it is what the OpenAPI entries cite (\"Registered at <file>:<line>\"), so it is kept for a human tracing an operation, while a registration that merely SHIFTED because an unrelated edit added a line above it is not a surface change and must not turn this lock red — a lock that fails on a moved line number teaches people to regenerate it without reading the diff, which is the failure mode a lock exists to prevent. What IS compared is the route set, both directions, and the middleware set.",
   "counts": {
     "inference": 15,
-    "management": 176,
-    "management_get": 75,
-    "management_post": 100,
+    "management": 226,
+    "management_get": 105,
+    "management_post": 120,
     "middleware": 13
   },
   "inference": [
@@ -457,6 +457,13 @@
     },
     {
       "method": "GET",
+      "path": "/api/pages/account",
+      "file": "pages.mjs",
+      "line": 739,
+      "array_form": true
+    },
+    {
+      "method": "GET",
       "path": "/api/pages/alerts",
       "file": "pages.mjs",
       "line": 1161
@@ -466,6 +473,41 @@
       "path": "/api/pages/aliases",
       "file": "pages.mjs",
       "line": 969
+    },
+    {
+      "method": "GET",
+      "path": "/api/pages/billing",
+      "file": "pages.mjs",
+      "line": 444,
+      "array_form": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/pages/billing/credits",
+      "file": "pages.mjs",
+      "line": 476,
+      "array_form": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/pages/billing/invoices",
+      "file": "pages.mjs",
+      "line": 528,
+      "array_form": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/pages/billing/payment-methods",
+      "file": "pages.mjs",
+      "line": 585,
+      "array_form": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/pages/billing/transactions",
+      "file": "pages.mjs",
+      "line": 607,
+      "array_form": true
     },
     {
       "method": "GET",
@@ -481,9 +523,121 @@
     },
     {
       "method": "GET",
+      "path": "/api/pages/connect",
+      "file": "pages.mjs",
+      "line": 1406,
+      "array_form": true
+    },
+    {
+      "method": "GET",
       "path": "/api/pages/dashboard",
       "file": "pages.mjs",
       "line": 224
+    },
+    {
+      "method": "GET",
+      "path": "/api/pages/dashboard/account",
+      "file": "pages.mjs",
+      "line": 739,
+      "array_form": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/pages/dashboard/billing",
+      "file": "pages.mjs",
+      "line": 444,
+      "array_form": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/pages/dashboard/billing/credits",
+      "file": "pages.mjs",
+      "line": 476,
+      "array_form": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/pages/dashboard/billing/invoices",
+      "file": "pages.mjs",
+      "line": 528,
+      "array_form": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/pages/dashboard/billing/payment-methods",
+      "file": "pages.mjs",
+      "line": 585,
+      "array_form": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/pages/dashboard/billing/transactions",
+      "file": "pages.mjs",
+      "line": 607,
+      "array_form": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/pages/dashboard/connect",
+      "file": "pages.mjs",
+      "line": 1406,
+      "array_form": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/pages/dashboard/keys",
+      "file": "pages.mjs",
+      "line": 290,
+      "array_form": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/pages/dashboard/keys/ips",
+      "file": "pages.mjs",
+      "line": 728,
+      "array_form": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/pages/dashboard/playground",
+      "file": "pages.mjs",
+      "line": 1426,
+      "array_form": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/pages/dashboard/subscription",
+      "file": "pages.mjs",
+      "line": 624,
+      "array_form": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/pages/dashboard/subscription/payments",
+      "file": "pages.mjs",
+      "line": 708,
+      "array_form": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/pages/dashboard/usage",
+      "file": "pages.mjs",
+      "line": 347,
+      "array_form": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/pages/dashboard/usage/requests",
+      "file": "pages.mjs",
+      "line": 413,
+      "array_form": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/pages/dashboard/warnings",
+      "file": "pages.mjs",
+      "line": 718,
+      "array_form": true
     },
     {
       "method": "GET",
@@ -493,9 +647,30 @@
     },
     {
       "method": "GET",
+      "path": "/api/pages/keys",
+      "file": "pages.mjs",
+      "line": 290,
+      "array_form": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/pages/keys/ips",
+      "file": "pages.mjs",
+      "line": 728,
+      "array_form": true
+    },
+    {
+      "method": "GET",
       "path": "/api/pages/limits",
       "file": "pages.mjs",
       "line": 761
+    },
+    {
+      "method": "GET",
+      "path": "/api/pages/playground",
+      "file": "pages.mjs",
+      "line": 1426,
+      "array_form": true
     },
     {
       "method": "GET",
@@ -508,6 +683,41 @@
       "path": "/api/pages/shell",
       "file": "index.mjs",
       "line": 909
+    },
+    {
+      "method": "GET",
+      "path": "/api/pages/subscription",
+      "file": "pages.mjs",
+      "line": 624,
+      "array_form": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/pages/subscription/payments",
+      "file": "pages.mjs",
+      "line": 708,
+      "array_form": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/pages/usage",
+      "file": "pages.mjs",
+      "line": 347,
+      "array_form": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/pages/usage/requests",
+      "file": "pages.mjs",
+      "line": 413,
+      "array_form": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/pages/warnings",
+      "file": "pages.mjs",
+      "line": 718,
+      "array_form": true
     },
     {
       "method": "GET",
@@ -1027,6 +1237,13 @@
     },
     {
       "method": "POST",
+      "path": "/api/pages/account/save",
+      "file": "pages.mjs",
+      "line": 747,
+      "array_form": true
+    },
+    {
+      "method": "POST",
       "path": "/api/pages/alerts/create",
       "file": "pages.mjs",
       "line": 1170
@@ -1054,6 +1271,41 @@
       "path": "/api/pages/aliases/delete",
       "file": "pages.mjs",
       "line": 1028
+    },
+    {
+      "method": "POST",
+      "path": "/api/pages/billing/invoices/generate",
+      "file": "pages.mjs",
+      "line": 538,
+      "array_form": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/pages/billing/invoices/markPaid",
+      "file": "pages.mjs",
+      "line": 575,
+      "array_form": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/pages/billing/invoices/void",
+      "file": "pages.mjs",
+      "line": 580,
+      "array_form": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/pages/billing/payment-methods/record",
+      "file": "pages.mjs",
+      "line": 593,
+      "array_form": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/pages/billing/thresholds",
+      "file": "pages.mjs",
+      "line": 460,
+      "array_form": true
     },
     {
       "method": "POST",
@@ -1087,6 +1339,76 @@
     },
     {
       "method": "POST",
+      "path": "/api/pages/dashboard/account/save",
+      "file": "pages.mjs",
+      "line": 747,
+      "array_form": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/pages/dashboard/billing/invoices/generate",
+      "file": "pages.mjs",
+      "line": 538,
+      "array_form": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/pages/dashboard/billing/invoices/markPaid",
+      "file": "pages.mjs",
+      "line": 575,
+      "array_form": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/pages/dashboard/billing/invoices/void",
+      "file": "pages.mjs",
+      "line": 580,
+      "array_form": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/pages/dashboard/billing/payment-methods/record",
+      "file": "pages.mjs",
+      "line": 593,
+      "array_form": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/pages/dashboard/billing/thresholds",
+      "file": "pages.mjs",
+      "line": 460,
+      "array_form": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/pages/dashboard/keys/create",
+      "file": "pages.mjs",
+      "line": 311,
+      "array_form": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/pages/dashboard/keys/revoke",
+      "file": "pages.mjs",
+      "line": 326,
+      "array_form": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/pages/dashboard/subscription/checkout",
+      "file": "pages.mjs",
+      "line": 638,
+      "array_form": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/pages/dashboard/subscription/claim",
+      "file": "pages.mjs",
+      "line": 681,
+      "array_form": true
+    },
+    {
+      "method": "POST",
       "path": "/api/pages/injections/create",
       "file": "pages.mjs",
       "line": 1259
@@ -1102,6 +1424,20 @@
       "path": "/api/pages/injections/update",
       "file": "pages.mjs",
       "line": 1284
+    },
+    {
+      "method": "POST",
+      "path": "/api/pages/keys/create",
+      "file": "pages.mjs",
+      "line": 311,
+      "array_form": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/pages/keys/revoke",
+      "file": "pages.mjs",
+      "line": 326,
+      "array_form": true
     },
     {
       "method": "POST",
@@ -1135,6 +1471,20 @@
     },
     {
       "method": "POST",
+      "path": "/api/pages/subscription/checkout",
+      "file": "pages.mjs",
+      "line": 638,
+      "array_form": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/pages/subscription/claim",
+      "file": "pages.mjs",
+      "line": 681,
+      "array_form": true
+    },
+    {
+      "method": "POST",
       "path": "/api/playground/compare",
       "file": "playground.mjs",
       "line": 433
@@ -1160,7 +1510,7 @@
   ],
   "management_by_prefix": {
     "api/admin": 122,
-    "api/pages": 28,
+    "api/pages": 78,
     "api/models": 3,
     "api/changelog": 2,
     "api/docs": 2,

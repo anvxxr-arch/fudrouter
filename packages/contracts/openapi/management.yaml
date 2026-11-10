@@ -9,7 +9,7 @@ info:
     Regenerate: npm run extract -w @fudrouter/contracts && npm run gen -w @fudrouter/contracts
     
     Paths, methods, path parameters and security are mechanically derived and therefore
-    exact. Request/response BODIES are intentionally NOT modelled — all 176 handlers return
+    exact. Request/response BODIES are intentionally NOT modelled — all 226 handlers return
     Drizzle result objects, and a fabricated schema would be worse than none. Each
     operation carries `x-source` pointing at the line that implements it.
     
@@ -3589,6 +3589,56 @@ paths:
           content:
             application/json:
               schema: { type: object, additionalProperties: true }
+  "/api/pages/account":
+    get:
+      operationId: getapiPagesAccount
+      tags: [pages]
+      summary: "GET /api/pages/account"
+      description: |
+        Registered at apps/web/server/pages.mjs:739.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 739
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/account/save":
+    post:
+      operationId: postapiPagesAccountSave
+      tags: [pages]
+      summary: "POST /api/pages/account/save"
+      description: |
+        Registered at apps/web/server/pages.mjs:747.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 747
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
   "/api/pages/alerts":
     get:
       operationId: getapiPagesAlerts
@@ -3752,6 +3802,256 @@ paths:
       x-source:
         file: apps/web/server/pages.mjs
         line: 1028
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/billing":
+    get:
+      operationId: getapiPagesBilling
+      tags: [pages]
+      summary: "GET /api/pages/billing"
+      description: |
+        Registered at apps/web/server/pages.mjs:444.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 444
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/billing/credits":
+    get:
+      operationId: getapiPagesBillingCredits
+      tags: [pages]
+      summary: "GET /api/pages/billing/credits"
+      description: |
+        Registered at apps/web/server/pages.mjs:476.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 476
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/billing/invoices":
+    get:
+      operationId: getapiPagesBillingInvoices
+      tags: [pages]
+      summary: "GET /api/pages/billing/invoices"
+      description: |
+        Registered at apps/web/server/pages.mjs:528.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 528
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/billing/invoices/generate":
+    post:
+      operationId: postapiPagesBillingInvoicesGenerate
+      tags: [pages]
+      summary: "POST /api/pages/billing/invoices/generate"
+      description: |
+        Registered at apps/web/server/pages.mjs:538.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 538
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/billing/invoices/markPaid":
+    post:
+      operationId: postapiPagesBillingInvoicesMarkPaid
+      tags: [pages]
+      summary: "POST /api/pages/billing/invoices/markPaid"
+      description: |
+        Registered at apps/web/server/pages.mjs:575.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 575
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/billing/invoices/void":
+    post:
+      operationId: postapiPagesBillingInvoicesVoid
+      tags: [pages]
+      summary: "POST /api/pages/billing/invoices/void"
+      description: |
+        Registered at apps/web/server/pages.mjs:580.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 580
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/billing/payment-methods":
+    get:
+      operationId: getapiPagesBillingPayment-methods
+      tags: [pages]
+      summary: "GET /api/pages/billing/payment-methods"
+      description: |
+        Registered at apps/web/server/pages.mjs:585.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 585
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/billing/payment-methods/record":
+    post:
+      operationId: postapiPagesBillingPayment-methodsRecord
+      tags: [pages]
+      summary: "POST /api/pages/billing/payment-methods/record"
+      description: |
+        Registered at apps/web/server/pages.mjs:593.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 593
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/billing/thresholds":
+    post:
+      operationId: postapiPagesBillingThresholds
+      tags: [pages]
+      summary: "POST /api/pages/billing/thresholds"
+      description: |
+        Registered at apps/web/server/pages.mjs:460.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 460
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/billing/transactions":
+    get:
+      operationId: getapiPagesBillingTransactions
+      tags: [pages]
+      summary: "GET /api/pages/billing/transactions"
+      description: |
+        Registered at apps/web/server/pages.mjs:607.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 607
       x-body-schema: unmodelled
       responses:
         "200":
@@ -3939,6 +4239,31 @@ paths:
           content:
             application/json:
               schema: { type: object, additionalProperties: true }
+  "/api/pages/connect":
+    get:
+      operationId: getapiPagesConnect
+      tags: [pages]
+      summary: "GET /api/pages/connect"
+      description: |
+        Registered at apps/web/server/pages.mjs:1406.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 1406
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
   "/api/pages/dashboard":
     get:
       operationId: getapiPagesDashboard
@@ -3952,6 +4277,631 @@ paths:
       x-source:
         file: apps/web/server/pages.mjs
         line: 224
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/dashboard/account":
+    get:
+      operationId: getapiPagesDashboardAccount
+      tags: [pages]
+      summary: "GET /api/pages/dashboard/account"
+      description: |
+        Registered at apps/web/server/pages.mjs:739.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 739
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/dashboard/account/save":
+    post:
+      operationId: postapiPagesDashboardAccountSave
+      tags: [pages]
+      summary: "POST /api/pages/dashboard/account/save"
+      description: |
+        Registered at apps/web/server/pages.mjs:747.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 747
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/dashboard/billing":
+    get:
+      operationId: getapiPagesDashboardBilling
+      tags: [pages]
+      summary: "GET /api/pages/dashboard/billing"
+      description: |
+        Registered at apps/web/server/pages.mjs:444.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 444
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/dashboard/billing/credits":
+    get:
+      operationId: getapiPagesDashboardBillingCredits
+      tags: [pages]
+      summary: "GET /api/pages/dashboard/billing/credits"
+      description: |
+        Registered at apps/web/server/pages.mjs:476.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 476
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/dashboard/billing/invoices":
+    get:
+      operationId: getapiPagesDashboardBillingInvoices
+      tags: [pages]
+      summary: "GET /api/pages/dashboard/billing/invoices"
+      description: |
+        Registered at apps/web/server/pages.mjs:528.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 528
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/dashboard/billing/invoices/generate":
+    post:
+      operationId: postapiPagesDashboardBillingInvoicesGenerate
+      tags: [pages]
+      summary: "POST /api/pages/dashboard/billing/invoices/generate"
+      description: |
+        Registered at apps/web/server/pages.mjs:538.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 538
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/dashboard/billing/invoices/markPaid":
+    post:
+      operationId: postapiPagesDashboardBillingInvoicesMarkPaid
+      tags: [pages]
+      summary: "POST /api/pages/dashboard/billing/invoices/markPaid"
+      description: |
+        Registered at apps/web/server/pages.mjs:575.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 575
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/dashboard/billing/invoices/void":
+    post:
+      operationId: postapiPagesDashboardBillingInvoicesVoid
+      tags: [pages]
+      summary: "POST /api/pages/dashboard/billing/invoices/void"
+      description: |
+        Registered at apps/web/server/pages.mjs:580.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 580
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/dashboard/billing/payment-methods":
+    get:
+      operationId: getapiPagesDashboardBillingPayment-methods
+      tags: [pages]
+      summary: "GET /api/pages/dashboard/billing/payment-methods"
+      description: |
+        Registered at apps/web/server/pages.mjs:585.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 585
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/dashboard/billing/payment-methods/record":
+    post:
+      operationId: postapiPagesDashboardBillingPayment-methodsRecord
+      tags: [pages]
+      summary: "POST /api/pages/dashboard/billing/payment-methods/record"
+      description: |
+        Registered at apps/web/server/pages.mjs:593.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 593
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/dashboard/billing/thresholds":
+    post:
+      operationId: postapiPagesDashboardBillingThresholds
+      tags: [pages]
+      summary: "POST /api/pages/dashboard/billing/thresholds"
+      description: |
+        Registered at apps/web/server/pages.mjs:460.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 460
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/dashboard/billing/transactions":
+    get:
+      operationId: getapiPagesDashboardBillingTransactions
+      tags: [pages]
+      summary: "GET /api/pages/dashboard/billing/transactions"
+      description: |
+        Registered at apps/web/server/pages.mjs:607.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 607
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/dashboard/connect":
+    get:
+      operationId: getapiPagesDashboardConnect
+      tags: [pages]
+      summary: "GET /api/pages/dashboard/connect"
+      description: |
+        Registered at apps/web/server/pages.mjs:1406.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 1406
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/dashboard/keys":
+    get:
+      operationId: getapiPagesDashboardKeys
+      tags: [pages]
+      summary: "GET /api/pages/dashboard/keys"
+      description: |
+        Registered at apps/web/server/pages.mjs:290.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 290
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/dashboard/keys/create":
+    post:
+      operationId: postapiPagesDashboardKeysCreate
+      tags: [pages]
+      summary: "POST /api/pages/dashboard/keys/create"
+      description: |
+        Registered at apps/web/server/pages.mjs:311.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 311
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/dashboard/keys/ips":
+    get:
+      operationId: getapiPagesDashboardKeysIps
+      tags: [pages]
+      summary: "GET /api/pages/dashboard/keys/ips"
+      description: |
+        Registered at apps/web/server/pages.mjs:728.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 728
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/dashboard/keys/revoke":
+    post:
+      operationId: postapiPagesDashboardKeysRevoke
+      tags: [pages]
+      summary: "POST /api/pages/dashboard/keys/revoke"
+      description: |
+        Registered at apps/web/server/pages.mjs:326.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 326
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/dashboard/playground":
+    get:
+      operationId: getapiPagesDashboardPlayground
+      tags: [pages]
+      summary: "GET /api/pages/dashboard/playground"
+      description: |
+        Registered at apps/web/server/pages.mjs:1426.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 1426
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/dashboard/subscription":
+    get:
+      operationId: getapiPagesDashboardSubscription
+      tags: [pages]
+      summary: "GET /api/pages/dashboard/subscription"
+      description: |
+        Registered at apps/web/server/pages.mjs:624.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 624
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/dashboard/subscription/checkout":
+    post:
+      operationId: postapiPagesDashboardSubscriptionCheckout
+      tags: [pages]
+      summary: "POST /api/pages/dashboard/subscription/checkout"
+      description: |
+        Registered at apps/web/server/pages.mjs:638.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 638
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/dashboard/subscription/claim":
+    post:
+      operationId: postapiPagesDashboardSubscriptionClaim
+      tags: [pages]
+      summary: "POST /api/pages/dashboard/subscription/claim"
+      description: |
+        Registered at apps/web/server/pages.mjs:681.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 681
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/dashboard/subscription/payments":
+    get:
+      operationId: getapiPagesDashboardSubscriptionPayments
+      tags: [pages]
+      summary: "GET /api/pages/dashboard/subscription/payments"
+      description: |
+        Registered at apps/web/server/pages.mjs:708.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 708
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/dashboard/usage":
+    get:
+      operationId: getapiPagesDashboardUsage
+      tags: [pages]
+      summary: "GET /api/pages/dashboard/usage"
+      description: |
+        Registered at apps/web/server/pages.mjs:347.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 347
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/dashboard/usage/requests":
+    get:
+      operationId: getapiPagesDashboardUsageRequests
+      tags: [pages]
+      summary: "GET /api/pages/dashboard/usage/requests"
+      description: |
+        Registered at apps/web/server/pages.mjs:413.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 413
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/dashboard/warnings":
+    get:
+      operationId: getapiPagesDashboardWarnings
+      tags: [pages]
+      summary: "GET /api/pages/dashboard/warnings"
+      description: |
+        Registered at apps/web/server/pages.mjs:718.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 718
       x-body-schema: unmodelled
       responses:
         "200":
@@ -4064,6 +5014,106 @@ paths:
           content:
             application/json:
               schema: { type: object, additionalProperties: true }
+  "/api/pages/keys":
+    get:
+      operationId: getapiPagesKeys
+      tags: [pages]
+      summary: "GET /api/pages/keys"
+      description: |
+        Registered at apps/web/server/pages.mjs:290.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 290
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/keys/create":
+    post:
+      operationId: postapiPagesKeysCreate
+      tags: [pages]
+      summary: "POST /api/pages/keys/create"
+      description: |
+        Registered at apps/web/server/pages.mjs:311.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 311
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/keys/ips":
+    get:
+      operationId: getapiPagesKeysIps
+      tags: [pages]
+      summary: "GET /api/pages/keys/ips"
+      description: |
+        Registered at apps/web/server/pages.mjs:728.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 728
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/keys/revoke":
+    post:
+      operationId: postapiPagesKeysRevoke
+      tags: [pages]
+      summary: "POST /api/pages/keys/revoke"
+      description: |
+        Registered at apps/web/server/pages.mjs:326.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 326
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
   "/api/pages/limits":
     get:
       operationId: getapiPagesLimits
@@ -4127,6 +5177,31 @@ paths:
       x-source:
         file: apps/web/server/pages.mjs
         line: 826
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/playground":
+    get:
+      operationId: getapiPagesPlayground
+      tags: [pages]
+      summary: "GET /api/pages/playground"
+      description: |
+        Registered at apps/web/server/pages.mjs:1426.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 1426
       x-body-schema: unmodelled
       responses:
         "200":
@@ -4252,6 +5327,181 @@ paths:
       x-source:
         file: apps/web/server/index.mjs
         line: 909
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/subscription":
+    get:
+      operationId: getapiPagesSubscription
+      tags: [pages]
+      summary: "GET /api/pages/subscription"
+      description: |
+        Registered at apps/web/server/pages.mjs:624.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 624
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/subscription/checkout":
+    post:
+      operationId: postapiPagesSubscriptionCheckout
+      tags: [pages]
+      summary: "POST /api/pages/subscription/checkout"
+      description: |
+        Registered at apps/web/server/pages.mjs:638.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 638
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/subscription/claim":
+    post:
+      operationId: postapiPagesSubscriptionClaim
+      tags: [pages]
+      summary: "POST /api/pages/subscription/claim"
+      description: |
+        Registered at apps/web/server/pages.mjs:681.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 681
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/subscription/payments":
+    get:
+      operationId: getapiPagesSubscriptionPayments
+      tags: [pages]
+      summary: "GET /api/pages/subscription/payments"
+      description: |
+        Registered at apps/web/server/pages.mjs:708.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 708
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/usage":
+    get:
+      operationId: getapiPagesUsage
+      tags: [pages]
+      summary: "GET /api/pages/usage"
+      description: |
+        Registered at apps/web/server/pages.mjs:347.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 347
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/usage/requests":
+    get:
+      operationId: getapiPagesUsageRequests
+      tags: [pages]
+      summary: "GET /api/pages/usage/requests"
+      description: |
+        Registered at apps/web/server/pages.mjs:413.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 413
+      x-body-schema: unmodelled
+      responses:
+        "200":
+          description: Handler-defined JSON. Body not modelled — read x-source.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default:
+          description: Handler-defined error envelope.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  "/api/pages/warnings":
+    get:
+      operationId: getapiPagesWarnings
+      tags: [pages]
+      summary: "GET /api/pages/warnings"
+      description: |
+        Registered at apps/web/server/pages.mjs:718.
+        Requires authentication; /api/admin routes additionally require an admin capability.
+      security:
+        - session: []
+      x-source:
+        file: apps/web/server/pages.mjs
+        line: 718
       x-body-schema: unmodelled
       responses:
         "200":

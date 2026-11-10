@@ -23,6 +23,9 @@
 import express from 'express';
 import { sql } from 'drizzle-orm';
 
+import { rateLimit } from './rate-limit.mjs';
+import { clientIp } from './lib/ip.mjs';
+
 import {
 	INBOUND_SIGNATURE_HEADER,
 	verifyInbound,
@@ -107,16 +110,31 @@ async function findPaymentByGatewayRef(database, gatewayRef) {
  * Register the inbound gateway callback route.
  *
  * @param {import('express').Express} app
- * @param {{ getDb: () => any, getSecretEnc?: () => string|null }} ctx
+ * @param {{ getDb?: () => any, getSecretEnc?: () => string|null, ipLimit?: Function }} ctx
  */
 export function registerInboundWebhook(app, ctx = {}) {
 	const getSecretEnc = ctx.getSecretEnc ?? gatewaySecretEnc;
 	const getDb = ctx.getDb;
 
-	// express.raw BEFORE the route: it buffers the body into a Buffer so the HMAC
+	// P2-2: per-client-IP bucket mounted BEFORE express.raw. A forged/unsigned
+	// webhook flood is rejected by the limiter before its 64KB body is ever
+	// buffered/parsed — the same order mayar-webhook.mjs already enforces
+	// (enabled-gate → ip-limit → raw). HMAC + anti-replay above remain the real
+	// money gates; the limiter only stops an unauth IP from burning server body
+	// buffers on a loop. Generous (gateway retries are legitimate) but not free.
+	const ipLimit =
+		ctx.ipLimit ??
+		rateLimit({
+			windowMs: 60_000,
+			max: 120,
+			key: async (req) => `gwcb:ip:${clientIp(req) ?? 'unknown'}`
+		});
+
+	// express.raw AFTER the limiter: it buffers the body into a Buffer so the HMAC
 	// sees the exact bytes; `type: () => true` means "any content-type".
 	app.post(
 		'/api/webhook/payment',
+		ipLimit,
 		express.raw({ type: () => true, limit: WEBHOOK_BODY_LIMIT }),
 		async (req, res) => {
 			try {

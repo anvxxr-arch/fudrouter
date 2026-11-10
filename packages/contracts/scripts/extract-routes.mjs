@@ -47,6 +47,20 @@ const RE_ROUTE = new RegExp(
   String.raw`\b(?:app|router|r)\.(${METHODS.join('|')})\s*\(\s*(['"\`])([\s\S]*?)\2`,
   'g',
 );
+// Array-form registrations: `app.get(['/api/pages/a', '/api/pages/b'], …)`.
+// RE_ROUTE only matches a single string/backtick literal immediately after `(`;
+// a `[` before the first quote is not a match, so EVERY array-registered route
+// was silently dropped from the lock (all subscription/billing/keys/usage/account
+// pages). The bracket body is captured here and its string literals are split
+// by RE_STR below, so each element is recorded as its own route — the same
+// shape the single-form loop produces. Multi-line array bodies and template
+// placeholders inside the elements are NOT supported (none exist in this tree):
+// a `[` with no closing `]` on the same line is deliberately ignored so a
+// guard-check comment mentioning an array can never fabricate a route.
+const RE_ROUTE_ARRAY = new RegExp(
+  String.raw`\b(?:app|router|r)\.(${METHODS.join('|')})\s*\(\s*\[([^\n\]]*)\]`,
+  'g',
+);
 const RE_MOUNT = /\bapp\.use\s*\(\s*(['"`])([^'"`]+)\1/g;
 // `for (const st of ['enable', 'disable']) { ... }` — the only way a path is
 // built from a variable in this codebase.
@@ -135,6 +149,20 @@ for (const name of webFiles) {
         continue;
       }
       management.push({ method, path, file: name, line, expanded_from: raw });
+    }
+  }
+
+  // 3b. array-form routes (`app.get(['/a','/b'], …)`).
+  for (const m of src.matchAll(RE_ROUTE_ARRAY)) {
+    const method = m[1].toUpperCase();
+    const line = src.slice(0, m.index).split('\n').length;
+    // RE_STR yields each string literal in the bracket body; those are exactly
+    // the registered paths. `filter(Boolean)` drops any empty match so a malformed
+    // body (e.g. a template literal lying inside a later comment in the same
+    // brackets) cannot fabricate a route.
+    const paths = [...m[2].matchAll(RE_STR)].map((s) => s[1]).filter(Boolean);
+    for (const path of paths) {
+      management.push({ method, path, file: name, line, array_form: true });
     }
   }
 }

@@ -28,6 +28,9 @@ import express from 'express';
 import { createPublicKey, verify as ed25519Verify } from 'node:crypto';
 import { sql } from 'drizzle-orm';
 
+import { rateLimit } from './rate-limit.mjs';
+import { clientIp } from './lib/ip.mjs';
+
 import {
 	handlePlans,
 	handleProof,
@@ -457,7 +460,8 @@ function headerValue(req, name) {
  *   getDb?: () => any,
  *   approvers?: () => string[],
  *   now?: () => Date,
- *   bodyLimit?: string|number
+ *   bodyLimit?: string|number,
+ *   ipLimit?: Function
  * }} [ctx]
  */
 export function registerDiscordInteractions(app, ctx = {}) {
@@ -474,8 +478,24 @@ export function registerDiscordInteractions(app, ctx = {}) {
 	}
 
 	const bodyLimit = ctx.bodyLimit ?? '1mb';
+
+	// P2-2: per-client-IP bucket mounted BEFORE express.raw. Ed25519 fail-closed
+	// stays the real gate below, but an unsigned interaction flood must not reach
+	// the 1mb body buffering/parse on a loop. The route does not register at all
+	// without FLEXYROUTE_PUBLIC_KEY (checked above), so the limiter only ever
+	// arms alongside the signature verify — same order as mayar-webhook.mjs's
+	// enabled-gate → ip-limit → raw.
+	const ipLimit =
+		ctx.ipLimit ??
+		rateLimit({
+			windowMs: 60_000,
+			max: 120,
+			key: async (req) => `discord:ip:${clientIp(req) ?? 'unknown'}`
+		});
+
 	app.post(
 		'/api/discord/interactions',
+		ipLimit,
 		express.raw({ type: () => true, limit: bodyLimit }),
 		async (req, res) => {
 			try {

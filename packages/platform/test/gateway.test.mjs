@@ -10,10 +10,12 @@
 //   4. a callback with a missing ref is "unknown", never a grant.
 //
 // Everything here is in-memory: the stores are fakes, the clock is frozen where
-// needed, and `confirmPayment` delegates to `grantForPayment` → `resolveGrant`
-// from payments.ts — the one rule every surface shares (criterion 4). The grant
-// is persisted through an in-memory SubscriptionWriter with the 0038 idempotency
-// contract, so a replayed confirm mints no second window.
+// needed, and the grant rule every surface shares is `grantForPayment` →
+// `resolveGrant` from payments.ts (criterion 2). The gateway module owns create
+// and callback verification; the confirm→grant loop itself lives in
+// payment-confirm.ts (B3b) and is covered by payment-confirm.test.mjs, so this
+// file pins only the interface contract: idempotent create, HMAC verify, replay
+// refusal and the "unknown ref" case.
 //
 // Flat top-level tests (no nesting): node:test only runs a nested `test()` when
 // the parent awaits it, and a synchronous parent completes first.
@@ -30,11 +32,9 @@ import {
 	parseCallback,
 	signCallback,
 	verifyCallback,
-	nonceFresh,
-	confirmPayment
+	nonceFresh
 } from '../server/gateway.ts';
 import { PLANS, qrisFor } from '../server/payments.ts';
-import { SUBSCRIPTION_BUCKET } from '../server/grant.ts';
 
 const SECRET = 'top-secret-gateway-key';
 const NOW = new Date('2026-11-09T12:00:00Z');
@@ -51,21 +51,6 @@ function fakeStore() {
 			const record = { ...payment, id: `pay_${byRef.size + 1}` };
 			byRef.set(payment.gatewayRef, record);
 			return record;
-		}
-	};
-}
-
-/** In-memory subscription writer with the 0038 idempotency contract. */
-function fakeWriter() {
-	const byPayment = new Map();
-	return {
-		grant: async (args) => {
-			if (byPayment.has(args.paymentId)) {
-				return { id: byPayment.get(args.paymentId), created: false };
-			}
-			const id = `sub_${byPayment.size + 1}`;
-			byPayment.set(args.paymentId, id);
-			return { id, created: true };
 		}
 	};
 }
@@ -202,73 +187,6 @@ test('verify: error — a non-OK settlement code is refused', async () => {
 	const r = await verifyCallback(verifyCtx(), body, { [GATEWAY_SIGNATURE_HEADER]: signCallback(body, SECRET) });
 	assert.equal(r.ok, false);
 	assert.equal(r.reason, 'not_settled');
-});
-
-// --- confirmPayment → grantForPayment ----------------------------------------
-
-test('confirm: success — a settled payment grants a frsubs window', async () => {
-	const store = fakeStore();
-	const writer = fakeWriter();
-	const { gatewayRef, record } = await createPayment({ store }, { ...SUB_7D, idempotencyKey: 'alice-7d-6' });
-	const r = await confirmPayment({ store, writer }, gatewayRef, PLANS.sub_7d.priceIdr);
-
-	assert.equal(r.ok, true);
-	assert.equal(r.grantInput.plan, 'sub_7d');
-	assert.equal(r.grantInput.days, PLANS.sub_7d.days);
-	assert.equal(r.grantInput.priceIdr, PLANS.sub_7d.priceIdr);
-	assert.equal(r.grantInput.paymentId, record.id);
-	assert.equal(r.grantInput.accountId, 'acc_alice');
-	// The B2 contract: the persisted window sells under frsubs, never frpayg.
-	assert.equal(r.grantInput.bucket, SUBSCRIPTION_BUCKET);
-	assert.equal(r.grant.bucket, 'frsubs');
-	assert.equal(r.grant.created, true);
-});
-
-test('confirm: replay — the same payment_id produces no second grant', async () => {
-	const store = fakeStore();
-	const writer = fakeWriter();
-	const { gatewayRef } = await createPayment({ store }, { ...SUB_7D, idempotencyKey: 'alice-7d-6b' });
-
-	const first = await confirmPayment({ store, writer }, gatewayRef, PLANS.sub_7d.priceIdr);
-	const second = await confirmPayment({ store, writer }, gatewayRef, PLANS.sub_7d.priceIdr);
-
-	assert.equal(first.ok, true);
-	assert.equal(second.ok, true);
-	assert.equal(second.grant.created, false, 'a replayed confirm must not mint a second window');
-	assert.equal(second.grant.subscriptionId, first.grant.subscriptionId, 'one payment_id, one subscription');
-});
-
-test('confirm: error — an amount mismatch is refused (reuse resolveGrant)', async () => {
-	const store = fakeStore();
-	const { gatewayRef } = await createPayment({ store }, { ...SUB_7D, idempotencyKey: 'alice-7d-7' });
-	const r = await confirmPayment({ store, writer: fakeWriter() }, gatewayRef, 1000);
-
-	assert.equal(r.ok, false);
-	assert.equal(r.reason, 'amount_mismatch', 'the reject reason is resolveGrant\'s, not a local copy');
-});
-
-test('confirm: error — an unknown plan is refused', async () => {
-	const store = fakeStore();
-	// Insert a payment with an impossible-in-prod plan to prove confirmPayment
-	// delegates the plan rule rather than trusting the record.
-	const record = { id: 'pay_bad', gatewayRef: gatewayRefFor('bad-plan'), gateway: 'qris-native', accountId: 'acc_alice', channel: 'web', plan: 'sub_999d', amountIdr: 30000, status: 'pending' };
-	await store.insertPayment(record);
-	const r = await confirmPayment({ store, writer: fakeWriter() }, record.gatewayRef, 30000);
-
-	assert.equal(r.ok, false);
-	assert.equal(r.reason, 'unknown_plan');
-});
-
-test('confirm: unknown — a ref with no payment row is unknown, not a grant', async () => {
-	const r = await confirmPayment({ store: fakeStore(), writer: fakeWriter() }, 'purchase:no-such-ref', PLANS.sub_7d.priceIdr);
-	assert.equal(r.ok, false);
-	assert.equal(r.reason, 'unknown_ref');
-});
-
-test('confirm: unknown — a missing ref is unknown', async () => {
-	const r = await confirmPayment({ store: fakeStore(), writer: fakeWriter() }, '', PLANS.sub_7d.priceIdr);
-	assert.equal(r.ok, false);
-	assert.equal(r.reason, 'unknown_ref');
 });
 
 // --- callback parse (unknown case) -------------------------------------------

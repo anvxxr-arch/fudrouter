@@ -52,7 +52,8 @@ export const JOB_TYPES = [
 	'statistics_aggregation',
 	'model_verification',
 	'model_status_poll',
-	'routing_signals_refresh'
+	'routing_signals_refresh',
+	'mayar_reconcile'
 ] as const;
 export type JobType = (typeof JOB_TYPES)[number];
 

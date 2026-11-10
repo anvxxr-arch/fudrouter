@@ -79,6 +79,8 @@ export interface NewPayment {
 /** A persisted payment: `id` is the store's internal payment id. */
 export interface PaymentRecord extends NewPayment {
 	id: string;
+	/** Raw vendor envelope (migration 0025 `raw`). Mayar stores its create facts here. */
+	raw?: unknown;
 }
 
 // --------------------------- createPayment ---------------------------------

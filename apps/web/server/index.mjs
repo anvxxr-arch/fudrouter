@@ -29,6 +29,7 @@ import { compress } from './lib/compress.mjs';
 import { clientIp, requestOrigin } from './lib/ip.mjs';
 import { readShell, withHead, seo } from './lib/head.mjs';
 import { registerInboundWebhook } from './webhook.mjs';
+import { registerMayarWebhook } from './mayar-webhook.mjs';
 import { registerTelegramWebhook, makeSend as telegramMakeSend } from './telegram-transport.mjs';
 import { registerDiscordInteractions, discordSendDirect } from './discord-transport.mjs';
 import { createEscalationLoop } from '@fudrouter/platform/server/approval-loop.ts';
@@ -686,6 +687,9 @@ app.all('/api/auth/{*path}', async (req, res) => {
 // Inbound gateway callback receiver (B3a). Registered BEFORE express.json so
 // the HMAC sees the exact raw request bytes; see server/webhook.mjs.
 registerInboundWebhook(app, { getDb: () => db });
+// Mayar settlement receiver (H1). 404-gated when MAYAR_WEBHOOK_ENABLED !== 'true'.
+// Mounted BEFORE express.json so the raw body is intact.
+registerMayarWebhook(app, { getDb: () => db });
 
 // Discord interactions transport (C2). No-op when FLEXYROUTE_PUBLIC_KEY is
 // unset (fail closed, logged inside). Registered before express.json so the

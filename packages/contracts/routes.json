@@ -3,9 +3,9 @@
   "note": "Mechanical extraction of the live HTTP surface. Regenerate with `npm run extract -w @fudrouter/contracts`. A changed hash in `sources` with an unchanged route list means the surface survived an edit; a changed route list means the public API changed and downstream clients/OpenAPI must follow. `line` is RECORDED but deliberately NOT part of the staleness comparison: it is what the OpenAPI entries cite (\"Registered at <file>:<line>\"), so it is kept for a human tracing an operation, while a registration that merely SHIFTED because an unrelated edit added a line above it is not a surface change and must not turn this lock red — a lock that fails on a moved line number teaches people to regenerate it without reading the diff, which is the failure mode a lock exists to prevent. What IS compared is the route set, both directions, and the middleware set.",
   "counts": {
     "inference": 15,
-    "management": 175,
+    "management": 176,
     "management_get": 75,
-    "management_post": 99,
+    "management_post": 100,
     "middleware": 13
   },
   "inference": [
@@ -105,13 +105,13 @@
       "method": "ALL",
       "path": "/api/auth/{*path}",
       "file": "index.mjs",
-      "line": 580
+      "line": 577
     },
     {
       "method": "GET",
       "path": "{*path}",
       "file": "index.mjs",
-      "line": 1066
+      "line": 1080
     },
     {
       "method": "GET",
@@ -423,7 +423,7 @@
       "method": "GET",
       "path": "/api/health",
       "file": "index.mjs",
-      "line": 562
+      "line": 559
     },
     {
       "method": "GET",
@@ -453,31 +453,31 @@
       "method": "GET",
       "path": "/api/pages/{*path}",
       "file": "index.mjs",
-      "line": 958
+      "line": 972
     },
     {
       "method": "GET",
       "path": "/api/pages/alerts",
       "file": "pages.mjs",
-      "line": 1168
+      "line": 1130
     },
     {
       "method": "GET",
       "path": "/api/pages/aliases",
       "file": "pages.mjs",
-      "line": 974
+      "line": 938
     },
     {
       "method": "GET",
       "path": "/api/pages/budgets",
       "file": "pages.mjs",
-      "line": 901
+      "line": 865
     },
     {
       "method": "GET",
       "path": "/api/pages/combos",
       "file": "pages.mjs",
-      "line": 1328
+      "line": 1290
     },
     {
       "method": "GET",
@@ -489,19 +489,19 @@
       "method": "GET",
       "path": "/api/pages/injections",
       "file": "pages.mjs",
-      "line": 1245
+      "line": 1207
     },
     {
       "method": "GET",
       "path": "/api/pages/limits",
       "file": "pages.mjs",
-      "line": 766
+      "line": 730
     },
     {
       "method": "GET",
       "path": "/api/pages/routing",
       "file": "pages.mjs",
-      "line": 1057
+      "line": 1019
     },
     {
       "method": "GET",
@@ -549,13 +549,13 @@
       "method": "GET",
       "path": "/robots.txt",
       "file": "index.mjs",
-      "line": 1002
+      "line": 1016
     },
     {
       "method": "GET",
       "path": "/sitemap.xml",
       "file": "index.mjs",
-      "line": 1017
+      "line": 1031
     },
     {
       "method": "POST",
@@ -1011,7 +1011,13 @@
       "method": "POST",
       "path": "/api/discord/interactions",
       "file": "discord-transport.mjs",
-      "line": 455
+      "line": 477
+    },
+    {
+      "method": "POST",
+      "path": "/api/mayar/webhook",
+      "file": "mayar-webhook.mjs",
+      "line": 95
     },
     {
       "method": "POST",
@@ -1023,109 +1029,109 @@
       "method": "POST",
       "path": "/api/pages/alerts/create",
       "file": "pages.mjs",
-      "line": 1177
+      "line": 1139
     },
     {
       "method": "POST",
       "path": "/api/pages/alerts/remove",
       "file": "pages.mjs",
-      "line": 1209
+      "line": 1171
     },
     {
       "method": "POST",
       "path": "/api/pages/alerts/update",
       "file": "pages.mjs",
-      "line": 1188
+      "line": 1150
     },
     {
       "method": "POST",
       "path": "/api/pages/aliases/create",
       "file": "pages.mjs",
-      "line": 993
+      "line": 957
     },
     {
       "method": "POST",
       "path": "/api/pages/aliases/delete",
       "file": "pages.mjs",
-      "line": 1035
+      "line": 997
     },
     {
       "method": "POST",
       "path": "/api/pages/budgets/remove",
       "file": "pages.mjs",
-      "line": 955
+      "line": 919
     },
     {
       "method": "POST",
       "path": "/api/pages/budgets/save",
       "file": "pages.mjs",
-      "line": 926
+      "line": 890
     },
     {
       "method": "POST",
       "path": "/api/pages/combos/create",
       "file": "pages.mjs",
-      "line": 1347
+      "line": 1309
     },
     {
       "method": "POST",
       "path": "/api/pages/combos/remove",
       "file": "pages.mjs",
-      "line": 1400
+      "line": 1362
     },
     {
       "method": "POST",
       "path": "/api/pages/combos/update",
       "file": "pages.mjs",
-      "line": 1371
+      "line": 1333
     },
     {
       "method": "POST",
       "path": "/api/pages/injections/create",
       "file": "pages.mjs",
-      "line": 1266
+      "line": 1228
     },
     {
       "method": "POST",
       "path": "/api/pages/injections/remove",
       "file": "pages.mjs",
-      "line": 1311
+      "line": 1273
     },
     {
       "method": "POST",
       "path": "/api/pages/injections/update",
       "file": "pages.mjs",
-      "line": 1291
+      "line": 1253
     },
     {
       "method": "POST",
       "path": "/api/pages/limits/remove",
       "file": "pages.mjs",
-      "line": 870
+      "line": 834
     },
     {
       "method": "POST",
       "path": "/api/pages/limits/save",
       "file": "pages.mjs",
-      "line": 831
+      "line": 795
     },
     {
       "method": "POST",
       "path": "/api/pages/routing/create",
       "file": "pages.mjs",
-      "line": 1074
+      "line": 1036
     },
     {
       "method": "POST",
       "path": "/api/pages/routing/delete",
       "file": "pages.mjs",
-      "line": 1116
+      "line": 1078
     },
     {
       "method": "POST",
       "path": "/api/pages/routing/update",
       "file": "pages.mjs",
-      "line": 1091
+      "line": 1053
     },
     {
       "method": "POST",
@@ -1143,7 +1149,7 @@
       "method": "POST",
       "path": "/api/telegram/webhook",
       "file": "telegram-transport.mjs",
-      "line": 400
+      "line": 411
     },
     {
       "method": "POST",
@@ -1170,6 +1176,7 @@
     "robots.txt": 1,
     "sitemap.xml": 1,
     "api/discord": 1,
+    "api/mayar": 1,
     "api/telegram": 1,
     "api/webhook": 1
   },
@@ -1183,7 +1190,7 @@
     {
       "path": "/api/auth",
       "file": "index.mjs",
-      "line": 573,
+      "line": 570,
       "kind": "middleware"
     },
     {
@@ -1249,20 +1256,21 @@
     {
       "path": "/assets",
       "file": "index.mjs",
-      "line": 1045,
+      "line": 1059,
       "kind": "static"
     }
   ],
   "sources": {
     "apps/web/server/admin.mjs": "0c53cb1d9ac27a8a603e9a3a380573f65046b876e1d91d3a5619cc6d9076bec3",
-    "apps/web/server/discord-transport.mjs": "f512261b303cb784935c0a6647e31c7a429c255cc484fac78ce27b9413cd5944",
-    "apps/web/server/index.mjs": "cbb654f3d5347f70b7a19b2f89ee4cf5ef44b89e10abe5bcd3630579013726ae",
-    "apps/web/server/pages.mjs": "ab4b66ed5b402f4c074c5671e6247209766b7ea731aee12ec63950f6ab7bbdcd",
+    "apps/web/server/discord-transport.mjs": "744a0600a926433c46ea1e75113a132ed8cf0e4e8f85ae3ce4d6d3d06f77449c",
+    "apps/web/server/index.mjs": "1233c0bba747f5a8e1297d97726fb47c57f48198f8088b82a900fe410690cbb3",
+    "apps/web/server/mayar-webhook.mjs": "acfaaac38107731e06318e68d89dec993968d649b79f2f1ae62895b30f56d170",
+    "apps/web/server/pages.mjs": "0be75bc10b9855a89883484b31e37edaffd8dd42f4a9c746adc6e1e47b207e4f",
     "apps/web/server/playground.mjs": "60c2f846256a8a07f99769cbdb3a53ed593d1ca528ea82e64e463ebe212bf60b",
     "apps/web/server/public.mjs": "c2ee82bb63b4b0b70284ae4ad1336c8dcd46234004f5ebf22352c87930322c3e",
     "apps/web/server/rate-limit.mjs": "72545a3d910a086142a322a28938fb01b4f81cff750225afd39915e3203e3bbd",
-    "apps/web/server/telegram-transport.mjs": "551f531c642f9c99b27859e75b23d16fbb270f366a29d34ac9c78dd5c458e1ad",
+    "apps/web/server/telegram-transport.mjs": "492fdc7f97cdb5c8497843daadf6a1fffe725539cb0d6763ca3af5ef48331b56",
     "apps/web/server/webhook.mjs": "ecc1a655f8f804a87715879c57020aea95adfcbb0f07c642cd2adb2f062d948b",
-    "backend/go/internal/proxy/proxy.go": "f815a61ba34eab2cb649aa964f72e64aed03aa1504c5c7635fc67cc77a4e0918"
+    "backend/go/internal/proxy/proxy.go": "427ce66f2794e61512fa1c42786c3412be5129b2ef1592ad1700583c0df3db26"
   }
 }

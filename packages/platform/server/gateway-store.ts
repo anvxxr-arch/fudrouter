@@ -1,26 +1,3 @@
-// packages/platform/server/gateway-store.ts — the durable GatewayStore (B1/C-store).
-//
-// This module is the ONE Postgres-backed implementation of gateway.ts's
-// `GatewayStore` interface. B1 (`gateway.ts`) defined `createPayment` + the
-// interface but deliberately deferred the durable store, and the two bot
-// transports (telegram-transport.mjs, discord-transport.mjs) each wrote a local
-// raw-SQL copy. That got the WRITE discipline right (insert on conflict do
-// nothing, then re-select the winner) but split it across two files, so the
-// `findPayment` predicate drifted: discord filtered `gateway_ref AND gateway`
-// while telegram filtered `gateway_ref` only. This module collapses both into
-// one implementation and fixes the predicate to be precise against the durable
-// UNIQUE (gateway, gateway_ref) index (migration 0025).
-//
-// DECISION ≠ store: `createPayment` (gateway.ts) remains the only plan/amount/
-// channel/QR decision. This file persists and re-reads a pending payment row,
-// nothing else. No price, no plan, no grant logic lives here.
-//
-// Idempotency is the store's contract (the same ON CONFLICT discipline the
-// ledger relies on in billing.ts `postLedger` and the grant writer relies on in
-// grant.ts): two concurrent `createPayment` calls for the same ref both see
-// `null` from `findPayment`, and the loser of the insert race returns the
-// winner's row — never a throw, never a second payment.
-
 import { sql } from 'drizzle-orm';
 
 import { newId } from './id.ts';
@@ -37,7 +14,8 @@ function toPaymentRecord(r: Record<string, unknown>): PaymentRecord {
 		gateway: String(r.gateway),
 		plan: String(r.plan),
 		amountIdr: Number(r.amount_idr),
-		status: String(r.status) as PaymentRecord['status']
+		status: String(r.status) as PaymentRecord['status'],
+		raw: r.raw ?? undefined
 	};
 }
 
@@ -46,18 +24,44 @@ function rowsOf(r: unknown): Record<string, unknown>[] {
 }
 
 /**
- * The drizzle-backed GatewayStore. `idfn` defaults to the platform `newId` and
- * is injectable so a test (or a caller that wants a different id namespace) can
- * override it; both transports supply `newId('pay_')`.
+ * The Mayar create path needs one extra persist seam on top of the durable
+ * `GatewayStore`: persisting the vendor's create facts onto `payment.raw`
+ * (migration 0025) AFTER the row is inserted. It is a write-only extension — the
+ * find/insert idempotency contract is unchanged.
  */
-export function drizzleGatewayStore(db: DbTx, idfn: (prefix: string) => string = newId): GatewayStore {
+export interface MayarGatewayStore extends GatewayStore {
+	/** Persist the vendor envelope for a payment we already inserted. */
+	updateRaw(id: string, raw: unknown): Promise<void>;
+}
+
+/**
+ * The drizzle-backed GatewayStore, scoped to ONE gateway identity.
+ *
+ * `gateway` defaults to `GATEWAY_DEFAULT` ('qris-native') so every existing
+ * caller — the two bot transports, which pass only `(db, idfn)` — keeps the
+ * exact predicate it had before this parameter existed. The Mayar path
+ * instantiates its own store with `gateway = 'mayar'`, so the two histories live
+ * in the same table under the durable UNIQUE (gateway, gateway_ref) index
+ * (migration 0025) without either one shadowing the other: a `purchase:<key>`
+ * lookup on the qris-native store can never return a Mayar row, and vice versa.
+ *
+ * `idfn` defaults to the platform `newId` and is injectable so a test (or a
+ * caller that wants a different id namespace) can override it; both transports
+ * supply `newId('pay_')`.
+ */
+export function drizzleGatewayStore(
+	db: DbTx,
+	idfn: (prefix: string) => string = newId,
+	gateway: string = GATEWAY_DEFAULT
+): MayarGatewayStore {
+	const scopedGateway = typeof gateway === 'string' && gateway.trim() !== '' ? gateway : GATEWAY_DEFAULT;
 	return {
 		async findPayment(gatewayRef: string) {
 			if (!db || !gatewayRef) return null;
 			const rows = rowsOf(
 				await db.execute(
-					sql`select id, account_id, channel, gateway_ref, gateway, plan, amount_idr::bigint as amount_idr, status
-						from payment where gateway_ref = ${gatewayRef} and gateway = ${GATEWAY_DEFAULT} limit 1`
+					sql`select id, account_id, channel, gateway_ref, gateway, plan, amount_idr::bigint as amount_idr, status, raw
+						from payment where gateway_ref = ${gatewayRef} and gateway = ${scopedGateway} limit 1`
 				)
 			);
 			if (!rows[0]) return null;
@@ -77,6 +81,12 @@ export function drizzleGatewayStore(db: DbTx, idfn: (prefix: string) => string =
 			if (inserted.length > 0) return { id: String(inserted[0].id), ...p };
 			// Lost the insert race: return the winner's row, never a second payment.
 			return (await this.findPayment(p.gatewayRef)) ?? { id, ...p };
+		},
+		async updateRaw(id: string, raw: unknown) {
+			if (!db || !id) return;
+			await db.execute(
+				sql`update payment set raw = ${JSON.stringify(raw)}::jsonb, updated_at = now() where id = ${id}`
+			);
 		}
 	};
 }

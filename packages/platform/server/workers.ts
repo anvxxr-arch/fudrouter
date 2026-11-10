@@ -45,6 +45,10 @@ import {
 import { allowPrivateUpstreams } from './publish-env.ts';
 import { guardedUpstreamFetch } from './ssrf.ts';
 import { reconcileAll } from './billing.ts';
+import { mayarClientFromEnv, MAYAR_GATEWAY } from './mayar.ts';
+import { reconcileMayarPayments, mayarTransactionIdOf, MAYAR_RAW_KEY } from './mayar-settlement.ts';
+import { drizzlePaymentConfirmStore } from './payment-confirm.ts';
+import { drizzleSubscriptionWriter } from './grant.ts';
 
 /**
  * Worker fleet (PRD §75–76, spec §11/§13).
@@ -1736,6 +1740,65 @@ const statisticsAggregation: JobHandler = async (dbtx) => {
 	}
 };
 
+/**
+ * `mayar_reconcile` (H4): sweep the Mayar settlement gap.
+ *
+ * The webhook is a hint and can be lost; this job is the backstop. When
+ * `MAYAR_API_KEY` is set it cursor-paginates the merchant's settled
+ * transactions and, for each `paid`/`settled` transaction whose
+ * `transactionId` maps to a still-`pending` `gateway='mayar'` payment row,
+ * runs the SAME settlement flow as the webhook route — `runMayarSettlement` →
+ * re-fetch → bind → verify → `confirmAndGrant`. Idempotent by construction: a
+ * row already granted is reported `alreadyConfirmed` and mints nothing.
+ *
+ * No-key is a no-op (fail closed): the reconcile never fabricates a grant when
+ * the gateway is not configured. A vendor-list failure also returns (the next
+ * scheduled run retries), and the page sweep is bounded so one run cannot hold
+ * the fleet behind an unbounded transaction history.
+ */
+const mayarReconcile: JobHandler = async (dbtx) => {
+	const client = mayarClientFromEnv();
+	if (!client) return; // MAYAR_API_KEY unset: the Mayar path self-disables.
+
+	const summary = await reconcileMayarPayments(
+		{
+			getTransaction: (id) => client.getTransaction(id),
+			listTransactions: (input) => client.listTransactions(input),
+			findPendingByTransactionId: async (transactionId) => {
+				const rows = (await dbtx.execute(sql`
+					select id, gateway_ref, gateway, account_id, channel, plan,
+					       amount_idr::bigint as amount_idr, status, raw
+					from payment
+					where gateway = ${MAYAR_GATEWAY}
+					  and status = 'pending'
+					  and raw -> ${MAYAR_RAW_KEY} ->> 'transactionId' = ${transactionId}
+					limit 1`)) as unknown as Record<string, unknown>[];
+				const row = rows[0];
+				if (!row) return null;
+				return {
+					id: String(row.id),
+					gatewayRef: String(row.gateway_ref),
+					gateway: String(row.gateway),
+					accountId: String(row.account_id),
+					channel: String(row.channel),
+					plan: String(row.plan),
+					amountIdr: Number(row.amount_idr),
+					transactionId: mayarTransactionIdOf(row.raw)
+				};
+			},
+			store: drizzlePaymentConfirmStore(dbtx),
+			writer: drizzleSubscriptionWriter(dbtx)
+		},
+		{ maxPages: 20, limit: 50 }
+	);
+
+	if (summary.granted > 0) {
+		console.log(
+			`[mayar_reconcile] granted=${summary.granted} candidates=${summary.candidates} pages=${summary.pages} stopped=${summary.stopped}`
+		);
+	}
+};
+
 /** The PRD §76 job-type → handler registry. */
 export const JOB_HANDLERS: Record<JobType, JobHandler> = {
 	usage_aggregation: usageAggregation,
@@ -1751,7 +1814,8 @@ export const JOB_HANDLERS: Record<JobType, JobHandler> = {
 	statistics_aggregation: statisticsAggregation,
 	model_verification: modelVerificationJob,
 	model_status_poll: modelStatusPollJob,
-	routing_signals_refresh: routingSignalsRefresh
+	routing_signals_refresh: routingSignalsRefresh,
+	mayar_reconcile: mayarReconcile
 };
 
 /** Run one claimed job to completion/failure. */

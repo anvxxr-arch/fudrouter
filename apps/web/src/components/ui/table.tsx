@@ -7,12 +7,15 @@ type LegacyTableProps = {
    *  `fr-num` (right-aligned): aligning only the body leaves the header hanging
    *  off the opposite edge, which reads worse than not aligning at all. */
   numeric?: number[];
+  /** Accessible name for the scroll region. Pass the table's own heading so the
+   *  keyboard stop announces *which* table it is. */
+  scrollLabel?: string;
 };
 
 const Table = React.forwardRef<
   HTMLTableElement,
   React.HTMLAttributes<HTMLTableElement> & LegacyTableProps
->(({ className, head, rows, numeric, children, ...props }, ref) => (
+>(({ className, head, rows, numeric, scrollLabel, children, ...props }, ref) => (
   // `.table-scroll` deliberately does NOT scroll: its comment in styles.css
   // explains that a scrollport there pins the sticky `th` to the wrong box. The
   // scrollport is `.table-wrap` -- and this component never rendered one, so
@@ -22,7 +25,19 @@ const Table = React.forwardRef<
   // Status columns off with no way to reach them. Public pages wrapped their
   // tables by hand; the console relies on this component, so the wrap belongs
   // here. `.table-wrap:has(.table-scroll)` then also gets the 70vh cap.
-  <div className="table-wrap">
+  //
+  // `tabIndex={0}` because a scrollport with no focusable descendant is
+  // unreachable with a keyboard: axe `scrollable-region-focusable` (serious)
+  // flagged 15 such nodes, every one of them a `.table-wrap`. Callers must NOT
+  // wrap this component again -- a hand-rolled wrapper nests
+  // `.table-wrap > .table-wrap`, and the inner one is neither the scrollport nor
+  // focusable, which is exactly what the rule reports.
+  <div
+    className="table-wrap"
+    tabIndex={0}
+    role="region"
+    aria-label={scrollLabel ?? 'Scrollable table'}
+  >
   <div className="table-scroll">
     <table
       ref={ref}

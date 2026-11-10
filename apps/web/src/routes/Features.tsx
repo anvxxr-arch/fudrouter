@@ -145,7 +145,9 @@ export function FeaturesPage() {
 
         <section aria-labelledby="features-compare">
           <h2 id="features-compare">How we compare</h2>
-          <div className="table-wrap">
+          {/* Native <table>, so the wrap is the scrollport -- make it a keyboard
+              stop or axe flags it (`scrollable-region-focusable`, serious). */}
+          <div className="table-wrap" tabIndex={0} role="region" aria-label="Feature comparison">
             <table className="fr">
               <thead>
                 <tr>

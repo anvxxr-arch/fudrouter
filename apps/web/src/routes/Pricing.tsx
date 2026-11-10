@@ -390,10 +390,10 @@ export function PricingPage() {
           {groups.map((g) => (
             <section key={g.developer}>
               <h3>{g.developer} <span className="muted">· {g.models.length}</span></h3>
-              <div className="table-wrap">
-                <Table
-                  head={['Model', 'Input', 'Cached input', 'Output', 'Context']}
-                  rows={g.models.map((m) => [
+              <Table
+                scrollLabel={`${g.developer} pricing`}
+                head={['Model', 'Input', 'Cached input', 'Output', 'Context']}
+                rows={g.models.map((m) => [
                     // The model name is TEXT, not a link. It pointed at
                     // /models/:slug, and that page is withdrawn — every name in
                     // this table was a 404 while /pricing itself stayed indexable,
@@ -410,8 +410,7 @@ export function PricingPage() {
                         ]),
                     <span key="x" className="num">{formatContext(m.context)}</span>,
                   ])}
-                />
-              </div>
+              />
             </section>
           ))}
         </section>

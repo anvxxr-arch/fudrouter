@@ -122,7 +122,7 @@ export function SecurityPage() {
 
       <section aria-labelledby="security-infra">
         <h2 id="security-infra">Infrastructure</h2>
-        <div className="table-wrap">
+        <div className="table-wrap" tabIndex={0} role="region" aria-label="Infrastructure layers">
           <table className="fr">
             <thead>
               <tr>

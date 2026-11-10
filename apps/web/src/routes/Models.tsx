@@ -321,7 +321,11 @@ export function ModelsPage() {
             </Button>
           </div>
         ) : (
-          <div className="sekai-grid">
+          <>
+            {/* h1 -> card h3 skips a level; axe `heading-order` flags it. Hidden
+                heading restores the outline without changing the layout. */}
+            <h2 className="sr-only">Model catalog</h2>
+            <div className="sekai-grid">
             {visible.map((m) => {
               const firstProvider = m.providers[0]?.providerName ?? '—';
               const tags = inputTags(m);
@@ -369,7 +373,8 @@ export function ModelsPage() {
                 </article>
               );
             })}
-          </div>
+            </div>
+          </>
         )}
       </div>
     </div>

@@ -4,7 +4,15 @@ import { sql } from 'drizzle-orm';
 import { rowsOf, big, num, iso, okBody } from './lib/validate.mjs';
 import { clientIp } from './lib/ip.mjs';
 import { PLANS, PLAN_IDS, planOf, qrisFor, isChannel } from '@fudrouter/platform/server/payments.ts';
-import { parseAmountToMicro as parseAmountToMicroShared, drizzleClaimWriter } from './lib/platform-ts.mjs';
+import {
+	parseAmountToMicro as parseAmountToMicroShared,
+	drizzleClaimWriter,
+	mayarClientFromEnv,
+	drizzleGatewayStore,
+	createMayarPayment,
+	MAYAR_GATEWAY,
+	GATEWAY_DEFAULT
+} from './lib/platform-ts.mjs';
 
 // DB-backed dashboard page loads + POST actions for the member dashboard
 // routes. All routes require auth (anon 401).
@@ -637,6 +645,29 @@ export function registerPages(app, ctx) {
 		const p = planOf(plan);
 		if (!p) return fail(res, 400, 'Unknown plan.');
 		if (!isChannel(channel)) return fail(res, 400, 'Unknown payment channel.');
+
+		// Mayar gateway (additive, fail-closed): when a Mayar API key is present,
+		// the member gets a checkout URL instead of a static QR; when it is not,
+		// the legacy static-QR path below is byte-for-byte unchanged. The account
+		// identity is reused as the idempotency namespace so a member clicking
+		// checkout twice for the same plan reuses one row, not two charges.
+		const mayarClient = mayarClientFromEnv();
+		if (mayarClient) {
+			const mayarStore = drizzleGatewayStore(database, newId, MAYAR_GATEWAY);
+			const legacyStore = drizzleGatewayStore(database, newId, GATEWAY_DEFAULT);
+			const idempotencyKey = `web:${userRow.id}:${plan}:${channel}`;
+			const result = await createMayarPayment(
+				{ mayarStore, legacyStore, client: mayarClient },
+				{ accountId: userRow.id, channel, plan, amountIdr: p.priceIdr, idempotencyKey }
+			);
+			if (!result.ok) {
+				await audit(database, { actorId: userRow.id, action: 'payment.create', resource: 'payment', resourceId: idempotencyKey, meta: { plan, channel, amountIdr: p.priceIdr, gateway: 'mayar', reason: result.reason } });
+				return fail(res, 502, 'Payment provider unavailable. Please retry.');
+			}
+			await audit(database, { actorId: userRow.id, action: 'payment.create', resource: 'payment', resourceId: result.gatewayRef, meta: { plan, channel, amountIdr: p.priceIdr, gateway: 'mayar', state: result.state } });
+			return res.json({ gatewayRef: result.gatewayRef, checkoutUrl: result.checkoutUrl, qris: null, amountIdr: p.priceIdr, plan, label: p.label, gateway: 'mayar' });
+		}
+
 		const qris = qrisFor(p.priceIdr);
 		if (!qris) return fail(res, 500, 'Could not build a payment code.');
 		const gatewayRef = `qris_${channel}_${Date.now()}_${randomBytes(4).toString('hex')}`;

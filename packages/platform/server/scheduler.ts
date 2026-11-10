@@ -130,7 +130,18 @@ export const PERIODIC: PeriodicEntry[] = [
 		note: 'measured p95/availability into connection.config for routing'
 	},
 	{ kind: 'periodic', type: 'invoice_generation', everyMs: DAY, note: 'previous calendar month, idempotent' },
-	{ kind: 'periodic', type: 'data_retention_cleanup', everyMs: DAY, note: 'enforce retention policy' }
+	{ kind: 'periodic', type: 'data_retention_cleanup', everyMs: DAY, note: 'enforce retention policy' },
+	// Mayar settlement backstop (H4): the webhook is a hint and can be lost, so
+	// this sweep re-checks the merchant's settled transactions and grants any
+	// still-pending 'mayar' payment. 5 minutes matches the money-critical cadence;
+	// the handler is a no-op when MAYAR_API_KEY is unset (fail closed) and the
+	// page sweep is bounded by the handler so it cannot hold the fleet.
+	{
+		kind: 'periodic',
+		type: 'mayar_reconcile',
+		everyMs: 5 * MINUTE,
+		note: 'grant the Mayar settlement gap the webhook missed; idempotent per payment'
+	}
 ];
 
 /**

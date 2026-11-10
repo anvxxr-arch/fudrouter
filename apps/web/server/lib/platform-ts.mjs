@@ -33,6 +33,10 @@ const telegramBot = await import('@fudrouter/platform/server/telegram-bot.ts');
 const approval = await import('@fudrouter/platform/server/approval.ts');
 const approvalEnv = await import('@fudrouter/platform/server/approval-env.ts');
 const claimWriter = await import('@fudrouter/platform/server/claim.ts');
+const gatewayMod = await import('@fudrouter/platform/server/gateway.ts');
+const mayarMod = await import('@fudrouter/platform/server/mayar.ts');
+const mayarCreateMod = await import('@fudrouter/platform/server/mayar-create.ts');
+const gatewayStoreMod = await import('@fudrouter/platform/server/gateway-store.ts');
 
 // SSRF: the platform module OWNS the rule, including the literal blocklist --
 // isBlockedIp and the range arithmetic are re-exported below for the request
@@ -154,6 +158,16 @@ export const httpStatusForReject = inboundWebhook.httpStatusForReject;
 // bot adapters already declare (`recordClaim`/`resolveClaim` map 1:1).
 export const drizzleClaimWriter = claimWriter.drizzleClaimWriter;
 export const drizzleApprovalAnswerWriter = claimWriter.drizzleApprovalAnswerWriter;
+
+// Mayar gateway (additive, fail-closed): the live checkout and settlement
+// re-use the canonical TS adapters instead of carrying .mjs copies. The create
+// path mayarClientFromEnv() returns null when MAYAR_API_KEY is unset, so the
+// checkout stays byte-for-byte on the legacy static-QR path.
+export const mayarClientFromEnv = mayarMod.mayarClientFromEnv;
+export const drizzleGatewayStore = gatewayStoreMod.drizzleGatewayStore;
+export const createMayarPayment = mayarCreateMod.createMayarPayment;
+export const MAYAR_GATEWAY = mayarMod.MAYAR_GATEWAY;
+export const GATEWAY_DEFAULT = gatewayMod.GATEWAY_DEFAULT;
 
 export const parseApprovers = approval.parseApprovers;
 export const parseApprovalTtlMs = approval.parseApprovalTtlMs;

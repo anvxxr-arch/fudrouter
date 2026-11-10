@@ -600,15 +600,18 @@ export function BillingPage() {
         <Card titleAs="h2" title="Status" desc={d.status} />
         <Card titleAs="h2" title="This month" desc={`${fmtMicro(d.period.spentMicro)} · ${d.period.requests} reqs`} />
       </div>
+      <div className="row" style={{ flexWrap: "wrap" }}>
+        <Card titleAs="h2" title="Hard stop" desc={BigInt(d.hardStopThresholdMicro) === 0n ? "off" : fmtMicro(d.hardStopThresholdMicro)} />
+      </div>
       {d.canWrite ? (
         <form onSubmit={(e) => {
           e.preventDefault(); setErr(null);
           const f = new FormData(e.currentTarget);
-          apiPost("/api/pages/dashboard/billing/thresholds", { warn: String(f.get("warn") ?? ""), suspend: String(f.get("suspend") ?? "") })
+          apiPost("/api/pages/dashboard/billing/thresholds", { warn: String(f.get("warn") ?? "") })
             .then(() => setTick((t) => t + 1))
             .catch((ex) => setErr(ex instanceof Error ? ex.message : "Save failed"));
         }}>
-          <div className="row"><Input aria-label="Warn threshold" name="warn" placeholder="Warn threshold" /><Input aria-label="Suspend threshold" name="suspend" placeholder="Suspend threshold" /><Button type="submit">Save</Button></div>
+          <div className="row"><Input aria-label="Warn threshold" name="warn" placeholder="Warn threshold" /><Button type="submit">Save</Button></div>
         </form>
       ) : <p className="muted">Read-only: you need billing.write to change thresholds.</p>}
       {err ? <p className="error">{err}</p> : null}
@@ -621,7 +624,6 @@ type CreditsData = {
 	currency: string;
 	balanceMicro: string;
 	rows: CreditsLedgerRow[];
-	addCreditKey: string;
 	page: number;
 	pages: number;
 	total: number;
@@ -672,15 +674,8 @@ function SpendChart({ series }: { series: CreditsData["series"] }) {
 }
 
 export function CreditsPage() {
-	// F2 (live): manual credit is admin.billing. Hide the self-serve form from
-	// members so they never see a control that 403s — the API gate is the
-	// enforcement; this is the honest default, not the defence.
-	const user = useSession();
-	const canCredit = hasCap(user?.role ?? null, "admin.billing");
-	const [tick, setTick] = useState(0);
 	const [page, setPage] = useState(1);
-	const [err, setErr] = useState<string | null>(null);
-	const { data: d, error, loading } = useLoad<CreditsData>(`/api/pages/dashboard/billing/credits?page=${page}`, tick);
+	const { data: d, error, loading } = useLoad<CreditsData>(`/api/pages/dashboard/billing/credits?page=${page}`);
 	const rows = d?.rows ?? [];
 	const warn = BigInt(d?.thresholds.warningMicro ?? "0");
 	const hard = BigInt(d?.thresholds.hardStopMicro ?? "0");
@@ -704,16 +699,10 @@ export function CreditsPage() {
 				</div>
 			</div>
 		) : null}
-		{canCredit ? (<form onSubmit={(e) => {
-			e.preventDefault(); setErr(null);
-			const f = new FormData(e.currentTarget);
-			apiPost("/api/pages/dashboard/billing/credits/add", { amount: String(f.get("amount") ?? "") })
-				.then(() => { (e.target as HTMLFormElement).reset(); setTick((t) => t + 1); })
-				.catch((ex) => setErr(ex instanceof Error ? ex.message : "Add failed"));
-		}}>
-			<div className="row"><Input aria-label="Amount" name="amount" placeholder="Amount" required /><Button type="submit">Add</Button></div>
-		</form>) : <p className="muted">Manual credit is operator-only.</p>}
-		{err ? <p className="error">{err}</p> : null}
+		{/* W4: the member self-credit route was removed server-side, so the
+		    form is gone instead of being left as a control that 404s. Member
+		    top-up is the QRIS plan flow on the subscription page. */}
+		<p className="muted">Top up by <Link to="/dashboard/subscription">buying a plan</Link> and paying with QRIS. Manual credit is operator-only.</p>
 		{d && d.series.length > 0 ? (
 			<div className="card credits-chart-card">
 				<h2 className="card-title">Spend by model · last 30 days</h2>

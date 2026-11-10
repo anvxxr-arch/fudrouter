@@ -106,16 +106,49 @@ export async function createMayarPayment(
 	const gatewayRef = gatewayRefFor(key);
 
 	// Row-first (FR-revised S5): the idempotency anchor is OURS, before the
-	// vendor call. A retry finds the row and never dials the vendor again.
+	// vendor call. A retry finds the row and must not re-mint a duplicate, but a
+	// row whose previous vendor create FAILED is still settleable: re-attempt the
+	// vendor off the same row instead of hiding behind the exiting short-circuit.
 	const existing = await ctx.mayarStore.findPayment(gatewayRef);
 	if (existing) {
+		if (existing.status !== 'failed') {
+			return {
+				ok: true,
+				gatewayRef,
+				checkoutUrl: mayarCheckoutUrlOf(existing.raw) ?? null,
+				qr: null,
+				record: existing,
+				state: 'existing'
+			};
+		}
+		// A previous vendor create died: re-dial the SAME vendor for this row,
+		// not a second payment (Pessimist H1). On success the row returns to a
+		// pending-but-settleable artefact; on failure we leave it failed and the
+		// next retry re-attempts again.
+		const retry = await ctx.client.createPayment({
+			name: `FUDRouter ${input.plan}`,
+			amount,
+			email: input.email,
+			redirectUrl: input.redirectUrl,
+			expiredAt: input.expiredAt
+		});
+		if (!retry.ok) return { ok: false, reason: retry.kind };
+		const retryRaw = {
+			[MAYAR_RAW_KEY]: {
+				id: retry.value.id,
+				transactionId: retry.value.transactionId,
+				link: retry.value.link
+			}
+		};
+		await ctx.mayarStore.updateRaw(existing.id, retryRaw);
+		await ctx.mayarStore.updateStatus(existing.id, 'pending');
 		return {
 			ok: true,
 			gatewayRef,
-			checkoutUrl: mayarCheckoutUrlOf(existing.raw) ?? null,
+			checkoutUrl: retry.value.link,
 			qr: null,
-			record: existing,
-			state: 'existing'
+			record: { ...existing, status: 'pending' as const, raw: retryRaw },
+			state: 'created'
 		};
 	}
 
@@ -137,6 +170,9 @@ export async function createMayarPayment(
 		expiredAt: input.expiredAt
 	});
 	if (!created.ok) {
+		// Never leave a stuck 'pending' row when the vendor create died: mark it
+		// 'failed' so a retry re-attempts rather than returning a dead 'existing'.
+		await ctx.mayarStore.updateStatus(record.id, 'failed');
 		return { ok: false, reason: created.kind };
 	}
 

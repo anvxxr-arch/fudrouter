@@ -2,7 +2,7 @@ import { sql } from 'drizzle-orm';
 
 import { newId } from './id.ts';
 import type { DbTx } from './audit.ts';
-import { GATEWAY_DEFAULT, type GatewayStore, type NewPayment, type PaymentRecord } from './gateway.ts';
+import { GATEWAY_DEFAULT, type GatewayStore, type NewPayment, type PaymentRecord, type PaymentStatus } from './gateway.ts';
 
 /** A row as Postgres returns it (bigint amount), shaped into a PaymentRecord. */
 function toPaymentRecord(r: Record<string, unknown>): PaymentRecord {
@@ -32,6 +32,8 @@ function rowsOf(r: unknown): Record<string, unknown>[] {
 export interface MayarGatewayStore extends GatewayStore {
 	/** Persist the vendor envelope for a payment we already inserted. */
 	updateRaw(id: string, raw: unknown): Promise<void>;
+	/** Move a payload status (e.g. pending -> failed when the vendor create dies). */
+	updateStatus(id: string, status: PaymentStatus): Promise<void>;
 }
 
 /**
@@ -86,6 +88,12 @@ export function drizzleGatewayStore(
 			if (!db || !id) return;
 			await db.execute(
 				sql`update payment set raw = ${JSON.stringify(raw)}::jsonb, updated_at = now() where id = ${id}`
+			);
+		},
+		async updateStatus(id: string, status: PaymentStatus) {
+			if (!db || !id) return;
+			await db.execute(
+				sql`update payment set status = ${status}, updated_at = now() where id = ${id}`
 			);
 		}
 	};

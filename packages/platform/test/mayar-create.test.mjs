@@ -33,7 +33,7 @@ function fakeStore(gateway) {
 	const byRef = new Map();
 	const rawById = new Map();
 	return {
-		calls: { updateRaw: 0 },
+		calls: { updateRaw: 0, updateStatus: 0 },
 		async findPayment(ref) {
 			const rec = byRef.get(`${gateway}:${ref}`);
 			if (!rec) return null;
@@ -49,6 +49,14 @@ function fakeStore(gateway) {
 		async updateRaw(id, raw) {
 			this.calls.updateRaw += 1;
 			rawById.set(id, raw);
+		},
+		async updateStatus(id, status) {
+			this.calls.updateStatus += 1;
+			const rec = byRef.get(`${gateway}:${id}`);
+			// look up by id across the map
+			for (const [k, v] of byRef) {
+				if (v.id === id) { byRef.set(k, { ...v, status }); return; }
+			}
 		}
 	};
 }
@@ -133,7 +141,7 @@ test('create: a retry with the same idempotencyKey is row-first and calls the ve
 	assert.equal(store.calls.updateRaw, 1, 'the raw write happens once');
 });
 
-test('create: a vendor failure is a typed failure and leaves the row pending', async () => {
+test('create: a vendor failure is typed and marks the row failed (not a dead pending)', async () => {
 	const store = fakeStore(MAYAR_GATEWAY);
 	const r = await createMayarPayment(
 		{ mayarStore: store, legacyStore: fakeStore(GATEWAY_DEFAULT), client: fakeClient({ fail: true }) },
@@ -141,7 +149,35 @@ test('create: a vendor failure is a typed failure and leaves the row pending', a
 	);
 	assert.equal(r.ok, false);
 	assert.equal(r.reason, 'mayar_unavailable');
-	assert.equal(mayarCheckoutUrlOf((await store.findPayment(gatewayRefFor('k1'))).raw), null);
+	const persisted = await store.findPayment(gatewayRefFor('k1'));
+	assert.equal(persisted.status, 'failed', 'a dead vendor create leaves a failed row, not a stuck pending');
+	assert.equal(store.calls.updateStatus, 1);
+});
+
+test('create: a failed row is re-attempted on retry (not hidden behind existing)', async () => {
+	const store = fakeStore(MAYAR_GATEWAY);
+	const legacy = fakeStore(GATEWAY_DEFAULT);
+	const client = fakeClient();
+	const ctxObj = { mayarStore: store, legacyStore: legacy, client };
+
+	// First attempt: fail -> row marked failed.
+	const failing = fakeClient({ fail: true });
+	const first = await createMayarPayment({ mayarStore: store, legacyStore: legacy, client: failing }, INPUT);
+	assert.equal(first.ok, false);
+
+	// Second attempt with a live client: the SAME row re-dials the vendor.
+	const second = await createMayarPayment(ctxObj, INPUT);
+	assert.equal(second.ok, true);
+	assert.equal(second.state, 'created');
+	assert.equal(client.calls.length, 1, 'the retry dials the vendor for the same row');
+	assert.equal(failing.calls.length, 1);
+	const persisted = await store.findPayment(gatewayRefFor('k1'));
+	assert.equal(persisted.status, 'pending', 'the re-attempt leaves the row settleable');
+	assert.deepEqual(persisted.raw[MAYAR_RAW_KEY], {
+		id: 'req_1',
+		transactionId: 'tx_1',
+		link: 'https://mayar.test/pl/abc'
+	});
 });
 
 test('create: an unknown plan / bad amount is refused before the vendor call', async () => {

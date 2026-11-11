@@ -89,7 +89,16 @@ footer.foot { align-items: flex-start; }
 .foot-col { display: grid; gap: var(--space-sm); align-content: start; }
 .foot-col > .fr-label { margin: 0; }
 .foot-col ul { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--space-xs); }
-.foot-col a { color: var(--color-text-muted); }
+/* DESIGN.md: "give every control a 44px target". A bare inline anchor in a
+   14px footer measured 18px tall — the link is legible but a thumb misses it,
+   and these are the only navigation in the footer. Negative vertical margin
+   cancels the padding's effect on the row's rhythm so the column's spacing is
+   unchanged; the box grows inward/outward around the text, not between rows. */
+.foot-col a {
+  display: inline-flex; align-items: center;
+  min-height: 44px; margin-block: calc((44px - 1.5em) / -2);
+  color: var(--color-text-muted);
+}
 .foot-col a:hover { color: var(--color-text); text-decoration: underline; }
 
 /* ---- motion & feedback ------------------------------------------------ */

@@ -251,14 +251,18 @@ export function HomePage() {
             {/* role=tab buttons rather than a tab library: four static tabs
                 need keyboard reachability (buttons are natively focusable and
                 activatable), not arrow-key roving focus. Same pattern as
-                logs.tsx. */}
+                logs.tsx. The panel is wired with id/aria-controls so a screen
+                reader announces the swap — `aria-selected` alone changes the
+                tab's state without saying what it now shows. */}
             <div className="home-tabs" role="tablist" aria-label="Code sample language">
               {SAMPLES.map((s, i) => (
                 <button
                   key={s.name}
                   type="button"
                   role="tab"
+                  id={`home-sample-tab-${s.name}`}
                   aria-selected={sample === i}
+                  aria-controls="home-sample-panel"
                   className="home-tab"
                   onClick={() => setSample(i)}
                 >
@@ -266,7 +270,9 @@ export function HomePage() {
                 </button>
               ))}
             </div>
-            <CodeBlock code={SAMPLES[sample].code} name={SAMPLES[sample].name} />
+            <div id="home-sample-panel" role="tabpanel" aria-labelledby={`home-sample-tab-${SAMPLES[sample].name}`}>
+              <CodeBlock code={SAMPLES[sample].code} name={SAMPLES[sample].name} />
+            </div>
             <p className="home-base-url">
               Base URL: <code>{API_BASE_DISPLAY}</code> — change it to yours.
             </p>
@@ -290,7 +296,12 @@ export function HomePage() {
       <div className="grid3">
           {PILLARS.map((p, i) => (
             <Reveal key={p.title} className="card" delay={i * 90}>
-              <h3 className="card-title">{p.title}</h3>
+              {/* h2, not h3: these three cards are the first subsections under
+                  the hero's h1, and an h3 here skipped a level (h1 -> h3 ->
+                  h2) for a screen reader's outline. .card-title sets the size,
+                  so the rung is unchanged — see the note on .card-title in
+                  styles.css for why it sits on the h5 step. */}
+              <h2 className="card-title">{p.title}</h2>
               <p className="card-desc">{p.body}</p>
             </Reveal>
           ))}

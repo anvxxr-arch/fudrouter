@@ -927,6 +927,14 @@ body { overflow-x: clip; }
   animation: rb-shine var(--shiny-speed, 3s) linear infinite;
 }
 .shiny-text-disabled { animation: none; background: none; color: var(--shiny-base, inherit); }
+/* The one failure mode that makes the headline invisible: an engine without
+   `background-clip: text` keeps `color: transparent` and paints nothing, so the
+   hero reads as a blank line. The stops are already solid --shiny-base values
+   (see the note above), so dropping the clip and restoring the colour is a
+   one-line fallback that costs nothing where the clip works. */
+@supports not ((background-clip: text) or (-webkit-background-clip: text)) {
+  .shiny-text { background: none; color: var(--shiny-base, var(--color-text)); }
+}
 @keyframes rb-shine { to { background-position: -200% 0; } }
 
 /* ---- home (moved from Home.tsx inline <style>) ---- */

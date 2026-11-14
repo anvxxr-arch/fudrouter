@@ -58,3 +58,11 @@ ops/backups/
 
 # Live credential for the zcode bridge — never commit (JWT + user id)
 ops/zcode-bridge/accounts.jsonl
+
+# Per-instance identity for the zcode bridge (deviceId + sessionSeed) — same
+# class as accounts.jsonl: it identifies a live session, not source.
+ops/zcode-bridge/.zcode_identity.json
+
+# Python bytecode from the ops scripts
+__pycache__/
+*.pyc
